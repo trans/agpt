@@ -1,0 +1,17 @@
+name: microgpt
+version: 0.1.0
+
+authors:
+  - Thomas Sawyer <transfire@gmail.com>
+
+targets:
+  microgpt:
+    main: src/microgpt.cr
+
+dependencies:
+  jargon:
+    github: trans/jargon
+
+crystal: '>= 1.19.1'
+
+license: MIT

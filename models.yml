@@ -1,0 +1,227 @@
+# Model configurations for microgpt
+# Run with: bin/microgpt data/input.txt --config models.yml --run <id>
+
+# --- Cooperative ensembles ---
+
+coop-4e:
+  mode: cooperative
+  experts: "d64n1,d64n2,d64n3,d64n4"
+  stream_dim: 64
+  counter: true
+  steps: 10000
+  backend: openblas
+
+coop-4e-narrow16:
+  mode: cooperative
+  experts: "d64n1,d64n2,d64n3,d64n4"
+  stream_dim: 64
+  active_dims: 16
+  counter: true
+  steps: 5000
+  backend: openblas
+
+coop-4e-narrow32:
+  mode: cooperative
+  experts: "d64n1,d64n2,d64n3,d64n4"
+  stream_dim: 64
+  active_dims: 32
+  counter: true
+  steps: 5000
+  backend: openblas
+
+coop-4e-nocounter:
+  mode: cooperative
+  experts: "d64n1,d64n2,d64n3,d64n4"
+  stream_dim: 64
+  counter: false
+  steps: 10000
+  backend: openblas
+
+coop-4e-bigram:
+  mode: cooperative
+  experts: "d64n1,d64n2,d64n3,d64n4"
+  stream_dim: 64
+  counter: false
+  bigram: true
+  steps: 10000
+  backend: openblas
+
+coop-4e-nocounter-ff2d:
+  mode: cooperative
+  experts: "d64n1ff128,d64n2ff128,d64n3ff128,d64n4ff128"
+  stream_dim: 64
+  counter: false
+  steps: 100000
+  backend: cublas
+
+coop-4e-bigram-ff2d:
+  mode: cooperative
+  experts: "d64n1ff128,d64n2ff128,d64n3ff128,d64n4ff128"
+  stream_dim: 64
+  counter: false
+  bigram: true
+  steps: 100000
+  backend: cublas
+
+# --- Stream width (b) experiments: equal experts, d64n3 ---
+
+coop-4e-equal-b64:
+  mode: cooperative
+  experts: "d64n3,d64n3,d64n3,d64n3"
+  stream_dim: 64
+  counter: false
+  steps: 100000
+  backend: cublas
+
+coop-4e-equal-b32:
+  mode: cooperative
+  experts: "d64n3,d64n3,d64n3,d64n3"
+  stream_dim: 32
+  counter: false
+  steps: 100000
+  backend: cublas
+
+# --- Bigram cutoff experiment: equal experts ---
+
+coop-4e-equal-bigram:
+  mode: cooperative
+  experts: "d64n3,d64n3,d64n3,d64n3"
+  stream_dim: 64
+  counter: false
+  bigram: true
+  steps: 100000
+  backend: cublas
+
+# --- Bigram "free slot" experiment ---
+
+coop-5e-bigram-b64:
+  mode: cooperative
+  experts: "d64n3,d64n3,d64n3,d64n3,d64n3"
+  stream_dim: 64
+  counter: false
+  bigram: true
+  steps: 100000
+  backend: cublas
+
+# --- Narrower stream experiments ---
+
+coop-4e-equal-b16:
+  mode: cooperative
+  experts: "d64n3,d64n3,d64n3,d64n3"
+  stream_dim: 16
+  counter: false
+  steps: 100000
+  backend: cublas
+
+coop-5e-bigram-b32:
+  mode: cooperative
+  experts: "d64n3,d64n3,d64n3,d64n3,d64n3"
+  stream_dim: 32
+  counter: false
+  bigram: true
+  steps: 100000
+  backend: cublas
+
+coop-5e-bigram-b16:
+  mode: cooperative
+  experts: "d64n3,d64n3,d64n3,d64n3,d64n3"
+  stream_dim: 16
+  counter: false
+  bigram: true
+  steps: 100000
+  backend: cublas
+
+# --- b=8 and trigram experiments ---
+
+coop-5e-bigram-b8:
+  mode: cooperative
+  experts: "d64n3,d64n3,d64n3,d64n3,d64n3"
+  stream_dim: 8
+  counter: false
+  bigram: true
+  steps: 10000
+  backend: cublas
+
+coop-4e-equal-b8:
+  mode: cooperative
+  experts: "d64n3,d64n3,d64n3,d64n3"
+  stream_dim: 8
+  counter: false
+  steps: 10000
+  backend: cublas
+
+coop-5e-trigram-b64:
+  mode: cooperative
+  experts: "d64n3,d64n3,d64n3,d64n3,d64n3"
+  stream_dim: 64
+  counter: false
+  trigram: true
+  steps: 10000
+  backend: cublas
+
+coop-5e-trigram-b32:
+  mode: cooperative
+  experts: "d64n3,d64n3,d64n3,d64n3,d64n3"
+  stream_dim: 32
+  counter: false
+  trigram: true
+  steps: 10000
+  backend: cublas
+
+# --- Addition dataset experiments ---
+
+add-4e-baseline:
+  mode: cooperative
+  experts: "d64n3,d64n3,d64n3,d64n3"
+  stream_dim: 64
+  counter: false
+  steps: 10000
+  backend: cublas
+
+add-5e-calc:
+  mode: cooperative
+  experts: "d64n3,d64n3,d64n3,d64n3,d64n3"
+  stream_dim: 64
+  counter: false
+  calculator: true
+  steps: 10000
+  backend: cublas
+
+add-5e-calc-b32:
+  mode: cooperative
+  experts: "d64n3,d64n3,d64n3,d64n3,d64n3"
+  stream_dim: 32
+  counter: false
+  calculator: true
+  steps: 10000
+  backend: cublas
+
+add-single-d64n6:
+  mode: single
+  d_model: 64
+  n_layers: 6
+  steps: 10000
+  backend: cublas
+
+# --- Single model baselines ---
+
+baseline-d64n6:
+  mode: single
+  d_model: 64
+  n_layers: 6
+  steps: 10000
+  backend: openblas
+
+baseline-d64n8:
+  mode: single
+  d_model: 64
+  n_layers: 8
+  steps: 10000
+  backend: openblas
+
+baseline-d128n2:
+  mode: single
+  d_model: 128
+  n_layers: 2
+  steps: 10000
+  backend: openblas
