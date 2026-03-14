@@ -121,8 +121,11 @@ class Runner
 
         puts "  [#{i + 1}/#{runs.size}] #{run_id} (log: #{log})..."
 
-        # Launch in background with log, then poll until done
-        @provider.exec(instance.id, "nohup sh -c '#{cmd} > #{log} 2>&1; echo DONE >> #{log}' &")
+        # Launch in background with log — use printf to write a wrapper script
+        # (avoids quoting issues with nohup sh -c and nested redirects)
+        script = "#!/bin/bash\\n#{cmd} > #{log} 2>&1\\necho DONE >> #{log}\\n"
+        @provider.exec(instance.id, "printf '#{script}' > /workspace/_run.sh && chmod +x /workspace/_run.sh")
+        @provider.exec(instance.id, "nohup /workspace/_run.sh > /dev/null 2>&1 &")
         sleep 2.seconds
 
         # Tail log until we see DONE or process exits

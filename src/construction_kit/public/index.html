@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>microGPT Construction Kit</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app">
+    <div id="tree-panel">
+      <h2>Model Tree</h2>
+      <div id="tree-content"></div>
+    </div>
+
+    <div id="canvas-wrap">
+      <div id="topbar">
+        <div id="topbar-nav">
+          <span id="breadcrumbs"></span>
+        </div>
+        <div id="topbar-spacer"></div>
+        <div id="topbar-props"></div>
+      </div>
+      <svg id="canvas">
+        <defs>
+          <pattern id="grid-small" width="20" height="20" patternUnits="userSpaceOnUse">
+            <path d="M 20 0 L 0 0 0 20" fill="none" stroke="rgba(255,255,255,0.03)" stroke-width="0.5"/>
+          </pattern>
+          <pattern id="grid-large" width="100" height="100" patternUnits="userSpaceOnUse">
+            <rect width="100" height="100" fill="url(#grid-small)"/>
+            <path d="M 100 0 L 0 0 0 100" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>
+          </pattern>
+        </defs>
+        <rect class="grid-bg" width="10000" height="10000" x="-5000" y="-5000" fill="url(#grid-large)"/>
+        <g id="edges-layer"></g>
+        <g id="nodes-layer"></g>
+        <path id="draft-edge" class="edge-draft" d=""/>
+      </svg>
+      <div id="palette-tab"></div>
+      <div id="palette-popup">
+        <div id="palette-list"></div>
+        <div id="palette-tools">
+          <button class="toolbar-btn" id="btn-fit" title="Fit to view" style="font-size:11px;padding:3px 10px">Fit</button>
+          <button class="toolbar-btn danger" id="btn-clear" title="Clear current scope" style="font-size:11px;padding:3px 10px">Clear</button>
+        </div>
+      </div>
+      <div id="status">Drag components from the palette. Scroll to zoom. Click ports to connect.</div>
+      <div id="legend">
+        <h4>Ports</h4>
+        <div class="legend-row"><div class="legend-port hollow" style="border-color:#4a90d9"></div> Input (hollow)</div>
+        <div class="legend-row"><div class="legend-port filled" style="background:#4a90d9;border-color:#4a90d9"></div> Output (filled)</div>
+        <h4 style="margin-top:6px">Shape</h4>
+        <div class="legend-row"><div class="legend-port filled" style="background:#888;border-color:#888"></div> Rank-1 (vector)</div>
+        <div class="legend-row"><div class="legend-port filled square" style="background:#888;border-color:#888"></div> Rank-2 (matrix)</div>
+        <h4 style="margin-top:6px">Data types</h4>
+        <div class="legend-row"><div class="legend-port filled" style="background:#d9d9d9;border-color:#d9d9d9"></div> Raw Text</div>
+        <div class="legend-row"><div class="legend-port filled" style="background:#7bc67e;border-color:#7bc67e"></div> Token IDs</div>
+        <div class="legend-row"><div class="legend-port filled" style="background:#4a90d9;border-color:#4a90d9"></div> Stream</div>
+        <div class="legend-row"><div class="legend-port filled" style="background:#e6994a;border-color:#e6994a"></div> Logits</div>
+        <div class="legend-row"><div class="legend-port filled" style="background:#b8a038;border-color:#b8a038"></div> Tensor</div>
+      </div>
+    </div>
+
+    <div id="props-panel">
+      <div id="cards-header">
+        <h2>Engines</h2>
+        <button id="btn-add-card" title="New engine (max 8)">+</button>
+      </div>
+      <div id="cards-list"></div>
+      <div id="train-controls">
+        <div class="tc-header"><h2>Train</h2></div>
+        <div class="tc-body">
+          <div class="tc-row">
+            <label>run name</label>
+            <input type="text" id="train-run-name" value="" placeholder="(auto)">
+            <button class="tc-save-toggle active" id="btn-save-toggle" title="Auto-save after training"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M17 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V7l-4-4zm-5 16a3 3 0 1 1 0-6 3 3 0 0 1 0 6zm3-10H5V5h10v4z"/></svg></button>
+          </div>
+          <div class="tc-row">
+            <label>steps</label>
+            <input type="number" id="train-steps" value="1000" min="10" max="100000" step="100">
+          </div>
+          <div class="tc-row" style="gap:4px">
+            <button class="toolbar-btn engine-btn" id="btn-train-all" style="flex:1">Train &#9733;</button>
+            <button class="toolbar-btn danger" id="btn-stop-all" style="flex:1;display:none">Stop All</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="gen-overlay" style="display:none">
+    <div id="gen-overlay-inner">
+      <div id="gen-overlay-header">
+        <h3>Manual Test</h3>
+        <span id="gen-overlay-loss"></span>
+        <button id="gen-overlay-close">&times;</button>
+      </div>
+      <div id="gen-overlay-controls">
+        <input type="text" id="gen-seed" value="First Citizen:" placeholder="Seed text...">
+        <button class="toolbar-btn engine-btn" id="btn-generate">Generate</button>
+      </div>
+      <pre id="gen-overlay-text"></pre>
+    </div>
+  </div>
+  <div id="runs-popup">
+    <div class="runs-header"><span>Prior Runs</span><span class="runs-close" id="runs-close">&times;</span></div>
+    <div class="runs-list" id="runs-list"></div>
+  </div>
+  <input type="file" id="import-file" style="display:none">
+  <script src="d3.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

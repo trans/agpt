@@ -1,0 +1,418 @@
+{
+  "components": [
+    {
+      "type": "transformer",
+      "label": "Transformer Expert",
+      "category": "experts",
+      "color": "#4a90d9",
+      "ports": {
+        "in": [
+          {"id": "stream_in", "label": "stream", "dataType": "stream", "shape": [null, "stream_dim"]}
+        ],
+        "out": [
+          {"id": "stream_out", "label": "stream", "dataType": "stream", "shape": [null, "stream_dim"]},
+          {"id": "logits_out", "label": "logits", "dataType": "logits", "shape": [null, "vocab_size"]}
+        ]
+      },
+      "params": {
+        "d_model": {"type": "int", "default": 64, "options": [32, 64, 128, 256, 512]},
+        "n_layers": {"type": "int", "default": 3, "min": 1, "max": 24}
+      }
+    },
+    {
+      "type": "counter",
+      "label": "Counter Expert",
+      "category": "experts",
+      "color": "#e6994a",
+      "ports": {
+        "in": [
+          {"id": "stream_in", "label": "stream", "dataType": "stream", "shape": [null, "stream_dim"]}
+        ],
+        "out": [
+          {"id": "stream_out", "label": "stream", "dataType": "stream", "shape": [null, "stream_dim"]},
+          {"id": "logits_out", "label": "logits", "dataType": "logits", "shape": [null, "vocab_size"]}
+        ]
+      },
+      "params": {
+        "d_model": {"type": "int", "default": 64, "options": [32, 64, 128, 256, 512]}
+      }
+    },
+    {
+      "type": "bigram",
+      "label": "Bigram Expert",
+      "category": "experts",
+      "color": "#7bc67e",
+      "ports": {
+        "in": [
+          {"id": "stream_in", "label": "stream", "dataType": "stream", "shape": [null, "stream_dim"]}
+        ],
+        "out": [
+          {"id": "stream_out", "label": "stream", "dataType": "stream", "shape": [null, "stream_dim"]},
+          {"id": "logits_out", "label": "logits", "dataType": "logits", "shape": [null, "vocab_size"]}
+        ]
+      },
+      "params": {}
+    },
+    {
+      "type": "global_router",
+      "label": "Global Router",
+      "category": "routers",
+      "color": "#d94a7b",
+      "ports": {
+        "in": [
+          {"id": "stream_in", "label": "stream", "dataType": "stream", "shape": [null, "stream_dim"]},
+          {"id": "logits_in", "label": "logits", "dataType": "logits", "multi": true, "shape": [null, "vocab_size"]}
+        ],
+        "out": [
+          {"id": "logits_out", "label": "logits", "dataType": "logits", "shape": [null, "vocab_size"]}
+        ]
+      },
+      "params": {
+        "epsilon": {"type": "float", "default": 0.2, "min": 0.0, "max": 1.0, "step": 0.05}
+      }
+    },
+    {
+      "type": "context_router",
+      "label": "Context Router",
+      "category": "routers",
+      "color": "#c44ad9",
+      "ports": {
+        "in": [
+          {"id": "token_ids", "label": "tokens", "dataType": "token_ids", "shape": [null]},
+          {"id": "stream_in", "label": "stream", "dataType": "stream", "shape": [null, "stream_dim"]},
+          {"id": "logits_in", "label": "logits", "dataType": "logits", "multi": true, "shape": [null, "vocab_size"]}
+        ],
+        "out": [
+          {"id": "logits_out", "label": "logits", "dataType": "logits", "shape": [null, "vocab_size"]}
+        ]
+      },
+      "params": {
+        "epsilon": {"type": "float", "default": 0.2, "min": 0.0, "max": 1.0, "step": 0.05}
+      }
+    },
+    {
+      "type": "gated_router",
+      "label": "Gated Router",
+      "category": "routers",
+      "color": "#9b4ad9",
+      "ports": {
+        "in": [
+          {"id": "token_ids", "label": "tokens", "dataType": "token_ids", "shape": [null]},
+          {"id": "stream_in", "label": "stream", "dataType": "stream", "shape": [null, "stream_dim"]},
+          {"id": "logits_in", "label": "logits", "dataType": "logits", "multi": true, "shape": [null, "vocab_size"]}
+        ],
+        "out": [
+          {"id": "logits_out", "label": "logits", "dataType": "logits", "shape": [null, "vocab_size"]}
+        ]
+      },
+      "params": {
+        "epsilon": {"type": "float", "default": 0.2, "min": 0.0, "max": 1.0, "step": 0.05}
+      }
+    },
+    {
+      "type": "cooperative",
+      "label": "Cooperative Ensemble",
+      "category": "ensemble",
+      "color": "#4ad9b8",
+      "ports": {
+        "in": [
+          {"id": "stream_in", "label": "stream", "dataType": "stream", "shape": [null, "stream_dim"]},
+          {"id": "token_ids", "label": "tokens", "dataType": "token_ids", "shape": [null]}
+        ],
+        "out": [
+          {"id": "logits_out", "label": "logits", "dataType": "logits", "shape": [null, "vocab_size"]}
+        ]
+      },
+      "params": {
+        "stream_dim": {"type": "int", "default": 64, "options": [16, 32, 64, 128, 256]}
+      }
+    },
+    {
+      "type": "source",
+      "label": "Text Source",
+      "category": "data",
+      "color": "#d9c84a",
+      "ports": {
+        "in": [],
+        "out": [
+          {"id": "raw_text", "label": "text", "dataType": "raw_text", "shape": []}
+        ]
+      },
+      "params": {
+        "file": {"type": "string", "default": "data/input.txt"}
+      }
+    },
+    {
+      "type": "char_tokenizer",
+      "label": "Char Tokenizer",
+      "category": "data",
+      "color": "#c8b832",
+      "ports": {
+        "in": [
+          {"id": "raw_text", "label": "text", "dataType": "raw_text", "shape": []}
+        ],
+        "out": [
+          {"id": "token_ids", "label": "tokens", "dataType": "token_ids", "shape": ["n_tokens"]}
+        ]
+      },
+      "params": {}
+    },
+    {
+      "type": "bpe_tokenizer",
+      "label": "BPE Tokenizer",
+      "category": "data",
+      "color": "#c8b832",
+      "ports": {
+        "in": [
+          {"id": "raw_text", "label": "text", "dataType": "raw_text", "shape": []}
+        ],
+        "out": [
+          {"id": "token_ids", "label": "tokens", "dataType": "token_ids", "shape": ["n_tokens"]}
+        ]
+      },
+      "params": {
+        "vocab_size": {"type": "int", "default": 256, "options": [128, 256, 512, 1024, 4096, 8192]}
+      }
+    },
+    {
+      "type": "sequential_window",
+      "label": "Sequential Window",
+      "category": "data",
+      "color": "#a8982a",
+      "ports": {
+        "in": [
+          {"id": "token_ids", "label": "tokens", "dataType": "token_ids", "shape": ["n_tokens"]}
+        ],
+        "out": [
+          {"id": "input_ids", "label": "input", "dataType": "token_ids", "shape": ["seq_len"]},
+          {"id": "target_ids", "label": "targets", "dataType": "token_ids", "shape": ["seq_len"]}
+        ]
+      },
+      "params": {
+        "seq_len": {"type": "int", "default": 128, "options": [32, 64, 128, 256, 512]}
+      }
+    },
+    {
+      "type": "sliding_window",
+      "label": "Sliding Window",
+      "category": "data",
+      "color": "#a8982a",
+      "ports": {
+        "in": [
+          {"id": "token_ids", "label": "tokens", "dataType": "token_ids", "shape": ["n_tokens"]}
+        ],
+        "out": [
+          {"id": "input_ids", "label": "input", "dataType": "token_ids", "shape": ["seq_len"]},
+          {"id": "target_ids", "label": "targets", "dataType": "token_ids", "shape": ["seq_len"]}
+        ]
+      },
+      "params": {
+        "seq_len": {"type": "int", "default": 128, "options": [32, 64, 128, 256, 512]},
+        "stride": {"type": "int", "default": 64, "options": [16, 32, 64, 128, 256]}
+      }
+    },
+    {
+      "type": "random_window",
+      "label": "Random Window",
+      "category": "data",
+      "color": "#a8982a",
+      "ports": {
+        "in": [
+          {"id": "token_ids", "label": "tokens", "dataType": "token_ids", "shape": ["n_tokens"]}
+        ],
+        "out": [
+          {"id": "input_ids", "label": "input", "dataType": "token_ids", "shape": ["seq_len"]},
+          {"id": "target_ids", "label": "targets", "dataType": "token_ids", "shape": ["seq_len"]}
+        ]
+      },
+      "params": {
+        "seq_len": {"type": "int", "default": 128, "options": [32, 64, 128, 256, 512]}
+      }
+    },
+    {
+      "type": "random_init",
+      "label": "Random Init",
+      "category": "initializers",
+      "color": "#6a8fd9",
+      "ports": {
+        "in": [],
+        "out": [
+          {"id": "stream_out", "label": "stream", "dataType": "stream", "shape": [null, "stream_dim"]}
+        ]
+      },
+      "params": {
+        "distribution": {"type": "string", "default": "gaussian", "options": ["gaussian", "uniform"]}
+      }
+    },
+    {
+      "type": "zero_init",
+      "label": "Zero Init",
+      "category": "initializers",
+      "color": "#6a8fd9",
+      "ports": {
+        "in": [],
+        "out": [
+          {"id": "stream_out", "label": "stream", "dataType": "stream", "shape": [null, "stream_dim"]}
+        ]
+      },
+      "params": {}
+    },
+    {
+      "type": "learned_init",
+      "label": "Learned Init",
+      "category": "initializers",
+      "color": "#6a8fd9",
+      "ports": {
+        "in": [],
+        "out": [
+          {"id": "stream_out", "label": "stream", "dataType": "stream", "shape": [null, "stream_dim"]}
+        ]
+      },
+      "params": {}
+    },
+    {
+      "type": "loss",
+      "label": "Cross-Entropy Loss",
+      "category": "output",
+      "color": "#d94a4a",
+      "ports": {
+        "in": [
+          {"id": "logits_in", "label": "logits", "dataType": "logits", "shape": [null, "vocab_size"]},
+          {"id": "targets", "label": "targets", "dataType": "token_ids", "shape": ["seq_len"]}
+        ],
+        "out": []
+      },
+      "params": {}
+    },
+    {
+      "type": "stream_projector",
+      "label": "Bandwidth (b)",
+      "category": "bandwidth",
+      "color": "#b8a038",
+      "ports": {
+        "in": [
+          {"id": "in", "label": "in", "dataType": "stream", "shape": [null, "d_in"]}
+        ],
+        "out": [
+          {"id": "out", "label": "out", "dataType": "stream", "shape": [null, "d_out"]}
+        ]
+      },
+      "params": {
+        "d_in": {"type": "int", "default": 256, "options": [16, 32, 64, 128, 256, 512]},
+        "d_out": {"type": "int", "default": 64, "options": [16, 32, 64, 128, 256, 512]}
+      }
+    },
+    {
+      "type": "embedding",
+      "label": "Embedding",
+      "category": "layers",
+      "color": "#d9c84a",
+      "ports": {
+        "in": [
+          {"id": "in", "label": "tokens", "dataType": "token_ids", "shape": [null]}
+        ],
+        "out": [
+          {"id": "out", "label": "embed", "dataType": "tensor", "shape": [null, "d_model"]}
+        ]
+      },
+      "params": {
+        "d_model": {"type": "int", "default": 64, "options": [32, 64, 128, 256, 512]}
+      }
+    },
+    {
+      "type": "attention_layer",
+      "label": "Attention",
+      "category": "layers",
+      "color": "#5c9fd9",
+      "ports": {
+        "in": [
+          {"id": "in", "label": "in", "dataType": "tensor", "shape": [null, "d_model"]}
+        ],
+        "out": [
+          {"id": "out", "label": "out", "dataType": "tensor", "shape": [null, "d_model"]}
+        ]
+      },
+      "params": {
+        "d_model": {"type": "int", "default": 64, "options": [32, 64, 128, 256, 512]},
+        "n_heads": {"type": "int", "default": 4, "options": [1, 2, 4, 8, 16]}
+      }
+    },
+    {
+      "type": "ffn_layer",
+      "label": "Feed-Forward",
+      "category": "layers",
+      "color": "#d9825c",
+      "ports": {
+        "in": [
+          {"id": "in", "label": "in", "dataType": "tensor", "shape": [null, "d_model"]}
+        ],
+        "out": [
+          {"id": "out", "label": "out", "dataType": "tensor", "shape": [null, "d_model"]}
+        ]
+      },
+      "params": {
+        "d_model": {"type": "int", "default": 64, "options": [32, 64, 128, 256, 512]},
+        "d_ff": {"type": "int", "default": 256, "options": [128, 256, 512, 1024, 2048]}
+      }
+    },
+    {
+      "type": "layer_norm",
+      "label": "Layer Norm",
+      "category": "layers",
+      "color": "#8899aa",
+      "ports": {
+        "in": [
+          {"id": "in", "label": "in", "dataType": "tensor", "shape": [null, "dim"]}
+        ],
+        "out": [
+          {"id": "out", "label": "out", "dataType": "tensor", "shape": [null, "dim"]}
+        ]
+      },
+      "params": {
+        "dim": {"type": "int", "default": 64, "options": [32, 64, 128, 256, 512]}
+      }
+    },
+    {
+      "type": "output_head",
+      "label": "Output Head",
+      "category": "layers",
+      "color": "#e6994a",
+      "ports": {
+        "in": [
+          {"id": "in", "label": "hidden", "dataType": "tensor", "shape": [null, "d_model"]}
+        ],
+        "out": [
+          {"id": "out", "label": "logits", "dataType": "logits", "shape": [null, "vocab_size"]}
+        ]
+      },
+      "params": {
+        "d_model": {"type": "int", "default": 64, "options": [32, 64, 128, 256, 512]}
+      }
+    },
+    {
+      "type": "stream_proj_internal",
+      "label": "Stream Projection",
+      "category": "layers",
+      "color": "#b8a038",
+      "ports": {
+        "in": [
+          {"id": "in", "label": "in", "dataType": "tensor", "shape": [null, "d_in"]}
+        ],
+        "out": [
+          {"id": "out", "label": "out", "dataType": "tensor", "shape": [null, "d_out"]}
+        ]
+      },
+      "params": {
+        "d_in": {"type": "int", "default": 64, "options": [16, 32, 64, 128, 256, 512]},
+        "d_out": {"type": "int", "default": 64, "options": [16, 32, 64, 128, 256, 512]}
+      }
+    }
+  ],
+  "dataTypes": {
+    "raw_text":       {"color": "#d9d9d9", "label": "Raw Text"},
+    "stream":         {"color": "#4a90d9", "label": "Stream"},
+    "logits":         {"color": "#e6994a", "label": "Logits"},
+    "token_ids":      {"color": "#7bc67e", "label": "Token IDs"},
+    "tensor":         {"color": "#b8a038", "label": "Tensor"}
+  }
+}

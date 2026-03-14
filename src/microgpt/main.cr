@@ -111,6 +111,12 @@ module MicroGPT
         "type": "integer",
         "description": "Step at which to detach bigram expert (0=never)",
         "default": 0
+      },
+      "router": {
+        "type": "string",
+        "description": "Router type: global, context, gated",
+        "enum": ["global", "context", "gated"],
+        "default": "global"
       }
     },
     "required": ["file"]
@@ -220,6 +226,7 @@ module MicroGPT
       use_trigram  = false
       use_calculator = false
       bigram_off_at = result["bigram-off-at"].as_i64.to_i
+      router_type  = result["router"].as_s
 
       # --- Load config from YAML if provided ---
       # YAML provides base values; explicit CLI flags override them.
@@ -250,6 +257,7 @@ module MicroGPT
             use_calculator = yaml["calculator"]?.try(&.as_bool) || false
             use_bigram = true if use_trigram  # trigram uses the bigram slot
             use_bigram = true if use_calculator  # calculator uses the bigram slot
+            router_type = result["router"].as_s == "global" ? (yaml["router"]?.try(&.as_s) || router_type) : router_type
           end
           no_save = true  # config runs don't auto-save (use --model to save)
           puts "Config: #{cf} → #{rid}"
@@ -295,7 +303,16 @@ module MicroGPT
         end
 
         has_counter = !no_counter && !use_bigram
-        coop = CooperativeModel.new(configs, stream_dim, has_counter)
+
+        # Build pluggable router
+        nr = has_counter ? specs.size - 1 : specs.size
+        router = case router_type
+                 when "context" then ContextRouter.new(nr, stream_dim, dataset.vocab_size)
+                 when "gated"   then GatedRouter.new(nr, stream_dim, dataset.vocab_size)
+                 else                GlobalRouter.new(nr, stream_dim)
+                 end
+
+        coop = CooperativeModel.new(configs, stream_dim, has_counter, router: router)
         coop.active_stream_dims = active_dims if active_dims > 0
 
         # Attach algorithmic expert if requested
@@ -326,6 +343,7 @@ module MicroGPT
           end
         end
         puts "  Stream dim: #{stream_dim}#{active_dims > 0 ? " (active: #{active_dims})" : ""}"
+        puts "  Router: #{coop.router.describe} (#{coop.router.param_count} params)"
         puts "  Total params: #{coop.param_count}"
         puts "  seq_len=#{seq_len} lr=#{lr} backend=#{backend}"
 
@@ -419,7 +437,7 @@ module MicroGPT
           puts "Router: #{coop.router_weights_str}"
           # Log result
           rid_str = run_id || "coop-#{coop_str}"
-          extra = "router=#{coop.router_weights_str} stream=#{stream_dim}"
+          extra = "router=#{coop.router_weights_str} router_type=#{router_type} stream=#{stream_dim}"
           extra += " active=#{active_dims}" if active_dims > 0
           extra += " counter=#{has_counter}"
           extra += " rope"

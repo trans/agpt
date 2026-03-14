@@ -5,12 +5,17 @@
 #   - Expert 0 can be an algorithmic expert (bigram/calculator) — stream-only, no logits
 #   - Each expert reads from shared stream via W_read (stream_dim → d_model)
 #   - Each expert writes to shared stream via W_write (d_model → stream_dim)
-#   - Stream-gated router: softmax(W_r · mean(stream)) produces per-expert weights
+#   - Router produces per-expert weights for logit aggregation
 #   - Router only covers transformer experts (algorithmic E0 excluded from logit mix)
 #   - Final output: weighted sum of transformer expert logits
 #   - Position: RoPE in each expert's attention (no pos_emb, no counter)
 #
 # Option C interface: x_in = embedding(tokens) + W_read · stream
+#
+# Router modes:
+#   - :global   — mean(stream) → W_router → softmax (single weight vector for whole sequence)
+#   - :context  — accumulate embedding vectors: ctx[t] = ctx[t-1] + emb[t], per-position routing
+#   - :gated    — gated accumulation: ctx[t] = gate(t)*ctx[t-1] + emb[t], learned reset
 #
 # Anti-collapse measures:
 #   - ε-greedy routing: w = (1-ε)*softmax(z) + ε/n (floor prevents silencing)
@@ -31,8 +36,8 @@ class CooperativeModel
   getter w_reads : Array(Linear)
   getter w_writes : Array(Linear)
 
-  # Router: stream_dim → n_routed (transformer experts only)
-  getter w_router : Linear
+  # Pluggable router
+  getter router : Router
 
   # True counter: learned positional signal injected directly into stream
   # Only seq_len × stream_dim params — no transformer, no logits
@@ -46,8 +51,7 @@ class CooperativeModel
   # Cached forward state for backward
   @routed_logits : Array(Mat)?       # logits from transformer experts only
   @expert_pre_norm : Array(Mat)?
-  @router_probs : Mat?       # blended ε-greedy probs (n_routed)
-  @router_probs_raw : Mat?   # pure softmax probs (for backward)
+  @router_probs : Mat?       # blended ε-greedy probs [seq_len, n_routed]
   @final_stream : Mat?
 
   # Stream contribution tracking per expert
@@ -55,12 +59,12 @@ class CooperativeModel
   @stream_cosines : Array(Float64) = [] of Float64    # cosine change or cosine vs final
   @_e0_delta : Mat? = nil                              # saved for E0 vs final cosine
 
-  # Router exploration rate (ε-greedy)
-  property router_epsilon : Float64 = 0.2
-
   # Stream bandwidth masking: only first active_stream_dims carry signal
   # Allows testing narrower streams without resizing matrices
   property active_stream_dims : Int32 = 0  # 0 = use full stream_dim
+
+  # Vocab size (needed for router rebuilds)
+  @vocab_size : Int32 = 0
 
   def effective_stream_width : Int32
     @active_stream_dims > 0 ? @active_stream_dims : @stream_dim
@@ -76,25 +80,23 @@ class CooperativeModel
     stream_only?(0) ? @n_experts - 1 : @n_experts
   end
 
-  def initialize(expert_configs : Array(Config), @stream_dim : Int32, @has_counter : Bool = true)
+  def initialize(expert_configs : Array(Config), @stream_dim : Int32,
+                 @has_counter : Bool = true, router : Router? = nil)
     @n_experts = expert_configs.size
+    @vocab_size = expert_configs[0].vocab_size
     @experts = expert_configs.map { |cfg| MiniGPT.new(cfg) }
 
     @w_reads = expert_configs.map { |cfg| Linear.new(@stream_dim, cfg.d_model) }
     @w_writes = expert_configs.map { |cfg| Linear.new(cfg.d_model, @stream_dim) }
 
     nr = @has_counter ? @n_experts - 1 : @n_experts
-    @w_router = Linear.new(@stream_dim, nr)
+    @router = router || GlobalRouter.new(nr, @stream_dim)
 
     # True counter: learned position signal → stream (small random init)
     if @has_counter
       max_seq = expert_configs[0].seq_len
       @counter_pos = Mat.randn(max_seq, @stream_dim, 0.02)
     end
-
-    # Zero-init router → uniform initial routing
-    @w_router.w.zero!
-    @w_router.b.zero!
   end
 
   # Attach a bigram table as algorithmic expert 0
@@ -104,9 +106,7 @@ class CooperativeModel
     @w_bigram = Linear.new(table.vocab_size, @stream_dim)
     @has_counter = false  # bigram replaces counter
     # Rebuild router for transformer-only experts
-    @w_router = Linear.new(@stream_dim, @n_experts - 1)
-    @w_router.w.zero!
-    @w_router.b.zero!
+    @router = rebuild_router(@n_experts - 1)
   end
 
   def detach_bigram
@@ -114,9 +114,16 @@ class CooperativeModel
     @w_bigram = nil
     @bigram_features = nil
     # Rebuild router for all experts (E0 becomes transformer)
-    @w_router = Linear.new(@stream_dim, @n_experts)
-    @w_router.w.zero!
-    @w_router.b.zero!
+    @router = rebuild_router(@n_experts)
+  end
+
+  # Rebuild router preserving type (global/context/gated)
+  private def rebuild_router(nr : Int32) : Router
+    case @router
+    when ContextRouter then ContextRouter.new(nr, @stream_dim, @vocab_size)
+    when GatedRouter   then GatedRouter.new(nr, @stream_dim, @vocab_size)
+    else                    GlobalRouter.new(nr, @stream_dim)
+    end
   end
 
   def forward(input_ids : Array(Int32)) : Mat
@@ -204,39 +211,25 @@ class CooperativeModel
     @stream_norms = stream_norms
     @stream_cosines = stream_cosines
 
-    # Router: mean pool stream over sequence, then linear + softmax
-    s_mean = Mat.new(1, @stream_dim)
-    @stream_dim.times do |j|
-      sum = 0.0_f32
-      seq_len.times { |r| sum += stream[r, j] }
-      s_mean[0, j] = sum / seq_len
-    end
-
+    # Router: compute per-position expert weights [seq_len, nr]
     nr = n_routed
-    router_out = @w_router.forward(s_mean)  # [1, nr]
-    router_probs_raw = MicroGPT.backend.softmax_rows(router_out)
-    @router_probs_raw = router_probs_raw
-
-    # ε-greedy blending: w = (1-ε)*softmax + ε/n
-    eps = @router_epsilon.to_f32
-    uniform = 1.0_f32 / nr
-    router_probs = Mat.new(1, nr)
-    nr.times do |k|
-      router_probs[0, k] = (1.0_f32 - eps) * router_probs_raw[0, k] + eps * uniform
-    end
+    router_probs = @router.forward(input_ids, stream)  # [seq_len, nr]
     @router_probs = router_probs
 
-    # Weighted aggregation of routed expert logits
-    rows = routed_logits[0].rows
-    cols = routed_logits[0].cols
+    # Per-position weighted aggregation of routed expert logits
+    rows = routed_logits[0].rows  # seq_len
+    cols = routed_logits[0].cols  # vocab_size
     agg = Mat.new(rows, cols)
     nr.times do |k|
-      w = router_probs[0, k]
       li = routed_logits[k]
-      agg_d = agg.raw_data
-      li_d = li.data
-      (rows * cols).times do |idx|
-        agg_d[idx] += w * li_d[idx]
+      rows.times do |r|
+        w = router_probs[r, k]
+        off = r * cols
+        agg_d = agg.raw_data
+        li_d = li.data
+        cols.times do |c|
+          agg_d[off + c] += w * li_d[off + c]
+        end
       end
     end
 
@@ -271,43 +264,26 @@ class CooperativeModel
     # Retrieve cached state
     nr = n_routed
     router_probs = @router_probs.not_nil!
-    router_probs_raw = @router_probs_raw.not_nil!
     routed_logits = @routed_logits.not_nil!
 
     # --- Router gradient ---
-    # d_w_k = Σ_{r,c} d_agg[r,c] * logits_k[r,c]
-    d_router_probs = Mat.new(1, nr)
+    # Per-position: d_w_k[r] = Σ_c d_agg[r,c] * logits_k[r,c]
+    d_router_probs = Mat.new(seq_len, nr)
     nr.times do |k|
-      dot = 0.0_f32
       li = routed_logits[k]
-      d_d = d_agg.data
-      li_d = li.data
-      (seq_len * vocab_size).times do |idx|
-        dot += d_d[idx] * li_d[idx]
-      end
-      d_router_probs[0, k] = dot
-    end
-
-    # ε-greedy backward: d_raw = (1-ε) * d_blended
-    eps = @router_epsilon.to_f32
-    d_router_probs_raw = Mat.new(1, nr)
-    nr.times do |k|
-      d_router_probs_raw[0, k] = (1.0_f32 - eps) * d_router_probs[0, k]
-    end
-
-    d_router_out = MicroGPT.backend.softmax_backward(router_probs_raw, d_router_probs_raw)
-    d_s_mean = @w_router.backward(d_router_out)
-
-    # Broadcast d_s_mean → d_stream (mean backward: divide by seq_len)
-    d_stream = Mat.new(seq_len, @stream_dim)
-    inv_seq = 1.0_f32 / seq_len
-    d_s_mean_d = d_s_mean.data
-    d_stream_d = d_stream.raw_data
-    seq_len.times do |r|
-      @stream_dim.times do |c|
-        d_stream_d[r * @stream_dim + c] = d_s_mean_d[c] * inv_seq
+      seq_len.times do |r|
+        dot = 0.0_f32
+        off = r * vocab_size
+        d_d = d_agg.data
+        li_d = li.data
+        vocab_size.times { |c| dot += d_d[off + c] * li_d[off + c] }
+        d_router_probs[r, k] = dot
       end
     end
+
+    # Router backward (handles ε-greedy, softmax, param updates internally)
+    lr = @experts[0].config.learning_rate
+    d_stream = @router.backward(d_router_probs, lr)
 
     # Mask d_stream to match forward: zero gradient for inactive dims
     aw = effective_stream_width
@@ -318,7 +294,6 @@ class CooperativeModel
     end
 
     # --- Backward through experts (reverse for sequential stream) ---
-    lr = @experts[0].config.learning_rate
 
     # Equal gradient: each transformer expert gets (1/n_routed) * d_agg
     equal_scale = 1.0_f32 / nr
@@ -372,9 +347,6 @@ class CooperativeModel
         @w_writes[i].update(lr)
       end
     end
-
-    # Update router
-    @w_router.update(lr)
 
     loss
   end
@@ -444,7 +416,7 @@ class CooperativeModel
       next if (has_bigram || @has_counter) && i == 0
       count += l.w.data.size + l.b.data.size
     end
-    count += @w_router.w.data.size + @w_router.b.data.size
+    count += @router.param_count
     count
   end
 
@@ -489,7 +461,7 @@ class CooperativeModel
     end
 
     # Router
-    mats << @w_router.w << @w_router.b
+    mats.concat(@router.weight_mats)
     mats
   end
 
@@ -539,7 +511,7 @@ class CooperativeModel
       add_linear_adam(mats, l)
     end
 
-    add_linear_adam(mats, @w_router)
+    mats.concat(@router.adam_mats)
     mats
   end
 
@@ -589,7 +561,7 @@ class CooperativeModel
       mats << l.dw << l.db
     end
 
-    mats << @w_router.dw << @w_router.db
+    mats.concat(@router.grad_mats)
     mats
   end
 
@@ -640,6 +612,7 @@ class CooperativeModel
   def router_weights_str : String
     if rp = @router_probs
       nr = rp.cols
+      seq_len = rp.rows
       offset = stream_only?(0) ? 1 : 0
       parts = [] of String
 
@@ -650,11 +623,15 @@ class CooperativeModel
         parts << "E0=stream|#{"%.1f" % sn[0]}|cos#{"%.3f" % sc[0]}"
       end
 
+      # Average router probs across positions for display
       nr.times do |k|
+        avg_w = 0.0_f32
+        seq_len.times { |r| avg_w += rp[r, k] }
+        avg_w /= seq_len
         ei = k + offset
-        parts << "E#{ei}=#{"%.3f" % rp[0, k]}|#{"%.1f" % sn[ei]}|Δ#{"%.3f" % sc[ei]}"
+        parts << "E#{ei}=#{"%.3f" % avg_w}|#{"%.1f" % sn[ei]}|Δ#{"%.3f" % sc[ei]}"
       end
-      parts.join(", ")
+      parts.join(", ") + " [#{@router.describe}]"
     else
       "N/A"
     end

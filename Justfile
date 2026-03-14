@@ -25,6 +25,22 @@ build-cloud:
     mkdir -p bin
     crystal build src/cloud/cli.cr -o bin/cloud --release
 
+# Build construction kit server (CPU)
+build-kit:
+    mkdir -p build bin
+    cc -c -O2 src/cuda/stubs.c -o build/kernels.o
+    crystal build src/construction_kit/server.cr -o bin/construction-kit --link-flags="{{root}}/build/kernels.o"
+
+# Build construction kit server with CUDA
+build-kit-cuda:
+    mkdir -p build bin
+    /opt/cuda/bin/nvcc -c -O2 src/cuda/kernels.cu -o build/kernels.o
+    crystal build src/construction_kit/server.cr -o bin/construction-kit --release --link-flags="{{root}}/build/kernels.o -lstdc++"
+
+# Run construction kit server
+kit *ARGS:
+    bin/construction-kit {{ARGS}}
+
 # Run with memory-limited shell (default 8 GiB virtual memory cap)
 run *ARGS:
     OPENBLAS_NUM_THREADS=4 ulimit -v 8388608 && bin/microgpt {{ARGS}}

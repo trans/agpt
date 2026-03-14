@@ -203,6 +203,40 @@ add-single-d64n6:
   steps: 10000
   backend: cublas
 
+# --- d=256 bandwidth scaling experiments (Shakespeare) ---
+
+scale-4e-d256-b128:
+  mode: cooperative
+  experts: "d256n3,d256n3,d256n3,d256n3"
+  stream_dim: 128
+  counter: false
+  steps: 5000
+  backend: cublas
+
+scale-4e-d256-b64:
+  mode: cooperative
+  experts: "d256n3,d256n3,d256n3,d256n3"
+  stream_dim: 64
+  counter: false
+  steps: 5000
+  backend: cublas
+
+scale-4e-d256-b32:
+  mode: cooperative
+  experts: "d256n3,d256n3,d256n3,d256n3"
+  stream_dim: 32
+  counter: false
+  steps: 5000
+  backend: cublas
+
+scale-4e-d256-b16:
+  mode: cooperative
+  experts: "d256n3,d256n3,d256n3,d256n3"
+  stream_dim: 16
+  counter: false
+  steps: 5000
+  backend: cublas
+
 # --- Single model baselines ---
 
 baseline-d64n6:
@@ -225,3 +259,32 @@ baseline-d128n2:
   n_layers: 2
   steps: 10000
   backend: openblas
+
+# --- Router experiments ---
+
+router-global-4e:
+  mode: cooperative
+  experts: "d64n3,d64n3,d64n3,d64n3"
+  stream_dim: 64
+  counter: false
+  router: global
+  steps: 10000
+  backend: cublas
+
+router-context-4e:
+  mode: cooperative
+  experts: "d64n3,d64n3,d64n3,d64n3"
+  stream_dim: 64
+  counter: false
+  router: context
+  steps: 10000
+  backend: cublas
+
+router-gated-4e:
+  mode: cooperative
+  experts: "d64n3,d64n3,d64n3,d64n3"
+  stream_dim: 64
+  counter: false
+  router: gated
+  steps: 10000
+  backend: cublas
