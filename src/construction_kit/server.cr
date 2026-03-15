@@ -127,11 +127,33 @@ module ConstructionKit
             return
           end
 
-          config = ConstructionKit.extract_config(doc.graph)
+          data_file = params["data_file"]?.try(&.as_s?) || "data/input.txt"
+          config = ConstructionKit.extract_config(doc.graph, data_file)
+          client_hash = params["hash"]?.try(&.as_s?)
+          server_hash = compute_graph_hash(doc.graph)
+          # Use server hash when available, fall back to client hash
+          effective_hash = server_hash || client_hash
           slot = slot_for(card_id)
           slot.builder = Builder.new(config)
           summary = slot.builder.not_nil!.summary
-          ctx.response.print({built: true, summary: summary}.to_json)
+
+          # Save graph definition under its hash
+          if effective_hash
+            hash_dir = File.join(@saves_dir, effective_hash)
+            Dir.mkdir_p(hash_dir)
+            File.write(File.join(hash_dir, "graph.json"), doc.graph.to_json)
+          end
+
+          # TODO: Once compute_graph_hash is implemented, compare server_hash
+          # against client_hash and reject on mismatch to catch canonicalization
+          # divergence early.
+          hash_match = server_hash.nil? || client_hash.nil? || server_hash == client_hash
+          ctx.response.print({
+            built:       true,
+            summary:     summary,
+            model_hash:  effective_hash,
+            hash_match:  hash_match,
+          }.to_json)
         rescue ex
           ctx.response.status = HTTP::Status.new(400)
           ctx.response.print({error: ex.message}.to_json)
@@ -392,6 +414,9 @@ module ConstructionKit
       slot.avg_loss = 0.0
       slot.train_started_at = Time.utc
       slot.train_metrics = [] of MetricPoint
+      # Fresh channel for this training run (old WS readers will get ClosedError)
+      slot.train_channel.close rescue nil
+      slot.train_channel = Channel(TrainEvent).new(256)
 
       # Open log file
       Dir.mkdir_p(@logs_dir)
@@ -563,6 +588,17 @@ module ConstructionKit
       end
 
       ws.call(ctx)
+    end
+
+    # TODO: Implement proper canonical graph hashing in Crystal to match the
+    # client-side SHA-256 (canonicalGraphObj → JSON.stringify → SHA-256 → first 8 hex chars).
+    # For now this is a stub that uses Crystal's built-in hash. Once implemented,
+    # compare against the client hash and reject on mismatch to catch serialization
+    # divergence early. The client hash is passed as `hash` in the build request and
+    # the server returns `hash_match: bool` so the frontend can warn if they differ.
+    private def compute_graph_hash(graph : GraphData) : String?
+      # Stub: return nil until proper canonicalization is implemented
+      nil
     end
 
     private def serve_static(ctx, path)

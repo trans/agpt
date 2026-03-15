@@ -7,35 +7,35 @@ root := `pwd`
 build:
     mkdir -p build
     cc -c -O2 src/cuda/stubs.c -o build/kernels.o
-    crystal build src/microgpt/main.cr -o bin/microgpt --link-flags="{{root}}/build/kernels.o"
+    timeout 3m crystal build src/microgpt/main.cr -o bin/microgpt --link-flags="{{root}}/build/kernels.o"
 
 build-release:
     mkdir -p build
     cc -c -O2 src/cuda/stubs.c -o build/kernels.o
-    crystal build src/microgpt/main.cr -o bin/microgpt --release --link-flags="{{root}}/build/kernels.o"
+    timeout 3m crystal build src/microgpt/main.cr -o bin/microgpt --release --link-flags="{{root}}/build/kernels.o"
 
 # Build with real CUDA kernels for GPU support
 build-cuda:
     mkdir -p build
     /opt/cuda/bin/nvcc -c -O2 src/cuda/kernels.cu -o build/kernels.o
-    crystal build src/microgpt/main.cr -o bin/microgpt --release --link-flags="{{root}}/build/kernels.o -lstdc++"
+    timeout 3m crystal build src/microgpt/main.cr -o bin/microgpt --release --link-flags="{{root}}/build/kernels.o -lstdc++"
 
 # Build cloud GPU CLI
 build-cloud:
     mkdir -p bin
-    crystal build src/cloud/cli.cr -o bin/cloud --release
+    timeout 3m crystal build src/cloud/cli.cr -o bin/cloud --release
 
 # Build construction kit server (CPU)
 build-kit:
     mkdir -p build bin
     cc -c -O2 src/cuda/stubs.c -o build/kernels.o
-    crystal build src/construction_kit/server.cr -o bin/construction-kit --link-flags="{{root}}/build/kernels.o"
+    timeout 3m crystal build src/construction_kit/server.cr -o bin/construction-kit --link-flags="{{root}}/build/kernels.o"
 
 # Build construction kit server with CUDA
 build-kit-cuda:
     mkdir -p build bin
     /opt/cuda/bin/nvcc -c -O2 src/cuda/kernels.cu -o build/kernels.o
-    crystal build src/construction_kit/server.cr -o bin/construction-kit --release --link-flags="{{root}}/build/kernels.o -lstdc++"
+    timeout 3m crystal build src/construction_kit/server.cr -o bin/construction-kit --release --link-flags="{{root}}/build/kernels.o -lstdc++"
 
 # Run construction kit server
 kit *ARGS:

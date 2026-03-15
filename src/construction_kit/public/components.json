@@ -128,21 +128,6 @@
       }
     },
     {
-      "type": "source",
-      "label": "Text Source",
-      "category": "data",
-      "color": "#d9c84a",
-      "ports": {
-        "in": [],
-        "out": [
-          {"id": "raw_text", "label": "text", "dataType": "raw_text", "shape": []}
-        ]
-      },
-      "params": {
-        "file": {"type": "string", "default": "data/input.txt"}
-      }
-    },
-    {
       "type": "char_tokenizer",
       "label": "Char Tokenizer",
       "category": "data",
@@ -312,7 +297,7 @@
           {"id": "in", "label": "tokens", "dataType": "token_ids", "shape": [null]}
         ],
         "out": [
-          {"id": "out", "label": "embed", "dataType": "tensor", "shape": [null, "d_model"]}
+          {"id": "out", "label": "embed", "dataType": "matrix", "shape": [null, "d_model"]}
         ]
       },
       "params": {
@@ -326,10 +311,10 @@
       "color": "#5c9fd9",
       "ports": {
         "in": [
-          {"id": "in", "label": "in", "dataType": "tensor", "shape": [null, "d_model"]}
+          {"id": "in", "label": "in", "dataType": "matrix", "shape": [null, "d_model"]}
         ],
         "out": [
-          {"id": "out", "label": "out", "dataType": "tensor", "shape": [null, "d_model"]}
+          {"id": "out", "label": "out", "dataType": "matrix", "shape": [null, "d_model"]}
         ]
       },
       "params": {
@@ -344,10 +329,10 @@
       "color": "#d9825c",
       "ports": {
         "in": [
-          {"id": "in", "label": "in", "dataType": "tensor", "shape": [null, "d_model"]}
+          {"id": "in", "label": "in", "dataType": "matrix", "shape": [null, "d_model"]}
         ],
         "out": [
-          {"id": "out", "label": "out", "dataType": "tensor", "shape": [null, "d_model"]}
+          {"id": "out", "label": "out", "dataType": "matrix", "shape": [null, "d_model"]}
         ]
       },
       "params": {
@@ -362,10 +347,10 @@
       "color": "#8899aa",
       "ports": {
         "in": [
-          {"id": "in", "label": "in", "dataType": "tensor", "shape": [null, "dim"]}
+          {"id": "in", "label": "in", "dataType": "matrix", "shape": [null, "dim"]}
         ],
         "out": [
-          {"id": "out", "label": "out", "dataType": "tensor", "shape": [null, "dim"]}
+          {"id": "out", "label": "out", "dataType": "matrix", "shape": [null, "dim"]}
         ]
       },
       "params": {
@@ -379,7 +364,7 @@
       "color": "#e6994a",
       "ports": {
         "in": [
-          {"id": "in", "label": "hidden", "dataType": "tensor", "shape": [null, "d_model"]}
+          {"id": "in", "label": "hidden", "dataType": "matrix", "shape": [null, "d_model"]}
         ],
         "out": [
           {"id": "out", "label": "logits", "dataType": "logits", "shape": [null, "vocab_size"]}
@@ -396,15 +381,238 @@
       "color": "#b8a038",
       "ports": {
         "in": [
-          {"id": "in", "label": "in", "dataType": "tensor", "shape": [null, "d_in"]}
+          {"id": "in", "label": "in", "dataType": "matrix", "shape": [null, "d_in"]}
         ],
         "out": [
-          {"id": "out", "label": "out", "dataType": "tensor", "shape": [null, "d_out"]}
+          {"id": "out", "label": "out", "dataType": "matrix", "shape": [null, "d_out"]}
         ]
       },
       "params": {
         "d_in": {"type": "int", "default": 64, "options": [16, 32, 64, 128, 256, 512]},
         "d_out": {"type": "int", "default": 64, "options": [16, 32, 64, 128, 256, 512]}
+      }
+    },
+    {
+      "type": "matmul",
+      "label": "MatMul",
+      "category": "math",
+      "color": "#d9a04a",
+      "ports": {
+        "in": [
+          {"id": "x", "label": "x", "dataType": "matrix", "shape": [null, "d_in"]},
+          {"id": "W", "label": "W", "dataType": "matrix", "shape": ["d_in", "d_out"]}
+        ],
+        "out": [
+          {"id": "out", "label": "out", "dataType": "matrix", "shape": [null, "d_out"]}
+        ]
+      },
+      "params": {
+        "d_in": {"type": "int", "default": 64, "options": [32, 64, 128, 256, 512]},
+        "d_out": {"type": "int", "default": 64, "options": [32, 64, 128, 256, 512]}
+      }
+    },
+    {
+      "type": "add_bias",
+      "label": "Add Bias",
+      "category": "math",
+      "color": "#d9c04a",
+      "ports": {
+        "in": [
+          {"id": "x", "label": "x", "dataType": "matrix", "shape": [null, "dim"]},
+          {"id": "b", "label": "b", "dataType": "vector", "shape": ["dim"]}
+        ],
+        "out": [
+          {"id": "out", "label": "out", "dataType": "matrix", "shape": [null, "dim"]}
+        ]
+      },
+      "params": {
+        "dim": {"type": "int", "default": 64, "options": [32, 64, 128, 256, 512]}
+      }
+    },
+    {
+      "type": "weight_param",
+      "label": "Weight (W)",
+      "category": "math",
+      "color": "#8899aa",
+      "ports": {
+        "in": [],
+        "out": [
+          {"id": "out", "label": "W", "dataType": "matrix", "shape": ["rows", "cols"]}
+        ]
+      },
+      "params": {
+        "rows": {"type": "int", "default": 64, "options": [32, 64, 128, 256, 512]},
+        "cols": {"type": "int", "default": 64, "options": [32, 64, 128, 256, 512]}
+      }
+    },
+    {
+      "type": "bias_param",
+      "label": "Bias (b)",
+      "category": "math",
+      "color": "#8899aa",
+      "ports": {
+        "in": [],
+        "out": [
+          {"id": "out", "label": "b", "dataType": "vector", "shape": ["dim"]}
+        ]
+      },
+      "params": {
+        "dim": {"type": "int", "default": 64, "options": [32, 64, 128, 256, 512]}
+      }
+    },
+    {
+      "type": "reduce_mean",
+      "label": "Mean",
+      "category": "math",
+      "color": "#d9a04a",
+      "ports": {
+        "in": [
+          {"id": "in", "label": "x", "dataType": "matrix", "shape": [null, "dim"]}
+        ],
+        "out": [
+          {"id": "out", "label": "μ", "dataType": "vector", "shape": [null]}
+        ]
+      },
+      "params": {
+        "dim": {"type": "int", "default": 64, "options": [32, 64, 128, 256, 512]}
+      }
+    },
+    {
+      "type": "subtract",
+      "label": "Subtract",
+      "category": "math",
+      "color": "#d9a04a",
+      "ports": {
+        "in": [
+          {"id": "a", "label": "a", "dataType": "matrix", "shape": [null, "dim"]},
+          {"id": "b", "label": "b", "dataType": "vector", "shape": [null]}
+        ],
+        "out": [
+          {"id": "out", "label": "a−b", "dataType": "matrix", "shape": [null, "dim"]}
+        ]
+      },
+      "params": {
+        "dim": {"type": "int", "default": 64, "options": [32, 64, 128, 256, 512]}
+      }
+    },
+    {
+      "type": "reduce_var",
+      "label": "Variance",
+      "category": "math",
+      "color": "#d9a04a",
+      "ports": {
+        "in": [
+          {"id": "in", "label": "x", "dataType": "matrix", "shape": [null, "dim"]}
+        ],
+        "out": [
+          {"id": "out", "label": "σ²", "dataType": "vector", "shape": [null]}
+        ]
+      },
+      "params": {
+        "dim": {"type": "int", "default": 64, "options": [32, 64, 128, 256, 512]}
+      }
+    },
+    {
+      "type": "normalize",
+      "label": "Normalize",
+      "category": "math",
+      "color": "#d9a04a",
+      "ports": {
+        "in": [
+          {"id": "x", "label": "x", "dataType": "matrix", "shape": [null, "dim"]},
+          {"id": "var", "label": "σ²", "dataType": "vector", "shape": [null]}
+        ],
+        "out": [
+          {"id": "out", "label": "x̂", "dataType": "matrix", "shape": [null, "dim"]}
+        ]
+      },
+      "params": {
+        "dim": {"type": "int", "default": 64, "options": [32, 64, 128, 256, 512]},
+        "eps": {"type": "float", "default": 0.00001, "min": 0.0000001, "max": 0.001, "step": 0.00001}
+      }
+    },
+    {
+      "type": "scale_param",
+      "label": "Scale (γ)",
+      "category": "math",
+      "color": "#8899aa",
+      "ports": {
+        "in": [],
+        "out": [
+          {"id": "out", "label": "γ", "dataType": "vector", "shape": ["dim"]}
+        ]
+      },
+      "params": {
+        "dim": {"type": "int", "default": 64, "options": [32, 64, 128, 256, 512]}
+      }
+    },
+    {
+      "type": "elem_mul",
+      "label": "Multiply",
+      "category": "math",
+      "color": "#d9a04a",
+      "ports": {
+        "in": [
+          {"id": "x", "label": "x", "dataType": "matrix", "shape": [null, "dim"]},
+          {"id": "scale", "label": "scale", "dataType": "vector", "shape": ["dim"]}
+        ],
+        "out": [
+          {"id": "out", "label": "out", "dataType": "matrix", "shape": [null, "dim"]}
+        ]
+      },
+      "params": {
+        "dim": {"type": "int", "default": 64, "options": [32, 64, 128, 256, 512]}
+      }
+    },
+    {
+      "type": "relu",
+      "label": "ReLU",
+      "category": "math",
+      "color": "#d9a04a",
+      "ports": {
+        "in": [
+          {"id": "in", "label": "in", "dataType": "matrix", "shape": [null, "dim"]}
+        ],
+        "out": [
+          {"id": "out", "label": "out", "dataType": "matrix", "shape": [null, "dim"]}
+        ]
+      },
+      "params": {
+        "dim": {"type": "int", "default": 256, "options": [128, 256, 512, 1024, 2048]}
+      }
+    },
+    {
+      "type": "embedding_table",
+      "label": "Embedding Table (E)",
+      "category": "math",
+      "color": "#8899aa",
+      "ports": {
+        "in": [],
+        "out": [
+          {"id": "out", "label": "E", "dataType": "matrix", "shape": ["vocab_size", "d_model"]}
+        ]
+      },
+      "params": {
+        "vocab_size": {"type": "int", "default": 65},
+        "d_model": {"type": "int", "default": 64, "options": [32, 64, 128, 256, 512]}
+      }
+    },
+    {
+      "type": "lookup",
+      "label": "Lookup",
+      "category": "math",
+      "color": "#d9a04a",
+      "ports": {
+        "in": [
+          {"id": "ids", "label": "ids", "dataType": "token_ids", "shape": [null]},
+          {"id": "table", "label": "table", "dataType": "matrix", "shape": ["vocab_size", "d_model"]}
+        ],
+        "out": [
+          {"id": "out", "label": "out", "dataType": "matrix", "shape": [null, "d_model"]}
+        ]
+      },
+      "params": {
+        "d_model": {"type": "int", "default": 64, "options": [32, 64, 128, 256, 512]}
       }
     },
     {
@@ -432,6 +640,9 @@
     "stream":         {"color": "#4a90d9", "label": "Stream"},
     "logits":         {"color": "#e6994a", "label": "Logits"},
     "token_ids":      {"color": "#7bc67e", "label": "Token IDs"},
-    "tensor":         {"color": "#b8a038", "label": "Tensor"}
+    "scalar":         {"color": "#d9d94a", "label": "Scalar"},
+    "vector":         {"color": "#c49a38", "label": "Vector"},
+    "matrix":         {"color": "#b8a038", "label": "Matrix"},
+    "tensor":         {"color": "#a08828", "label": "Tensor"}
   }
 }

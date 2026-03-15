@@ -119,7 +119,6 @@ module ConstructionKit
     end
   end
 
-  SOURCE_TYPES    = ["source", "dataset"]
   TOKENIZER_TYPES = ["char_tokenizer", "bpe_tokenizer"]
   WINDOWER_TYPES  = ["sequential_window", "sliding_window", "random_window", "dataset"]
   EXPERT_TYPES    = ["transformer", "counter", "bigram"]
@@ -128,11 +127,8 @@ module ConstructionKit
   def self.validate(graph : GraphData) : Array(ValidationError)
     errors = [] of ValidationError
 
-    # Must have a data source (source or legacy dataset)
-    sources = graph.nodes.select { |n| SOURCE_TYPES.includes?(n.type) }
-    if sources.empty?
-      errors << ValidationError.new("Graph needs a Text Source component")
-    end
+    # Data source is now a workspace-level setting (Train panel), not a graph node.
+    # Source nodes in the graph are ignored for validation.
 
     # Must have a windower (or legacy dataset) for seq_len
     windowers = graph.nodes.select { |n| WINDOWER_TYPES.includes?(n.type) }
@@ -195,7 +191,8 @@ module ConstructionKit
     errors
   end
 
-  # Extract the model configuration from a validated pipeline graph
+  # Extract the model configuration from a validated pipeline graph.
+  # data_file is passed separately (workspace-level setting, not in the graph).
   struct ModelConfig
     include JSON::Serializable
     property data_file : String
@@ -235,15 +232,11 @@ module ConstructionKit
   end
 
   # Extract a ModelConfig from the top-level pipeline graph
-  def self.extract_config(graph : GraphData) : ModelConfig
-    # Find source (text file path)
-    source = graph.nodes.find { |n| SOURCE_TYPES.includes?(n.type) }
+  def self.extract_config(graph : GraphData, data_file : String = "data/input.txt") : ModelConfig
     # Find windower (seq_len)
     windower = graph.nodes.find { |n| WINDOWER_TYPES.includes?(n.type) }
     coop = graph.nodes.find! { |n| n.type == "cooperative" }
     children = coop.children.not_nil!
-
-    data_file = source.try(&.param_s("file", "data/input.txt")) || "data/input.txt"
     seq_len = windower.try(&.param_i("seq_len", 128)) || 128
     stream_dim = coop.param_i("stream_dim", 64)
 

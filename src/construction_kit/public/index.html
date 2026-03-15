@@ -38,10 +38,48 @@
       </svg>
       <div id="palette-tab"></div>
       <div id="palette-popup">
-        <div id="palette-list"></div>
-        <div id="palette-tools">
-          <button class="toolbar-btn" id="btn-fit" title="Fit to view" style="font-size:11px;padding:3px 10px">Fit</button>
-          <button class="toolbar-btn danger" id="btn-clear" title="Clear current scope" style="font-size:11px;padding:3px 10px">Clear</button>
+        <div id="palette-tabs">
+          <div class="palette-tab-btn active" data-tab="components" title="Components">&#9881;</div>
+          <div class="palette-tab-btn" data-tab="train" title="Train Console">&#9866;</div>
+          <div class="palette-tab-btn" data-tab="test" title="Test Console">&#9654;</div>
+        </div>
+        <div id="palette-tab-content">
+          <div id="palette-tab-components" class="palette-tab-pane active">
+            <div id="palette-list"></div>
+            <div id="palette-tools">
+              <button class="toolbar-btn" id="btn-fit" title="Fit to view">&#x2922;</button>
+              <button class="toolbar-btn danger" id="btn-delete-selected" title="Delete selected node" style="display:none">&#128465;</button>
+              <button class="toolbar-btn danger" id="btn-clear" title="Clear current scope">&#x2205;</button>
+            </div>
+          </div>
+          <div id="palette-tab-train" class="palette-tab-pane">
+            <div id="train-panel-controls">
+              <div class="train-field">
+                <label>data</label>
+                <input type="text" id="train-data-file" value="data/input.txt" placeholder="path to text file">
+              </div>
+              <div class="train-field">
+                <label>label</label>
+                <input type="text" id="train-run-name" value="" placeholder="(auto)">
+              </div>
+              <div class="train-field">
+                <label>steps</label>
+                <input type="number" id="train-steps" value="1000" min="10" max="100000" step="100">
+              </div>
+              <div class="train-field train-actions">
+                <button class="toolbar-btn engine-btn" id="btn-train-all">Train &#9733;</button>
+                <button class="toolbar-btn danger" id="btn-stop-all" style="display:none">Stop All</button>
+              </div>
+            </div>
+            <div id="train-panel-session"></div>
+          </div>
+          <div id="palette-tab-test" class="palette-tab-pane">
+            <div id="test-panel-controls">
+              <input type="text" id="gen-seed" value="First Citizen:" placeholder="Seed text...">
+              <button class="toolbar-btn engine-btn" id="btn-generate">Generate All &#9733;</button>
+            </div>
+            <div id="test-panel-outputs"></div>
+          </div>
         </div>
       </div>
       <div id="status">Drag components from the palette. Scroll to zoom. Click ports to connect.</div>
@@ -50,6 +88,7 @@
         <div class="legend-row"><div class="legend-port hollow" style="border-color:#4a90d9"></div> Input (hollow)</div>
         <div class="legend-row"><div class="legend-port filled" style="background:#4a90d9;border-color:#4a90d9"></div> Output (filled)</div>
         <h4 style="margin-top:6px">Shape</h4>
+        <div class="legend-row"><div class="legend-port filled diamond" style="background:#888;border-color:#888"></div> Rank-0 (scalar)</div>
         <div class="legend-row"><div class="legend-port filled" style="background:#888;border-color:#888"></div> Rank-1 (vector)</div>
         <div class="legend-row"><div class="legend-port filled square" style="background:#888;border-color:#888"></div> Rank-2 (matrix)</div>
         <h4 style="margin-top:6px">Data types</h4>
@@ -57,55 +96,22 @@
         <div class="legend-row"><div class="legend-port filled" style="background:#7bc67e;border-color:#7bc67e"></div> Token IDs</div>
         <div class="legend-row"><div class="legend-port filled" style="background:#4a90d9;border-color:#4a90d9"></div> Stream</div>
         <div class="legend-row"><div class="legend-port filled" style="background:#e6994a;border-color:#e6994a"></div> Logits</div>
-        <div class="legend-row"><div class="legend-port filled" style="background:#b8a038;border-color:#b8a038"></div> Tensor</div>
+        <div class="legend-row"><div class="legend-port filled diamond" style="background:#d9d94a;border-color:#d9d94a"></div> Scalar</div>
+        <div class="legend-row"><div class="legend-port filled" style="background:#c49a38;border-color:#c49a38"></div> Vector</div>
+        <div class="legend-row"><div class="legend-port filled square" style="background:#b8a038;border-color:#b8a038"></div> Matrix</div>
+        <div class="legend-row"><div class="legend-port filled" style="background:#a08828;border-color:#a08828"></div> Tensor (rank 3+)</div>
       </div>
     </div>
 
     <div id="props-panel">
       <div id="cards-header">
         <h2>Engines</h2>
-        <div style="display:flex;gap:4px;margin-left:auto">
-          <button id="btn-import-card" title="Import engine from file">&#8615;</button>
-          <button id="btn-add-card" title="New blank engine">+</button>
-        </div>
       </div>
       <div id="cards-list"></div>
-      <div id="train-controls">
-        <div class="tc-header"><h2>Train</h2></div>
-        <div class="tc-body">
-          <div class="tc-row">
-            <label>run name</label>
-            <input type="text" id="train-run-name" value="" placeholder="(auto)">
-            <button class="tc-save-toggle active" id="btn-save-toggle" title="Auto-save after training"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M17 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V7l-4-4zm-5 16a3 3 0 1 1 0-6 3 3 0 0 1 0 6zm3-10H5V5h10v4z"/></svg></button>
-          </div>
-          <div class="tc-row">
-            <label>steps</label>
-            <input type="number" id="train-steps" value="1000" min="10" max="100000" step="100">
-          </div>
-          <div class="tc-row" style="gap:4px">
-            <button class="toolbar-btn engine-btn" id="btn-train-all" style="flex:1">Train &#9733;</button>
-            <button class="toolbar-btn danger" id="btn-stop-all" style="flex:1;display:none">Stop All</button>
-          </div>
-        </div>
-      </div>
     </div>
   </div>
 
-  <div id="gen-overlay" style="display:none">
-    <div id="gen-overlay-inner">
-      <div id="gen-overlay-header">
-        <h3>Manual Test</h3>
-        <span id="gen-overlay-loss"></span>
-        <button id="gen-overlay-close">&times;</button>
-      </div>
-      <div id="gen-overlay-controls">
-        <input type="text" id="gen-seed" value="First Citizen:" placeholder="Seed text...">
-        <button class="toolbar-btn engine-btn" id="btn-generate">Generate</button>
-      </div>
-      <pre id="gen-overlay-text"></pre>
-    </div>
-  </div>
-  <div id="runs-popup">
+<div id="runs-popup">
     <div class="runs-header"><span>Prior Runs</span><span class="runs-close" id="runs-close">&times;</span></div>
     <div class="runs-list" id="runs-list"></div>
   </div>

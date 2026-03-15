@@ -6,14 +6,80 @@
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const starSvg = '<svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>';
 
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+async function apiPost(endpoint, data, method = 'POST') {
+  const resp = await fetch(endpoint, {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  return await resp.json();
+}
+
+async function fetchJSON(url, fallback = null) {
+  try {
+    const resp = await fetch(url);
+    if (!resp.ok) return fallback;
+    return await resp.json();
+  } catch { return fallback; }
+}
+
+function createPortShape(rank, px, py, r, rounding) {
+  let shape;
+  if (rank >= 2) {
+    const size = r * 2;
+    shape = document.createElementNS(SVG_NS, 'rect');
+    shape.setAttribute('x', px - size / 2);
+    shape.setAttribute('y', py - size / 2);
+    shape.setAttribute('width', size);
+    shape.setAttribute('height', size);
+    shape.setAttribute('rx', rounding ?? 2);
+    shape.setAttribute('ry', rounding ?? 2);
+  } else if (rank === 0) {
+    shape = document.createElementNS(SVG_NS, 'polygon');
+    shape.setAttribute('points', `${px},${py - r} ${px + r},${py} ${px},${py + r} ${px - r},${py}`);
+  } else {
+    shape = document.createElementNS(SVG_NS, 'circle');
+    shape.setAttribute('cx', px);
+    shape.setAttribute('cy', py);
+    shape.setAttribute('r', r);
+  }
+  return shape;
+}
+
+function ensureBoundaryOverlay() {
+  const wrap = document.getElementById('canvas-wrap');
+  const svgEl = document.getElementById('canvas');
+  let overlay = document.getElementById('boundary-ports-overlay');
+  if (!overlay) {
+    overlay = document.createElementNS(SVG_NS, 'svg');
+    overlay.id = 'boundary-ports-overlay';
+    overlay.style.cssText = 'position:absolute;left:0;right:0;bottom:0;z-index:15;pointer-events:none;';
+    wrap.appendChild(overlay);
+  }
+  const svgRect = svgEl.getBoundingClientRect();
+  const wrapRect = wrap.getBoundingClientRect();
+  overlay.style.top = (svgRect.top - wrapRect.top) + 'px';
+  overlay.style.width = svgRect.width + 'px';
+  overlay.style.height = svgRect.height + 'px';
+  overlay.innerHTML = '';
+  return { overlay, h: svgRect.height, w: svgRect.width };
+}
+
 // ── Scope / Level Definitions ────────────────────────────────────────────────
 // Each scope level defines what components are available in the palette
 // and what the "container" types are (double-click to zoom in).
 
 const SCOPE_LEVELS = {
+  project: {
+    label: "Project",
+    components: ["engine"],
+    containers: { engine: "pipeline" },  // double-click engine → enter its pipeline
+  },
   pipeline: {
     label: "Pipeline",
-    components: ["source", "char_tokenizer", "bpe_tokenizer", "sequential_window", "sliding_window", "random_window", "random_init", "zero_init", "learned_init", "cooperative", "loss", "optimizer"],
+    components: ["char_tokenizer", "bpe_tokenizer", "sequential_window", "sliding_window", "random_window", "random_init", "zero_init", "learned_init", "cooperative", "loss", "optimizer"],
     containers: { cooperative: "ensemble" },  // double-click cooperative → enter ensemble scope
   },
   ensemble: {
@@ -24,11 +90,36 @@ const SCOPE_LEVELS = {
   transformer_internal: {
     label: "Transformer",
     components: ["embedding", "attention_layer", "ffn_layer", "layer_norm", "output_head", "stream_proj_internal", "optimizer"],
-    containers: {},
+    containers: { output_head: "output_head_internal", stream_proj_internal: "stream_proj_math", embedding: "embedding_internal", ffn_layer: "ffn_internal", layer_norm: "layer_norm_internal" },
   },
   expert_internal: {
     label: "Expert",
     components: ["embedding", "ffn_layer", "layer_norm", "output_head", "stream_proj_internal", "optimizer"],
+    containers: { output_head: "output_head_internal", stream_proj_internal: "stream_proj_math", embedding: "embedding_internal", ffn_layer: "ffn_internal", layer_norm: "layer_norm_internal" },
+  },
+  output_head_internal: {
+    label: "Output Head",
+    components: ["matmul", "add_bias", "weight_param", "bias_param"],
+    containers: {},
+  },
+  stream_proj_math: {
+    label: "Stream Projection",
+    components: ["matmul", "add_bias", "weight_param", "bias_param"],
+    containers: {},
+  },
+  embedding_internal: {
+    label: "Embedding",
+    components: ["lookup", "embedding_table"],
+    containers: {},
+  },
+  ffn_internal: {
+    label: "Feed-Forward",
+    components: ["matmul", "add_bias", "relu", "weight_param", "bias_param"],
+    containers: {},
+  },
+  layer_norm_internal: {
+    label: "Layer Norm",
+    components: ["reduce_mean", "subtract", "reduce_var", "normalize", "scale_param", "elem_mul", "bias_param", "add_bias"],
     containers: {},
   },
 };
@@ -39,15 +130,31 @@ const MAX_CARDS = 8;
 const cards = [];       // Array of card objects (each owns a graph + engine state)
 let activeCardIdx = 0;
 
+// Training session — shown as a special card at the top of the rail
+// { cards: [...participating cards], active: bool }
+let trainSession = null;
+const SESSION_COLORS = ['#4a90d9', '#e6994a', '#7bc67e', '#d94a7b', '#c44ad9', '#4ad9b8', '#d9c84a', '#d94a4a'];
+
+// Project-level graph — shared across all engines
+const projectGraph = { nodes: [], edges: [] };
+let projectNextId = 1;
+
 function createEmptyCard(name) {
+  const nodeId = projectNextId++;
+  const node = {
+    id: nodeId,
+    type: 'engine',
+    x: (projectGraph.nodes.length % 4) * 250,
+    y: Math.floor(projectGraph.nodes.length / 4) * 200,
+    params: {},
+    children: { nodes: [], edges: [] },
+  };
+  projectGraph.nodes.push(node);
   return {
     id: crypto.randomUUID(),
     name: name || '',
     starred: true,
-    rootGraph: { nodes: [], edges: [] },
-    nextId: 1,
-    scopeStack: [],
-    currentScope: 'pipeline',
+    nodeId: nodeId,  // links to engine node in projectGraph
     engine: {
       built: false,
       training: false,
@@ -58,13 +165,18 @@ function createEmptyCard(name) {
 }
 
 function getActiveCard() { return cards[activeCardIdx]; }
+function isActiveLocked() { return !!getActiveCard()?.engine?.training; }
+function getCardForNode(nodeId) { return cards.find(c => c.nodeId === nodeId); }
 
 const state = {
   registry: null,       // component definitions from components.json
-  // Current view references (derived from active card)
+  // Current view references
   nodes: [],            // current scope's nodes
   edges: [],            // current scope's edges
   selected: null,       // node id
+  // Scope navigation
+  scopeStack: [],       // array of {nodeId, nodeLabel, scopeType}
+  currentScope: 'project',
   // Interaction
   dragging: null,
   connecting: null,
@@ -72,22 +184,13 @@ const state = {
   viewX: 0, viewY: 0, zoom: 1,
 };
 
-// Compatibility getters — redirect rootGraph, nextId, scopeStack, currentScope to active card
+// rootGraph is always the project graph
 Object.defineProperty(state, 'rootGraph', {
-  get() { return getActiveCard().rootGraph; },
-  set(v) { getActiveCard().rootGraph = v; },
+  get() { return projectGraph; },
 });
 Object.defineProperty(state, 'nextId', {
-  get() { return getActiveCard().nextId; },
-  set(v) { getActiveCard().nextId = v; },
-});
-Object.defineProperty(state, 'scopeStack', {
-  get() { return getActiveCard().scopeStack; },
-  set(v) { getActiveCard().scopeStack = v; },
-});
-Object.defineProperty(state, 'currentScope', {
-  get() { return getActiveCard().currentScope; },
-  set(v) { getActiveCard().currentScope = v; },
+  get() { return projectNextId; },
+  set(v) { projectNextId = v; },
 });
 
 // ── DOM refs ─────────────────────────────────────────────────────────────────
@@ -110,8 +213,9 @@ async function init() {
   const card = createEmptyCard('Demo');
   cards.push(card);
   activeCardIdx = 0;
-  state.nodes = state.rootGraph.nodes;
-  state.edges = state.rootGraph.edges;
+  state.nodes = projectGraph.nodes;
+  state.edges = projectGraph.edges;
+  state.currentScope = 'project';
 
   buildPalette();
   setupD3Zoom();
@@ -131,7 +235,8 @@ function buildPalette() {
   const allowedTypes = level ? level.components : state.registry.components.map(c => c.type);
 
   const byCategory = {};
-  for (const comp of state.registry.components) {
+  const allComps = [...state.registry.components, ENGINE_COMPONENT];
+  for (const comp of allComps) {
     if (!allowedTypes.includes(comp.type)) continue;
     (byCategory[comp.category] = byCategory[comp.category] || []).push(comp);
   }
@@ -166,7 +271,7 @@ function renderTree() {
   // Auto-expand nodes in the current scope path
   for (const s of state.scopeStack) treeExpanded.add(s.nodeId);
 
-  renderTreeLevel(container, state.rootGraph.nodes, 'pipeline', 0, []);
+  renderTreeLevel(container, state.rootGraph.nodes, 'project', 0, []);
 }
 
 function renderTreeLevel(parentEl, nodes, scopeType, depth, scopePath) {
@@ -211,7 +316,12 @@ function renderTreeLevel(parentEl, nodes, scopeType, depth, scopePath) {
     // Label
     const label = document.createElement('span');
     label.className = 'tree-label';
-    label.textContent = comp.label;
+    if (node.type === 'engine') {
+      const card = getCardForNode(node.id);
+      label.textContent = card?.name || 'Engine';
+    } else {
+      label.textContent = node.params?.name || comp.label;
+    }
     if (isInPath) {
       label.style.color = comp.color;
       label.style.fontWeight = '600';
@@ -266,7 +376,7 @@ function navigateToNodeInTree(nodeId, scopePath) {
     state.scopeStack = [];
     state.nodes = state.rootGraph.nodes;
     state.edges = state.rootGraph.edges;
-    state.currentScope = 'pipeline';
+    state.currentScope = 'project';
   } else {
     state.scopeStack = scopePath.map(sp => {
       // Walk the graph to find this node
@@ -278,15 +388,22 @@ function navigateToNodeInTree(nodeId, scopePath) {
       }
       const n = graph.nodes.find(nd => nd.id === sp.nodeId);
       const comp = getCompDef(n?.type);
+      let nodeLabel;
+      if (n?.type === 'engine') {
+        const card = getCardForNode(n.id);
+        nodeLabel = card?.name || 'Engine';
+      } else {
+        nodeLabel = n?.params?.name || ((comp?.label || '?') + ' #' + sp.nodeId);
+      }
       return {
         nodeId: sp.nodeId,
-        nodeLabel: (comp?.label || '?') + ' #' + sp.nodeId,
+        nodeLabel,
         scopeType: sp.scopeType,
       };
     });
 
     let graph = state.rootGraph;
-    let scopeType = 'pipeline';
+    let scopeType = 'project';
     for (const scope of state.scopeStack) {
       const node = graph.nodes.find(n => n.id === scope.nodeId);
       if (node && node.children) {
@@ -313,7 +430,7 @@ function navigateToNodeInTree(nodeId, scopePath) {
 function renderBreadcrumbs() {
   const el = document.getElementById('breadcrumbs');
 
-  let html = `<span class="crumb clickable" data-depth="-1">Pipeline</span>`;
+  let html = `<span class="crumb clickable" data-depth="-1">Project</span>`;
   // Walk the scope stack to find each node's component color
   let graph = state.rootGraph;
   state.scopeStack.forEach((scope, i) => {
@@ -347,10 +464,40 @@ function getParentNode() {
   return parentNode;
 }
 
+// Engine component — shown as a container node at project scope
+const ENGINE_COMPONENT = {
+  type: 'engine',
+  label: 'Engine',
+  category: 'structure',
+  color: '#4a90d9',
+  ports: {
+    in: [
+      { id: 'raw_text', label: 'data', dataType: 'raw_text', shape: [] }
+    ],
+    out: []
+  },
+  params: {},
+};
+
+// Pipeline-level boundary ports — data enters from the left wall
+const PIPELINE_BOUNDARY = {
+  ports: {
+    in: [
+      { id: 'raw_text', label: 'data', dataType: 'raw_text', shape: [] }
+    ],
+    out: []
+  },
+  color: '#d9c84a'
+};
+
 function updateViewportBorder() {
   const wrap = document.getElementById('canvas-wrap');
   if (state.scopeStack.length === 0) {
+    // Project scope — no border, no boundary ports
     wrap.style.border = 'none';
+    const svgEl = document.getElementById('canvas');
+    svgEl.style.outline = 'none';
+    svgEl.style.borderRadius = '';
     removeBoundaryPorts();
     return;
   }
@@ -358,9 +505,17 @@ function updateViewportBorder() {
   if (!parentNode) return;
   const comp = getCompDef(parentNode.type);
   if (!comp) return;
-  wrap.style.border = `4px solid ${comp.color}`;
-  wrap.style.borderRadius = '8px';
-  renderBoundaryPorts(parentNode, comp);
+  wrap.style.border = 'none';
+  const svgEl = document.getElementById('canvas');
+  svgEl.style.outline = `4px solid ${comp.color}`;
+  svgEl.style.outlineOffset = '-4px';
+  svgEl.style.borderRadius = '8px';
+  if (parentNode.type === 'engine') {
+    // Inside engine (pipeline level) — show the data boundary port on left wall
+    renderPipelineBoundaryPorts();
+  } else {
+    renderBoundaryPorts(parentNode, comp);
+  }
 }
 
 function removeBoundaryPorts() {
@@ -371,41 +526,30 @@ function removeBoundaryPorts() {
   }
 }
 
-function renderBoundaryPorts(parentNode, comp) {
-  const wrap = document.getElementById('canvas-wrap');
-  let overlay = document.getElementById('boundary-ports-overlay');
-  if (!overlay) {
-    overlay = document.createElementNS(SVG_NS, 'svg');
-    overlay.id = 'boundary-ports-overlay';
-    overlay.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;z-index:15;pointer-events:none;';
-    wrap.appendChild(overlay);
-  }
-  overlay.innerHTML = '';
+function renderPipelineBoundaryPorts() {
+  const { overlay, h } = ensureBoundaryOverlay();
+  const portsIn = PIPELINE_BOUNDARY.ports.in;
+  portsIn.forEach((p, i) => {
+    renderBoundaryPort(overlay, p, false, 2, distributePort(i, portsIn.length, h), PIPELINE_BOUNDARY);
+  });
+  if (overlay._resizeHandler) window.removeEventListener('resize', overlay._resizeHandler);
+  overlay._resizeHandler = () => { renderPipelineBoundaryPorts(); updateBoundaryEdges(); };
+  window.addEventListener('resize', overlay._resizeHandler);
+}
 
-  const h = wrap.clientHeight;
+function renderBoundaryPorts(parentNode, comp) {
+  const { overlay, h, w } = ensureBoundaryOverlay();
   const borderW = 4;
   const portsIn = comp.ports.in || [];
   const portsOut = comp.ports.out || [];
-
-  // Input ports on left edge
   portsIn.forEach((p, i) => {
-    const py = distributePort(i, portsIn.length, h);
-    renderBoundaryPort(overlay, p, false, borderW / 2, py, comp);
+    renderBoundaryPort(overlay, p, false, borderW / 2, distributePort(i, portsIn.length, h), comp);
   });
-
-  // Output ports on right edge
-  const w = wrap.clientWidth;
   portsOut.forEach((p, i) => {
-    const py = distributePort(i, portsOut.length, h);
-    renderBoundaryPort(overlay, p, true, w - borderW / 2, py, comp);
+    renderBoundaryPort(overlay, p, true, w - borderW / 2, distributePort(i, portsOut.length, h), comp);
   });
-
-  // Re-render on resize
   if (overlay._resizeHandler) window.removeEventListener('resize', overlay._resizeHandler);
-  overlay._resizeHandler = () => {
-    renderBoundaryPorts(parentNode, comp);
-    updateBoundaryEdges();
-  };
+  overlay._resizeHandler = () => { renderBoundaryPorts(parentNode, comp); updateBoundaryEdges(); };
   window.addEventListener('resize', overlay._resizeHandler);
 }
 
@@ -428,22 +572,7 @@ function renderBoundaryPort(overlay, portDef, isOutput, px, py, comp) {
   const fs = Math.max(10 * z, 8);     // font size
   const labelGap = Math.max(12 * z, 10);
 
-  let shape;
-  if (rank >= 2) {
-    const size = r * 2;
-    shape = document.createElementNS(SVG_NS, 'rect');
-    shape.setAttribute('x', px - size / 2);
-    shape.setAttribute('y', py - size / 2);
-    shape.setAttribute('width', size);
-    shape.setAttribute('height', size);
-    shape.setAttribute('rx', Math.max(2 * z, 1));
-    shape.setAttribute('ry', Math.max(2 * z, 1));
-  } else {
-    shape = document.createElementNS(SVG_NS, 'circle');
-    shape.setAttribute('cx', px);
-    shape.setAttribute('cy', py);
-    shape.setAttribute('r', r);
-  }
+  const shape = createPortShape(rank, px, py, r, Math.max(2 * z, 1));
   if (!isOutput) {
     shape.setAttribute('fill', dtColor);
     shape.setAttribute('stroke', dtColor);
@@ -529,17 +658,22 @@ function onBoundaryPortMouseUp(e, portDef, isParentOutput) {
 }
 
 function getBoundaryPortPosition(portId, _isOutputHint) {
-  const wrap = document.getElementById('canvas-wrap');
-  const h = wrap.clientHeight;
-  const w = wrap.clientWidth;
+  const svgEl = document.getElementById('canvas');
+  const h = svgEl.clientHeight;
+  const w = svgEl.clientWidth;
   const parentNode = getParentNode();
-  if (!parentNode) return { x: 0, y: 0 };
-  const comp = getCompDef(parentNode.type);
-  if (!comp) return { x: 0, y: 0 };
 
-  // Find which side this port is on by checking both port lists
-  const portsIn = comp.ports.in || [];
-  const portsOut = comp.ports.out || [];
+  // At pipeline level, use pipeline boundary ports
+  let portsIn, portsOut;
+  if (!parentNode) {
+    portsIn = PIPELINE_BOUNDARY.ports.in || [];
+    portsOut = PIPELINE_BOUNDARY.ports.out || [];
+  } else {
+    const comp = getCompDef(parentNode.type);
+    if (!comp) return { x: 0, y: 0 };
+    portsIn = comp.ports.in || [];
+    portsOut = comp.ports.out || [];
+  }
   let idx = portsIn.findIndex(p => p.id === portId);
   let isOnRight = false;
   if (idx < 0) {
@@ -575,7 +709,7 @@ function navigateToDepth(depth) {
 
   // Resolve the current graph from the root
   let graph = state.rootGraph;
-  let scopeType = 'pipeline';
+  let scopeType = 'project';
   for (const scope of state.scopeStack) {
     const node = graph.nodes.find(n => n.id === scope.nodeId);
     if (node && node.children) {
@@ -608,7 +742,7 @@ function zoomIntoNode(nodeId) {
   if (!childScope) return;
 
   // Initialize children graph if needed
-  if (!node.children) {
+  if (!node.children || node.children.nodes.length === 0) {
     node.children = { nodes: [], edges: [] };
     // Pre-populate with default internal layout
     const defaults = getDefaultChildren(node.type, node.params);
@@ -624,9 +758,16 @@ function zoomIntoNode(nodeId) {
     }
   }
 
+  let scopeLabel;
+  if (node.type === 'engine') {
+    const card = getCardForNode(node.id);
+    scopeLabel = card?.name || 'Engine';
+  } else {
+    scopeLabel = node.params?.name || (getCompDef(node.type)?.label + ' #' + node.id);
+  }
   state.scopeStack.push({
     nodeId: node.id,
-    nodeLabel: getCompDef(node.type)?.label + ' #' + node.id,
+    nodeLabel: scopeLabel,
     scopeType: childScope,
   });
 
@@ -653,6 +794,21 @@ function getDefaultChildren(type, params) {
   }
   if (type === 'transformer') {
     return getTransformerDefaults(params);
+  }
+  if (type === 'output_head') {
+    return getOutputHeadDefaults(params);
+  }
+  if (type === 'stream_proj_internal') {
+    return getStreamProjDefaults(params);
+  }
+  if (type === 'embedding') {
+    return getEmbeddingDefaults(params);
+  }
+  if (type === 'ffn_layer') {
+    return getFFNDefaults(params);
+  }
+  if (type === 'layer_norm') {
+    return getLayerNormDefaults(params);
   }
   return null;
 }
@@ -759,6 +915,178 @@ function getTransformerDefaults(params) {
   return { nodes, edges };
 }
 
+function getOutputHeadDefaults(params) {
+  const dm = params.d_model || 64;
+  const id = () => state.nextId++;
+
+  const wId = id(), bId = id(), mmId = id(), addId = id();
+
+  return {
+    nodes: [
+      { id: wId,  type: "weight_param", x: 60,  y: 40,  params: { rows: dm, cols: dm } },
+      { id: mmId, type: "matmul",       x: 300, y: 40,  params: { d_in: dm, d_out: dm } },
+      { id: bId,  type: "bias_param",   x: 60,  y: 200, params: { dim: dm } },
+      { id: addId, type: "add_bias",    x: 300, y: 200, params: { dim: dm } },
+    ],
+    edges: [
+      // boundary hidden input → matmul x
+      { id: id(), from: { nodeId: -1, portId: 'in' }, to: { nodeId: mmId, portId: 'x' } },
+      // weight → matmul W
+      { id: id(), from: { nodeId: wId, portId: 'out' }, to: { nodeId: mmId, portId: 'W' } },
+      // matmul out → add_bias x
+      { id: id(), from: { nodeId: mmId, portId: 'out' }, to: { nodeId: addId, portId: 'x' } },
+      // bias → add_bias b
+      { id: id(), from: { nodeId: bId, portId: 'out' }, to: { nodeId: addId, portId: 'b' } },
+      // add_bias out → boundary logits output
+      { id: id(), from: { nodeId: addId, portId: 'out' }, to: { nodeId: -1, portId: 'out' } },
+    ],
+  };
+}
+
+function getStreamProjDefaults(params) {
+  const dIn = params.d_in || 64;
+  const dOut = params.d_out || 64;
+  const id = () => state.nextId++;
+
+  const wId = id(), bId = id(), mmId = id(), addId = id();
+
+  return {
+    nodes: [
+      { id: wId,  type: "weight_param", x: 60,  y: 40,  params: { rows: dIn, cols: dOut } },
+      { id: mmId, type: "matmul",       x: 300, y: 40,  params: { d_in: dIn, d_out: dOut } },
+      { id: bId,  type: "bias_param",   x: 60,  y: 200, params: { dim: dOut } },
+      { id: addId, type: "add_bias",    x: 300, y: 200, params: { dim: dOut } },
+    ],
+    edges: [
+      // boundary input → matmul x
+      { id: id(), from: { nodeId: -1, portId: 'in' }, to: { nodeId: mmId, portId: 'x' } },
+      // weight → matmul W
+      { id: id(), from: { nodeId: wId, portId: 'out' }, to: { nodeId: mmId, portId: 'W' } },
+      // matmul out → add_bias x
+      { id: id(), from: { nodeId: mmId, portId: 'out' }, to: { nodeId: addId, portId: 'x' } },
+      // bias → add_bias b
+      { id: id(), from: { nodeId: bId, portId: 'out' }, to: { nodeId: addId, portId: 'b' } },
+      // add_bias out → boundary output
+      { id: id(), from: { nodeId: addId, portId: 'out' }, to: { nodeId: -1, portId: 'out' } },
+    ],
+  };
+}
+
+function getEmbeddingDefaults(params) {
+  const dm = params.d_model || 64;
+  const id = () => state.nextId++;
+
+  const tableId = id(), lookupId = id();
+
+  return {
+    nodes: [
+      { id: tableId,  type: "embedding_table", x: 60,  y: 40,  params: { vocab_size: 65, d_model: dm } },
+      { id: lookupId, type: "lookup",           x: 300, y: 40,  params: { d_model: dm } },
+    ],
+    edges: [
+      // boundary token_ids → lookup ids
+      { id: id(), from: { nodeId: -1, portId: 'in' }, to: { nodeId: lookupId, portId: 'ids' } },
+      // embedding table → lookup table
+      { id: id(), from: { nodeId: tableId, portId: 'out' }, to: { nodeId: lookupId, portId: 'table' } },
+      // lookup out → boundary output
+      { id: id(), from: { nodeId: lookupId, portId: 'out' }, to: { nodeId: -1, portId: 'out' } },
+    ],
+  };
+}
+
+function getLayerNormDefaults(params) {
+  const dim = params.dim || 64;
+  const id = () => state.nextId++;
+
+  // γ * (x - μ) / sqrt(σ² + ε) + β
+  const meanId = id(), subId = id(), varId = id(), normId = id();
+  const gammaId = id(), mulId = id(), betaId = id(), addId = id();
+
+  return {
+    nodes: [
+      { id: meanId,  type: "reduce_mean", x: 60,  y: 40,  params: { dim } },
+      { id: subId,   type: "subtract",    x: 300, y: 40,  params: { dim } },
+      { id: varId,   type: "reduce_var",  x: 60,  y: 200, params: { dim } },
+      { id: normId,  type: "normalize",   x: 300, y: 200, params: { dim, eps: 1e-5 } },
+      { id: gammaId, type: "scale_param", x: 60,  y: 360, params: { dim } },
+      { id: mulId,   type: "elem_mul",    x: 300, y: 360, params: { dim } },
+      { id: betaId,  type: "bias_param",  x: 60,  y: 520, params: { dim } },
+      { id: addId,   type: "add_bias",    x: 300, y: 520, params: { dim } },
+    ],
+    edges: [
+      // boundary input → mean
+      { id: id(), from: { nodeId: -1, portId: 'in' }, to: { nodeId: meanId, portId: 'in' } },
+      // boundary input → subtract a (original x)
+      { id: id(), from: { nodeId: -1, portId: 'in' }, to: { nodeId: subId, portId: 'a' } },
+      // mean → subtract b
+      { id: id(), from: { nodeId: meanId, portId: 'out' }, to: { nodeId: subId, portId: 'b' } },
+      // subtract (centered) → variance
+      { id: id(), from: { nodeId: subId, portId: 'out' }, to: { nodeId: varId, portId: 'in' } },
+      // subtract (centered) → normalize x
+      { id: id(), from: { nodeId: subId, portId: 'out' }, to: { nodeId: normId, portId: 'x' } },
+      // variance → normalize var
+      { id: id(), from: { nodeId: varId, portId: 'out' }, to: { nodeId: normId, portId: 'var' } },
+      // normalize → elem_mul x
+      { id: id(), from: { nodeId: normId, portId: 'out' }, to: { nodeId: mulId, portId: 'x' } },
+      // gamma → elem_mul scale
+      { id: id(), from: { nodeId: gammaId, portId: 'out' }, to: { nodeId: mulId, portId: 'scale' } },
+      // elem_mul → add_bias x
+      { id: id(), from: { nodeId: mulId, portId: 'out' }, to: { nodeId: addId, portId: 'x' } },
+      // beta → add_bias b
+      { id: id(), from: { nodeId: betaId, portId: 'out' }, to: { nodeId: addId, portId: 'b' } },
+      // add_bias → boundary output
+      { id: id(), from: { nodeId: addId, portId: 'out' }, to: { nodeId: -1, portId: 'out' } },
+    ],
+  };
+}
+
+function getFFNDefaults(params) {
+  const dm = params.d_model || 64;
+  const dff = params.d_ff || 256;
+  const id = () => state.nextId++;
+
+  // Layer 1: x @ W1 + b1 → ReLU
+  const w1 = id(), b1 = id(), mm1 = id(), add1 = id(), relu = id();
+  // Layer 2: ReLU(…) @ W2 + b2
+  const w2 = id(), b2 = id(), mm2 = id(), add2 = id();
+
+  return {
+    nodes: [
+      { id: w1,   type: "weight_param", x: 60,  y: 40,  params: { rows: dm, cols: dff } },
+      { id: mm1,  type: "matmul",       x: 300, y: 40,  params: { d_in: dm, d_out: dff } },
+      { id: b1,   type: "bias_param",   x: 60,  y: 200, params: { dim: dff } },
+      { id: add1, type: "add_bias",     x: 300, y: 200, params: { dim: dff } },
+      { id: relu, type: "relu",         x: 300, y: 360, params: { dim: dff } },
+      { id: w2,   type: "weight_param", x: 60,  y: 520, params: { rows: dff, cols: dm } },
+      { id: mm2,  type: "matmul",       x: 300, y: 520, params: { d_in: dff, d_out: dm } },
+      { id: b2,   type: "bias_param",   x: 60,  y: 680, params: { dim: dm } },
+      { id: add2, type: "add_bias",     x: 300, y: 680, params: { dim: dm } },
+    ],
+    edges: [
+      // boundary input → matmul1 x
+      { id: id(), from: { nodeId: -1, portId: 'in' }, to: { nodeId: mm1, portId: 'x' } },
+      // W1 → matmul1
+      { id: id(), from: { nodeId: w1, portId: 'out' }, to: { nodeId: mm1, portId: 'W' } },
+      // matmul1 → add_bias1
+      { id: id(), from: { nodeId: mm1, portId: 'out' }, to: { nodeId: add1, portId: 'x' } },
+      // b1 → add_bias1
+      { id: id(), from: { nodeId: b1, portId: 'out' }, to: { nodeId: add1, portId: 'b' } },
+      // add_bias1 → relu
+      { id: id(), from: { nodeId: add1, portId: 'out' }, to: { nodeId: relu, portId: 'in' } },
+      // relu → matmul2 x
+      { id: id(), from: { nodeId: relu, portId: 'out' }, to: { nodeId: mm2, portId: 'x' } },
+      // W2 → matmul2
+      { id: id(), from: { nodeId: w2, portId: 'out' }, to: { nodeId: mm2, portId: 'W' } },
+      // matmul2 → add_bias2
+      { id: id(), from: { nodeId: mm2, portId: 'out' }, to: { nodeId: add2, portId: 'x' } },
+      // b2 → add_bias2
+      { id: id(), from: { nodeId: b2, portId: 'out' }, to: { nodeId: add2, portId: 'b' } },
+      // add_bias2 → boundary output
+      { id: id(), from: { nodeId: add2, portId: 'out' }, to: { nodeId: -1, portId: 'out' } },
+    ],
+  };
+}
+
 // ── Palette drag → canvas drop ───────────────────────────────────────────────
 
 let dragGhost = null;
@@ -793,10 +1121,30 @@ canvasWrap.addEventListener('drop', e => {
 // ── Node management ──────────────────────────────────────────────────────────
 
 function getCompDef(type) {
+  if (type === 'engine') return ENGINE_COMPONENT;
   return state.registry.components.find(c => c.type === type);
 }
 
+// Extract the pipeline-level graph from a card's engine node
+function getPipelineGraph(card) {
+  const engineNode = projectGraph.nodes.find(n => n.id === card.nodeId);
+  return engineNode?.children || { nodes: [], edges: [] };
+}
+
 function addNode(type, x, y) {
+  if (isActiveLocked()) { setStatus('Cannot edit while training', { flash: true }); return; }
+  if (type === 'engine') {
+    if (cards.length >= MAX_CARDS) { setStatus('Max engines reached', { flash: true }); return; }
+    const card = createEmptyCard('Engine ' + (cards.length + 1));
+    // Position the engine node where it was dropped
+    const engineNode = projectGraph.nodes.find(n => n.id === card.nodeId);
+    if (engineNode) { engineNode.x = x; engineNode.y = y; }
+    cards.push(card);
+    renderAll();
+    renderCardList();
+    updateStatus();
+    return;
+  }
   const comp = getCompDef(type);
   if (!comp) return;
   const node = {
@@ -819,6 +1167,9 @@ function addNode(type, x, y) {
 }
 
 function deleteNode(id) {
+  if (isActiveLocked()) { setStatus('Cannot edit while training', { flash: true }); return; }
+  const node = state.nodes.find(n => n.id === id);
+  if (node?.type === 'engine') { setStatus('Cannot delete engines from canvas'); return; }
   state.edges = state.edges.filter(e => {
     if (e.from.nodeId === id || e.to.nodeId === id) {
       removeEdgeEl(e.id);
@@ -1009,22 +1360,46 @@ function renderNode(node) {
   rect.classList.add('node-body');
   rect.setAttribute('width', w);
   rect.setAttribute('height', h);
-  rect.setAttribute('fill', 'rgba(0,0,0,0.15)');
+  rect.setAttribute('fill', '#1a1a2e');
   rect.setAttribute('stroke', comp.color);
   if (isContainer) {
     rect.setAttribute('stroke-dasharray', '6 3');
   }
   g.appendChild(rect);
 
-  // Header label
-  const label = document.createElementNS(SVG_NS, 'text');
-  label.classList.add('node-label');
-  label.setAttribute('x', w / 2);
-  label.setAttribute('y', 22);
-  label.setAttribute('text-anchor', 'middle');
-  label.setAttribute('font-size', '12');
-  label.textContent = comp.label;
-  g.appendChild(label);
+  // Header label — containers show name + type, others just type
+  const customName = node.type === 'engine'
+    ? (getCardForNode(node.id)?.name || '')
+    : (node.params?.name || '');
+  if (isContainer && customName) {
+    const nameEl = document.createElementNS(SVG_NS, 'text');
+    nameEl.classList.add('node-label');
+    nameEl.setAttribute('x', w / 2);
+    nameEl.setAttribute('y', 17);
+    nameEl.setAttribute('text-anchor', 'middle');
+    nameEl.setAttribute('font-size', '12');
+    nameEl.textContent = customName;
+    g.appendChild(nameEl);
+
+    const typeEl = document.createElementNS(SVG_NS, 'text');
+    typeEl.classList.add('node-type-label');
+    typeEl.setAttribute('x', w / 2);
+    typeEl.setAttribute('y', 30);
+    typeEl.setAttribute('text-anchor', 'middle');
+    typeEl.setAttribute('font-size', '9');
+    typeEl.setAttribute('fill', 'rgba(255,255,255,0.4)');
+    typeEl.textContent = comp.label;
+    g.appendChild(typeEl);
+  } else {
+    const label = document.createElementNS(SVG_NS, 'text');
+    label.classList.add('node-label');
+    label.setAttribute('x', w / 2);
+    label.setAttribute('y', 22);
+    label.setAttribute('text-anchor', 'middle');
+    label.setAttribute('font-size', '12');
+    label.textContent = customName || comp.label;
+    g.appendChild(label);
+  }
 
   // Container hint: "double-click to zoom in" icon
   if (isContainer) {
@@ -1084,24 +1459,7 @@ function createPort(nodeId, portDef, isOutput, px, py, comp, side) {
   g.dataset.dataType = portDef.dataType;
 
   const rank = (portDef.shape || []).length;
-  let shape;
-  if (rank >= 2) {
-    // Rank-2+: square
-    const size = 12;
-    shape = document.createElementNS(SVG_NS, 'rect');
-    shape.setAttribute('x', px - size / 2);
-    shape.setAttribute('y', py - size / 2);
-    shape.setAttribute('width', size);
-    shape.setAttribute('height', size);
-    shape.setAttribute('rx', 2);
-    shape.setAttribute('ry', 2);
-  } else {
-    // Rank-1: circle
-    shape = document.createElementNS(SVG_NS, 'circle');
-    shape.setAttribute('cx', px);
-    shape.setAttribute('cy', py);
-    shape.setAttribute('r', 7);
-  }
+  const shape = createPortShape(rank, px, py, 7);
   if (isOutput) {
     shape.setAttribute('fill', dtColor);
     shape.setAttribute('stroke', dtColor);
@@ -1329,7 +1687,9 @@ function paramFieldHtml(key, schema, value) {
 // Bind change handlers on [data-param] elements within a container, writing to targetNode
 function bindParamHandlers(container, targetNode) {
   container.querySelectorAll('[data-param]').forEach(el => {
+    if (isActiveLocked()) el.disabled = true;
     el.addEventListener('change', () => {
+      if (isActiveLocked()) { setStatus('Cannot edit while training', { flash: true }); return; }
       const param = el.dataset.param;
       const ptype = el.dataset.ptype;
       if (ptype === 'string') {
@@ -1346,6 +1706,8 @@ function bindParamHandlers(container, targetNode) {
 function renderProps() {
   const container = document.getElementById('topbar-props');
   const crumbs = document.getElementById('breadcrumbs');
+  const delBtn = document.getElementById('btn-delete-selected');
+  if (delBtn) delBtn.style.display = state.selected !== null ? '' : 'none';
 
   if (state.selected === null) {
     crumbs.querySelector('.crumb-selected')?.remove();
@@ -1389,7 +1751,7 @@ function renderProps() {
 
   // Inherited (rightmost) — emitted first in DOM, pipeline order
   inheritedFiltered.forEach((item, i) => {
-    html += `<span class="prop-crumb inherited" title="from ${item.source}">${item.key}: ${item.value}</span>`;
+    html += `<span class="prop-crumb inherited" title="from ${item.source}"><label>${item.key}</label><span>${item.value}</span></span>`;
     if (i < inheritedFiltered.length - 1) html += `<span class="prop-sep">\u25C2</span>`;
   });
 
@@ -1405,12 +1767,8 @@ function renderProps() {
     if (i < paramEntries.length - 1) html += `<span class="prop-sep">\u25C2</span>`;
   });
 
-  // Delete button — prepend so it appears leftmost visually
-  html = `<span class="topbar-delete" id="btn-delete-node" title="Delete" style="cursor:pointer">\u2715</span><span class="prop-sep">\u25C2</span>` + html;
-
   container.innerHTML = html;
   bindParamHandlers(container, node);
-  document.getElementById('btn-delete-node')?.addEventListener('click', () => deleteNode(node.id));
   document.getElementById('btn-zoom-in')?.addEventListener('click', () => zoomIntoNode(node.id));
 }
 
@@ -1419,19 +1777,12 @@ function renderProps() {
 function getInheritedValues() {
   const items = []; // {key, value, source}
   const seen = new Set();
-  const rootNodes = state.rootGraph.nodes;
-
-  // Pipeline-level: source file (earliest)
-  for (const n of rootNodes) {
-    if (n.type === 'source' && n.params?.file) {
-      items.push({ key: 'file', value: n.params.file, source: 'Text Source' });
-      seen.add('file');
-    }
-  }
+  const pipelineGraph = getPipelineGraph(getActiveCard());
+  const pipelineNodes = pipelineGraph.nodes;
 
   // Pipeline-level: seq_len from windower
   const windowTypes = ['sequential_window', 'sliding_window', 'random_window', 'dataset'];
-  for (const n of rootNodes) {
+  for (const n of pipelineNodes) {
     if (windowTypes.includes(n.type) && n.params?.seq_len) {
       items.push({ key: 'seq_len', value: n.params.seq_len, source: getCompDef(n.type)?.label || n.type });
       seen.add('seq_len');
@@ -1474,7 +1825,7 @@ function renderScopeProps(container) {
 
   // Inherited (rightmost) — pipeline order
   inheritedFiltered.forEach((item, i) => {
-    html += `<span class="prop-crumb inherited" title="from ${item.source}">${item.key}: ${item.value}</span>`;
+    html += `<span class="prop-crumb inherited" title="from ${item.source}"><label>${item.key}</label><span>${item.value}</span></span>`;
     if (i < inheritedFiltered.length - 1) html += `<span class="prop-sep">\u25C2</span>`;
   });
 
@@ -1553,13 +1904,13 @@ function edgePath(x1, y1, x2, y2, fromSide, toSide) {
 
 function getEdgeDataType(edge) {
   if (edge.from.nodeId === -1) {
-    // Boundary source — look up port type from parent component
+    // Boundary source — look up port type from parent component or pipeline boundary
     const parentNode = getParentNode();
-    if (parentNode) {
-      const comp = getCompDef(parentNode.type);
-      const port = comp ? (comp.ports.in || []).find(p => p.id === edge.from.portId) : null;
-      if (port) return port.dataType;
-    }
+    const portDefs = parentNode
+      ? (getCompDef(parentNode.type)?.ports.in || [])
+      : (PIPELINE_BOUNDARY.ports.in || []);
+    const port = portDefs.find(p => p.id === edge.from.portId);
+    if (port) return port.dataType;
   }
   const fromNode = state.nodes.find(n => n.id === edge.from.nodeId);
   const fromComp = fromNode ? getCompDef(fromNode.type) : null;
@@ -1607,12 +1958,14 @@ function removeEdgeEl(id) {
 }
 
 function deleteEdge(id) {
+  if (isActiveLocked()) { setStatus('Cannot edit while training', { flash: true }); return; }
   state.edges = state.edges.filter(e => e.id !== id);
   removeEdgeEl(id);
   updateStatus();
 }
 
 function addEdge(fromNodeId, fromPortId, toNodeId, toPortId) {
+  if (isActiveLocked()) { setStatus('Cannot edit while training', { flash: true }); return; }
   if (fromNodeId === toNodeId) return;
   const exists = state.edges.some(e =>
     e.from.nodeId === fromNodeId && e.from.portId === fromPortId &&
@@ -1695,7 +2048,7 @@ function setupD3Zoom() {
       edgesLayer.setAttribute('transform', tf);
       draftEdge.setAttribute('transform', tf);
       // Re-render boundary ports (scale with zoom) and re-path their edges
-      if (state.scopeStack.length > 0) updateViewportBorder();
+      updateViewportBorder();
       updateBoundaryEdges();
     });
 
@@ -1744,6 +2097,16 @@ function setupPalettePopup() {
     if (e.clientY < popup.getBoundingClientRect().top + 10) {
       popup.classList.remove('open');
     }
+  });
+
+  // Tab switching
+  document.querySelectorAll('.palette-tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.palette-tab-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.palette-tab-pane').forEach(p => p.classList.remove('active'));
+      btn.classList.add('active');
+      document.getElementById(`palette-tab-${btn.dataset.tab}`).classList.add('active');
+    });
   });
 }
 
@@ -1893,9 +2256,9 @@ function ensureChildren(node) {
 
 function doDemo() {
   state.scopeStack = [];
-  state.currentScope = 'pipeline';
-  state.nodes = state.rootGraph.nodes;
-  state.edges = state.rootGraph.edges;
+  state.currentScope = 'project';
+  state.nodes = projectGraph.nodes;
+  state.edges = projectGraph.edges;
   loadDemo();
   renderBreadcrumbs();
   renderCardList();
@@ -1904,10 +2267,11 @@ function doDemo() {
 function exportGraph() {
   const card = getActiveCard();
   const name = card.name || 'untitled';
+  const pipelineGraph = getPipelineGraph(card);
   const data = {
-    version: 3,
+    version: 4,
     name: name,
-    graph: serializeGraph(state.rootGraph),
+    graph: serializeGraph(pipelineGraph),
   };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
@@ -1935,27 +2299,29 @@ function serializeGraph(graph) {
 function importGraph(e) {
   const file = e.target.files[0];
   if (!file) return;
-  if (cards.length >= MAX_CARDS) { setStatus('Max engines reached'); return; }
   const reader = new FileReader();
   reader.onload = () => {
     try {
       const data = JSON.parse(reader.result);
-      const card = createEmptyCard(data.name || file.name.replace(/\.json$/, ''));
-      if ((data.version === 2 || data.version === 3) && data.graph) {
-        card.rootGraph = deserializeGraph(data.graph);
+      const card = getActiveCard();
+      const engineNode = projectGraph.nodes.find(n => n.id === card.nodeId);
+      if ((data.version >= 2) && data.graph) {
+        engineNode.children = deserializeGraph(data.graph);
       } else {
+        const pg = engineNode.children;
         for (const n of data.nodes || []) {
-          card.rootGraph.nodes.push({ ...n, label: getCompDef(n.type)?.label || n.type, children: null });
-          if (n.id >= card.nextId) card.nextId = n.id + 1;
+          pg.nodes.push({ ...n, label: getCompDef(n.type)?.label || n.type, children: null });
+          if (n.id >= projectNextId) projectNextId = n.id + 1;
         }
         for (const ed of data.edges || []) {
-          card.rootGraph.edges.push({ id: card.nextId++, from: ed.from, to: ed.to });
+          pg.edges.push({ id: projectNextId++, from: ed.from, to: ed.to });
         }
       }
-      cards.push(card);
-      switchToCard(cards.length - 1);
-      fitToView();
-      setStatus('Design imported as new engine.');
+      if (data.name) card.name = data.name;
+      card.engine.built = false;
+      loadCardIntoCanvas(activeCardIdx);
+      renderCardList();
+      setStatus('Design imported into ' + (card.name || 'engine'));
     } catch (err) {
       setStatus('Import failed: ' + err.message);
     }
@@ -2014,6 +2380,7 @@ function fitToView() {
 }
 
 function clearCanvas(silent) {
+  if (state.currentScope === 'project') { setStatus('Cannot clear project scope'); return; }
   if (!silent && state.nodes.length > 0 && !confirm('Clear current scope?')) return;
   nodesLayer.innerHTML = '';
   edgesLayer.innerHTML = '';
@@ -2032,8 +2399,13 @@ function updateStatus() {
   statusEl.textContent = `${scopeLabel}: ${state.nodes.length} components, ${state.edges.length} connections | Scroll to zoom, drag to pan${hint}`;
 }
 
-function setStatus(msg) {
+function setStatus(msg, { flash } = {}) {
   statusEl.textContent = msg;
+  if (flash) {
+    statusEl.classList.remove('flash-warn');
+    void statusEl.offsetWidth;          // force reflow to restart animation
+    statusEl.classList.add('flash-warn');
+  }
   setTimeout(updateStatus, 3000);
 }
 
@@ -2051,13 +2423,14 @@ function darken(hex, amount) {
 
 function loadDemo() {
   const card = getActiveCard();
-  const id = () => card.nextId++;
+  const id = () => projectNextId++;
 
-  const srcId = id(), tokId = id(), winId = id(), initId = id(), coopId = id(), lossId = id(), optId = id();
+  const tokId = id(), winId = id(), initId = id(), coopId = id(), lossId = id(), optId = id();
 
-  card.rootGraph = {
+  // Populate the engine node's pipeline
+  const engineNode = projectGraph.nodes.find(n => n.id === card.nodeId);
+  engineNode.children = {
     nodes: [
-      { id: srcId, type: "source", x: -400, y: 100, params: { file: "data/input.txt" }, children: null },
       { id: tokId, type: "char_tokenizer", x: -200, y: 100, params: {}, children: null },
       { id: winId, type: "sequential_window", x: 0, y: 100, params: { seq_len: 128 }, children: null },
       { id: initId, type: "zero_init", x: 0, y: -60, params: {}, children: null },
@@ -2066,34 +2439,28 @@ function loadDemo() {
       { id: optId, type: "optimizer", x: 560, y: -60, params: { algorithm: "adam", learning_rate: 0.0003, beta1: 0.9, beta2: 0.999 }, children: null },
     ],
     edges: [
-      // Source → Tokenizer → Windower
-      { id: id(), from: { nodeId: srcId, portId: "raw_text" }, to: { nodeId: tokId, portId: "raw_text" } },
+      { id: id(), from: { nodeId: -1, portId: "raw_text" }, to: { nodeId: tokId, portId: "raw_text" } },
       { id: id(), from: { nodeId: tokId, portId: "token_ids" }, to: { nodeId: winId, portId: "token_ids" } },
-      // Windower tokens → ensemble + loss targets
       { id: id(), from: { nodeId: winId, portId: "input_ids" }, to: { nodeId: coopId, portId: "token_ids" } },
       { id: id(), from: { nodeId: winId, portId: "target_ids" }, to: { nodeId: lossId, portId: "targets" } },
-      // Stream init → ensemble
       { id: id(), from: { nodeId: initId, portId: "stream_out" }, to: { nodeId: coopId, portId: "stream_in" } },
-      // Ensemble → loss
       { id: id(), from: { nodeId: coopId, portId: "logits_out" }, to: { nodeId: lossId, portId: "logits_in" } },
     ],
   };
 
   // Pre-populate children so they're visible when zooming in
-  const coopNode = card.rootGraph.nodes.find(n => n.id === coopId);
+  const coopNode = engineNode.children.nodes.find(n => n.id === coopId);
   if (coopNode) ensureChildren(coopNode);
 
-  card.scopeStack = [];
-  card.currentScope = 'pipeline';
   card.engine.built = false;
   card.engine.lossHistory = [];
-  state.nodes = card.rootGraph.nodes;
-  state.edges = card.rootGraph.edges;
 
-  buildPalette();
-  renderAll();
-  fitToView();
-  setStatus('Demo: Dataset → Cooperative Ensemble → Loss. Double-click containers to zoom in!');
+  // Navigate to project level, then auto-zoom into the engine
+  state.scopeStack = [];
+  state.currentScope = 'project';
+  state.nodes = projectGraph.nodes;
+  state.edges = projectGraph.edges;
+  zoomIntoNode(card.nodeId);
 }
 
 // ── Canonical Model Hash ──────────────────────────────────────────────────────
@@ -2101,37 +2468,69 @@ function loadDemo() {
 // that affect architecture) but excludes visual layout (x, y positions).
 // Same architecture → same hash, regardless of canvas arrangement.
 
-function canonicalGraphObj(graph) {
-  // Sort nodes by id for determinism
-  const nodes = [...graph.nodes].sort((a, b) => a.id - b.id).map(n => {
-    const obj = { id: n.id, type: n.type, params: sortedObj(n.params || {}) };
-    if (n.children && n.children.nodes.length > 0) {
-      obj.children = canonicalGraphObj(n.children);
-    }
-    return obj;
-  });
-  // Sort edges deterministically
-  const edges = [...graph.edges].sort((a, b) => {
-    if (a.from.nodeId !== b.from.nodeId) return a.from.nodeId - b.from.nodeId;
-    if (a.from.portId !== b.from.portId) return a.from.portId.localeCompare(b.from.portId);
-    if (a.to.nodeId !== b.to.nodeId) return a.to.nodeId - b.to.nodeId;
-    return a.to.portId.localeCompare(b.to.portId);
-  }).map(e => ({ from: { nodeId: e.from.nodeId, portId: e.from.portId }, to: { nodeId: e.to.nodeId, portId: e.to.portId } }));
-  return { nodes, edges };
-}
-
 function sortedObj(obj) {
   const out = {};
-  for (const k of Object.keys(obj).sort()) out[k] = obj[k];
+  for (const k of Object.keys(obj).sort()) {
+    // Exclude non-architectural params (name is cosmetic)
+    if (k === 'name') continue;
+    out[k] = obj[k];
+  }
   return out;
 }
 
+async function sha256hex(str) {
+  const data = new TextEncoder().encode(str);
+  const buf = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+// Recursive hash: each node's hash = SHA256(type + params + sorted children hashes)
+// Leaf nodes hash just type + params. Container nodes incorporate their subtree.
+// Edge topology uses node hashes (not IDs) so structurally identical subgraphs
+// produce identical hashes regardless of node ID assignment.
+// Returns full 256-bit hex hash. Stores both full and display (8-char) on each node.
+async function computeNodeHash(node) {
+  let childrenHash = '';
+  if (node.children && node.children.nodes.length > 0) {
+    // Hash each child node recursively
+    const childHashes = await Promise.all(
+      node.children.nodes.map(n => computeNodeHash(n))
+    );
+
+    // Build a map from node ID → node hash for edge encoding
+    const idToHash = {};
+    for (const n of node.children.nodes) {
+      idToHash[n.id] = n._hashFull;
+    }
+    // Boundary ports (nodeId: -1) get a fixed sentinel
+    idToHash[-1] = 'boundary';
+
+    // Encode edges using node hashes instead of IDs
+    // This makes topology position-independent
+    const edgeKeys = node.children.edges.map(e =>
+      `${idToHash[e.from.nodeId] || e.from.nodeId}:${e.from.portId}->` +
+      `${idToHash[e.to.nodeId] || e.to.nodeId}:${e.to.portId}`
+    );
+    edgeKeys.sort();
+
+    // Sort child hashes for order-independence
+    childHashes.sort();
+    childrenHash = childHashes.join(',') + '|' + edgeKeys.join(',');
+  }
+  const canonical = JSON.stringify({ type: node.type, params: sortedObj(node.params || {}) }) + childrenHash;
+  const fullHash = await sha256hex(canonical);
+  node._hashFull = fullHash;           // full 256-bit (64 hex chars)
+  node._hash = fullHash.slice(0, 8);   // display-friendly 32-bit
+  return fullHash;
+}
+
+// Compute the model hash for a pipeline graph (engine node's children)
+// Returns full 256-bit hash; caller truncates for display
 async function computeModelHash(graph) {
-  const canonical = JSON.stringify(canonicalGraphObj(graph));
-  const data = new TextEncoder().encode(canonical);
-  const hashBuf = await crypto.subtle.digest('SHA-256', data);
-  const hashArr = Array.from(new Uint8Array(hashBuf));
-  return hashArr.slice(0, 4).map(b => b.toString(16).padStart(2, '0')).join('');
+  if (!graph.nodes.length) return '0'.repeat(64);
+  const virtualRoot = { type: '__pipeline__', params: {}, children: graph };
+  const fullHash = await computeNodeHash(virtualRoot);
+  return fullHash;
 }
 
 // ── Engine (now per-card) ─────────────────────────────────────────────────────
@@ -2162,14 +2561,9 @@ async function doSaveWeights(name, card) {
   if (!eng.modelHash) return;
   name = name || card.name || 'default';
   try {
-    const resp = await fetch('/api/save', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ hash: eng.modelHash, name, card_id: card.id }),
-    });
-    const data = await resp.json();
+    const data = await apiPost('/api/save', { hash: eng.modelHash, name, card_id: card.id });
     if (data.saved) {
-      setStatus(`Weights saved: ${eng.modelHash}/${name}`);
+      setStatus(`Weights saved: ${eng.modelHash.slice(0,8)}/${name}`);
     } else {
       setStatus('Save failed: ' + (data.error || 'unknown'));
     }
@@ -2179,11 +2573,7 @@ async function doSaveWeights(name, card) {
 }
 
 async function fetchRunMetrics(hash, name) {
-  try {
-    const resp = await fetch(`/api/saves/${hash}/${name}`);
-    if (!resp.ok) return null;
-    return await resp.json();
-  } catch { return null; }
+  return fetchJSON(`/api/saves/${hash}/${name}`);
 }
 
 async function doLoadWeights(name, card) {
@@ -2192,14 +2582,9 @@ async function doLoadWeights(name, card) {
   if (!eng.modelHash) return;
   name = name || 'default';
   try {
-    const resp = await fetch('/api/load', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ hash: eng.modelHash, name, card_id: card.id }),
-    });
-    const data = await resp.json();
+    const data = await apiPost('/api/load', { hash: eng.modelHash, name, card_id: card.id });
     if (data.loaded) {
-      setStatus(`Weights loaded: ${eng.modelHash}/${name}`);
+      setStatus(`Weights loaded: ${eng.modelHash.slice(0,8)}/${name}`);
       return true;
     }
     return false;
@@ -2210,15 +2595,11 @@ async function autoLoadLatest(card) {
   card = card || getActiveCard();
   const eng = card.engine;
   if (!eng.modelHash) return;
-  try {
-    const resp = await fetch(`/api/saves/${eng.modelHash}`);
-    const data = await resp.json();
-    if (data.saves && data.saves.length > 0) {
-      const latest = data.saves[0];
-      const loaded = await doLoadWeights(latest.name, card);
-      if (loaded) setStatus(`Auto-loaded weights: ${latest.name}`);
-    }
-  } catch {}
+  const data = await fetchJSON(`/api/saves/${eng.modelHash}`);
+  if (data?.saves?.length > 0) {
+    const loaded = await doLoadWeights(data.saves[0].name, card);
+    if (loaded) setStatus(`Auto-loaded weights: ${data.saves[0].name}`);
+  }
 }
 
 function showRunsPicker() {
@@ -2239,8 +2620,7 @@ async function loadRunsList() {
   const list = document.getElementById('runs-list');
   list.innerHTML = '<div class="runs-empty">Loading...</div>';
   try {
-    const resp = await fetch(`/api/saves/${eng.modelHash}`);
-    const data = await resp.json();
+    const data = await fetchJSON(`/api/saves/${eng.modelHash}`, {});
     if (!data.saves || data.saves.length === 0) {
       list.innerHTML = '<div class="runs-empty">No saved runs for this model</div>';
       return;
@@ -2277,14 +2657,11 @@ async function doResetWeights() {
   const card = getActiveCard();
   const eng = card.engine;
   if (!eng.built) return;
+  if (eng.training) { setStatus('Cannot reset while training', { flash: true }); return; }
   try {
-    const payload = { version: 2, graph: serializeGraph(state.rootGraph), card_id: card.id };
-    const resp = await fetch('/api/build', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    const data = await resp.json();
+    const resetPipeline = getPipelineGraph(card || getActiveCard());
+    const payload = { version: 2, graph: serializeGraph(resetPipeline), card_id: card.id };
+    const data = await apiPost('/api/build', payload);
     if (data.built) {
       eng.lossHistory = [];
       setStatus('Weights reset — model reinitialized from scratch');
@@ -2300,20 +2677,24 @@ async function doResetWeights() {
 async function doBuild(card) {
   if (!card || card instanceof Event) card = getActiveCard();
   const eng = card.engine;
+  if (eng.training) { setStatus('Cannot build while training', { flash: true }); return; }
 
   try {
-    const payload = { version: 2, graph: serializeGraph(card.rootGraph), card_id: card.id };
-    const resp = await fetch('/api/build', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    const data = await resp.json();
+    const pipelineGraph = getPipelineGraph(card);
+    const clientHash = await computeModelHash(pipelineGraph);
+    const dataFile = document.getElementById('train-data-file')?.value?.trim() || 'data/input.txt';
+    const payload = { version: 2, graph: serializeGraph(pipelineGraph), card_id: card.id, hash: clientHash, data_file: dataFile };
+    const data = await apiPost('/api/build', payload);
 
     if (data.built) {
       eng.built = true;
       eng.lossHistory = [];
-      eng.modelHash = await computeModelHash(card.rootGraph);
+      // Server returns its own hash once implemented; use client hash as primary for now
+      eng.modelHash = data.model_hash || clientHash;
+      if (data.model_hash && data.hash_match === false) {
+        console.warn(`Hash mismatch: client=${clientHash} server=${data.model_hash}`);
+        setStatus(`Warning: client/server hash mismatch`);
+      }
       eng.summary = data.summary;
       setStatus(`Model built: ${fmtParams(data.summary.total_params)} params, ${data.summary.n_experts} experts`);
       renderCardList();
@@ -2328,9 +2709,22 @@ async function doBuild(card) {
 }
 
 async function doTrainAll() {
-  const starred = cards.filter(c => c.starred && c.engine.built);
+  const starredAll = cards.filter(c => c.starred);
+  if (starredAll.length === 0) {
+    alert('No starred engines to train.');
+    return;
+  }
+
+  // Auto-build any unbuilt starred cards
+  const unbuilt = starredAll.filter(c => !c.engine.built);
+  if (unbuilt.length > 0) {
+    setStatus(`Building ${unbuilt.length} unbuilt engine(s)...`);
+    await Promise.all(unbuilt.map(c => doBuild(c)));
+  }
+
+  const starred = starredAll.filter(c => c.engine.built);
   if (starred.length === 0) {
-    alert('No starred engines with built models to train.');
+    alert('Build failed for all starred engines.');
     return;
   }
 
@@ -2341,24 +2735,26 @@ async function doTrainAll() {
   document.getElementById('btn-train-all').style.display = 'none';
   document.getElementById('btn-stop-all').style.display = '';
 
+  // Create training session
+  trainSession = { cards: starred, active: true };
+  renderCardList();
+  renderTrainSession();
+
   // Train all starred engines in parallel (server holds N models keyed by card_id)
   await Promise.all(starred.map(card => trainSingleCard(card, steps, runName)));
 
+  trainSession.active = false;
   document.getElementById('btn-train-all').style.display = '';
   document.getElementById('btn-stop-all').style.display = 'none';
   renderCardList();
+  renderTrainSession();
 }
 
 async function trainSingleCard(card, steps, runName) {
   const eng = card.engine;
   const name = runName || card.name || '';
   try {
-    const resp = await fetch('/api/train/start', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ steps, name, card_id: card.id }),
-    });
-    const data = await resp.json();
+    const data = await apiPost('/api/train/start', { steps, name, card_id: card.id });
     if (data.started) {
       eng.training = true;
       eng.lossHistory = [];
@@ -2385,37 +2781,33 @@ function watchTraining(card) {
       setStatus(`${card.name || 'untitled'}: done. Loss: ${avgLoss.toFixed(4)}`);
     }
     renderCardList();
-    // Auto-save
-    if (document.getElementById('btn-save-toggle')?.classList.contains('active')) {
-      const rn = document.getElementById('train-run-name')?.value?.trim() || card.name || 'default';
-      doSaveWeights(rn, card);
-    }
+    // Always auto-save — weights are keyed by model hash
+    const rn = document.getElementById('train-run-name')?.value?.trim() || card.name || 'default';
+    doSaveWeights(rn, card);
   }
 
   function handleStepData(data) {
     // Update loss history
     if (eng.lossHistory.length === 0 || eng.lossHistory[eng.lossHistory.length - 1].step !== data.step) {
       eng.lossHistory.push({ step: data.step, loss: data.avg_loss });
-      // Unhide loss chart if hidden
-      const wrap = document.querySelector('.project-card.expanded .loss-chart-wrap');
-      if (wrap) wrap.style.display = '';
-      drawLossChart();
       drawAllSparklines();
+      // Update session chart in train panel
+      const sessionCanvas = document.querySelector('#train-panel-session .session-chart');
+      if (sessionCanvas) drawSessionChart(sessionCanvas);
     }
 
-    // Update train status in expanded card if visible
-    const tsEl = document.querySelector('.project-card.expanded .train-status');
-    if (tsEl && cards[activeCardIdx] === card) {
+    // Update session slot for this engine
+    const slotEl = document.querySelector(`.session-slot[data-card-id="${card.id}"]`);
+    if (slotEl) {
       const elapsed = data.elapsed_sec || 0;
       const stepsPerSec = elapsed > 0 ? (data.step / elapsed).toFixed(1) : '\u2014';
       const timeStr = elapsed >= 60
         ? `${Math.floor(elapsed / 60)}m ${Math.round(elapsed % 60)}s`
         : `${elapsed.toFixed(1)}s`;
-      tsEl.innerHTML = `
-        <div class="ts-loss">${data.avg_loss.toFixed(4)}</div>
-        <div class="ts-step">Step ${data.step} / ${data.steps} \u00b7 ${timeStr} \u00b7 ${stepsPerSec} steps/s</div>
-      `;
-      tsEl.style.display = '';
+      const lossEl = slotEl.querySelector('.session-slot-loss');
+      const stepEl = slotEl.querySelector('.session-slot-step');
+      if (lossEl) lossEl.textContent = data.avg_loss.toFixed(4);
+      if (stepEl) stepEl.textContent = `Step ${data.step}/${data.steps} \u00b7 ${timeStr} \u00b7 ${stepsPerSec} steps/s`;
     }
   }
 
@@ -2471,11 +2863,7 @@ async function doStopAll() {
   // Stop each training card on the server
   const stopPromises = cards
     .filter(c => c.engine.training)
-    .map(c => fetch('/api/train/stop', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ card_id: c.id }),
-    }).catch(() => {}));
+    .map(c => apiPost('/api/train/stop', { card_id: c.id }).catch(() => {}));
   await Promise.all(stopPromises);
   // Mark all as stopped — the server will send "done" events via WebSocket
   // which will close the connections and resolve the watchTraining promises
@@ -2487,85 +2875,106 @@ async function doStopAll() {
   setStatus('Training stopped.');
 }
 
-function drawLossChart() {
-  const canvasEl = document.querySelector('.project-card.expanded .loss-chart');
-  if (!canvasEl) return;
-  const ctx = canvasEl.getContext('2d');
-  const w = canvasEl.width;
-  const h = canvasEl.height;
-  const data = getEngine().lossHistory;
-  if (data.length < 2) return;
+function togglePaletteTab(tab, forceOpen) {
+  const popup = document.getElementById('palette-popup');
+  if (forceOpen !== false) popup.classList.add('open');
+  document.querySelectorAll('.palette-tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.palette-tab-pane').forEach(p => p.classList.remove('active'));
+  document.querySelector(`.palette-tab-btn[data-tab="${tab}"]`)?.classList.add('active');
+  document.getElementById(`palette-tab-${tab}`)?.classList.add('active');
+}
 
-  ctx.clearRect(0, 0, w, h);
-  const losses = data.map(d => d.loss);
-  let minL = Math.min(...losses);
-  let maxL = Math.max(...losses);
-  if (maxL - minL < 0.01) { minL -= 0.5; maxL += 0.5; }
-  const pad = (maxL - minL) * 0.1;
-  minL -= pad; maxL += pad;
+function toggleTestPanel(forceOpen) { togglePaletteTab('test', forceOpen); }
+function toggleTrainPanel(forceOpen) { togglePaletteTab('train', forceOpen); }
 
-  ctx.strokeStyle = 'rgba(255,255,255,0.06)';
-  ctx.lineWidth = 1;
-  for (let i = 0; i <= 4; i++) {
-    const y = h * i / 4;
-    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
+function renderTrainSession() {
+  const container = document.getElementById('train-panel-session');
+  if (!container) return;
+  if (!trainSession) {
+    container.innerHTML = '<div style="padding:16px;color:var(--text-dim);font-size:12px;text-align:center">No active session</div>';
+    return;
   }
-
-  ctx.strokeStyle = '#4a90d9';
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  data.forEach((d, i) => {
-    const x = (i / (data.length - 1)) * w;
-    const y = h - ((d.loss - minL) / (maxL - minL)) * h;
-    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  const activeLabel = trainSession.active ? 'TRAINING' : 'DONE';
+  const slots = trainSession.cards.map((c, i) => {
+    const color = SESSION_COLORS[i % SESSION_COLORS.length];
+    const eng = c.engine;
+    const last = eng.lossHistory.length > 0 ? eng.lossHistory[eng.lossHistory.length - 1] : null;
+    const lossStr = last ? last.loss.toFixed(4) : '\u2014';
+    const stepStr = last ? `Step ${last.step}` : 'Waiting...';
+    const badge = eng.training ? '<span class="card-training" style="font-size:10px">LIVE</span>' : '';
+    return `
+      <div class="session-slot" data-card-id="${c.id}">
+        <span class="session-slot-swatch" style="background:${color}"></span>
+        <span class="session-slot-name">${c.name || 'untitled'}</span>
+        ${badge}
+        <span class="session-slot-loss">${lossStr}</span>
+        <span class="session-slot-step">${stepStr}</span>
+      </div>`;
+  }).join('');
+  container.innerHTML = `
+    <div style="display:flex;align-items:center;gap:8px;padding:6px 12px;border-bottom:1px solid var(--border)">
+      <span style="font-weight:600;font-size:13px">Session</span>
+      <span class="card-training" style="font-size:11px">${activeLabel}</span>
+      <button class="session-close" title="Dismiss" style="margin-left:auto">&times;</button>
+    </div>
+    <div class="session-slots">${slots}</div>
+    <div style="padding:6px 12px 10px">
+      <canvas class="session-chart" width="600" height="90"></canvas>
+    </div>
+  `;
+  container.querySelector('.session-close').addEventListener('click', () => {
+    trainSession = null;
+    renderTrainSession();
+    renderCardList();
   });
-  ctx.stroke();
-
-  ctx.fillStyle = 'rgba(255,255,255,0.4)';
-  ctx.font = '10px monospace';
-  ctx.textAlign = 'left';
-  ctx.fillText(maxL.toFixed(2), 2, 10);
-  ctx.fillText(minL.toFixed(2), 2, h - 2);
+  setTimeout(() => drawSessionChart(container.querySelector('.session-chart')), 0);
 }
 
-function openManualTest() {
-  const eng = getEngine();
-  if (!eng.built) return;
-  const overlay = document.getElementById('gen-overlay');
-  document.getElementById('gen-overlay-text').textContent = '';
-  const lossEl = document.getElementById('gen-overlay-loss');
-  if (eng.lossHistory.length > 0) {
-    const last = eng.lossHistory[eng.lossHistory.length - 1];
-    lossEl.textContent = `Loss: ${last.loss.toFixed(4)} @ step ${last.step}`;
-  } else {
-    lossEl.textContent = '';
+async function doGenerateAll() {
+  const targets = cards.filter(c => c.starred && c.engine.built);
+  if (targets.length === 0) {
+    setStatus('No starred+built engines to test');
+    return;
   }
-  overlay.style.display = '';
-}
-
-async function doGenerate() {
-  const eng = getEngine();
-  if (!eng.built) return;
 
   const seed = document.getElementById('gen-seed')?.value || 'First Citizen:\n';
   const btn = document.getElementById('btn-generate');
+  const container = document.getElementById('test-panel-outputs');
+  container.innerHTML = '';
+
+  for (const card of targets) {
+    const col = document.createElement('div');
+    col.className = 'test-output-col';
+    const eng = card.engine;
+    const lossInfo = eng.lossHistory.length > 0
+      ? `Loss: ${eng.lossHistory[eng.lossHistory.length - 1].loss.toFixed(4)}` : '';
+    col.innerHTML = `
+      <div class="test-output-header">
+        <span>${card.name || 'untitled'}</span>
+        <span class="test-loss">${lossInfo}</span>
+      </div>
+      <pre class="test-output-text generating" data-card-id="${card.id}">Generating...</pre>
+    `;
+    container.appendChild(col);
+  }
+
   btn.disabled = true;
   btn.textContent = 'Generating...';
 
-  try {
-    const resp = await fetch('/api/generate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ seed, max_tokens: 200, temperature: 0.8, card_id: getActiveCard().id }),
-    });
-    const data = await resp.json();
-    document.getElementById('gen-overlay-text').textContent = data.text || data.error || 'No output';
-  } catch (err) {
-    document.getElementById('gen-overlay-text').textContent = 'Error: ' + err.message;
-  } finally {
-    btn.disabled = false;
-    btn.textContent = 'Generate';
-  }
+  await Promise.allSettled(targets.map(async (card) => {
+    const pre = container.querySelector(`pre[data-card-id="${card.id}"]`);
+    try {
+      const data = await apiPost('/api/generate', { seed, max_tokens: 200, temperature: 0.8, card_id: card.id });
+      pre.textContent = data.text || data.error || 'No output';
+      pre.classList.remove('generating');
+    } catch (err) {
+      pre.textContent = 'Error: ' + err.message;
+      pre.classList.remove('generating');
+    }
+  }));
+
+  btn.disabled = false;
+  btn.textContent = 'Generate All \u2605';
 }
 
 
@@ -2579,19 +2988,14 @@ function fmtParams(n) {
 // ── Cards System ─────────────────────────────────────────────────────────────
 
 function setupCards() {
-  document.getElementById('btn-add-card').addEventListener('click', addCard);
-  document.getElementById('btn-import-card').addEventListener('click', () => document.getElementById('import-file').click());
   document.getElementById('btn-fit').addEventListener('click', fitToView);
+  document.getElementById('btn-delete-selected').addEventListener('click', () => {
+    if (state.selected) deleteNode(state.selected);
+  });
   document.getElementById('btn-clear').addEventListener('click', () => clearCanvas());
   document.getElementById('btn-train-all').addEventListener('click', doTrainAll);
   document.getElementById('btn-stop-all').addEventListener('click', doStopAll);
-  document.getElementById('btn-save-toggle').addEventListener('click', (e) => {
-    e.currentTarget.classList.toggle('active');
-  });
-  document.getElementById('btn-generate').addEventListener('click', doGenerate);
-  const genOverlay = document.getElementById('gen-overlay');
-  document.getElementById('gen-overlay-close').addEventListener('click', () => { genOverlay.style.display = 'none'; });
-  genOverlay.addEventListener('click', (e) => { if (e.target === genOverlay) genOverlay.style.display = 'none'; });
+  document.getElementById('btn-generate').addEventListener('click', doGenerateAll);
   document.getElementById('runs-close').addEventListener('click', () => {
     document.getElementById('runs-popup').style.display = 'none';
   });
@@ -2610,24 +3014,19 @@ async function destroySavedWeights(card) {
   if (!eng.modelHash) { setStatus('No model hash — nothing to delete'); return; }
   // Show saves for this hash so user knows what they're deleting
   try {
-    const resp = await fetch(`/api/saves/${eng.modelHash}`);
-    const data = await resp.json();
+    const data = await fetchJSON(`/api/saves/${eng.modelHash}`, {});
     const saves = data.saves || [];
     if (saves.length === 0) {
       setStatus('No saved weights on disk for this model');
       return;
     }
     const names = saves.map(s => s.name).join(', ');
-    if (!confirm(`Permanently delete all saved weights for model ${eng.modelHash}?\n\nSaves: ${names}\n\nThis cannot be undone.`)) return;
+    if (!confirm(`Permanently delete all saved weights for model ${eng.modelHash.slice(0,8)}?\n\nSaves: ${names}\n\nThis cannot be undone.`)) return;
     // Delete each save
     for (const save of saves) {
-      await fetch('/api/save', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ hash: eng.modelHash, name: save.name }),
-      });
+      await apiPost('/api/save', { hash: eng.modelHash, name: save.name }, 'DELETE');
     }
-    setStatus(`Deleted ${saves.length} save(s) for model ${eng.modelHash}`);
+    setStatus(`Deleted ${saves.length} save(s) for model ${eng.modelHash.slice(0,8)}`);
   } catch (err) {
     setStatus('Delete error: ' + err.message);
   }
@@ -2642,11 +3041,11 @@ function deleteCard(idx) {
     card.engine._trainWs = null;
   }
   // Free server slot
-  fetch('/api/slot', {
-    method: 'DELETE',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ card_id: card.id }),
-  }).catch(() => {});
+  apiPost('/api/slot', { card_id: card.id }, 'DELETE').catch(() => {});
+  // Remove engine node from project graph
+  const nodeIdx = projectGraph.nodes.findIndex(n => n.id === card.nodeId);
+  if (nodeIdx >= 0) projectGraph.nodes.splice(nodeIdx, 1);
+  projectGraph.edges = projectGraph.edges.filter(e => e.from.nodeId !== card.nodeId && e.to.nodeId !== card.nodeId);
   cards.splice(idx, 1);
   if (activeCardIdx >= cards.length) activeCardIdx = cards.length - 1;
   if (idx === activeCardIdx || activeCardIdx >= cards.length) {
@@ -2671,8 +3070,19 @@ function switchToCard(newIdx) {
 
 function loadCardIntoCanvas(idx) {
   const card = cards[idx];
-  state.nodes = card.rootGraph.nodes;
-  state.edges = card.rootGraph.edges;
+  // Navigate into this engine's pipeline
+  const engineNode = projectGraph.nodes.find(n => n.id === card.nodeId);
+  if (!engineNode) return;
+  if (!engineNode.children) engineNode.children = { nodes: [], edges: [] };
+
+  state.scopeStack = [{
+    nodeId: card.nodeId,
+    nodeLabel: card.name || 'Engine',
+    scopeType: 'pipeline',
+  }];
+  state.nodes = engineNode.children.nodes;
+  state.edges = engineNode.children.edges;
+  state.currentScope = 'pipeline';
   state.selected = null;
 
   buildPalette();
@@ -2682,20 +3092,17 @@ function loadCardIntoCanvas(idx) {
   fitToView();
   updateStatus();
   renderTree();
-
 }
 
 function renderCardList() {
   const list = document.getElementById('cards-list');
   list.innerHTML = '';
-  const atMax = cards.length >= MAX_CARDS;
-  document.getElementById('btn-add-card').disabled = atMax;
-  document.getElementById('btn-import-card').disabled = atMax;
 
   cards.forEach((card, idx) => {
     const isActive = idx === activeCardIdx;
     const div = document.createElement('div');
-    div.className = `project-card ${isActive ? 'expanded' : 'collapsed'}`;
+    const ghosted = card.engine.training ? ' ghosted' : '';
+    div.className = `project-card ${isActive ? 'expanded' : 'collapsed'}${ghosted}`;
     div.dataset.idx = idx;
 
     if (isActive) {
@@ -2717,7 +3124,6 @@ function renderCardList() {
     }
   });
 
-  // Draw sparklines after DOM is in place
   drawAllSparklines();
 }
 
@@ -2758,37 +3164,32 @@ function renderExpandedCard(card) {
         <div class="mi-row"><span class="mi-label">Stream</span><span class="mi-value">d=${s.stream_dim}</span></div>
         <div class="mi-row"><span class="mi-label">Router</span><span class="mi-value">${s.router}</span></div>
         <div class="mi-row"><span class="mi-label">Vocab</span><span class="mi-value">${s.vocab_size}</span></div>
-        ${eng.modelHash ? `<div class="mi-row"><span class="mi-label">Hash</span><span class="mi-value">${eng.modelHash}</span></div>` : ''}
+        ${eng.modelHash ? `<div class="mi-row"><span class="mi-label">Hash</span><span class="mi-value" title="${eng.modelHash}">${eng.modelHash.slice(0, 8)}</span></div>` : ''}
       </div>
     `;
   }
 
+  const dis = isTraining ? 'disabled' : '';
   return `
     <div class="card-header">
       <span class="card-star ${card.starred ? 'starred' : ''}" title="Toggle training">${starSvg}</span>
       <input type="text" class="card-name-input" value="${card.name}" placeholder="untitled">
-      ${cards.length > 1 ? '<button class="card-close" title="Remove from rail">&times;</button>' : ''}
-      ${eng.modelHash ? '<button class="card-trash" title="Delete saved weights from disk">\u{1F5D1}</button>' : ''}
+      ${cards.length > 1 && !isTraining ? '<button class="card-close" title="Remove from rail">&times;</button>' : ''}
+      ${eng.modelHash && !isTraining ? '<button class="card-trash" title="Delete saved weights from disk">\u{1F5D1}</button>' : ''}
     </div>
     <div class="card-engine">
-      <div class="prop-group" style="display:flex;gap:4px;flex-wrap:wrap">
-        <button class="toolbar-btn btn-demo" style="flex:1;font-size:12px;padding:4px 8px">Demo</button>
+      <div class="prop-group" style="display:flex;gap:4px">
+        <button class="toolbar-btn engine-btn btn-build" style="flex:1;font-size:12px;padding:4px 8px" ${dis}>${eng.built ? 'Rebuild' : 'Build'}</button>
         <button class="toolbar-btn btn-export" style="flex:1;font-size:12px;padding:4px 8px">Export</button>
-      </div>
-      <div class="prop-group">
-        <button class="toolbar-btn engine-btn btn-build">${eng.built ? 'Rebuild Model' : 'Build Model'}</button>
+        <button class="toolbar-btn btn-import" style="flex:1;font-size:12px;padding:4px 8px">Import</button>
       </div>
       ${modelInfoHtml}
       ${eng.built ? `
         <div style="padding:0 12px 6px;text-align:right">
-          <button class="toolbar-btn btn-reset-weights" style="font-size:11px;padding:2px 8px">Reset Weights</button>
-        </div>
-        <div class="train-status" style="${isTraining ? '' : 'display:none'}; padding:8px 12px; font-size:12px; border-bottom:1px solid var(--border)"></div>
-        <div class="loss-chart-wrap" style="${eng.lossHistory.length > 0 ? '' : 'display:none'}; padding:6px 12px; border-bottom:1px solid var(--border)">
-          <canvas class="loss-chart" width="220" height="80"></canvas>
+          <button class="toolbar-btn btn-reset-weights" style="font-size:11px;padding:2px 8px" ${dis}>Reset Weights</button>
         </div>
         <div class="prop-group">
-          <button class="toolbar-btn engine-btn btn-manual-test" style="width:100%">Manual Test</button>
+          <button class="toolbar-btn engine-btn btn-manual-test" style="width:100%">Test Console</button>
           <button class="toolbar-btn btn-runs" style="width:100%;margin-top:4px;font-size:11px">Prior Runs</button>
         </div>
       ` : ''}
@@ -2814,8 +3215,8 @@ function bindExpandedCardEvents(div, card, idx) {
   });
 
   // Design buttons
-  div.querySelector('.btn-demo')?.addEventListener('click', doDemo);
   div.querySelector('.btn-export')?.addEventListener('click', exportGraph);
+  div.querySelector('.btn-import')?.addEventListener('click', () => document.getElementById('import-file').click());
 
 
   // Star toggle
@@ -2827,14 +3228,10 @@ function bindExpandedCardEvents(div, card, idx) {
 
   // Engine buttons
   div.querySelector('.btn-build')?.addEventListener('click', doBuild);
-  div.querySelector('.btn-manual-test')?.addEventListener('click', openManualTest);
+  div.querySelector('.btn-manual-test')?.addEventListener('click', () => toggleTestPanel(true));
   div.querySelector('.btn-runs')?.addEventListener('click', showRunsPicker);
   div.querySelector('.btn-reset-weights')?.addEventListener('click', doResetWeights);
 
-  // Draw loss chart if data exists
-  if (card.engine.lossHistory.length >= 2) {
-    setTimeout(drawLossChart, 0);
-  }
 }
 
 function drawSparkline(canvasEl, lossHistory) {
@@ -2863,6 +3260,53 @@ function drawAllSparklines() {
     if (el) drawSparkline(el, card.engine.lossHistory);
   });
 }
+
+function drawSessionChart(canvasEl) {
+  if (!canvasEl || !trainSession) return;
+  const ctx = canvasEl.getContext('2d');
+  const w = canvasEl.width, h = canvasEl.height;
+  ctx.clearRect(0, 0, w, h);
+
+  // Gather all losses to find global min/max
+  const allLosses = trainSession.cards.flatMap(c => c.engine.lossHistory.map(d => d.loss));
+  if (allLosses.length < 2) return;
+
+  let minL = Math.min(...allLosses), maxL = Math.max(...allLosses);
+  if (maxL - minL < 0.01) { minL -= 0.5; maxL += 0.5; }
+  const pad = (maxL - minL) * 0.1;
+  minL -= pad; maxL += pad;
+
+  // Grid lines
+  ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) {
+    const y = h * i / 4;
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
+  }
+
+  // Draw each engine's loss curve
+  trainSession.cards.forEach((card, ci) => {
+    const data = card.engine.lossHistory;
+    if (data.length < 2) return;
+    ctx.strokeStyle = SESSION_COLORS[ci % SESSION_COLORS.length];
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    data.forEach((d, i) => {
+      const x = (i / (data.length - 1)) * w;
+      const y = h - ((d.loss - minL) / (maxL - minL)) * h;
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+  });
+
+  // Y-axis labels
+  ctx.fillStyle = 'rgba(255,255,255,0.4)';
+  ctx.font = '10px monospace';
+  ctx.textAlign = 'left';
+  ctx.fillText(maxL.toFixed(2), 2, 10);
+  ctx.fillText(minL.toFixed(2), 2, h - 2);
+}
+
 
 // ── Boot ─────────────────────────────────────────────────────────────────────
 

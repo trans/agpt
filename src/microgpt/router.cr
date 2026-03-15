@@ -156,7 +156,7 @@ class GlobalRouter < Router
   end
 
   def describe : String
-    "global(mean→linear→softmax)"
+    "global"
   end
 end
 
@@ -265,7 +265,7 @@ class ContextRouter < Router
   end
 
   def describe : String
-    "context(cumsum→linear→softmax)"
+    "context"
   end
 end
 
@@ -425,7 +425,7 @@ class GatedRouter < Router
   end
 
   def describe : String
-    "gated(gate·ctx+emb→linear→softmax)"
+    "gated"
   end
 end
 
