@@ -37,6 +37,7 @@ module ConstructionKit
     @chat_provider : Arcana::Chat::Anthropic? = nil
     @chat_tools : Array(Arcana::Chat::Tool) = [] of Arcana::Chat::Tool
     @chat_sessions : Hash(String, Arcana::Chat::History) = {} of String => Arcana::Chat::History
+    @chat_pending_graph_update : JSON::Any? = nil
 
     def initialize(@host : String = "127.0.0.1", @port : Int32 = 8080, @data_dir : String = DEFAULT_DATA_DIR)
       @saves_dir = File.join(@data_dir, "saves")
@@ -402,9 +403,32 @@ module ConstructionKit
           nil
         end
 
-        reply = chat_tool_loop(history, card_id, viewscreen_text)
+        begin
+          reply = chat_tool_loop(history, card_id, viewscreen_text)
+        rescue ex
+          STDERR.puts "Chat API error: #{ex.message}"
+          # Remove the user message we just added so history isn't corrupted
+          history.messages.pop if history.messages.last?.try(&.role) == "user"
+          ctx.response.status = HTTP::Status.new(502)
+          ctx.response.print({error: "AI service error: #{ex.message}"}.to_json)
+          return
+        end
         reply_html = Arcana::Markdown.to_html(reply)
-        ctx.response.print({reply: reply_html, session_id: session_id}.to_json)
+        # Check if any update_graph tool calls were made — include the graph update
+        graph_update = @chat_pending_graph_update
+        @chat_pending_graph_update = nil
+        tools_used = @chat_tools_used
+        response = JSON.build do |json|
+          json.object do
+            json.field "reply", reply_html
+            json.field "session_id", session_id
+            json.field "graph_update", graph_update if graph_update
+            json.field "tools_used" do
+              json.array { tools_used.each { |t| json.string t } }
+            end
+          end
+        end
+        ctx.response.print(response)
 
       when {"DELETE", "/api/chat"}
         body = ctx.request.body.try(&.gets_to_end) || "{}"
@@ -861,10 +885,13 @@ module ConstructionKit
       PROMPT
     end
 
+    getter chat_tools_used : Array(String) = [] of String
+
     private def chat_tool_loop(history : Arcana::Chat::History, card_id : String?, viewscreen : String? = nil) : String
       provider = @chat_provider.not_nil!
-      max_rounds = 10
+      max_rounds = 5
       last_content = ""
+      @chat_tools_used = [] of String
 
       max_rounds.times do
         # Build messages with viewscreen injected before the last user message
@@ -891,6 +918,7 @@ module ConstructionKit
 
           # Execute each tool call
           response.tool_calls.each do |tc|
+            @chat_tools_used << tc.function.name
             result = execute_chat_tool(tc, card_id)
             history.messages << Arcana::Chat::Message.new(
               role: "tool",
@@ -945,7 +973,8 @@ module ConstructionKit
       when "update_graph"
         graph_json = args["graph"]?
         if graph_json
-          {updated: true, card_id: card_id, note: "Graph updated. The frontend should reload."}.to_json
+          @chat_pending_graph_update = graph_json
+          {updated: true, card_id: card_id, note: "Graph update queued. The frontend will apply it."}.to_json
         else
           {error: "No graph provided"}.to_json
         end

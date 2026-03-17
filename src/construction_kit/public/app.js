@@ -3122,6 +3122,8 @@ function setupCards() {
   document.getElementById('btn-pick-data').addEventListener('click', showDataFilePicker);
   document.getElementById('btn-save-project').addEventListener('click', doSaveProject);
   document.getElementById('btn-load-project').addEventListener('click', showProjectsPicker);
+  document.getElementById('btn-add-card').addEventListener('click', addCard);
+  document.getElementById('btn-copy-card').addEventListener('click', copyCard);
   document.getElementById('projects-close').addEventListener('click', () => {
     document.getElementById('projects-popup').style.display = 'none';
   });
@@ -3298,6 +3300,28 @@ function addCard() {
   const card = createEmptyCard('Engine ' + (cards.length + 1));
   cards.push(card);
   switchToCard(cards.length - 1);
+}
+
+function copyCard() {
+  if (cards.length >= MAX_CARDS) { setStatus('Max engines reached', { flash: true }); return; }
+  const source = getActiveCard();
+  if (!source) return;
+
+  // Create new card with copied graph
+  const sourceEngine = projectGraph.nodes.find(n => n.id === source.nodeId);
+  const newCard = createEmptyCard(source.name + ' (copy)');
+  newCard.graphMode = source.graphMode;
+
+  // Deep-copy the graph by serializing and deserializing
+  if (sourceEngine?.children) {
+    const newEngine = projectGraph.nodes.find(n => n.id === newCard.nodeId);
+    const serialized = serializeGraph(sourceEngine.children);
+    newEngine.children = deserializeGraph(serialized);
+  }
+
+  cards.push(newCard);
+  switchToCard(cards.length - 1);
+  setStatus(`Copied "${source.name}"`);
 }
 
 async function destroySavedWeights(card) {
@@ -3640,10 +3664,24 @@ function setupChat() {
     }
   });
 
+  document.getElementById('btn-chat-clear').addEventListener('click', clearChat);
+
   // Restore chat history from localStorage
   for (const msg of chatHistory) {
     appendChatMessage(msg.role, msg.text, false);
   }
+}
+
+async function clearChat() {
+  // Clear server-side session
+  await apiPost('/api/chat', {}, 'DELETE').catch(() => {});
+  // Clear frontend
+  document.getElementById('chat-messages').innerHTML = '';
+  chatHistory = [];
+  localStorage.removeItem('chatHistory');
+  // New session ID
+  chatSessionId = crypto.randomUUID();
+  localStorage.setItem('chatSessionId', chatSessionId);
 }
 
 function appendChatMessage(role, text, save = true) {
@@ -3664,6 +3702,25 @@ function appendChatMessage(role, text, save = true) {
     localStorage.setItem('chatHistory', JSON.stringify(chatHistory));
   }
   return div;
+}
+
+function applyGraphUpdate(graphData) {
+  const card = getActiveCard();
+  if (!card) return;
+  const engineNode = projectGraph.nodes.find(n => n.id === card.nodeId);
+  if (!engineNode) return;
+
+  try {
+    engineNode.children = deserializeGraph(graphData);
+    card.engine.built = false; // needs rebuild after graph change
+    // Reload the canvas with the updated graph
+    loadCardIntoCanvas(activeCardIdx);
+    renderCardList();
+    setStatus('Graph updated by AI');
+  } catch (e) {
+    console.error('Failed to apply graph update:', e);
+    setStatus('Failed to apply AI graph update', { flash: true });
+  }
 }
 
 async function syncTrainingState() {
@@ -3712,25 +3769,41 @@ async function sendChatMessage() {
     };
   }
   try {
-    const data = await apiPost('/api/chat', {
-      message,
-      session_id: chatSessionId,
-      card_id: card?.id,
-      viewscreen,
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 120000); // 2 min timeout
+    const resp = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message, session_id: chatSessionId, card_id: card?.id, viewscreen }),
+      signal: controller.signal,
     });
+    clearTimeout(timeout);
+    const data = await resp.json();
 
     thinkingEl.remove();
 
     if (data.error) {
       appendChatMessage('assistant', 'Error: ' + data.error);
     } else {
+      // Show tools used
+      if (data.tools_used && data.tools_used.length > 0) {
+        const toolsEl = document.createElement('div');
+        toolsEl.className = 'chat-tools-used';
+        toolsEl.textContent = data.tools_used.join(' → ');
+        document.getElementById('chat-messages').appendChild(toolsEl);
+      }
       appendChatMessage('assistant', data.reply || '(no response)');
+      // Apply graph update if the AI modified the model
+      if (data.graph_update) {
+        applyGraphUpdate(data.graph_update);
+      }
       // Check if AI started training — sync frontend state
       await syncTrainingState();
     }
   } catch (err) {
     thinkingEl.remove();
-    appendChatMessage('assistant', 'Error: ' + err.message);
+    const errMsg = err.name === 'AbortError' ? 'Request timed out. The AI may still be processing — try a simpler request.' : err.message;
+    appendChatMessage('assistant', 'Error: ' + errMsg);
   }
 }
 
