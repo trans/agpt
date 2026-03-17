@@ -22,6 +22,8 @@ module ConstructionKit
     property train_log : IO? = nil
     property train_run_name : String = ""
     property train_metrics : Array(MetricPoint) = [] of MetricPoint
+    property graph_warnings : Array(String) = [] of String
+    property last_error : String? = nil
   end
 
   class Server
@@ -196,6 +198,13 @@ module ConstructionKit
           effective_hash = server_hash || client_hash
           slot = slot_for(card_id)
           slot.builder = Builder.new(config, graph_mode ? doc.graph : nil, graph_mode)
+          slot.last_error = nil
+          # Capture graph warnings
+          if (eg = slot.builder.try(&.exec_graph))
+            slot.graph_warnings = eg.warnings.dup
+          else
+            slot.graph_warnings = [] of String
+          end
           summary = slot.builder.not_nil!.summary
 
           # Save graph definition under its hash
@@ -214,6 +223,7 @@ module ConstructionKit
             summary:     summary,
             model_hash:  effective_hash,
             hash_match:  hash_match,
+            graph_warnings: slot.graph_warnings,
           }.to_json)
         rescue ex
           ctx.response.status = HTTP::Status.new(400)
@@ -271,11 +281,13 @@ module ConstructionKit
         slot = slot_for(card_id)
         elapsed = (Time.utc - slot.train_started_at).total_seconds
         ctx.response.print({
-          training:    slot.training,
-          step:        slot.train_step,
-          steps:       slot.train_steps,
-          avg_loss:    slot.avg_loss,
-          elapsed_sec: elapsed.round(1),
+          training:       slot.training,
+          step:           slot.train_step,
+          steps:          slot.train_steps,
+          avg_loss:       slot.avg_loss,
+          elapsed_sec:    elapsed.round(1),
+          last_error:     slot.last_error,
+          graph_warnings: slot.graph_warnings,
         }.to_json)
 
       when {"GET", "/api/projects"}
@@ -715,6 +727,7 @@ module ConstructionKit
         rescue ex
           STDERR.puts "Training error: #{ex.message}"
           STDERR.puts ex.backtrace.first(10).join("\n")
+          slot.last_error = ex.message
           slot.training = false
           log_file.puts({type: "error", message: ex.message}.to_json) rescue nil
           log_file.close rescue nil

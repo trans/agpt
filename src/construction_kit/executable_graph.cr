@@ -22,6 +22,8 @@ module ConstructionKit
     getter topo_order : Array(String)       # node IDs in forward order
     getter loss_node_id : String?
 
+    getter warnings : Array(String) = [] of String
+
     def initialize
       @nodes = {} of String => ExecutableNode
       @edges = [] of GraphEdge
@@ -98,7 +100,9 @@ module ConstructionKit
           outputs = node.forward(inputs)
           activations[node_id] = outputs
         rescue ex : KeyError
-          STDERR.puts "Graph forward: skipping node #{node_id} (#{node.type}): #{ex.message}"
+          msg = "Node #{node_id} (#{node.type}): missing input #{ex.message}"
+          STDERR.puts "Graph forward: #{msg}"
+          @warnings << msg unless @warnings.includes?(msg)
           activations[node_id] = {} of String => Tensor
         end
       end

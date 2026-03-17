@@ -2801,7 +2801,11 @@ async function doBuild(card) {
         setStatus(`Warning: client/server hash mismatch`);
       }
       eng.summary = data.summary;
-      setStatus(`Model built: ${fmtParams(data.summary.total_params)} params, ${data.summary.n_experts} experts`);
+      eng.graphWarnings = data.graph_warnings || [];
+      eng.lastError = null;
+      const warnCount = eng.graphWarnings.length;
+      const warnSuffix = warnCount > 0 ? ` (${warnCount} warning${warnCount > 1 ? 's' : ''})` : '';
+      setStatus(`Model built: ${fmtParams(data.summary.total_params)} params, ${data.summary.n_experts} experts${warnSuffix}`);
       renderCardList();
       await autoLoadLatest(card);
     } else {
@@ -2952,10 +2956,15 @@ function watchTraining(card) {
         const data = await resp.json();
         // Update UI from poll too
         if (data.step > 0) handleStepData(data);
+        if (data.last_error) eng.lastError = data.last_error;
+        if (data.graph_warnings) eng.graphWarnings = data.graph_warnings;
         if (!data.training) {
           clearInterval(fallback);
           if (ws.readyState === WebSocket.OPEN) ws.close();
           eng._trainWs = null;
+          if (data.last_error) {
+            setStatus(`Training error: ${data.last_error}`, { flash: true });
+          }
           finish(data.avg_loss);
           resolve();
         }
@@ -3474,6 +3483,7 @@ function renderExpandedCard(card) {
       ${eng.built ? `
         <div class="prop-group" style="display:flex;gap:4px">
           <button class="toolbar-btn btn-runs" title="Prior Runs" style="flex:1"><img class="btn-icon" src="svg/prior.svg"></button>
+          <button class="toolbar-btn engine-btn btn-open-train" title="Train" style="flex:1"><img class="btn-icon" src="svg/train.svg"></button>
           <button class="toolbar-btn engine-btn btn-manual-test" title="Test Console" style="flex:1"><img class="btn-icon" src="svg/test.svg"></button>
           <button class="toolbar-btn btn-reset-weights" title="Reset Weights" style="flex:1" ${dis}><img class="btn-icon" src="svg/reset.svg"></button>
         </div>
@@ -3518,6 +3528,7 @@ function bindExpandedCardEvents(div, card, idx) {
 
   // Engine buttons
   div.querySelector('.btn-build')?.addEventListener('click', doBuild);
+  div.querySelector('.btn-open-train')?.addEventListener('click', () => toggleTrainPanel(true));
   div.querySelector('.btn-manual-test')?.addEventListener('click', () => toggleTestPanel(true));
   div.querySelector('.btn-runs')?.addEventListener('click', showRunsPicker);
   div.querySelector('.btn-reset-weights')?.addEventListener('click', doResetWeights);
@@ -3643,6 +3654,23 @@ function appendChatMessage(role, text) {
   return div;
 }
 
+async function syncTrainingState() {
+  for (const card of cards) {
+    if (card.engine.training) continue; // already tracking
+    try {
+      const resp = await fetch(`/api/train/status?card_id=${card.id}`);
+      const data = await resp.json();
+      if (data.training && !card.engine.training) {
+        card.engine.training = true;
+        card.engine.lossHistory = [];
+        renderCardList();
+        // Start watching this card's training
+        watchTraining(card).then(() => renderCardList());
+      }
+    } catch {}
+  }
+}
+
 async function sendChatMessage() {
   const input = document.getElementById('chat-input');
   const message = input.value.trim();
@@ -3663,9 +3691,12 @@ async function sendChatMessage() {
       card_name: card.name,
       starred: card.starred,
       built: card.engine.built,
+      graph_mode: card.graphMode || false,
       model_hash: card.engine.modelHash,
       summary: card.engine.summary || null,
       graph: engineNode?.children ? serializeGraph(engineNode.children) : null,
+      graph_warnings: card.engine.graphWarnings || [],
+      last_error: card.engine.lastError || null,
     };
   }
   try {
@@ -3682,6 +3713,8 @@ async function sendChatMessage() {
       appendChatMessage('assistant', 'Error: ' + data.error);
     } else {
       appendChatMessage('assistant', data.reply || '(no response)');
+      // Check if AI started training — sync frontend state
+      await syncTrainingState();
     }
   } catch (err) {
     thinkingEl.remove();
