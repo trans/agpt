@@ -3624,8 +3624,9 @@ function setupLeftPanel() {
 
 // ── Chat ─────────────────────────────────────────────────────────────────────
 
-let chatSessionId = crypto.randomUUID();
-let chatContextSent = false;  // only send context once per session/card switch
+let chatSessionId = localStorage.getItem('chatSessionId') || crypto.randomUUID();
+localStorage.setItem('chatSessionId', chatSessionId);
+let chatHistory = JSON.parse(localStorage.getItem('chatHistory') || '[]');
 
 function setupChat() {
   const input = document.getElementById('chat-input');
@@ -3638,9 +3639,14 @@ function setupChat() {
       sendChatMessage();
     }
   });
+
+  // Restore chat history from localStorage
+  for (const msg of chatHistory) {
+    appendChatMessage(msg.role, msg.text, false);
+  }
 }
 
-function appendChatMessage(role, text) {
+function appendChatMessage(role, text, save = true) {
   const container = document.getElementById('chat-messages');
   const div = document.createElement('div');
   div.className = `chat-msg ${role}`;
@@ -3651,6 +3657,12 @@ function appendChatMessage(role, text) {
   }
   container.appendChild(div);
   container.scrollTop = container.scrollHeight;
+  if (save && role !== 'thinking') {
+    chatHistory.push({ role, text });
+    // Keep last 50 messages to avoid bloating localStorage
+    if (chatHistory.length > 50) chatHistory = chatHistory.slice(-50);
+    localStorage.setItem('chatHistory', JSON.stringify(chatHistory));
+  }
   return div;
 }
 
@@ -3679,7 +3691,7 @@ async function sendChatMessage() {
   input.value = '';
   appendChatMessage('user', message);
 
-  const thinkingEl = appendChatMessage('assistant', '...');
+  const thinkingEl = appendChatMessage('assistant', '...', false);
   thinkingEl.classList.add('thinking');
 
   const card = getActiveCard();
