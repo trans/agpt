@@ -109,7 +109,14 @@ module ConstructionKit
 
       # Return loss value
       if lid = @loss_node_id
-        @nodes[lid].as(LossExec).loss
+        node = @nodes[lid]
+        if node.is_a?(MathLossExec)
+          node.loss
+        elsif node.is_a?(LossExec)
+          node.loss
+        else
+          0.0
+        end
       else
         0.0
       end

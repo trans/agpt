@@ -164,13 +164,17 @@ module ConstructionKit
       if (eg = @exec_graph)
         path = File.join(dir, "graph_weights.bin")
         if File.exists?(path)
-          File.open(path, "rb") do |f|
-            eg.all_weight_mats.each do |mat|
-              rows = f.read_bytes(Int32, IO::ByteFormat::LittleEndian)
-              cols = f.read_bytes(Int32, IO::ByteFormat::LittleEndian)
-              raise "Weight shape mismatch" unless rows == mat.rows && cols == mat.cols
-              (rows * cols).times { |i| mat.raw_data[i] = f.read_bytes(Float32, IO::ByteFormat::LittleEndian) }
+          begin
+            File.open(path, "rb") do |f|
+              eg.all_weight_mats.each do |mat|
+                rows = f.read_bytes(Int32, IO::ByteFormat::LittleEndian)
+                cols = f.read_bytes(Int32, IO::ByteFormat::LittleEndian)
+                raise "Weight shape mismatch" unless rows == mat.rows && cols == mat.cols
+                (rows * cols).times { |i| mat.raw_data[i] = f.read_bytes(Float32, IO::ByteFormat::LittleEndian) }
+              end
             end
+          rescue ex
+            STDERR.puts "Could not load weights (#{ex.message}) — using fresh initialization"
           end
         end
       elsif (m = @model)
@@ -212,7 +216,7 @@ module ConstructionKit
     def summary : ModelSummary
       if (eg = @exec_graph)
         # Introspect the compiled graph for summary info
-        expert_nodes = eg.nodes.values.select { |n| n.type == "embedding" }
+        expert_nodes = eg.nodes.values.select { |n| n.type == "embedding_table" }
         n_experts = Math.max(expert_nodes.size, 1)
 
         router_node = eg.nodes.values.find { |n| n.type == "global_router" }
