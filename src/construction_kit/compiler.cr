@@ -24,6 +24,14 @@ module ConstructionKit
       compile_scope(graph, nil, graph, eg, "")
 
       eg.compute_topo_order!
+      # Debug: show edges to broken nodes
+      STDERR.puts "Compiled: #{eg.nodes.size} nodes, #{eg.edges.size} edges"
+      broken = Set{"4.885.948", "4.935.1299", "4.938.1308"}
+      eg.edges.each do |e|
+        if broken.includes?(e.to_node) || broken.includes?(e.from_node)
+          STDERR.puts "  EDGE: #{e.from_node}:#{e.from_port} → #{e.to_node}:#{e.to_port}"
+        end
+      end
       eg
     end
 

@@ -2804,10 +2804,14 @@ async function doResetWeights() {
   if (!confirm('Reset all weights to random initialization? Training progress will be lost.')) return;
   try {
     const resetPipeline = getPipelineGraph(card || getActiveCard());
-    const payload = { version: 2, graph: serializeGraph(resetPipeline), card_id: card.id };
+    const graphMode = card.graphMode || false;
+    if (graphMode) ensureAllChildren(resetPipeline);
+    const dataFile = document.getElementById('train-data-file')?.value?.trim() || 'data/input.txt';
+    const payload = { version: 2, graph: serializeGraph(resetPipeline), card_id: card.id, graph_mode: graphMode, data_file: dataFile };
     const data = await apiPost('/api/build', payload);
     if (data.built) {
       eng.lossHistory = [];
+      eng.totalSteps = 0;
       setStatus('Weights reset — model reinitialized from scratch');
       renderCardList();
     } else {

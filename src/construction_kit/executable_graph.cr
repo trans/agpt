@@ -166,12 +166,18 @@ module ConstructionKit
 
     def train_step(input_ids : Array(Int32), target_ids : Array(Int32), lr : Float64) : Float64
       # Provide boundary inputs under all possible port names so edges can match
+      seq_len = input_ids.size
+      # Zero stream for models without explicit stream initialization
+      # Infer stream_dim from the first stream edge's target node, default 64
+      zero_stream = MicroGPT::Mat.new(seq_len, 64)
       boundary = {
         "in"         => input_ids.as(Tensor),
         "input_ids"  => input_ids.as(Tensor),
         "token_ids"  => input_ids.as(Tensor),
         "targets"    => target_ids.as(Tensor),
         "target_ids" => target_ids.as(Tensor),
+        "stream_in"  => zero_stream.as(Tensor),
+        "stream_out" => zero_stream.as(Tensor),
       }
       loss = forward(boundary)
       backward(lr)
