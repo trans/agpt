@@ -41,6 +41,14 @@ build-kit-cuda:
 kit *ARGS:
     bin/construction-kit {{ARGS}}
 
+# Run Svelte frontend dev server (proxy to kit on 8081)
+kit-dev:
+    cd src/construction_kit/frontend && npm run dev
+
+# Build Svelte frontend for production
+kit-build-frontend:
+    cd src/construction_kit/frontend && npm run build
+
 # Run with memory-limited shell (default 8 GiB virtual memory cap)
 run *ARGS:
     OPENBLAS_NUM_THREADS=4 ulimit -v 8388608 && bin/microgpt {{ARGS}}
