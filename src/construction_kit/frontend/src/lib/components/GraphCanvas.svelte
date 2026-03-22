@@ -26,15 +26,18 @@
 
   function buildGroupBoxes(paths, nodesVal, edgesVal, groupsVal) {
     const boxes = [];
-    let bx = 0, by = -100;
+    let autoX = 0, autoY = -100;
     const boxW = 160, boxH = 70, gap = 30;
     for (const gp of paths) {
       const gNodes = nodesUnderGroup(gp, nodesVal);
       if (gNodes.length === 0) continue;
       const info = groupsVal[gp];
-      boxes.push({ path: gp, info, x: bx, y: by, w: boxW, h: boxH });
-      bx += boxW + gap;
-      if (bx > 600) { bx = 0; by -= boxH + gap; }
+      // Use stored position or auto-layout
+      const x = info?._x ?? autoX;
+      const y = info?._y ?? autoY;
+      boxes.push({ path: gp, info, x, y, w: boxW, h: boxH });
+      autoX += boxW + gap;
+      if (autoX > 600) { autoX = 0; autoY -= boxH + gap; }
     }
     return boxes;
   }
@@ -55,18 +58,46 @@
 
   // ── Edge positions ──────────────────────────────────────────────────────
 
-  $: edgePositions = computeEdgePositions($edges, visibleNodes);
+  $: edgePositions = computeEdgePositions($edges, visibleNodes, groupBoxes, $nodes);
 
-  function computeEdgePositions(edgesVal, visible) {
+  function computeEdgePositions(edgesVal, visible, gBoxes, allNodes) {
     const visibleIds = new Set(visible.map(n => n.id));
-    return edgesVal
-      .filter(e => visibleIds.has(e.from.nodeId) && visibleIds.has(e.to.nodeId))
-      .map(e => ({
-        edge: e,
-        from: getPortPos(e.from.nodeId, e.from.portId, true),
-        to: getPortPos(e.to.nodeId, e.to.portId, false),
-      }))
-      .filter(ep => ep.from && ep.to);
+    const results = [];
+
+    // Build lookup: nodeId → which group box contains it (if collapsed)
+    const nodeToGroupBox = new Map();
+    for (const box of gBoxes) {
+      const gNodes = nodesUnderGroup(box.path, allNodes);
+      for (const n of gNodes) nodeToGroupBox.set(n.id, box);
+    }
+
+    for (const e of edgesVal) {
+      const fromVisible = visibleIds.has(e.from.nodeId);
+      const toVisible = visibleIds.has(e.to.nodeId);
+      const fromBox = nodeToGroupBox.get(e.from.nodeId);
+      const toBox = nodeToGroupBox.get(e.to.nodeId);
+
+      let fromPos = null, toPos = null;
+
+      if (fromVisible) {
+        fromPos = getPortPos(e.from.nodeId, e.from.portId, true);
+      } else if (fromBox) {
+        // Edge comes from inside a collapsed group — connect to group box right side
+        fromPos = { x: fromBox.x + fromBox.w, y: fromBox.y + fromBox.h / 2 };
+      }
+
+      if (toVisible) {
+        toPos = getPortPos(e.to.nodeId, e.to.portId, false);
+      } else if (toBox) {
+        // Edge goes into a collapsed group — connect to group box left side
+        toPos = { x: toBox.x, y: toBox.y + toBox.h / 2 };
+      }
+
+      if (fromPos && toPos) {
+        results.push({ edge: e, from: fromPos, to: toPos });
+      }
+    }
+    return results;
   }
 
   // ── Draft edge ──────────────────────────────────────────────────────────
@@ -105,12 +136,16 @@
 
   function onNodeMouseDown(e) {
     const { nodeId, event } = e.detail;
+    event.stopPropagation();
+    event.preventDefault();
     selectedNode.set(nodeId);
-    dragging = { nodeId, startX: event.clientX, startY: event.clientY };
+    dragging = { nodeId, startX: event.clientX, startY: event.clientY, moved: false };
   }
 
   function onPortMouseDown(e) {
     const { nodeId, portId, isOutput, event } = e.detail;
+    // Prevent node drag from starting
+    dragging = null;
     if (isOutput) {
       connecting = { fromNodeId: nodeId, fromPortId: portId };
     }
@@ -138,22 +173,32 @@
       const dx = (e.clientX - dragging.startX) / transform.k;
       const dy = (e.clientY - dragging.startY) / transform.k;
 
+      // Only start moving after a small threshold (3px)
+      if (!dragging.moved && Math.abs(dx) < 3 && Math.abs(dy) < 3) return;
+      dragging.moved = true;
+
       if (dragging.nodeId) {
         nodes.update(ns => ns.map(n =>
           n.id === dragging.nodeId ? { ...n, x: n.x + dx, y: n.y + dy } : n
         ));
       } else if (dragging.groupPath) {
-        // Move group box (update position in groupBoxes next render)
         const box = groupBoxes.find(b => b.path === dragging.groupPath);
-        if (box) { box.x += dx; box.y += dy; }
-        groupBoxes = [...groupBoxes]; // trigger reactivity
+        if (box) {
+          box.x += dx;
+          box.y += dy;
+          // Persist position into group metadata
+          groups.update(gs => {
+            const g = gs[dragging.groupPath];
+            if (g) { g._x = box.x; g._y = box.y; }
+            return { ...gs };
+          });
+        }
       }
 
       dragging.startX = e.clientX;
       dragging.startY = e.clientY;
     }
 
-    // Update draft edge
     if (connecting) {
       draftPath = computeDraftPath();
     }
@@ -161,16 +206,16 @@
 
   function onMouseUp(e) {
     if (connecting) {
-      // Check if we landed on an input port
-      const target = e.target.closest('.port');
-      if (target && target.dataset.isOutput === 'false') {
-        const toNodeId = parseInt(target.closest('.node')?.dataset?.nodeId || target.dataset?.nodeId);
-        const toPortId = target.dataset.portId;
+      const target = e.target.closest?.('.port');
+      if (target && target.dataset?.isOutput === 'false') {
+        const toNodeId = parseInt(target.dataset?.nodeId);
+        const toPortId = target.dataset?.portId;
         if (toNodeId && toPortId) {
           addEdge(connecting.fromNodeId, connecting.fromPortId, toNodeId, toPortId);
         }
       }
       connecting = null;
+      draftPath = '';
     }
     dragging = null;
   }
@@ -214,6 +259,7 @@
 </script>
 
 <svelte:document on:mousemove={onMouseMove} on:mouseup={onMouseUp} on:keydown={onKeyDown} />
+<svelte:window on:blur={() => { dragging = null; connecting = null; draftPath = ''; }} />
 
 <div class="canvas-container">
   <Breadcrumbs />
@@ -277,10 +323,14 @@
     display: flex;
     flex-direction: column;
     position: relative;
+    flex: 1;
+    min-height: 0;
   }
   .graph-canvas {
     flex: 1;
     width: 100%;
+    height: 100%;
+    display: block;
   }
   .scope-info {
     position: absolute;

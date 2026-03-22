@@ -52,19 +52,20 @@
 </div>
 
 <style>
-  :global(body) {
+  :global(html, body) {
     margin: 0;
+    padding: 0;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     background: #1a1a2e;
     color: #e0e0e0;
-    height: 100vh;
+    height: 100%;
     overflow: hidden;
   }
   :global(*) { box-sizing: border-box; }
 
   #app {
     display: flex;
-    height: 100%;
+    height: 100vh;
   }
   #left-panel, #right-panel {
     width: 260px;
