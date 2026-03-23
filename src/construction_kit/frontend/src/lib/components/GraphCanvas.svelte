@@ -1,8 +1,7 @@
 <script>
   import { onMount } from 'svelte';
-  import { zoom as d3Zoom } from 'd3-zoom';
-  import { select as d3Select } from 'd3-selection';
   import { nodes, edges, groups, findNode, addEdge, removeNode, childGroupPaths, nodesUnderGroup, groupBoundaryPorts } from '../stores/graph.js';
+  import { portRank, portShapeAttrs } from '../utils/portShapes.js';
   import { currentGroup, selectedNode, registry, viewTransform, getCompDef, getDataTypeColor } from '../stores/ui.js';
   import Node from './Node.svelte';
   import Edge from './Edge.svelte';
@@ -10,8 +9,9 @@
   import Breadcrumbs from './Breadcrumbs.svelte';
 
   let svgEl;
-  let zoomBehavior;
   let transform = { x: 0, y: 0, k: 1 };
+  let panning = false;
+  let panStart = { x: 0, y: 0 };
 
   // Interaction state
   let dragging = null;     // { nodeId, startX, startY } or { groupPath, startX, startY }
@@ -56,11 +56,50 @@
     return { x: node.x + (isOutput ? w : 0), y: node.y + 30 + idx * 14 };
   }
 
+  // ── Wall ports (edges crossing current group boundary) ──────────────────
+
+  $: wallPorts = computeWallPorts($edges, $nodes, $currentGroup);
+
+  function computeWallPorts(edgesVal, allNodes, curGroup) {
+    if (!curGroup) return { inputs: [], outputs: [] };
+    const insideIds = new Set(nodesUnderGroup(curGroup, allNodes).map(n => n.id));
+    const inputs = [];   // edges from outside → inside
+    const outputs = [];  // edges from inside → outside
+    const seenIn = new Set();
+    const seenOut = new Set();
+
+    for (const e of edgesVal) {
+      const fromIn = insideIds.has(e.from.nodeId);
+      const toIn = insideIds.has(e.to.nodeId);
+      if (!fromIn && toIn) {
+        // Deduplicate by source node
+        const key = `${e.from.nodeId}:${e.from.portId}`;
+        if (!seenIn.has(key)) {
+          seenIn.add(key);
+          inputs.push({ key, edges: [] });
+        }
+        inputs.find(p => p.key === key).edges.push(e);
+      } else if (fromIn && !toIn) {
+        const key = `${e.to.nodeId}:${e.to.portId}`;
+        if (!seenOut.has(key)) {
+          seenOut.add(key);
+          outputs.push({ key, edges: [] });
+        }
+        outputs.find(p => p.key === key).edges.push(e);
+      }
+    }
+    return { inputs, outputs };
+  }
+
+  // Wall port positions — at the viewport edges in world coordinates
+  $: WALL_X_IN = (-transform.x / transform.k) - 10;
+  $: WALL_X_OUT = ((-transform.x + (svgEl?.getBoundingClientRect()?.width || 760)) / transform.k) + 10;
+
   // ── Edge positions ──────────────────────────────────────────────────────
 
-  $: edgePositions = computeEdgePositions($edges, visibleNodes, groupBoxes, $nodes);
+  $: edgePositions = computeEdgePositions($edges, visibleNodes, groupBoxes, $nodes, wallPorts, $currentGroup);
 
-  function computeEdgePositions(edgesVal, visible, gBoxes, allNodes) {
+  function computeEdgePositions(edgesVal, visible, gBoxes, allNodes, walls, curGroup) {
     const visibleIds = new Set(visible.map(n => n.id));
     const results = [];
 
@@ -71,29 +110,97 @@
       for (const n of gNodes) nodeToGroupBox.set(n.id, box);
     }
 
+    // Track port positions per group box to stack them vertically
+    const boxInputCounts = new Map();
+    const boxOutputCounts = new Map();
+
+    // Track which edges are handled by wall ports (to avoid duplicates)
+    const wallEdgeIds = new Set();
+
+    // Wall port edges: from wall → internal nodes (inside view)
+    if (curGroup && walls) {
+      walls.inputs.forEach((wp, wpIdx) => {
+        const wallY = -50 + wpIdx * 40;
+        wp.edges.forEach(e => {
+          wallEdgeIds.add(e.id);
+          const toVisible = visibleIds.has(e.to.nodeId);
+          const toBox = nodeToGroupBox.get(e.to.nodeId);
+          let toPos = null;
+          if (toVisible) {
+            toPos = getPortPos(e.to.nodeId, e.to.portId, false);
+          } else if (toBox) {
+            const idx = boxInputCounts.get(toBox.path) || 0;
+            boxInputCounts.set(toBox.path, idx + 1);
+            toPos = { x: toBox.x, y: toBox.y + 15 + idx * 14 };
+          }
+          if (toPos) {
+            results.push({ edge: e, from: { x: WALL_X_IN, y: wallY }, to: toPos });
+          }
+        });
+      });
+
+      walls.outputs.forEach((wp, wpIdx) => {
+        const wallY = -50 + wpIdx * 40;
+        wp.edges.forEach(e => {
+          wallEdgeIds.add(e.id);
+          const fromVisible = visibleIds.has(e.from.nodeId);
+          const fromBox = nodeToGroupBox.get(e.from.nodeId);
+          let fromPos = null;
+          if (fromVisible) {
+            fromPos = getPortPos(e.from.nodeId, e.from.portId, true);
+          } else if (fromBox) {
+            const idx = boxOutputCounts.get(fromBox.path) || 0;
+            boxOutputCounts.set(fromBox.path, idx + 1);
+            fromPos = { x: fromBox.x + fromBox.w, y: fromBox.y + 15 + idx * 14 };
+          }
+          if (fromPos) {
+            results.push({ edge: e, from: fromPos, to: { x: WALL_X_OUT, y: wallY } });
+          }
+        });
+      });
+    }
+
+    // Regular edges (between visible nodes and group boxes)
+    // Deduplicate: multiple edges from same visible node to same group box → one wire
+    const seenBoxEdges = new Set();
+
     for (const e of edgesVal) {
+      if (wallEdgeIds.has(e.id)) continue;
+
       const fromVisible = visibleIds.has(e.from.nodeId);
       const toVisible = visibleIds.has(e.to.nodeId);
       const fromBox = nodeToGroupBox.get(e.from.nodeId);
       const toBox = nodeToGroupBox.get(e.to.nodeId);
+
+      // Skip edges where both ends are in the same collapsed group
+      if (fromBox && toBox && fromBox.path === toBox.path) continue;
 
       let fromPos = null, toPos = null;
 
       if (fromVisible) {
         fromPos = getPortPos(e.from.nodeId, e.from.portId, true);
       } else if (fromBox) {
-        // Edge comes from inside a collapsed group — connect to group box right side
-        fromPos = { x: fromBox.x + fromBox.w, y: fromBox.y + fromBox.h / 2 };
+        const idx = boxOutputCounts.get(fromBox.path) || 0;
+        boxOutputCounts.set(fromBox.path, idx + 1);
+        fromPos = { x: fromBox.x + fromBox.w, y: fromBox.y + 15 + idx * 14 };
       }
 
       if (toVisible) {
         toPos = getPortPos(e.to.nodeId, e.to.portId, false);
       } else if (toBox) {
-        // Edge goes into a collapsed group — connect to group box left side
-        toPos = { x: toBox.x, y: toBox.y + toBox.h / 2 };
+        const idx = boxInputCounts.get(toBox.path) || 0;
+        boxInputCounts.set(toBox.path, idx + 1);
+        toPos = { x: toBox.x, y: toBox.y + 15 + idx * 14 };
       }
 
       if (fromPos && toPos) {
+        // Deduplicate edges from same source to same group box
+        const dedupeKey = (fromVisible ? `n${e.from.nodeId}` : `g${fromBox?.path}`) + '→' +
+                          (toVisible ? `n${e.to.nodeId}` : `g${toBox?.path}`);
+        if (!fromVisible || !toVisible) {
+          if (seenBoxEdges.has(dedupeKey)) continue;
+          seenBoxEdges.add(dedupeKey);
+        }
         results.push({ edge: e, from: fromPos, to: toPos });
       }
     }
@@ -114,15 +221,34 @@
 
   // ── D3 Zoom ─────────────────────────────────────────────────────────────
 
-  onMount(() => {
-    zoomBehavior = d3Zoom()
-      .scaleExtent([0.1, 4])
-      .on('zoom', (event) => {
-        transform = { x: event.transform.x, y: event.transform.y, k: event.transform.k };
-        viewTransform.set(transform);
-      });
-    d3Select(svgEl).call(zoomBehavior);
-  });
+  // ── Zoom (wheel) and Pan (background drag) ─────────────────────────────
+
+  function onWheel(e) {
+    e.preventDefault();
+    const rect = svgEl.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+
+    const factor = e.deltaY > 0 ? 0.9 : 1.1;
+    const newK = Math.min(4, Math.max(0.1, transform.k * factor));
+
+    // Zoom toward cursor
+    transform = {
+      x: mx - (mx - transform.x) * (newK / transform.k),
+      y: my - (my - transform.y) * (newK / transform.k),
+      k: newK,
+    };
+    viewTransform.set(transform);
+  }
+
+  function onBgMouseDown(e) {
+    // Only start pan on background (not nodes/ports/groups)
+    if (e.target === svgEl || e.target.classList?.contains('grid-bg')) {
+      panning = true;
+      panStart = { x: e.clientX, y: e.clientY };
+      selectedNode.set(null);
+    }
+  }
 
   // ── Mouse handlers ──────────────────────────────────────────────────────
 
@@ -160,7 +286,8 @@
     currentGroup.set(e.detail.groupPath);
   }
 
-  function onCanvasMouseDown(e) {
+  function onCanvasClick(e) {
+    // Deselect on click (not mousedown — let D3 handle mousedown for pan)
     if (e.target === svgEl || e.target.classList?.contains('grid-bg')) {
       selectedNode.set(null);
     }
@@ -168,6 +295,17 @@
 
   function onMouseMove(e) {
     mouseWorld = screenToWorld(e.clientX, e.clientY);
+
+    if (panning) {
+      transform = {
+        x: transform.x + (e.clientX - panStart.x),
+        y: transform.y + (e.clientY - panStart.y),
+        k: transform.k,
+      };
+      panStart = { x: e.clientX, y: e.clientY };
+      viewTransform.set(transform);
+      return;
+    }
 
     if (dragging) {
       const dx = (e.clientX - dragging.startX) / transform.k;
@@ -218,6 +356,7 @@
       draftPath = '';
     }
     dragging = null;
+    panning = false;
   }
 
   function onKeyDown(e) {
@@ -251,20 +390,22 @@
     const scale = Math.min(rect.width / w, rect.height / h, 1.5);
     const tx = (rect.width - w * scale) / 2 - (minX - pad) * scale;
     const ty = (rect.height - h * scale) / 2 - (minY - pad) * scale;
-    d3Select(svgEl).call(zoomBehavior.transform,
-      { x: tx, y: ty, k: scale, __proto__: { rescaleX: x => x, rescaleY: y => y } }
-    );
     transform = { x: tx, y: ty, k: scale };
+    viewTransform.set(transform);
   }
 </script>
 
 <svelte:document on:mousemove={onMouseMove} on:mouseup={onMouseUp} on:keydown={onKeyDown} />
-<svelte:window on:blur={() => { dragging = null; connecting = null; draftPath = ''; }} />
+<svelte:window on:blur={() => { dragging = null; connecting = null; panning = false; draftPath = ''; }} />
 
 <div class="canvas-container">
   <Breadcrumbs />
 
-  <svg bind:this={svgEl} class="graph-canvas" on:mousedown={onCanvasMouseDown}>
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <svg bind:this={svgEl} class="graph-canvas"
+    on:wheel={onWheel}
+    on:mousedown={onBgMouseDown}
+  >
     <defs>
       <pattern id="grid-small" width="20" height="20" patternUnits="userSpaceOnUse">
         <path d="M 20 0 L 0 0 0 20" fill="none" stroke="rgba(255,255,255,0.03)" stroke-width="0.5"/>
@@ -286,6 +427,56 @@
       <!-- Draft edge -->
       {#if connecting && draftPath}
         <path d={draftPath} fill="none" stroke="#4a90d9" stroke-width="2" stroke-dasharray="5,3" />
+      {/if}
+
+      <!-- Wall ports (incoming/outgoing edges from parent scope) -->
+      {#if $currentGroup}
+        {#each wallPorts.inputs as wp, i}
+          {@const wy = -50 + i * 40}
+          {@const portId = wp.key.split(':')[1] || 'in'}
+          {@const firstEdge = wp.edges[0]}
+          {@const srcNode = firstEdge ? findNode(firstEdge.from.nodeId) : null}
+          {@const srcComp = srcNode ? getCompDef(srcNode.type, $registry) : null}
+          {@const srcPort = srcComp?.ports?.out?.find(p => p.id === firstEdge?.from.portId)}
+          {@const dtColor = srcPort ? getDataTypeColor(srcPort.dataType, $registry) : '#4a90d9'}
+          {@const rank = srcPort ? portRank(srcPort.shape) : 1}
+          {@const ps = portShapeAttrs(rank, WALL_X_IN, wy, 8)}
+          <g class="wall-port">
+            {#if ps.tag === 'rect'}
+              <rect {...ps.attrs} fill={dtColor} stroke={dtColor} stroke-width="2" />
+            {:else if ps.tag === 'polygon'}
+              <polygon {...ps.attrs} fill={dtColor} stroke={dtColor} stroke-width="2" />
+            {:else}
+              <circle {...ps.attrs} fill={dtColor} stroke={dtColor} stroke-width="2" />
+            {/if}
+            <text x={WALL_X_IN + 14} y={wy + 3} fill={dtColor} font-size="9" font-weight="600">
+              {portId}
+            </text>
+          </g>
+        {/each}
+        {#each wallPorts.outputs as wp, i}
+          {@const wy = -50 + i * 40}
+          {@const portId = wp.key.split(':')[1] || 'out'}
+          {@const firstEdge = wp.edges[0]}
+          {@const dstNode = firstEdge ? findNode(firstEdge.to.nodeId) : null}
+          {@const dstComp = dstNode ? getCompDef(dstNode.type, $registry) : null}
+          {@const dstPort = dstComp?.ports?.in?.find(p => p.id === firstEdge?.to.portId)}
+          {@const dtColor = dstPort ? getDataTypeColor(dstPort.dataType, $registry) : '#e6994a'}
+          {@const rank = dstPort ? portRank(dstPort.shape) : 1}
+          {@const ps = portShapeAttrs(rank, WALL_X_OUT, wy, 8)}
+          <g class="wall-port">
+            {#if ps.tag === 'rect'}
+              <rect {...ps.attrs} fill={dtColor} stroke={dtColor} stroke-width="2" />
+            {:else if ps.tag === 'polygon'}
+              <polygon {...ps.attrs} fill={dtColor} stroke={dtColor} stroke-width="2" />
+            {:else}
+              <circle {...ps.attrs} fill={dtColor} stroke={dtColor} stroke-width="2" />
+            {/if}
+            <text x={WALL_X_OUT - 14} y={wy + 3} fill={dtColor} font-size="9" font-weight="600" text-anchor="end">
+              {portId}
+            </text>
+          </g>
+        {/each}
       {/if}
 
       <!-- Group boxes -->
@@ -331,6 +522,8 @@
     width: 100%;
     height: 100%;
     display: block;
+    touch-action: none;
+    user-select: none;
   }
   .scope-info {
     position: absolute;
