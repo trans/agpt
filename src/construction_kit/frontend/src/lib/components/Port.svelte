@@ -1,7 +1,7 @@
 <script>
   import { portRank, portShapeAttrs } from '../utils/portShapes.js';
 
-  export let portDef;     // { id, label, dataType, shape }
+  export let portDef;     // { id, label, dataType, shape, multi }
   export let isOutput;    // boolean
   export let px;          // x position
   export let py;          // y position
@@ -9,30 +9,24 @@
   export let r = 6;       // port radius
 
   let showTooltip = false;
-  let tooltipX = 0, tooltipY = 0;
 
   $: rank = portRank(portDef.shape);
   $: shape = portShapeAttrs(rank, px, py, r);
   $: fill = isOutput ? color : 'transparent';
   $: strokeWidth = isOutput ? 2 : 2.5;
-
-  function onEnter(e) {
-    const rect = e.target.closest('svg')?.getBoundingClientRect();
-    if (!rect) return;
-    tooltipX = e.clientX - rect.left + 12;
-    tooltipY = e.clientY - rect.top - 10;
-    showTooltip = true;
-  }
+  $: isMulti = !!portDef.multi;
 </script>
 
+<!-- svelte-ignore a11y_no_static_element_interactions -->
 <g
   class="port"
   class:port-in={!isOutput}
   class:port-out={isOutput}
   style="cursor: crosshair"
+  data-node-id={portDef._nodeId}
   data-port-id={portDef.id}
   data-is-output={isOutput}
-  on:mouseenter={onEnter}
+  on:mouseenter={() => showTooltip = true}
   on:mouseleave={() => showTooltip = false}
   on:mousedown
 >
@@ -48,6 +42,14 @@
     <circle {...shape.attrs} {fill} stroke={color} stroke-width={strokeWidth} pointer-events="none" />
   {/if}
 
+  <!-- Multi-port indicator (stacked marks) -->
+  {#if isMulti}
+    <line x1={px - r - 2} y1={py - r - 3} x2={px + r + 2} y2={py - r - 3}
+          stroke={color} stroke-width="1.5" opacity="0.5" pointer-events="none" />
+    <line x1={px - r - 2} y1={py - r - 6} x2={px + r + 2} y2={py - r - 6}
+          stroke={color} stroke-width="1.5" opacity="0.3" pointer-events="none" />
+  {/if}
+
   <!-- Label -->
   {#if isOutput}
     <text x={px - r - 4} y={py + 3} text-anchor="end" fill={color} font-size="8" opacity="0.7" pointer-events="none">
@@ -60,10 +62,18 @@
   {/if}
 </g>
 
+<!-- Tooltip -->
 {#if showTooltip}
-  <g class="port-tooltip-g" transform="translate({tooltipX}, {tooltipY})">
-    <rect x="0" y="-12" width="140" height="30" rx="4" fill="#1a1a2e" stroke="#444" opacity="0.95" />
-    <text x="4" y="0" fill="#ddd" font-size="10" font-weight="600">{portDef.id}</text>
-    <text x="4" y="12" fill="#888" font-size="9">{isOutput ? 'output' : 'input'}: {portDef.dataType || ''}</text>
+  {@const tx = isOutput ? px - 150 : px + 15}
+  {@const ty = py - 20}
+  <g class="port-tooltip-g" pointer-events="none">
+    <rect x={tx} y={ty} width="140" height="32" rx="4" fill="#1a1a2eee" stroke="#444" />
+    <text x={tx + 4} y={ty + 12} fill="#ddd" font-size="10" font-weight="600">
+      {portDef.id}
+      <tspan fill={color}> {portDef.dataType || ''}</tspan>
+    </text>
+    <text x={tx + 4} y={ty + 24} fill="#888" font-size="9">
+      {isOutput ? 'output' : 'input'}{isMulti ? ' (multi)' : ''}
+    </text>
   </g>
 {/if}

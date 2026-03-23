@@ -128,12 +128,18 @@ SVG-based with D3 zoom for pan/zoom (or a lighter alternative).
 5. Draft edge (wire being drawn)
 6. Selection overlay
 
+**Port types:**
+- **Regular port**: one wire, one tensor. Reconnecting replaces the existing wire.
+- **Multi-port**: any number of wires, collects into an ordered list. The component
+  defines the reduction (e.g., router blends, sum adds). Visually indicated by
+  double lines above the port shape.
+
 **Port rendering:**
 - Shape indicates tensor rank: circle (scalar/tensor), diamond (vector), square (matrix)
 - Color indicates data type: green (Token IDs), blue (Stream), orange (Logits), etc.
 - Hollow = input, filled = output
 - Small text labels next to each port
-- Tooltip on hover: port ID, data type, shape
+- Tooltip on hover: port ID, data type, shape, "(multi)" if multi-port
 
 **Interactions:**
 - Click node → select, show props

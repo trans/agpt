@@ -63,7 +63,7 @@
     {@const py = 30 + i * 14}
     {@const dtColor = getDataTypeColor(p.dataType, $registry)}
     <Port
-      portDef={p}
+      portDef={{ ...p, _nodeId: node.id }}
       isOutput={false}
       px={0}
       py={py}
@@ -77,7 +77,7 @@
     {@const py = 30 + i * 14}
     {@const dtColor = getDataTypeColor(p.dataType, $registry)}
     <Port
-      portDef={p}
+      portDef={{ ...p, _nodeId: node.id }}
       isOutput={true}
       px={w}
       py={py}

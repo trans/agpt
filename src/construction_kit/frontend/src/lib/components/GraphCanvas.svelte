@@ -360,8 +360,23 @@
       if (target && target.dataset?.isOutput === 'false') {
         const toNodeId = parseInt(target.dataset?.nodeId);
         const toPortId = target.dataset?.portId;
-        if (toNodeId && toPortId) {
-          addEdge(connecting.fromNodeId, connecting.fromPortId, toNodeId, toPortId);
+        if (toNodeId && toPortId && toNodeId !== connecting.fromNodeId) {
+          // Look up if target port is multi
+          const toNode = findNode(toNodeId);
+          const toComp = toNode ? getCompDef(toNode.type, $registry) : null;
+          const toPort = toComp?.ports?.in?.find(p => p.id === toPortId);
+          const isMulti = toPort?.multi;
+
+          if (isMulti) {
+            // Multi-port: collects into ordered list, always accept
+            addEdge(connecting.fromNodeId, connecting.fromPortId, toNodeId, toPortId);
+          } else {
+            // Single port: replace existing connection
+            edges.update(es => es.filter(
+              edge => !(edge.to.nodeId === toNodeId && edge.to.portId === toPortId)
+            ));
+            addEdge(connecting.fromNodeId, connecting.fromPortId, toNodeId, toPortId);
+          }
         }
       }
       connecting = null;
