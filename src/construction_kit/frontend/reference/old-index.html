@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>microGPT Construction Kit</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app">
+    <div id="left-panel">
+      <div id="left-tabs">
+        <div class="left-tab-btn active" data-tab="tree">Tree</div>
+        <div class="left-tab-btn" data-tab="chat">Chat</div>
+      </div>
+      <div id="left-tab-tree" class="left-tab-pane active">
+        <div id="tree-content"></div>
+      </div>
+      <div id="left-tab-chat" class="left-tab-pane">
+        <div id="chat-messages"></div>
+        <div id="chat-input-wrap">
+          <textarea id="chat-input" placeholder="Ask about your model..." rows="2" autocomplete="off"></textarea>
+          <div style="display:flex;flex-direction:column;gap:2px">
+            <button id="btn-chat-send" class="toolbar-btn" style="padding:4px 6px">Send</button>
+            <button id="btn-chat-clear" class="toolbar-btn" title="Clear chat" style="padding:4px 6px;font-size:11px">&times;</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="canvas-wrap">
+      <div id="topbar">
+        <div id="topbar-nav">
+          <span id="breadcrumbs"></span>
+        </div>
+        <div id="topbar-spacer"></div>
+        <div id="topbar-props"></div>
+      </div>
+      <svg id="canvas">
+        <defs>
+          <pattern id="grid-small" width="20" height="20" patternUnits="userSpaceOnUse">
+            <path d="M 20 0 L 0 0 0 20" fill="none" stroke="rgba(255,255,255,0.03)" stroke-width="0.5"/>
+          </pattern>
+          <pattern id="grid-large" width="100" height="100" patternUnits="userSpaceOnUse">
+            <rect width="100" height="100" fill="url(#grid-small)"/>
+            <path d="M 100 0 L 0 0 0 100" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>
+          </pattern>
+        </defs>
+        <rect class="grid-bg" width="10000" height="10000" x="-5000" y="-5000" fill="url(#grid-large)"/>
+        <g id="edges-layer"></g>
+        <g id="nodes-layer"></g>
+        <path id="draft-edge" class="edge-draft" d=""/>
+      </svg>
+      <div id="palette-tab"></div>
+      <div id="palette-popup">
+        <div id="palette-tabs">
+          <div class="palette-tab-btn active" data-tab="components" title="Components">&#9881;</div>
+          <div class="palette-tab-btn" data-tab="train" title="Train Console"><img class="btn-icon" src="svg/train.svg"></div>
+          <div class="palette-tab-btn" data-tab="test" title="Test Console"><img class="btn-icon" src="svg/test.svg"></div>
+        </div>
+        <div id="palette-tab-content">
+          <div id="palette-tab-components" class="palette-tab-pane active">
+            <div id="palette-list"></div>
+            <div id="palette-tools">
+              <button class="toolbar-btn" id="btn-fit" title="Fit to view">&#x2922;</button>
+              <button class="toolbar-btn danger" id="btn-delete-selected" title="Delete selected node" style="display:none">&#128465;</button>
+              <button class="toolbar-btn danger" id="btn-clear" title="Clear current scope">&#x2205;</button>
+            </div>
+          </div>
+          <div id="palette-tab-train" class="palette-tab-pane">
+            <div id="train-panel-controls">
+              <div class="train-field train-actions">
+                <button class="toolbar-btn engine-btn" id="btn-train-all">Train <span style="font-size:16px">&#9733;</span></button>
+                <button class="toolbar-btn danger" id="btn-stop-all" style="display:none">Stop All</button>
+              </div>
+              <div class="train-field">
+                <label>data</label>
+                <div class="data-file-wrap">
+                  <input type="text" id="train-data-file" value="data/input.txt" placeholder="path to text file">
+                  <button class="toolbar-btn" id="btn-pick-data" title="Browse data files" style="padding:4px 6px;font-size:12px">...</button>
+                </div>
+              </div>
+              <div class="train-field">
+                <label>label</label>
+                <input type="text" id="train-run-name" value="" placeholder="(auto)">
+              </div>
+              <div class="train-field">
+                <label>steps</label>
+                <input type="number" id="train-steps" value="1000" min="10" max="100000" step="100">
+              </div>
+            </div>
+            <div id="train-panel-session"></div>
+          </div>
+          <div id="palette-tab-test" class="palette-tab-pane">
+            <div id="test-panel-controls">
+              <input type="text" id="gen-seed" value="First Citizen:" placeholder="Seed text...">
+              <button class="toolbar-btn engine-btn" id="btn-generate">Generate All &#9733;</button>
+            </div>
+            <div id="test-panel-outputs"></div>
+          </div>
+        </div>
+      </div>
+      <div id="scope-info"></div>
+      <div id="status">Scroll to zoom, drag to pan</div>
+      <div id="legend">
+        <h4>Ports</h4>
+        <div class="legend-row"><div class="legend-port hollow" style="border-color:#4a90d9"></div> Input (hollow)</div>
+        <div class="legend-row"><div class="legend-port filled" style="background:#4a90d9;border-color:#4a90d9"></div> Output (filled)</div>
+        <h4 style="margin-top:6px">Shape</h4>
+        <div class="legend-row"><div class="legend-port filled diamond" style="background:#888;border-color:#888"></div> Rank-0 (scalar)</div>
+        <div class="legend-row"><div class="legend-port filled" style="background:#888;border-color:#888"></div> Rank-1 (vector)</div>
+        <div class="legend-row"><div class="legend-port filled square" style="background:#888;border-color:#888"></div> Rank-2 (matrix)</div>
+        <h4 style="margin-top:6px">Data types</h4>
+        <div class="legend-row"><div class="legend-port filled" style="background:#d9d9d9;border-color:#d9d9d9"></div> Raw Text</div>
+        <div class="legend-row"><div class="legend-port filled" style="background:#7bc67e;border-color:#7bc67e"></div> Token IDs</div>
+        <div class="legend-row"><div class="legend-port filled" style="background:#4a90d9;border-color:#4a90d9"></div> Stream</div>
+        <div class="legend-row"><div class="legend-port filled" style="background:#e6994a;border-color:#e6994a"></div> Logits</div>
+        <div class="legend-row"><div class="legend-port filled diamond" style="background:#d9d94a;border-color:#d9d94a"></div> Scalar</div>
+        <div class="legend-row"><div class="legend-port filled" style="background:#c49a38;border-color:#c49a38"></div> Vector</div>
+        <div class="legend-row"><div class="legend-port filled square" style="background:#b8a038;border-color:#b8a038"></div> Matrix</div>
+        <div class="legend-row"><div class="legend-port filled" style="background:#a08828;border-color:#a08828"></div> Tensor (rank 3+)</div>
+      </div>
+    </div>
+
+    <div id="props-panel">
+      <div id="cards-header">
+        <h2>Engines</h2>
+        <div style="display:flex;gap:4px">
+          <button id="btn-save-project" class="toolbar-btn" title="Save project" style="font-size:11px;padding:2px 6px">Save</button>
+          <button id="btn-load-project" class="toolbar-btn" title="Load project" style="font-size:11px;padding:2px 6px">Load</button>
+          <button id="btn-copy-card" class="toolbar-btn" title="Duplicate engine" style="font-size:11px;padding:2px 6px">Copy</button>
+          <button id="btn-add-card" title="New empty engine" style="font-size:14px;padding:2px 6px">+</button>
+        </div>
+      </div>
+      <div id="cards-list"></div>
+    </div>
+  </div>
+
+<div id="runs-popup">
+    <div class="runs-header"><span>Prior Runs</span><span class="runs-close" id="runs-close">&times;</span></div>
+    <div class="runs-list" id="runs-list"></div>
+  </div>
+  <div id="projects-popup">
+    <div class="runs-header"><span>Projects</span><span class="runs-close" id="projects-close">&times;</span></div>
+    <div class="runs-list" id="projects-list"></div>
+  </div>
+  <input type="file" id="import-file" style="display:none">
+  <script src="d3.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
