@@ -1,6 +1,6 @@
 <script>
   import { onMount } from 'svelte';
-  import { nodes, edges, groups, findNode, addEdge, removeNode, childGroupPaths, nodesUnderGroup, groupBoundaryPorts } from '../stores/graph.js';
+  import { nodes, edges, groups, findNode, addEdge, removeEdge, removeNode, childGroupPaths, nodesUnderGroup, isGroupRef, groupPathFromRef, getGroupInfo } from '../stores/graph.js';
   import { portRank, portShapeAttrs } from '../utils/portShapes.js';
   import { currentGroup, selectedNode, registry, viewTransform, getCompDef, getDataTypeColor } from '../stores/ui.js';
   import Node from './Node.svelte';
@@ -21,6 +21,7 @@
   let dragging = null;     // { nodeId, startX, startY } or { groupPath, startX, startY }
   let connecting = null;   // { fromNodeId, fromPortId }
   let mouseWorld = { x: 0, y: 0 };
+  let selectedEdgeId = null;
 
   // ── Derived data ────────────────────────────────────────────────────────
 
@@ -38,12 +39,7 @@
       const info = groupsVal[gp];
       const x = info?._x ?? autoX;
       const y = info?._y ?? autoY;
-      const { inputs, outputs } = groupBoundaryPorts(gp, nodesVal, edgesVal);
-      // Count deduplicated ports (same logic as GroupBox)
-      const nIn = new Set(inputs.map(e => `${e.from.nodeId}:${e.from.portId}`)).size;
-      const nOut = new Set(outputs.map(e => `${e.to.nodeId}:${e.to.portId}`)).size;
-      const autoH = Math.max(boxH, 24 + Math.max(nIn, nOut) * 16);
-      boxes.push({ path: gp, info, x, y, w: boxW, h: autoH, inputs, outputs });
+      boxes.push({ path: gp, info, x, y, w: boxW, h: boxH });
       autoX += boxW + gap;
       if (autoX > 600) { autoX = 0; autoY -= boxH + gap; }
     }
@@ -64,39 +60,25 @@
     return { x: node.x + (isOutput ? w : 0), y: node.y + 30 + idx * 14 };
   }
 
-  // ── Wall ports (edges crossing current group boundary) ──────────────────
+  // Position for a declared group port on a group box
+  function getDeclaredPortPos(box, portId, isOutput) {
+    const slots = isOutput ? (box.info?.ports?.out || []) : (box.info?.ports?.in || []);
+    const idx = slots.findIndex(s => s.id === portId);
+    if (idx < 0) return null;
+    const px = isOutput ? box.x + box.w : box.x;
+    return { x: px, y: box.y + 30 + idx * 16 };
+  }
 
-  $: wallPorts = computeWallPorts($edges, $nodes, $currentGroup);
-
-  function computeWallPorts(edgesVal, allNodes, curGroup) {
-    if (!curGroup) return { inputs: [], outputs: [] };
-    const insideIds = new Set(nodesUnderGroup(curGroup, allNodes).map(n => n.id));
-    const inputs = [];   // edges from outside → inside
-    const outputs = [];  // edges from inside → outside
-    const seenIn = new Set();
-    const seenOut = new Set();
-
-    for (const e of edgesVal) {
-      const fromIn = insideIds.has(e.from.nodeId);
-      const toIn = insideIds.has(e.to.nodeId);
-      if (!fromIn && toIn) {
-        // Deduplicate by source node
-        const key = `${e.from.nodeId}:${e.from.portId}`;
-        if (!seenIn.has(key)) {
-          seenIn.add(key);
-          inputs.push({ key, edges: [] });
-        }
-        inputs.find(p => p.key === key).edges.push(e);
-      } else if (fromIn && !toIn) {
-        const key = `${e.to.nodeId}:${e.to.portId}`;
-        if (!seenOut.has(key)) {
-          seenOut.add(key);
-          outputs.push({ key, edges: [] });
-        }
-        outputs.find(p => p.key === key).edges.push(e);
-      }
+  // Resolve any endpoint position — works for both real nodes and group refs
+  function resolveEndpointPos(nodeId, portId, isOutput, gBoxes, visibleIds) {
+    if (isGroupRef(nodeId)) {
+      const gPath = groupPathFromRef(nodeId);
+      const box = gBoxes.find(b => b.path === gPath);
+      if (box) return getDeclaredPortPos(box, portId, isOutput);
+      return null;
     }
-    return { inputs, outputs };
+    if (visibleIds.has(nodeId)) return getPortPos(nodeId, portId, isOutput);
+    return null;
   }
 
   // Wall port positions — at the viewport edges in world coordinates
@@ -105,115 +87,105 @@
 
   // ── Edge positions ──────────────────────────────────────────────────────
 
-  $: edgePositions = computeEdgePositions($edges, visibleNodes, groupBoxes, $nodes, wallPorts, $currentGroup, WALL_X_IN, WALL_X_OUT);
+  $: edgePositions = computeEdgePositions($edges, visibleNodes, groupBoxes, $nodes, $currentGroup, WALL_X_IN, WALL_X_OUT, $groups);
 
-  function computeEdgePositions(edgesVal, visible, gBoxes, allNodes, walls, curGroup, wallXIn, wallXOut) {
+  function computeEdgePositions(edgesVal, visible, gBoxes, allNodes, curGroup, wallXIn, wallXOut, groupsVal) {
     const visibleIds = new Set(visible.map(n => n.id));
     const results = [];
 
-    // Build lookup: nodeId → which group box contains it (if collapsed)
-    const nodeToGroupBox = new Map();
+    // Build group ref → box lookup
+    const groupRefToBox = new Map();
     for (const box of gBoxes) {
-      const gNodes = nodesUnderGroup(box.path, allNodes);
-      for (const n of gNodes) nodeToGroupBox.set(n.id, box);
+      groupRefToBox.set("group:" + box.path, box);
     }
-
-    // Track port positions per group box to stack them vertically
-    const boxInputCounts = new Map();
-    const boxOutputCounts = new Map();
 
     // Track which edges are handled by wall ports (to avoid duplicates)
     const wallEdgeIds = new Set();
 
-    // Wall port edges: from wall → internal nodes (inside view)
+    // Wall port edges: edges targeting "group:<currentGroup>" from outside
+    // Inside the group, these appear as wall port → internal node (via portMap)
+    if (curGroup) {
+      const curGroupInfo = groupsVal[curGroup];
+      const gRef = "group:" + curGroup;
+      const wallInPorts = curGroupInfo?.ports?.in || [];
+      const wallOutPorts = curGroupInfo?.ports?.out || [];
+      const portMap = curGroupInfo?.portMap || {};
 
-    if (curGroup && walls) {
-      walls.inputs.forEach((wp, wpIdx) => {
-        const wallY = WALL_PORT_START_Y + wpIdx * WALL_PORT_SPACING;
-        wp.edges.forEach(e => {
-          wallEdgeIds.add(e.id);
-          const toVisible = visibleIds.has(e.to.nodeId);
-          const toBox = nodeToGroupBox.get(e.to.nodeId);
-          let toPos = null;
-          if (toVisible) {
-            toPos = getPortPos(e.to.nodeId, e.to.portId, false);
-          } else if (toBox) {
-            const idx = boxInputCounts.get(toBox.path) || 0;
-            boxInputCounts.set(toBox.path, idx + 1);
-            toPos = { x: toBox.x, y: toBox.y + 30 + idx * 16 };
-          }
-          if (toPos) {
-            results.push({ edge: e, from: { x: wallXIn, y: wallY }, to: toPos });
-          }
-        });
-      });
+      // Resolve a portMap target to a position (handles both real nodes and group refs)
+      function resolveMapTarget(t, output) {
+        if (isGroupRef(t.nodeId)) {
+          const box = groupRefToBox.get(t.nodeId);
+          return box ? getDeclaredPortPos(box, t.portId, output) : null;
+        }
+        if (visibleIds.has(t.nodeId)) return getPortPos(t.nodeId, t.portId, output);
+        // Node inside a collapsed sub-group — find the box containing it
+        const box = gBoxes.find(b => nodesUnderGroup(b.path, allNodes).some(n => n.id === t.nodeId));
+        return box ? getDeclaredPortPos(box, t.portId, output) : null;
+      }
 
-      walls.outputs.forEach((wp, wpIdx) => {
-        const wallY = WALL_PORT_START_Y + wpIdx * WALL_PORT_SPACING;
-        wp.edges.forEach(e => {
+      // Input wall ports: edges where to.nodeId === "group:<curGroup>"
+      for (const e of edgesVal) {
+        if (e.to.nodeId === gRef) {
           wallEdgeIds.add(e.id);
-          const fromVisible = visibleIds.has(e.from.nodeId);
-          const fromBox = nodeToGroupBox.get(e.from.nodeId);
-          let fromPos = null;
-          if (fromVisible) {
-            fromPos = getPortPos(e.from.nodeId, e.from.portId, true);
-          } else if (fromBox) {
-            const idx = boxOutputCounts.get(fromBox.path) || 0;
-            boxOutputCounts.set(fromBox.path, idx + 1);
-            fromPos = { x: fromBox.x + fromBox.w, y: fromBox.y + 30 + idx * 16 };
+          const slotIdx = wallInPorts.findIndex(p => p.id === e.to.portId);
+          if (slotIdx < 0) continue;
+          const wallY = WALL_PORT_START_Y + slotIdx * WALL_PORT_SPACING;
+
+          const targets = portMap[e.to.portId] || [];
+          for (let ti = 0; ti < targets.length; ti++) {
+            const toPos = resolveMapTarget(targets[ti], false);
+            if (toPos) {
+              results.push({ key: `${e.id}_in${ti}`, edge: e, from: { x: wallXIn, y: wallY }, to: toPos });
+            }
           }
-          if (fromPos) {
-            results.push({ edge: e, from: fromPos, to: { x: wallXOut, y: wallY } });
+        } else if (e.from.nodeId === gRef) {
+          wallEdgeIds.add(e.id);
+          const slotIdx = wallOutPorts.findIndex(p => p.id === e.from.portId);
+          if (slotIdx < 0) continue;
+          const wallY = WALL_PORT_START_Y + slotIdx * WALL_PORT_SPACING;
+
+          const sources = portMap[e.from.portId] || [];
+          for (let si = 0; si < sources.length; si++) {
+            const fromPos = resolveMapTarget(sources[si], true);
+            if (fromPos) {
+              results.push({ key: `${e.id}_out${si}`, edge: e, from: fromPos, to: { x: wallXOut, y: wallY } });
+            }
           }
-        });
-      });
+        }
+      }
     }
 
-    // Regular edges — deduplicate first, then assign positions
-    // Build deduped list: group edges by (source key → target key)
-    const regularEdges = [];
-    const seenBoxEdges = new Set();
-
+    // Regular edges
     for (const e of edgesVal) {
       if (wallEdgeIds.has(e.id)) continue;
-      const fromVisible = visibleIds.has(e.from.nodeId);
-      const toVisible = visibleIds.has(e.to.nodeId);
-      const fromBox = nodeToGroupBox.get(e.from.nodeId);
-      const toBox = nodeToGroupBox.get(e.to.nodeId);
-      if (fromBox && toBox && fromBox.path === toBox.path) continue;
+
+      const fromIsGroup = isGroupRef(e.from.nodeId);
+      const toIsGroup = isGroupRef(e.to.nodeId);
+      const fromVisible = !fromIsGroup && visibleIds.has(e.from.nodeId);
+      const toVisible = !toIsGroup && visibleIds.has(e.to.nodeId);
+      const fromBox = fromIsGroup ? groupRefToBox.get(e.from.nodeId) : null;
+      const toBox = toIsGroup ? groupRefToBox.get(e.to.nodeId) : null;
+
+      // Skip if neither endpoint is visible or a visible group box
       if (!fromVisible && !fromBox) continue;
       if (!toVisible && !toBox) continue;
 
-      // Dedup key for group box edges
-      const dedupeKey = (fromVisible ? `n${e.from.nodeId}:${e.from.portId}` : `g${fromBox?.path}`) + '→' +
-                        (toVisible ? `n${e.to.nodeId}:${e.to.portId}` : `g${toBox?.path}`);
-      if ((!fromVisible || !toVisible) && seenBoxEdges.has(dedupeKey)) continue;
-      seenBoxEdges.add(dedupeKey);
-      regularEdges.push({ e, fromVisible, toVisible, fromBox, toBox });
-    }
-
-    // Now assign positions with correct indices
-    for (const { e, fromVisible, toVisible, fromBox, toBox } of regularEdges) {
       let fromPos = null, toPos = null;
 
       if (fromVisible) {
         fromPos = getPortPos(e.from.nodeId, e.from.portId, true);
       } else if (fromBox) {
-        const idx = boxOutputCounts.get(fromBox.path) || 0;
-        boxOutputCounts.set(fromBox.path, idx + 1);
-        fromPos = { x: fromBox.x + fromBox.w, y: fromBox.y + 30 + idx * 16 };
+        fromPos = getDeclaredPortPos(fromBox, e.from.portId, true);
       }
 
       if (toVisible) {
         toPos = getPortPos(e.to.nodeId, e.to.portId, false);
       } else if (toBox) {
-        const idx = boxInputCounts.get(toBox.path) || 0;
-        boxInputCounts.set(toBox.path, idx + 1);
-        toPos = { x: toBox.x, y: toBox.y + 30 + idx * 16 };
+        toPos = getDeclaredPortPos(toBox, e.to.portId, false);
       }
 
       if (fromPos && toPos) {
-        results.push({ edge: e, from: fromPos, to: toPos });
+        results.push({ key: e.id, edge: e, from: fromPos, to: toPos });
       }
     }
     return results;
@@ -225,13 +197,18 @@
 
   function computeDraftPath() {
     if (!connecting) return '';
-    const from = getPortPos(connecting.fromNodeId, connecting.fromPortId, true);
+    let from = null;
+    if (isGroupRef(connecting.fromNodeId)) {
+      const gPath = groupPathFromRef(connecting.fromNodeId);
+      const box = groupBoxes.find(b => b.path === gPath);
+      if (box) from = getDeclaredPortPos(box, connecting.fromPortId, true);
+    } else {
+      from = getPortPos(connecting.fromNodeId, connecting.fromPortId, true);
+    }
     if (!from) return '';
     const dx = Math.abs(mouseWorld.x - from.x) * 0.5;
     return `M${from.x},${from.y} C${from.x + dx},${from.y} ${mouseWorld.x - dx},${mouseWorld.y} ${mouseWorld.x},${mouseWorld.y}`;
   }
-
-  // ── D3 Zoom ─────────────────────────────────────────────────────────────
 
   // ── Zoom (wheel) and Pan (background drag) ─────────────────────────────
 
@@ -259,6 +236,7 @@
       panning = true;
       panStart = { x: e.clientX, y: e.clientY };
       selectedNode.set(null);
+      selectedEdgeId = null;
     }
   }
 
@@ -277,12 +255,18 @@
     event.stopPropagation();
     event.preventDefault();
     selectedNode.set(nodeId);
+    selectedEdgeId = null;
     dragging = { nodeId, startX: event.clientX, startY: event.clientY, moved: false };
+  }
+
+  function onEdgeClick(e) {
+    const { edgeId } = e.detail;
+    selectedEdgeId = edgeId;
+    selectedNode.set(null);
   }
 
   function onPortMouseDown(e) {
     const { nodeId, portId, isOutput, event } = e.detail;
-    // Prevent node drag from starting
     dragging = null;
     if (isOutput) {
       connecting = { fromNodeId: nodeId, fromPortId: portId };
@@ -299,7 +283,6 @@
   }
 
   function onCanvasClick(e) {
-    // Deselect on click (not mousedown — let D3 handle mousedown for pan)
     if (e.target === svgEl || e.target.classList?.contains('grid-bg')) {
       selectedNode.set(null);
     }
@@ -323,7 +306,6 @@
       const dx = (e.clientX - dragging.startX) / transform.k;
       const dy = (e.clientY - dragging.startY) / transform.k;
 
-      // Only start moving after a small threshold (3px)
       if (!dragging.moved && Math.abs(dx) < 3 && Math.abs(dy) < 3) return;
       dragging.moved = true;
 
@@ -336,7 +318,6 @@
         if (box) {
           box.x += dx;
           box.y += dy;
-          // Persist position into group metadata
           groups.update(gs => {
             const g = gs[dragging.groupPath];
             if (g) { g._x = box.x; g._y = box.y; }
@@ -358,17 +339,25 @@
     if (connecting) {
       const target = e.target.closest?.('.port');
       if (target && target.dataset?.isOutput === 'false') {
-        const toNodeId = parseInt(target.dataset?.nodeId);
+        const rawNodeId = target.dataset?.nodeId;
         const toPortId = target.dataset?.portId;
+        // Parse nodeId — could be integer (real node) or "group:..." (group port)
+        const toNodeId = isGroupRef(rawNodeId) ? rawNodeId : parseInt(rawNodeId);
         if (toNodeId && toPortId && toNodeId !== connecting.fromNodeId) {
           // Look up if target port is multi
-          const toNode = findNode(toNodeId);
-          const toComp = toNode ? getCompDef(toNode.type, $registry) : null;
-          const toPort = toComp?.ports?.in?.find(p => p.id === toPortId);
-          const isMulti = toPort?.multi;
+          let isMulti = false;
+          if (isGroupRef(toNodeId)) {
+            const gInfo = getGroupInfo(groupPathFromRef(toNodeId));
+            const port = gInfo?.ports?.in?.find(p => p.id === toPortId);
+            isMulti = !!port?.multi;
+          } else {
+            const toNode = findNode(toNodeId);
+            const toComp = toNode ? getCompDef(toNode.type, $registry) : null;
+            const toPort = toComp?.ports?.in?.find(p => p.id === toPortId);
+            isMulti = !!toPort?.multi;
+          }
 
           if (isMulti) {
-            // Multi-port: collects into ordered list, always accept
             addEdge(connecting.fromNodeId, connecting.fromPortId, toNodeId, toPortId);
           } else {
             // Single port: replace existing connection
@@ -387,9 +376,14 @@
   }
 
   function onKeyDown(e) {
-    if (e.key === 'Delete' && $selectedNode) {
-      removeNode($selectedNode);
-      selectedNode.set(null);
+    if (e.key === 'Delete' || e.key === 'Backspace') {
+      if (selectedEdgeId) {
+        removeEdge(selectedEdgeId);
+        selectedEdgeId = null;
+      } else if ($selectedNode) {
+        removeNode($selectedNode);
+        selectedNode.set(null);
+      }
     }
     if (e.key === 'Escape' && $currentGroup) {
       const dot = $currentGroup.lastIndexOf('.');
@@ -447,8 +441,14 @@
 
     <g transform="translate({transform.x}, {transform.y}) scale({transform.k})">
       <!-- Edges -->
-      {#each edgePositions as ep (ep.edge.id)}
-        <Edge edge={ep.edge} fromPos={ep.from} toPos={ep.to} />
+      {#each edgePositions as ep (ep.key)}
+        <Edge
+          edge={ep.edge}
+          fromPos={ep.from}
+          toPos={ep.to}
+          selected={ep.edge.id === selectedEdgeId}
+          on:edgeClick={onEdgeClick}
+        />
       {/each}
 
       <!-- Draft edge -->
@@ -456,51 +456,59 @@
         <path d={draftPath} fill="none" stroke="#4a90d9" stroke-width="2" stroke-dasharray="5,3" />
       {/if}
 
-      <!-- Wall ports (incoming/outgoing edges from parent scope) -->
-      {#if $currentGroup}
-        {#each wallPorts.inputs as wp, i}
+      <!-- Wall ports (from declared group ports) -->
+      {#if $currentGroup && $groups[$currentGroup]}
+        {@const curGroupInfo = $groups[$currentGroup]}
+        {@const gRef = "group:" + $currentGroup}
+        {@const wallIn = curGroupInfo.ports?.in || []}
+        {@const wallOut = curGroupInfo.ports?.out || []}
+        {#each wallIn as p, i}
           {@const wy = WALL_PORT_START_Y + i * WALL_PORT_SPACING}
-          {@const portId = wp.key.split(':')[1] || 'in'}
-          {@const firstEdge = wp.edges[0]}
-          {@const srcNode = firstEdge ? findNode(firstEdge.from.nodeId) : null}
-          {@const srcComp = srcNode ? getCompDef(srcNode.type, $registry) : null}
-          {@const srcPort = srcComp?.ports?.out?.find(p => p.id === firstEdge?.from.portId)}
-          {@const dtColor = srcPort ? getDataTypeColor(srcPort.dataType, $registry) : '#4a90d9'}
-          {@const rank = srcPort ? portRank(srcPort.shape) : 1}
+          {@const dtColor = getDataTypeColor(p.dataType, $registry)}
+          {@const rank = portRank(p.shape)}
           {@const ps = portShapeAttrs(rank, WALL_X_IN, wy, 8)}
-          <g class="wall-port">
+          {@const isConnected = $edges.some(e => e.to.nodeId === gRef && e.to.portId === p.id)}
+          <g class="wall-port port port-in"
+             data-node-id={gRef}
+             data-port-id={p.id}
+             data-is-output="false"
+             style="cursor: crosshair"
+          >
             {#if ps.tag === 'rect'}
-              <rect {...ps.attrs} fill={dtColor} stroke={dtColor} stroke-width="2" />
+              <rect {...ps.attrs} fill={dtColor} stroke={dtColor} stroke-width="2" opacity={isConnected ? 1 : 0.4} />
             {:else if ps.tag === 'polygon'}
-              <polygon {...ps.attrs} fill={dtColor} stroke={dtColor} stroke-width="2" />
+              <polygon {...ps.attrs} fill={dtColor} stroke={dtColor} stroke-width="2" opacity={isConnected ? 1 : 0.4} />
             {:else}
-              <circle {...ps.attrs} fill={dtColor} stroke={dtColor} stroke-width="2" />
+              <circle {...ps.attrs} fill={dtColor} stroke={dtColor} stroke-width="2" opacity={isConnected ? 1 : 0.4} />
             {/if}
-            <text x={WALL_X_IN + 14} y={wy + 3} fill={dtColor} font-size="9" font-weight="600">
-              {portId}
+            <text x={WALL_X_IN + 14} y={wy + 3} fill={dtColor} font-size="9" font-weight="600"
+                  opacity={isConnected ? 1 : 0.4}>
+              {p.label || p.id}
             </text>
           </g>
         {/each}
-        {#each wallPorts.outputs as wp, i}
+        {#each wallOut as p, i}
           {@const wy = WALL_PORT_START_Y + i * WALL_PORT_SPACING}
-          {@const portId = wp.key.split(':')[1] || 'out'}
-          {@const firstEdge = wp.edges[0]}
-          {@const dstNode = firstEdge ? findNode(firstEdge.to.nodeId) : null}
-          {@const dstComp = dstNode ? getCompDef(dstNode.type, $registry) : null}
-          {@const dstPort = dstComp?.ports?.in?.find(p => p.id === firstEdge?.to.portId)}
-          {@const dtColor = dstPort ? getDataTypeColor(dstPort.dataType, $registry) : '#e6994a'}
-          {@const rank = dstPort ? portRank(dstPort.shape) : 1}
+          {@const dtColor = getDataTypeColor(p.dataType, $registry)}
+          {@const rank = portRank(p.shape)}
           {@const ps = portShapeAttrs(rank, WALL_X_OUT, wy, 8)}
-          <g class="wall-port">
+          {@const isConnected = $edges.some(e => e.from.nodeId === gRef && e.from.portId === p.id)}
+          <g class="wall-port port port-out"
+             data-node-id={gRef}
+             data-port-id={p.id}
+             data-is-output="true"
+             style="cursor: crosshair"
+          >
             {#if ps.tag === 'rect'}
-              <rect {...ps.attrs} fill={dtColor} stroke={dtColor} stroke-width="2" />
+              <rect {...ps.attrs} fill={dtColor} stroke={dtColor} stroke-width="2" opacity={isConnected ? 1 : 0.4} />
             {:else if ps.tag === 'polygon'}
-              <polygon {...ps.attrs} fill={dtColor} stroke={dtColor} stroke-width="2" />
+              <polygon {...ps.attrs} fill={dtColor} stroke={dtColor} stroke-width="2" opacity={isConnected ? 1 : 0.4} />
             {:else}
-              <circle {...ps.attrs} fill={dtColor} stroke={dtColor} stroke-width="2" />
+              <circle {...ps.attrs} fill={dtColor} stroke={dtColor} stroke-width="2" opacity={isConnected ? 1 : 0.4} />
             {/if}
-            <text x={WALL_X_OUT - 14} y={wy + 3} fill={dtColor} font-size="9" font-weight="600" text-anchor="end">
-              {portId}
+            <text x={WALL_X_OUT - 14} y={wy + 3} fill={dtColor} font-size="9" font-weight="600" text-anchor="end"
+                  opacity={isConnected ? 1 : 0.4}>
+              {p.label || p.id}
             </text>
           </g>
         {/each}
@@ -512,8 +520,6 @@
           groupPath={box.path}
           groupInfo={box.info}
           x={box.x} y={box.y} w={box.w} h={box.h}
-          inputEdges={box.inputs}
-          outputEdges={box.outputs}
           on:drillIn={onGroupDrillIn}
           on:groupMouseDown={onGroupMouseDown}
         />

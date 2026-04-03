@@ -3,6 +3,7 @@ import { svelte } from '@sveltejs/vite-plugin-svelte'
 
 export default defineConfig({
   plugins: [svelte()],
+  publicDir: '../public',  // Serve static files (components.json etc.) from Crystal server's dir
   build: {
     outDir: '../public',  // Output to the Crystal server's static dir
     emptyOutDir: false,   // Don't delete existing files (components.json, svg/, etc.)

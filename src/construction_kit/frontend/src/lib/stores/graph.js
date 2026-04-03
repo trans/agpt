@@ -53,8 +53,17 @@ export function removeEdge(id) {
 
 // ── Group Operations ────────────────────────────────────────────────────────
 
-export function addGroup(path, label, type, params = {}) {
-  groups.update(gs => ({ ...gs, [path]: { label, type, params } }));
+export function addGroup(path, label, type, params = {}, ports = null) {
+  const info = { label, type, params };
+  if (ports) info.ports = ports;
+  groups.update(gs => ({ ...gs, [path]: info }));
+}
+
+export function updateGroup(path, updates) {
+  groups.update(gs => {
+    if (!gs[path]) return gs;
+    return { ...gs, [path]: { ...gs[path], ...updates } };
+  });
 }
 
 export function removeGroup(path) {
@@ -73,6 +82,16 @@ export function getGroupInfo(path) {
   let info = null;
   groups.subscribe(gs => { info = gs[path] || null; })();
   return info;
+}
+
+// ── Group Port Helpers ──────────────────────────────────────────────────
+
+export function isGroupRef(nodeId) {
+  return typeof nodeId === 'string' && nodeId.startsWith('group:');
+}
+
+export function groupPathFromRef(nodeId) {
+  return nodeId.slice(6);
 }
 
 // ── Param Inheritance ───────────────────────────────────────────────────────
@@ -175,15 +194,3 @@ export function nodesUnderGroup(groupPath, nodesValue) {
   return nodesValue.filter(n => n.group === groupPath || n.group.startsWith(prefix));
 }
 
-// Auto-derived ports for a collapsed group box
-export function groupBoundaryPorts(groupPath, nodesValue, edgesValue) {
-  const insideIds = new Set(nodesUnderGroup(groupPath, nodesValue).map(n => n.id));
-  const inputs = [], outputs = [];
-  for (const e of edgesValue) {
-    const fromIn = insideIds.has(e.from.nodeId);
-    const toIn = insideIds.has(e.to.nodeId);
-    if (!fromIn && toIn) inputs.push(e);
-    else if (fromIn && !toIn) outputs.push(e);
-  }
-  return { inputs, outputs };
-}

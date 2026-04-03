@@ -635,6 +635,24 @@
       }
     },
     {
+      "type": "add",
+      "label": "Add",
+      "category": "math",
+      "color": "#d9a04a",
+      "ports": {
+        "in": [
+          {"id": "a", "label": "a", "dataType": "matrix", "shape": [null, "d"]},
+          {"id": "b", "label": "b", "dataType": "matrix", "shape": [null, "d"]}
+        ],
+        "out": [
+          {"id": "out", "label": "out", "dataType": "matrix", "shape": [null, "d"]}
+        ]
+      },
+      "params": {
+        "d": {"type": "int", "inherit": true}
+      }
+    },
+    {
       "type": "relu",
       "label": "ReLU",
       "category": "math",

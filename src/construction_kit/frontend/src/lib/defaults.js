@@ -1,7 +1,7 @@
 // defaults.js — Default graph generators for standard architectures
 // Creates flat nodes + edges with group tags.
 
-import { addNode, addEdge, addGroup, clearGraph, newId } from './stores/graph.js';
+import { addNode, addEdge, addGroup, updateGroup, clearGraph, newId } from './stores/graph.js';
 
 function _node(type, group, params = {}, x = 0, y = 0) {
   return addNode(type, group, params, x, y);
@@ -25,30 +25,68 @@ export function createDemoGraph() {
     beta1: 0.9, beta2: 0.999, weight_decay: 0.01,
   }, 900, -60);
 
-  // Cooperative group
-  addGroup('coop', 'Cooperative Ensemble', 'cooperative', { stream_dim: sd });
+  // Cooperative group — declare ports up front
+  addGroup('coop', 'Cooperative Ensemble', 'cooperative', { stream_dim: sd }, {
+    in: [
+      { id: "ids", dataType: "token_ids", shape: [null], label: "tokens" },
+      { id: "stream_in", dataType: "stream", shape: [null, "stream_dim"], label: "stream" },
+    ],
+    out: [
+      { id: "logits_out", dataType: "logits", shape: [null, "vocab_size"], label: "logits" },
+    ],
+  });
 
   // Two transformer experts
   const expertA = createTransformerExpert('coop.xfmr_a', 'Transformer A', sd, 3, 100, 40);
   const expertB = createTransformerExpert('coop.xfmr_b', 'Transformer B', sd, 3, 100, 600);
   const router = _node('global_router', 'coop', { epsilon: 0.2 }, 500, 300);
 
-  // Pipeline wiring
+  // Coop portMap — routes to transformer sub-group ports (not raw internal nodes)
+  updateGroup('coop', {
+    portMap: {
+      "ids": [
+        { nodeId: expertA.gRef, portId: "ids" },
+        { nodeId: expertB.gRef, portId: "ids" },
+      ],
+      "stream_in": [
+        { nodeId: expertA.gRef, portId: "stream_in" },
+        { nodeId: router.id, portId: "stream_in" },
+      ],
+      "logits_out": [
+        { nodeId: router.id, portId: "logits_out" },
+      ],
+    }
+  });
+
+  // Pipeline wiring — external edges target group ports
   _edge(tok, 'token_ids', win, 'token_ids');
-  _edge(win, 'input_ids', expertA.lookup, 'ids');
-  _edge(win, 'input_ids', expertB.lookup, 'ids');
-  _edge(init, 'stream_out', expertA.streamRead, 'in');
-  _edge(expertA.streamWrite, 'out', expertB.streamRead, 'in');
-  _edge(expertA.outputLast, 'out', router, 'logits_in');
-  _edge(expertB.outputLast, 'out', router, 'logits_in');
-  _edge(init, 'stream_out', router, 'stream_in');
-  _edge(router, 'logits_out', loss, 'logits_in');
+  addEdge(win.id, 'input_ids', 'group:coop', 'ids');
+  addEdge(init.id, 'stream_out', 'group:coop', 'stream_in');
+
+  // Internal coop wiring — through transformer group ports
+  addEdge(expertA.gRef, 'stream_out', expertB.gRef, 'stream_in');
+  addEdge(expertA.gRef, 'logits_out', router.id, 'logits_in');
+  addEdge(expertB.gRef, 'logits_out', router.id, 'logits_in');
+
+  // Output — from group port to pipeline
+  addEdge('group:coop', 'logits_out', loss.id, 'logits_in');
   _edge(win, 'target_ids', loss, 'targets');
 }
 
 function createTransformerExpert(groupPath, label, d, nLayers, baseX, baseY) {
-  addGroup(groupPath, label, 'transformer', { d, n_layers: nLayers });
+  // Declare ports for the transformer group
+  addGroup(groupPath, label, 'transformer', { d, n_layers: nLayers }, {
+    in: [
+      { id: "ids", dataType: "token_ids", shape: [null], label: "tokens" },
+      { id: "stream_in", dataType: "stream", shape: [null, "stream_dim"], label: "stream" },
+    ],
+    out: [
+      { id: "logits_out", dataType: "logits", shape: [null, "vocab_size"], label: "logits" },
+      { id: "stream_out", dataType: "stream", shape: [null, "stream_dim"], label: "stream" },
+    ],
+  });
 
+  const gRef = "group:" + groupPath;
   const xStep = 180, yStep = 160;
   let row = 0;
 
@@ -105,5 +143,15 @@ function createTransformerExpert(groupPath, label, d, nLayers, baseX, baseY) {
   const streamWrite = _node('stream_proj_internal', groupPath, { d_in: d, d_out: d }, baseX + xStep * 2, y);
   _edge(lastNode, lastPort, streamWrite, 'in');
 
-  return { lookup, streamRead, streamWrite, outputLast: outAdd };
+  // Set portMap — maps declared ports to internal nodes
+  updateGroup(groupPath, {
+    portMap: {
+      "ids": [{ nodeId: lookup.id, portId: "ids" }],
+      "stream_in": [{ nodeId: streamRead.id, portId: "in" }],
+      "logits_out": [{ nodeId: outAdd.id, portId: "out" }],
+      "stream_out": [{ nodeId: streamWrite.id, portId: "out" }],
+    }
+  });
+
+  return { gRef, lookup, streamRead, streamWrite, outputLast: outAdd };
 }

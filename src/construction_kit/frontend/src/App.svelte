@@ -1,23 +1,55 @@
 <script>
-  import { onMount } from 'svelte';
-  import { registry } from './lib/stores/ui.js';
+  import { onMount, onDestroy } from 'svelte';
+  import { registry, currentGroup } from './lib/stores/ui.js';
   import { nodes, edges, groups } from './lib/stores/graph.js';
   import { createDemoGraph } from './lib/defaults.js';
-  import GraphCanvas from './lib/components/GraphCanvas.svelte';
+  import { createEditor } from './lib/rete/editor.js';
+  import { syncScopeToRete, setupReteListeners } from './lib/rete/sync.js';
+  import Breadcrumbs from './lib/components/Breadcrumbs.svelte';
 
   let loaded = false;
-  let canvas;
+  let containerEl;
+  let editorInstance = null;
 
   onMount(async () => {
     const resp = await fetch('/components.json');
     const data = await resp.json();
     registry.set(data);
-
     createDemoGraph();
     loaded = true;
+  });
 
-    // Fit after first render
-    setTimeout(() => canvas?.fitToView(), 100);
+  let lastSyncedGroup = null;
+
+  // When loaded + container ready, create Rete editor
+  $: if (loaded && containerEl && !editorInstance) {
+    initEditor();
+  }
+
+  // Re-sync when currentGroup changes (but not on initial load — initEditor handles that)
+  $: if (editorInstance && loaded && lastSyncedGroup !== $currentGroup) {
+    syncScope($currentGroup);
+  }
+
+  async function initEditor() {
+    editorInstance = await createEditor(containerEl);
+    setupReteListeners(editorInstance.editor, editorInstance.area, handleDrillIn);
+    lastSyncedGroup = $currentGroup;
+    await syncScopeToRete(editorInstance.editor, editorInstance.area);
+  }
+
+  async function syncScope(group) {
+    if (!editorInstance) return;
+    lastSyncedGroup = group;
+    await syncScopeToRete(editorInstance.editor, editorInstance.area);
+  }
+
+  function handleDrillIn(groupPath) {
+    currentGroup.set(groupPath);
+  }
+
+  onDestroy(() => {
+    editorInstance?.destroy();
   });
 </script>
 
@@ -35,7 +67,8 @@
     </div>
 
     <div id="canvas-wrap">
-      <GraphCanvas bind:this={canvas} />
+      <Breadcrumbs />
+      <div class="rete-container" bind:this={containerEl}></div>
     </div>
 
     <div id="right-panel">
@@ -83,6 +116,11 @@
     overflow: hidden;
     display: flex;
     flex-direction: column;
+  }
+  .rete-container {
+    flex: 1;
+    width: 100%;
+    height: 100%;
   }
   .panel-header {
     padding: 12px 16px;
