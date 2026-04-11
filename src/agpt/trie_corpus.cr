@@ -317,6 +317,26 @@ module MicroGPT
         )
       end
 
+      def each_depth_level(& : {Int32, Array(TrieNode)} ->)
+        current_level = [@root]
+        depth = 0
+        until current_level.empty?
+          yield({depth, current_level})
+          next_level = [] of TrieNode
+          current_level.each do |node|
+            node.children.each { |_, child| next_level << child }
+          end
+          current_level = next_level
+          depth += 1
+        end
+      end
+
+      def max_trie_depth : Int32
+        max_d = 0
+        each_node { |n| max_d = n.depth if n.depth > max_d }
+        max_d
+      end
+
       def each_observed_node(& : TrieNode ->)
         each_node do |node|
           next if node.next_token_counts.empty?

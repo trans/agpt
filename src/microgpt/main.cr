@@ -767,10 +767,11 @@ module MicroGPT
           end
         end
 
-        agpt_trainer = AGPT::Trainer.new(trie)
+        agpt_walk_trainer = AGPT::TrieWalkTrainer.new(trie)
+        agpt_trainer = AGPT::Trainer.new(trie)  # kept for fallback/comparison
         trie_shape = trie.shape_stats
         puts "MiniGPT ready."
-        puts "  Mode: AGPT replay-prefix"
+        puts "  Mode: AGPT trie-walk (BFS + KV cache)"
         puts "  Vocab: #{dataset.vocab_size} chars"
         puts "  Params: #{active_params}"
         puts "  Config: d_model=#{config.d_model} n_layers=#{config.n_layers} d_ff=#{config.d_ff} seq_len=#{config.seq_len} lr=#{config.learning_rate}"
@@ -780,7 +781,7 @@ module MicroGPT
         puts "  Trie starts used: #{trie.starts_used} / #{dataset.data.size - 1}"
         puts "  Start offset: #{agpt_start_offset}"
         puts "  Trie nodes: #{trie.node_count}"
-        puts "  Prefix examples: #{agpt_trainer.example_count}"
+        puts "  Prefix examples: #{agpt_walk_trainer.observed_count}"
         puts "  Trie source: #{trie_source}"
         puts "  Trie index: #{trie_index_path}" if trie_index_path
         puts "  Trie load: #{trie_build_time.total_milliseconds.round(1)} ms" if trie_source == "loaded"
@@ -809,15 +810,30 @@ module MicroGPT
       avg_causal_loss = 0.0
       avg_future_loss = 0.0
       avg_head_losses = Array(Float64).new((lookahead > 0 ? lookahead : 0) + 1, 0.0)
-      steps.times do |step|
-        if trainer = agpt_trainer
-          loss, example = trainer.train_step(model)
-          input = if example.prefix_tokens.size > 16
-            example.prefix_tokens[-16..]
-          else
-            example.prefix_tokens
+
+      # AGPT trie-walk mode: each "step" is a full BFS epoch over the trie
+      if walk_trainer = agpt_walk_trainer
+        steps.times do |step|
+          epoch_started = Time.instant
+          loss, nodes = walk_trainer.train_epoch(model)
+          elapsed = Time.instant - epoch_started
+          avg_loss = step == 0 ? loss : 0.99 * avg_loss + 0.01 * loss
+
+          GC.collect if step % 2 == 0
+
+          puts "Epoch #{step}/#{steps} (#{nodes} nodes, #{"%.1f" % elapsed.total_seconds}s): loss = #{"%.4f" % loss} avg = #{"%.4f" % avg_loss} [agpt trie-walk]"
+          if step % 5 == 0
+            seed = dataset.data[0, Math.min(16, dataset.data.size)]
+            generated = model.generate(seed, 100, temperature: 0.8)
+            puts "  seed: #{dataset.decode(seed)}"
+            puts "  gen:  #{dataset.decode(generated)}"
+            puts
           end
-        elsif fm = future_model
+        end
+      else
+
+      steps.times do |step|
+        if fm = future_model
           input, targets = dataset.sample(config.seq_len, 0)
           loss, causal_loss, future_loss = fm.train_step(input, targets[0])
           avg_causal_loss = step == 0 ? causal_loss : 0.99 * avg_causal_loss + 0.01 * causal_loss
@@ -841,12 +857,10 @@ module MicroGPT
             " [causal=#{"%.4f" % avg_causal_loss}, future=#{"%.4f" % avg_future_loss}]"
           elsif lookahead > 0
             " [" + avg_head_losses.map_with_index { |l, i| "W#{i}=#{"%.4f" % l}" }.join(", ") + "]"
-          elsif agpt_mode
-            " [agpt]"
           else
             ""
           end
-          step_label = agpt_mode ? "prefix_step" : "epoch #{dataset.epoch}"
+          step_label = "epoch #{dataset.epoch}"
           puts "Step #{step}/#{steps} (#{step_label}): loss = #{"%.4f" % loss} avg = #{"%.4f" % avg_loss}#{head_str}"
           seed = input[0, 16]
           gen_model = future_model || la_model
@@ -856,6 +870,8 @@ module MicroGPT
           puts
         end
       end
+
+      end  # close agpt_walk_trainer else branch
 
       if steps > 0
         puts "Final avg loss: #{"%.4f" % avg_loss}"
