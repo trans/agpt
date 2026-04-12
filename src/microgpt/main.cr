@@ -152,6 +152,16 @@ module MicroGPT
         "type": "string",
         "description": "Load a previously saved AGPT trie index from this path"
       },
+      "val-tokens": {
+        "type": "integer",
+        "description": "Hold out the last N tokens of the corpus as a validation set (0 = off)",
+        "default": 0
+      },
+      "val-interval": {
+        "type": "number",
+        "description": "Wall-clock seconds between held-out evaluations (0 = only at end)",
+        "default": 5.0
+      },
       "build-only": {
         "type": "boolean",
         "description": "Build/load and report model state without training or generation",
@@ -273,6 +283,8 @@ module MicroGPT
       agpt_progress = result["agpt-progress"].as_i64.to_i
       agpt_save_index = result["agpt-save-index"]?.try(&.as_s)
       agpt_load_index = result["agpt-load-index"]?.try(&.as_s)
+      val_size     = result["val-tokens"].as_i64.to_i
+      val_interval = result["val-interval"].as_f
       build_only = result["build-only"]?.try(&.as_bool) || false
 
       # --- Load config from YAML if provided ---
@@ -337,6 +349,23 @@ module MicroGPT
 
       text = File.read(filename)
       dataset = CharDataset.new(text)
+
+      # Held-out validation split: chop the last val_size tokens off the corpus.
+      # Window mode honors this via dataset.train_limit; AGPT mode honors it by
+      # building the trie from train_tokens only.
+      train_tokens = dataset.data
+      val_tokens = [] of Int32
+      if val_size > 0
+        if val_size + seq_len + 1 > dataset.data.size
+          STDERR.puts "val-tokens=#{val_size} leaves no room for training (corpus=#{dataset.data.size}, seq_len=#{seq_len})"
+          exit 1
+        end
+        train_size = dataset.data.size - val_size
+        train_tokens = dataset.data[0, train_size]
+        val_tokens = dataset.data[train_size, val_size]
+        dataset.train_limit = train_size
+        puts "Held-out: #{val_size} tokens (train=#{train_size}, val_interval=#{val_interval}s)"
+      end
 
       if agpt_mode
         if cooperative
@@ -726,14 +755,14 @@ module MicroGPT
       if agpt_mode
         trie_source = "built"
         trie_index_path = agpt_load_index || agpt_save_index
-        corpus_hash = AGPT::TrieCorpus.token_hash(dataset.data)
+        corpus_hash = AGPT::TrieCorpus.token_hash(train_tokens)
         if index_path = agpt_load_index
           begin
             build_started_at = Time.instant
             trie = AGPT::TrieCorpus.load(index_path)
             trie_build_time = Time.instant - build_started_at
             trie.validate_metadata!(
-              corpus_token_count: dataset.data.size,
+              corpus_token_count: train_tokens.size,
               vocab_size: dataset.vocab_size,
               corpus_hash: corpus_hash,
               tokenizer_tag: AGPT_TOKENIZER_TAG,
@@ -748,7 +777,7 @@ module MicroGPT
           max_starts = agpt_max_starts > 0 ? agpt_max_starts : nil
           build_started_at = Time.instant
           trie = AGPT::TrieCorpus.from_token_ids(
-            dataset.data,
+            train_tokens,
             max_depth: config.seq_len,
             max_starts: max_starts,
             start_offset: agpt_start_offset,
@@ -811,8 +840,24 @@ module MicroGPT
       avg_future_loss = 0.0
       avg_head_losses = Array(Float64).new((lookahead > 0 ? lookahead : 0) + 1, 0.0)
 
+      mode_tag = agpt_mode ? "agpt" : "window"
+      run_started_at = Time.instant
+      last_val_at = run_started_at
+      last_val_step = -1
+      emit_val = ->(step : Int32) {
+        return if val_size == 0 || step == last_val_step
+        val_started = Time.instant
+        ce = dataset.held_out_loss(model, val_tokens, seq_len)
+        val_elapsed = Time.instant - val_started
+        wall = (Time.instant - run_started_at).total_seconds
+        puts "[val] mode=#{mode_tag} t=#{"%.3f" % wall} step=#{step} held_out_ce=#{"%.4f" % ce} eval_secs=#{"%.3f" % val_elapsed.total_seconds}"
+        last_val_at = Time.instant
+        last_val_step = step
+      }
+
       # AGPT trie-walk mode: each "step" is a full BFS epoch over the trie
       if walk_trainer = agpt_walk_trainer
+        emit_val.call(0)
         steps.times do |step|
           epoch_started = Time.instant
           loss, nodes = walk_trainer.train_epoch(model)
@@ -829,9 +874,14 @@ module MicroGPT
             puts "  gen:  #{dataset.decode(generated)}"
             puts
           end
+
+          if val_size > 0 && val_interval > 0 && (Time.instant - last_val_at).total_seconds >= val_interval
+            emit_val.call(step + 1)
+          end
         end
       else
 
+      emit_val.call(0)
       steps.times do |step|
         if fm = future_model
           input, targets = dataset.sample(config.seq_len, 0)
@@ -851,6 +901,10 @@ module MicroGPT
         avg_loss = step == 0 ? loss : 0.99 * avg_loss + 0.01 * loss
 
         GC.collect if step % 10 == 0
+
+        if val_size > 0 && val_interval > 0 && (Time.instant - last_val_at).total_seconds >= val_interval
+          emit_val.call(step + 1)
+        end
 
         if step % 50 == 0
           head_str = if lookahead == -1
@@ -872,6 +926,8 @@ module MicroGPT
       end
 
       end  # close agpt_walk_trainer else branch
+
+      emit_val.call(steps) if steps > 0
 
       if steps > 0
         puts "Final avg loss: #{"%.4f" % avg_loss}"

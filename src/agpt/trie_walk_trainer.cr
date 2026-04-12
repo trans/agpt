@@ -1,21 +1,20 @@
 module MicroGPT
   module AGPT
-    # BFS trie-walk trainer with shared-prefix KV caching and incremental backward.
+    # Memory-efficient BFS trie-walk trainer.
     #
     # Forward (BFS depth 0 → max):
     #   Walk the trie level by level. At each depth, every node extends its
-    #   parent's KV cache by one token. Shared prefixes are computed once.
-    #   Saves NodeForwardState per node for backward use.
+    #   parent's KV cache by one token. Stores only each node's K/V contribution
+    #   (~1 KB) plus loss info. KV caches are ephemeral — freed per depth level.
     #
     # Backward (BFS depth max → 0):
-    #   Process nodes from deepest to shallowest. At each node, run single-step
-    #   backward using saved state. The attention backward produces dK/dV for all
-    #   positions — current position is handled locally, ancestor positions are
-    #   scattered to their NodeGradAccum. This implements the core note's:
+    #   For each node: reconstruct the full KV cache from stored K/V rows by
+    #   walking the parent chain, re-run one forward step to regenerate
+    #   BlockStepState, then backward. Gradient accumulators (dK/dV from
+    #   descendants) persist across depth levels.
     #
-    #     G_p = g_p^local + Σ J_{p→p·x} · G_{p·x}
-    #
-    #   where the Jacobian transport happens through dK/dV in attention.
+    # Memory: O(total_nodes × 1 KB) for K/V store + O(total_nodes × 512 B)
+    # for grad accumulators. No full NodeForwardState or KV caches retained.
     class TrieWalkTrainer
       getter corpus : TrieCorpus
       getter loss_fn : WeightedNextTokenLoss
@@ -41,24 +40,32 @@ module MicroGPT
         total_loss = 0.0
         nodes_trained = 0
 
-        # --- Forward BFS: depth 0 → max ---
-        # Track per-node: KV cache, forward state, loss info
-        node_caches = {} of Int32 => ModelKVCache
-        node_states = {} of Int32 => NodeForwardState
-        node_losses = {} of Int32 => {Mat, Hash(Int32, Int32)}  # {d_logits, counts}
-        node_ancestor_ids = {} of Int32 => Array(Int32)
+        # Compact per-node K/V storage (~1 KB/node) — persists across entire epoch
+        kv_store = NodeKVStore.new
 
-        root_cache = ModelKVCache.new(n_layers, head_dims, seq_len)
-        node_caches[@corpus.root.id] = root_cache
+        # Per-node metadata needed for backward (small: ancestor ids + loss info)
+        node_ancestor_ids = {} of Int32 => Array(Int32)
+        node_losses = {} of Int32 => {Hash(Int32, Int32)}  # counts only; recompute d_logits during backward
+        node_positions = {} of Int32 => Int32
+        node_tokens = {} of Int32 => Int32
+
+        # Collect depth levels for backward ordering
+        depth_levels = [] of Array(TrieNode)
+
         node_ancestor_ids[@corpus.root.id] = [] of Int32
 
-        # Collect depth levels for backward pass ordering
-        depth_levels = [] of Array(TrieNode)
+        # --- Forward BFS: depth 0 → max ---
+        # Ephemeral KV caches: only current + parent depth levels alive at once.
+        node_caches = {} of Int32 => ModelKVCache
+        root_cache = ModelKVCache.new(n_layers, head_dims, seq_len)
+        node_caches[@corpus.root.id] = root_cache
+        prev_depth_node_ids = [@corpus.root.id]
 
         @corpus.each_depth_level do |depth, nodes|
           next if depth == 0
 
           depth_level = [] of TrieNode
+          current_depth_node_ids = [] of Int32
 
           nodes.each do |node|
             parent = node.parent.not_nil!
@@ -70,29 +77,27 @@ module MicroGPT
             position = parent_cache.len
             parent_ancestors = node_ancestor_ids[parent.id]
 
-            # Always clone — we need parent cache intact for backward.
-            # (The forward-only path could reuse single-child caches, but
-            # backward needs KV caches at every node.)
-            cache = parent_cache.deep_clone
+            cache = parent.children.size > 1 ? parent_cache.deep_clone : parent_cache
 
-            # Build ancestor chain for this node
             ancestors = parent_ancestors + [node.id]
 
-            # Incremental forward with state capture
-            logits, state = IncrementalForward.forward_token(
+            logits, _state = IncrementalForward.forward_token(
               model, token, position, cache, ancestors
             )
 
-            # Store state for backward
-            node_states[node.id] = state
-            node_ancestor_ids[node.id] = ancestors
+            # Store compact K/V contribution (~1 KB)
+            kv_store.store(node.id, cache, head_dims)
 
-            # Compute loss if observed
+            # Store lightweight metadata for backward
+            node_ancestor_ids[node.id] = ancestors
+            node_positions[node.id] = position
+            node_tokens[node.id] = token
+
+            # Compute and store loss info (counts only — recompute d_logits in backward)
             unless node.next_token_counts.empty?
               counts = node.next_token_counts_hash
-              loss_value, d_logits = @loss_fn.loss_and_backward(logits, counts)
+              loss_value, _d_logits = @loss_fn.loss_and_backward(logits, counts)
 
-              # Debug verification
               if @debug_verify && nodes_trained < 5
                 prefix = @corpus.prefix_for(node)
                 ref_logits = model.forward(prefix)
@@ -106,68 +111,92 @@ module MicroGPT
                             "loss=#{"%.4f" % loss_value} max_logit_diff=#{"%.6f" % max_diff}"
               end
 
-              node_losses[node.id] = {d_logits, counts}
+              node_losses[node.id] = {counts}
               total_loss += loss_value
               nodes_trained += 1
             end
 
-            # Keep cache for backward (needed for attention backward at this node)
             node_caches[node.id] = cache
+            current_depth_node_ids << node.id
 
             depth_level << node
           end
 
-          depth_levels << depth_level
+          # Free caches from depths that are no longer needed as parents.
+          # Nodes at prev depth whose children have all been processed.
+          prev_depth_node_ids.each do |pid|
+            node_caches.delete(pid)
+          end
+          prev_depth_node_ids = current_depth_node_ids
 
-          # Free parent caches that have no more children to process
-          # (conservative: only free if not needed by any node at this or deeper levels)
+          depth_levels << depth_level
         end
 
+        # Free remaining caches from the last depth level
+        node_caches.clear
+
+        GC.collect
+
         # --- Backward BFS: depth max → 0 ---
-        # Gradient accumulators per node (dK/dV from descendants)
         grad_accums = {} of Int32 => NodeGradAccum
 
-        # Process depth levels in reverse
         depth_levels.reverse_each do |nodes|
           nodes.each do |node|
-            state = node_states[node.id]?
-            next unless state
+            position = node_positions[node.id]?
+            next unless position
+            ancestors = node_ancestor_ids[node.id]
+            token = node_tokens[node.id]
 
-            # Get or create gradient accumulator for this node
             accum = grad_accums[node.id]? || NodeGradAccum.new(n_layers, head_dims)
 
-            # Loss gradient (zero if no observations)
+            # Reconstruct parent's KV cache from stored K/V rows (~O(depth) assembly)
+            kv_cache = kv_store.reconstruct_parent_cache(
+              node.id, @corpus, n_layers, head_dims, seq_len
+            )
+
+            # Re-run one forward step to regenerate BlockStepState
+            _logits, state = IncrementalForward.forward_token(
+              model, token, position, kv_cache, ancestors
+            )
+
+            # Recompute loss gradient
             d_logits = if loss_info = node_losses[node.id]?
-                         loss_info[0]
+                         counts = loss_info[0]
+                         logits_for_loss = model.output.forward(
+                           model.final_norm.forward(state.final_x)
+                         )
+                         _, dl = @loss_fn.loss_and_backward(logits_for_loss, counts)
+                         dl
                        else
                          Mat.new(1, model.config.vocab_size)
                        end
 
-            kv_cache = node_caches[node.id].not_nil!
-
-            # Run incremental backward
             ancestor_grads = IncrementalBackward.backward_token(
               model, state, d_logits, accum, kv_cache
             )
 
-            # Scatter dK/dV to ancestor nodes
             scatter_ancestor_grads(
               ancestor_grads, state, n_layers, head_dims, grad_accums
             )
+
+            # Free this node's grad accumulator — no longer needed
+            grad_accums.delete(node.id)
           end
+
+          # Per-depth weight update: each depth level is a mini-batch.
+          # Stale K/V from the forward pass is acceptable — fresh Q projections
+          # at the next depth use updated weights, similar to pipeline parallelism.
+          lr = model.config.learning_rate
+          model.embedding.update(lr)
+          model.blocks.each &.update(lr)
+          model.final_norm.update(lr)
+          model.output.update(lr)
+          zero_gradients(model)
         end
 
-        # Debug: numerical gradient check on a single parameter
         if @debug_verify
           numerical_grad_check(model, node_losses)
         end
-
-        # Weight update
-        lr = model.config.learning_rate
-        model.embedding.update(lr)
-        model.blocks.each &.update(lr)
-        model.final_norm.update(lr)
-        model.output.update(lr)
 
         mean_loss = nodes_trained > 0 ? total_loss / nodes_trained : 0.0
         {mean_loss, nodes_trained}
@@ -219,7 +248,7 @@ module MicroGPT
       # Numerical gradient check: perturb a specific weight and measure loss change
       private def numerical_grad_check(
         model : MiniGPT,
-        node_losses : Hash(Int32, {Mat, Hash(Int32, Int32)})
+        node_losses : Hash(Int32, {Hash(Int32, Int32)})
       )
         eps = 1e-3_f32
 
@@ -234,7 +263,8 @@ module MicroGPT
         # Total loss function (sum over all observed nodes)
         total_loss = ->{
           loss = 0.0_f64
-          node_losses.each do |node_id, (_, counts)|
+          node_losses.each do |node_id, loss_info|
+            counts = loss_info[0]
             node = find_node(node_id)
             next unless node
             prefix = @corpus.prefix_for(node)

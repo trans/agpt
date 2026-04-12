@@ -1,79 +1,83 @@
 module MicroGPT
   module AGPT
-    # A weighted prefix trie node.
+    # Thin value-type façade over columnar storage in `TrieCorpus`.
+    #
+    # A `TrieNode` no longer owns its data — it is simply an `(corpus, id)`
+    # handle. All getters forward into the parallel arrays on `TrieCorpus`.
     #
     # `next_token_counts[x]` records how often token `x` follows that prefix.
-    class TrieNode
+    struct TrieNode
       alias ChildEntry = {Int32, TrieNode}
       alias CountEntry = {Int32, Int32}
 
       getter id : Int32
-      getter parent : TrieNode?
-      getter token_id : Int32?
-      getter depth : Int32
-      getter children : Array(ChildEntry)
-      getter next_token_counts : Array(CountEntry)
 
-      def initialize(
-        @id : Int32,
-        @parent : TrieNode? = nil,
-        @token_id : Int32? = nil,
-        @depth : Int32 = 0
-      )
-        @children = [] of ChildEntry
-        @next_token_counts = [] of CountEntry
+      def initialize(@corpus : TrieCorpus, @id : Int32)
+      end
+
+      def parent : TrieNode?
+        pid = @corpus.parent_id(@id)
+        pid == -1 ? nil : TrieNode.new(@corpus, pid)
+      end
+
+      def token_id : Int32?
+        tok = @corpus.token_id_of(@id)
+        tok == -1 ? nil : tok
+      end
+
+      def depth : Int32
+        @corpus.depth_of(@id)
+      end
+
+      def children : Array(ChildEntry)
+        result = Array(ChildEntry).new
+        @corpus.children_of(@id).each do |(tok, cid)|
+          result << {tok, TrieNode.new(@corpus, cid)}
+        end
+        result
+      end
+
+      def next_token_counts : Array(CountEntry)
+        @corpus.counts_of(@id)
       end
 
       def total_outgoing_mass : Int32
-        @next_token_counts.sum(0) { |(_, count)| count }
+        @corpus.counts_of(@id).sum(0) { |(_, count)| count }
       end
 
       def terminal? : Bool
-        @children.empty? && @next_token_counts.empty?
+        @corpus.children_of(@id).empty? && @corpus.counts_of(@id).empty?
       end
 
       def observe(next_token : Int32)
-        @next_token_counts.each_with_index do |(token_id, count), index|
-          next unless token_id == next_token
-          @next_token_counts[index] = {token_id, count + 1}
-          return
-        end
-        @next_token_counts << {next_token, 1}
+        @corpus.observe(@id, next_token)
       end
 
       def child_for(token : Int32) : TrieNode?
-        @children.each do |child_token, child|
-          return child if child_token == token
-        end
-        nil
+        cid = @corpus.find_child(@id, token)
+        cid == -1 ? nil : TrieNode.new(@corpus, cid)
       end
 
       def ensure_child(token : Int32, next_id : Int32) : TrieNode
-        existing = child_for(token)
-        return existing if existing
-
-        child = TrieNode.new(
-          id: next_id,
-          parent: self,
-          token_id: token,
-          depth: @depth + 1
-        )
-        @children << {token, child}
-        child
+        cid = @corpus.ensure_child_id(@id, token, next_id)
+        TrieNode.new(@corpus, cid)
       end
 
       def next_token_counts_hash : Hash(Int32, Int32)
-        counts = {} of Int32 => Int32
-        @next_token_counts.each do |token_id, count|
-          counts[token_id] = count
-        end
-        counts
+        h = {} of Int32 => Int32
+        @corpus.counts_of(@id).each { |(tok, count)| h[tok] = count }
+        h
       end
 
       def replace_next_token_counts(entries : Array(CountEntry))
-        @next_token_counts.clear
-        @next_token_counts.concat(entries)
+        @corpus.replace_counts(@id, entries)
       end
+
+      def ==(other : TrieNode) : Bool
+        @id == other.id && @corpus.same?(other.@corpus)
+      end
+
+      def_hash @id
     end
   end
 end

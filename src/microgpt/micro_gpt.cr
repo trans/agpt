@@ -1107,6 +1107,7 @@ class CharDataset
   getter data : Array(Int32)
   getter vocab_size : Int32
   getter stride : Int32
+  property train_limit : Int32?  # cap on cursor range; rest is held-out for validation
   @cursor : Int32 = 0
   @epoch : Int32 = 0
 
@@ -1122,10 +1123,15 @@ class CharDataset
     @data = text.chars.map { |c| @char_to_id[c] }
   end
 
+  def effective_size : Int32
+    @train_limit || @data.size
+  end
+
   def sample(seq_len : Int32, lookahead : Int32 = 0) : {Array(Int32), Array(Array(Int32))}
     s = @stride > 0 ? @stride : seq_len
     needed = seq_len + 1 + lookahead
-    if @cursor + needed > @data.size
+    limit = effective_size
+    if @cursor + needed > limit
       @cursor = 0
       @epoch += 1
     end
@@ -1135,6 +1141,27 @@ class CharDataset
     end
     @cursor += s
     {input, targets}
+  end
+
+  # Compute mean per-token cross-entropy on a held-out token range using
+  # non-overlapping windows. Forward-only — does not modify gradients.
+  def held_out_loss(model : MiniGPT, val_tokens : Array(Int32), seq_len : Int32) : Float64
+    return 0.0 if val_tokens.size < seq_len + 1
+    total_loss = 0.0
+    num_positions = 0
+    pos = 0
+    while pos + seq_len + 1 <= val_tokens.size
+      input = val_tokens[pos, seq_len]
+      target = val_tokens[pos + 1, seq_len]
+      logits = model.forward(input)
+      probs = MicroGPT.backend.softmax_rows(logits)
+      seq_len.times do |i|
+        total_loss -= Math.log(probs[i, target[i]] + 1e-10)
+        num_positions += 1
+      end
+      pos += seq_len  # non-overlapping
+    end
+    num_positions > 0 ? total_loss / num_positions : 0.0
   end
 
   def epoch : Int32

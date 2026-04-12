@@ -7,6 +7,7 @@ require "./agpt/kv_cache"
 require "./agpt/node_state"
 require "./agpt/incremental_forward"
 require "./agpt/incremental_backward"
+require "./agpt/node_kv_store"
 require "./agpt/trie_walk_trainer"
 
 module MicroGPT
