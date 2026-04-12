@@ -16,7 +16,7 @@ module MicroGPT
 class Mat
   # Global memory tracking
   @@allocated_bytes : Int64 = 0_i64
-  @@max_bytes : Int64 = 2_i64 * 1024 * 1024 * 1024  # 2 GiB default cap
+  @@max_bytes : Int64 = 3_i64 * 1024 * 1024 * 1024  # 3 GiB default cap
 
   def self.allocated_bytes : Int64
     @@allocated_bytes

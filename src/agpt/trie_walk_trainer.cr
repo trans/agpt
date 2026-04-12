@@ -28,7 +28,7 @@ module MicroGPT
         end
       end
 
-      # Run one full trie-walk training epoch.
+      # Run one full trie-walk training epoch using batched depth-level operations.
       # Returns {mean_loss, nodes_trained}.
       def train_epoch(model : MiniGPT) : {Float64, Int32}
         seq_len = model.config.seq_len
@@ -43,159 +43,102 @@ module MicroGPT
         # Compact per-node K/V storage (~1 KB/node) — persists across entire epoch
         kv_store = NodeKVStore.new
 
-        # Per-node metadata needed for backward (small: ancestor ids + loss info)
+        # Per-node metadata (ancestor_ids, positions)
         node_ancestor_ids = {} of Int32 => Array(Int32)
-        node_losses = {} of Int32 => {Hash(Int32, Int32)}  # counts only; recompute d_logits during backward
         node_positions = {} of Int32 => Int32
-        node_tokens = {} of Int32 => Int32
-
-        # Collect depth levels for backward ordering
-        depth_levels = [] of Array(TrieNode)
 
         node_ancestor_ids[@corpus.root.id] = [] of Int32
 
-        # --- Forward BFS: depth 0 → max ---
-        # Ephemeral KV caches: only current + parent depth levels alive at once.
-        node_caches = {} of Int32 => ModelKVCache
-        root_cache = ModelKVCache.new(n_layers, head_dims, seq_len)
-        node_caches[@corpus.root.id] = root_cache
-        prev_depth_node_ids = [@corpus.root.id]
+        # Collect depth-level node lists for backward re-forward.
+        # Forward pass stores only K/V entries (~1 KB/node) + lightweight loss info.
+        depth_levels = [] of Array(TrieNode)
+        depth_loss_info = [] of Hash(Int32, Hash(Int32, Int32))
+
+        # --- Batched Forward BFS: depth 0 → max ---
+        # Stores K/V entries into kv_store. Does NOT keep NodeResults in memory.
+        prev_caches : Hash(Int32, Array(AGPT::LayerKVCache))? = nil
 
         @corpus.each_depth_level do |depth, nodes|
           next if depth == 0
 
-          depth_level = [] of TrieNode
-          current_depth_node_ids = [] of Int32
-
+          eligible = Array(TrieNode).new
           nodes.each do |node|
             parent = node.parent.not_nil!
-            parent_cache = node_caches[parent.id]?
-            next unless parent_cache
-            next if parent_cache.len >= seq_len
+            next unless node_ancestor_ids.has_key?(parent.id)
+            parent_depth = parent.depth
+            next if parent_depth >= seq_len
+            eligible << node
+          end
+          next if eligible.empty?
 
-            token = node.token_id.not_nil!
-            position = parent_cache.len
-            parent_ancestors = node_ancestor_ids[parent.id]
+          eligible.each do |node|
+            node_positions[node.id] = depth - 1
+          end
 
-            cache = parent.children.size > 1 ? parent_cache.deep_clone : parent_cache
+          # Batched forward — computes logits and stores K/V entries in kv_store.
+          # We keep NodeResults only long enough to compute loss, then discard.
+          results, this_caches = BatchedDepthForward.forward_depth(
+            eligible, node_ancestor_ids, node_positions, kv_store, model, @corpus, prev_caches
+          )
+          prev_caches = this_caches
 
-            ancestors = parent_ancestors + [node.id]
-
-            logits, _state = IncrementalForward.forward_token(
-              model, token, position, cache, ancestors
-            )
-
-            # Store compact K/V contribution (~1 KB)
-            kv_store.store(node.id, cache, head_dims)
-
-            # Store lightweight metadata for backward
-            node_ancestor_ids[node.id] = ancestors
-            node_positions[node.id] = position
-            node_tokens[node.id] = token
-
-            # Compute and store loss info (counts only — recompute d_logits in backward)
+          loss_info = {} of Int32 => Hash(Int32, Int32)
+          results.each do |result|
+            node = @corpus.node_for_id(result.node_id)
             unless node.next_token_counts.empty?
               counts = node.next_token_counts_hash
-              loss_value, _d_logits = @loss_fn.loss_and_backward(logits, counts)
-
-              if @debug_verify && nodes_trained < 5
-                prefix = @corpus.prefix_for(node)
-                ref_logits = model.forward(prefix)
-                last = ref_logits.rows - 1
-                max_diff = 0.0_f64
-                ref_logits.cols.times do |c|
-                  diff = (logits[0, c] - ref_logits[last, c]).abs
-                  max_diff = diff if diff > max_diff
-                end
-                STDERR.puts "[agpt verify] node=#{node.id} depth=#{node.depth} " \
-                            "loss=#{"%.4f" % loss_value} max_logit_diff=#{"%.6f" % max_diff}"
-              end
-
-              node_losses[node.id] = {counts}
+              loss_value, _ = @loss_fn.loss_and_backward(result.logits, counts)
+              loss_info[result.node_id] = counts
               total_loss += loss_value
               nodes_trained += 1
             end
-
-            node_caches[node.id] = cache
-            current_depth_node_ids << node.id
-
-            depth_level << node
           end
 
-          # Free caches from depths that are no longer needed as parents.
-          # Nodes at prev depth whose children have all been processed.
-          prev_depth_node_ids.each do |pid|
-            node_caches.delete(pid)
-          end
-          prev_depth_node_ids = current_depth_node_ids
-
-          depth_levels << depth_level
+          depth_levels << eligible
+          depth_loss_info << loss_info
         end
 
-        # Free remaining caches from the last depth level
-        node_caches.clear
-
+        # Free forward caches — only K/V store entries remain
+        prev_caches = nil
         GC.collect
 
-        # --- Backward BFS: depth max → 0 ---
+        # --- Batched Backward BFS: depth max → 0 ---
+        # Re-forward each depth level (batched) to regenerate BlockStepState,
+        # then batched backward. Only one depth level's states live at a time.
         grad_accums = {} of Int32 => NodeGradAccum
 
-        depth_levels.reverse_each do |nodes|
-          nodes.each do |node|
-            position = node_positions[node.id]?
-            next unless position
-            ancestors = node_ancestor_ids[node.id]
-            token = node_tokens[node.id]
+        (depth_levels.size - 1).downto(0) do |di|
+          eligible = depth_levels[di]
+          loss_info = depth_loss_info[di]
 
-            accum = grad_accums[node.id]? || NodeGradAccum.new(n_layers, head_dims)
+          # Re-forward this depth (batched matmuls) to regenerate states for backward
+          results, _ = BatchedDepthForward.forward_depth(
+            eligible, node_ancestor_ids, node_positions, kv_store, model, @corpus
+          )
 
-            # Reconstruct parent's KV cache from stored K/V rows (~O(depth) assembly)
-            kv_cache = kv_store.reconstruct_parent_cache(
-              node.id, @corpus, n_layers, head_dims, seq_len
-            )
-
-            # Re-run one forward step to regenerate BlockStepState
-            _logits, state = IncrementalForward.forward_token(
-              model, token, position, kv_cache, ancestors
-            )
-
-            # Recompute loss gradient
-            d_logits = if loss_info = node_losses[node.id]?
-                         counts = loss_info[0]
-                         logits_for_loss = model.output.forward(
-                           model.final_norm.forward(state.final_x)
-                         )
-                         _, dl = @loss_fn.loss_and_backward(logits_for_loss, counts)
-                         dl
-                       else
-                         Mat.new(1, model.config.vocab_size)
-                       end
-
-            ancestor_grads = IncrementalBackward.backward_token(
-              model, state, d_logits, accum, kv_cache
-            )
-
-            scatter_ancestor_grads(
-              ancestor_grads, state, n_layers, head_dims, grad_accums
-            )
-
-            # Free this node's grad accumulator — no longer needed
-            grad_accums.delete(node.id)
+          # Build loss gradients
+          loss_grads = results.map do |result|
+            if counts = loss_info[result.node_id]?
+              logits = model.output.forward(model.final_norm.forward(result.final_x))
+              _, dl = @loss_fn.loss_and_backward(logits, counts)
+              dl
+            else
+              Mat.new(1, model.config.vocab_size)
+            end
           end
 
-          # Per-depth weight update: each depth level is a mini-batch.
-          # Stale K/V from the forward pass is acceptable — fresh Q projections
-          # at the next depth use updated weights, similar to pipeline parallelism.
+          # Batched backward
+          BatchedDepthBackward.backward_depth(
+            results, loss_grads, grad_accums, kv_store, model, @corpus
+          )
+
+          # Per-depth weight update
           lr = model.config.learning_rate
           model.embedding.update(lr)
           model.blocks.each &.update(lr)
           model.final_norm.update(lr)
           model.output.update(lr)
           zero_gradients(model)
-        end
-
-        if @debug_verify
-          numerical_grad_check(model, node_losses)
         end
 
         mean_loss = nodes_trained > 0 ? total_loss / nodes_trained : 0.0

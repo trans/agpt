@@ -90,6 +90,10 @@ module MicroGPT
         TrieNode.new(self, 0)
       end
 
+      def node_for_id(id : Int32) : TrieNode
+        TrieNode.new(self, id)
+      end
+
       def self.from_token_ids(
         token_ids : Array(Int32),
         max_depth : Int32? = nil,

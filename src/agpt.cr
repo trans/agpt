@@ -8,6 +8,8 @@ require "./agpt/node_state"
 require "./agpt/incremental_forward"
 require "./agpt/incremental_backward"
 require "./agpt/node_kv_store"
+require "./agpt/batched_depth_forward"
+require "./agpt/batched_depth_backward"
 require "./agpt/trie_walk_trainer"
 
 module MicroGPT

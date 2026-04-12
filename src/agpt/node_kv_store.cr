@@ -79,6 +79,62 @@ module MicroGPT
         cache
       end
 
+      # Store K/V for a single layer (used by batched forward which processes
+      # one layer at a time). Initializes the entry if needed.
+      def store_layer(node_id : Int32, layer : Int32, k_parts : Array(Mat), v_parts : Array(Mat))
+        entry = @entries[node_id]? || begin
+          e = Array(Array({Mat, Mat})).new
+          @entries[node_id] = e
+          e
+        end
+        # Grow the layers array if needed
+        while entry.size <= layer
+          entry << [] of {Mat, Mat}
+        end
+        heads = Array({Mat, Mat}).new(k_parts.size)
+        k_parts.each_with_index do |k, hi|
+          k_copy = Mat.new(k.rows, k.cols)
+          v_copy = Mat.new(v_parts[hi].rows, v_parts[hi].cols)
+          k.rows.times { |r| k.cols.times { |c| k_copy[r, c] = k[r, c] } }
+          v_parts[hi].rows.times { |r| v_parts[hi].cols.times { |c| v_copy[r, c] = v_parts[hi][r, c] } }
+          heads << {k_copy, v_copy}
+        end
+        entry[layer] = heads
+      end
+
+      # Reconstruct a single-layer KV cache for a node's prefix (for per-node
+      # attention within the batched forward). Returns a LayerKVCache.
+      def reconstruct_layer_cache(
+        node_id : Int32,
+        corpus : TrieCorpus,
+        layer : Int32,
+        head_dims : Array(Int32),
+        seq_len : Int32
+      ) : LayerKVCache
+        chain = [] of Int32
+        current = corpus.parent_id(node_id)
+        while current != -1
+          chain << current
+          current = corpus.parent_id(current)
+        end
+        chain.reverse!
+
+        cache = LayerKVCache.new(head_dims, seq_len)
+        (1...chain.size).each do |i|
+          ancestor_id = chain[i]
+          entry = @entries[ancestor_id]
+          k_parts = Array(Mat).new(head_dims.size)
+          v_parts = Array(Mat).new(head_dims.size)
+          head_dims.each_with_index do |_hd, hi|
+            k_row, v_row = entry[layer][hi]
+            k_parts << k_row
+            v_parts << v_row
+          end
+          cache.extend(k_parts, v_parts)
+        end
+        cache
+      end
+
       def clear
         @entries.clear
       end
