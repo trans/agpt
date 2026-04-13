@@ -28,14 +28,21 @@ module MicroGPT
         end
       end
 
-      # Run one full trie-walk training epoch using batched depth-level operations.
+      # Depth-progressive subtrie training with local-depth backward.
+      #
+      # At each stage d (depth 1→max):
+      #   1. Forward depth d (batched matmuls), storing K/V in kv_store
+      #   2. Partition nodes at depth d into subtries (by root-level ancestor)
+      #   3. For each subtrie: backward depth d only, normalize, update
+      #
+      # This gives (D × branching_factor) updates per epoch — comparable to
+      # window training's update frequency while preserving trie prefix sharing.
+      #
       # Returns {mean_loss, nodes_trained}.
       def train_epoch(model : MiniGPT) : {Float64, Int32}
         seq_len = model.config.seq_len
         head_dims = model.blocks.first.attn.head_dims
         n_layers = model.config.n_layers
-
-        zero_gradients(model)
 
         total_loss = 0.0
         nodes_trained = 0
@@ -43,19 +50,12 @@ module MicroGPT
         # Compact per-node K/V storage (~1 KB/node) — persists across entire epoch
         kv_store = NodeKVStore.new
 
-        # Per-node metadata (ancestor_ids, positions)
+        # Per-node metadata
         node_ancestor_ids = {} of Int32 => Array(Int32)
         node_positions = {} of Int32 => Int32
-
+        node_root_child = {} of Int32 => Int32  # maps node_id → root child id (for partitioning)
         node_ancestor_ids[@corpus.root.id] = [] of Int32
 
-        # Collect depth-level node lists for backward re-forward.
-        # Forward pass stores only K/V entries (~1 KB/node) + lightweight loss info.
-        depth_levels = [] of Array(TrieNode)
-        depth_loss_info = [] of Hash(Int32, Hash(Int32, Int32))
-
-        # --- Batched Forward BFS: depth 0 → max ---
-        # Stores K/V entries into kv_store. Does NOT keep NodeResults in memory.
         prev_caches : Hash(Int32, Array(AGPT::LayerKVCache))? = nil
 
         @corpus.each_depth_level do |depth, nodes|
@@ -65,25 +65,32 @@ module MicroGPT
           nodes.each do |node|
             parent = node.parent.not_nil!
             next unless node_ancestor_ids.has_key?(parent.id)
-            parent_depth = parent.depth
-            next if parent_depth >= seq_len
+            next if parent.depth >= seq_len
             eligible << node
           end
           next if eligible.empty?
 
           eligible.each do |node|
             node_positions[node.id] = depth - 1
+            # Track which root child each node descends from
+            if depth == 1
+              node_root_child[node.id] = node.id
+            else
+              node_root_child[node.id] = node_root_child[node.parent.not_nil!.id]
+            end
           end
 
-          # Batched forward — computes logits and stores K/V entries in kv_store.
-          # We keep NodeResults only long enough to compute loss, then discard.
+          # Batched forward for ALL nodes at this depth — shared projections
           results, this_caches = BatchedDepthForward.forward_depth(
             eligible, node_ancestor_ids, node_positions, kv_store, model, @corpus, prev_caches
           )
           prev_caches = this_caches
 
+          # Compute loss and build result index
           loss_info = {} of Int32 => Hash(Int32, Int32)
+          result_map = {} of Int32 => BatchedDepthForward::NodeResult
           results.each do |result|
+            result_map[result.node_id] = result
             node = @corpus.node_for_id(result.node_id)
             unless node.next_token_counts.empty?
               counts = node.next_token_counts_hash
@@ -94,51 +101,42 @@ module MicroGPT
             end
           end
 
-          depth_levels << eligible
-          depth_loss_info << loss_info
-        end
-
-        # Free forward caches — only K/V store entries remain
-        prev_caches = nil
-        GC.collect
-
-        # --- Batched Backward BFS: depth max → 0 ---
-        # Re-forward each depth level (batched) to regenerate BlockStepState,
-        # then batched backward. Only one depth level's states live at a time.
-        grad_accums = {} of Int32 => NodeGradAccum
-
-        (depth_levels.size - 1).downto(0) do |di|
-          eligible = depth_levels[di]
-          loss_info = depth_loss_info[di]
-
-          # Re-forward this depth (batched matmuls) to regenerate states for backward
-          results, _ = BatchedDepthForward.forward_depth(
-            eligible, node_ancestor_ids, node_positions, kv_store, model, @corpus
-          )
-
-          # Build loss gradients
-          loss_grads = results.map do |result|
-            if counts = loss_info[result.node_id]?
-              logits = model.output.forward(model.final_norm.forward(result.final_x))
-              _, dl = @loss_fn.loss_and_backward(logits, counts)
-              dl
-            else
-              Mat.new(1, model.config.vocab_size)
-            end
+          # Partition into subtries by root child
+          subtries = {} of Int32 => Array(BatchedDepthForward::NodeResult)
+          eligible.each do |node|
+            root_id = node_root_child[node.id]
+            (subtries[root_id] ||= [] of BatchedDepthForward::NodeResult) << result_map[node.id]
           end
 
-          # Batched backward
-          BatchedDepthBackward.backward_depth(
-            results, loss_grads, grad_accums, kv_store, model, @corpus
-          )
+          # Process each subtrie: backward + normalize + update
+          subtries.each do |_root_id, subtrie_results|
+            zero_gradients(model)
+            grad_accums = {} of Int32 => NodeGradAccum
 
-          # Per-depth weight update
-          lr = model.config.learning_rate
-          model.embedding.update(lr)
-          model.blocks.each &.update(lr)
-          model.final_norm.update(lr)
-          model.output.update(lr)
-          zero_gradients(model)
+            subtrie_grads = subtrie_results.map do |result|
+              if counts = loss_info[result.node_id]?
+                logits = model.output.forward(model.final_norm.forward(result.final_x))
+                _, dl = @loss_fn.loss_and_backward(logits, counts)
+                dl
+              else
+                Mat.new(1, model.config.vocab_size)
+              end
+            end
+
+            BatchedDepthBackward.backward_depth(
+              subtrie_results, subtrie_grads, grad_accums, kv_store, model, @corpus
+            )
+
+            # Normalize by subtrie size and update
+            if subtrie_results.size > 0
+              scale_gradients(model, 1.0 / subtrie_results.size)
+              lr = model.config.learning_rate
+              model.embedding.update(lr)
+              model.blocks.each &.update(lr)
+              model.final_norm.update(lr)
+              model.output.update(lr)
+            end
+          end
         end
 
         mean_loss = nodes_trained > 0 ? total_loss / nodes_trained : 0.0
@@ -262,6 +260,23 @@ module MicroGPT
           end
         end
         result
+      end
+
+      private def scale_gradients(model : MiniGPT, scale : Float64)
+        s = scale.to_f32
+        model.embedding.d_token_emb.scale!(s)
+        model.blocks.each do |block|
+          block.attn.wq.dw.scale!(s); block.attn.wq.db.scale!(s)
+          block.attn.wk.dw.scale!(s); block.attn.wk.db.scale!(s)
+          block.attn.wv.dw.scale!(s); block.attn.wv.db.scale!(s)
+          block.attn.wo.dw.scale!(s); block.attn.wo.db.scale!(s)
+          block.ff.l1.dw.scale!(s); block.ff.l1.db.scale!(s)
+          block.ff.l2.dw.scale!(s); block.ff.l2.db.scale!(s)
+          block.ln1.dgamma.scale!(s); block.ln1.dbeta.scale!(s)
+          block.ln2.dgamma.scale!(s); block.ln2.dbeta.scale!(s)
+        end
+        model.final_norm.dgamma.scale!(s); model.final_norm.dbeta.scale!(s)
+        model.output.proj.dw.scale!(s); model.output.proj.db.scale!(s)
       end
 
       private def zero_gradients(model : MiniGPT)
