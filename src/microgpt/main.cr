@@ -157,6 +157,11 @@ module MicroGPT
         "description": "AGPT: epochs per trie before rotating start offset (0 = no rotation)",
         "default": 0
       },
+      "agpt-entropy-lambda": {
+        "type": "number",
+        "description": "AGPT: structure-aware loss weighting strength (0 = off, 0.25 = moderate)",
+        "default": 0.0
+      },
       "val-tokens": {
         "type": "integer",
         "description": "Hold out the last N tokens of the corpus as a validation set (0 = off)",
@@ -287,6 +292,7 @@ module MicroGPT
       agpt_start_offset = result["agpt-start-offset"].as_i64.to_i
       agpt_progress = result["agpt-progress"].as_i64.to_i
       agpt_epochs_per_trie = result["agpt-epochs-per-trie"].as_i64.to_i
+      agpt_entropy_lambda = result["agpt-entropy-lambda"].as_f
       agpt_save_index = result["agpt-save-index"]?.try(&.as_s)
       agpt_load_index = result["agpt-load-index"]?.try(&.as_s)
       val_size     = result["val-tokens"].as_i64.to_i
@@ -803,6 +809,7 @@ module MicroGPT
         end
 
         agpt_walk_trainer = AGPT::TrieWalkTrainer.new(trie)
+        agpt_walk_trainer.entropy_lambda = agpt_entropy_lambda
         agpt_trainer = AGPT::Trainer.new(trie)  # kept for fallback/comparison
         trie_shape = trie.shape_stats
         puts "MiniGPT ready."
@@ -887,6 +894,7 @@ module MicroGPT
               tokenizer_tag: AGPT_TOKENIZER_TAG
             )
             walk_trainer = AGPT::TrieWalkTrainer.new(trie)
+            walk_trainer.entropy_lambda = agpt_entropy_lambda
             rotate_ms = (Time.instant - rotate_start).total_milliseconds
             puts "  [rotate] offset=#{current_offset} nodes=#{trie.node_count} build=#{rotate_ms.round(1)}ms"
           end

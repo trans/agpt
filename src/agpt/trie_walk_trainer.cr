@@ -20,6 +20,7 @@ module MicroGPT
       getter loss_fn : WeightedNextTokenLoss
       getter observed_count : Int32
       property debug_verify : Bool = false
+      property entropy_lambda : Float64 = 0.0  # structure-aware loss weighting
 
       def initialize(@corpus : TrieCorpus, @loss_fn = WeightedNextTokenLoss.new)
         @observed_count = 0
@@ -110,13 +111,29 @@ module MicroGPT
             # Single bulk download of all probs to CPU
             all_probs = probs_batched.data  # one sync for all N×vocab
 
-            # Per-node loss and gradient from downloaded probs
+            # Per-node loss and gradient from downloaded probs.
+            # Optional entropy weighting: w = 1 + lambda * H_norm, where H_norm
+            # is the node's empirical entropy normalized by log(vocab_size).
+            # Branching nodes get higher weight; unary/deterministic nodes get w=1.
+            log_vocab = Math.log(vocab_size.to_f64)
+            lambda = @entropy_lambda
             results.each_with_index do |result, i|
               result_map[result.node_id] = result
               node = @corpus.node_for_id(result.node_id)
               unless node.next_token_counts.empty?
                 counts = node.next_token_counts_hash
                 total = counts.values.sum(0)
+                total_f = total.to_f64
+
+                # Compute empirical entropy H(p) from counts
+                entropy = 0.0
+                if lambda > 0.0 && counts.size > 1
+                  counts.each do |_tok, count|
+                    q = count / total_f
+                    entropy -= q * Math.log(q) if q > 0.0
+                  end
+                end
+                weight = (lambda > 0.0) ? 1.0 + lambda * (entropy / log_vocab) : 1.0
 
                 # Loss from CPU probs
                 loss_value = 0.0
@@ -125,12 +142,14 @@ module MicroGPT
                   loss_value -= count * Math.log(all_probs[prob_offset + token_id] + 1e-10)
                 end
                 loss_value /= total
+                loss_value *= weight
 
-                # Gradient: probs - one-hot(weighted)
+                # Gradient: probs - one-hot(weighted), scaled by weight
                 grad = Mat.new(1, vocab_size)
-                vocab_size.times { |j| grad[0, j] = all_probs[prob_offset + j] }
+                weight_f32 = weight.to_f32
+                vocab_size.times { |j| grad[0, j] = all_probs[prob_offset + j] * weight_f32 }
                 counts.each do |token_id, count|
-                  grad[0, token_id] -= count.to_f32 / total
+                  grad[0, token_id] -= (count.to_f32 / total) * weight_f32
                 end
 
                 loss_grads[result.node_id] = grad
