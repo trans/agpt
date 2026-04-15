@@ -183,8 +183,15 @@ module MicroGPT
           dk_current_all_data = dk_current_all.raw_data
           dv_current_all_data = dv_current_all.raw_data
 
+          # Pre-allocated scratch buffers — reused across all N nodes × n_heads
+          # to avoid per-call Array allocations (was ~10M allocs/epoch).
+          max_head_dim = head_dims.max
+          scratch_d_weights = Array(Float32).new(seq_len, 0.0_f32)
+          scratch_d_scores = Array(Float32).new(seq_len, 0.0_f32)
+          scratch_rope = Array(Float32).new(max_head_dim, 0.0_f32)
+
           n.times do |i|
-            GC.collect if i > 0 && i % 500 == 0
+            GC.collect if i > 0 && i % 2000 == 0
 
             result = results[i]
             bs = result.block_states[li]
@@ -204,13 +211,13 @@ module MicroGPT
               reconstruct_node_layer_cache(result.node_id, li, kv_store, corpus, head_dims, seq_len, n_heads)
             end
 
-            prefix_len = layer_cache.len
             col_offset = 0
             n_heads.times do |hi|
               hd = head_dims[hi]
               d_out_data = d_head_outs[hi].raw_data
               d_out_base = i * hd
-              dq_vals, dk_current_vals, dv_current_vals = optimized_attention_backward_head(
+              row_base = i * d_model + col_offset
+              optimized_attention_backward_head(
                 position: position,
                 ancestor_ids: result.ancestor_ids,
                 layer: li,
@@ -224,16 +231,15 @@ module MicroGPT
                 layer_cache: layer_cache,
                 accum: accum,
                 grad_accums: grad_accums,
-                rope: attn.ropes[hi]
+                rope: attn.ropes[hi],
+                scratch_d_weights: scratch_d_weights,
+                scratch_d_scores: scratch_d_scores,
+                scratch_rope: scratch_rope,
+                dq_all_data: dq_all_data,
+                dk_current_all_data: dk_current_all_data,
+                dv_current_all_data: dv_current_all_data,
+                out_offset: row_base
               )
-
-              # Write back to batched matrices
-              row_base = i * d_model + col_offset
-              hd.times do |j|
-                dq_all_data[row_base + j] = dq_vals[j]
-                dk_current_all_data[row_base + j] = dk_current_vals[j]
-                dv_current_all_data[row_base + j] = dv_current_vals[j]
-              end
               col_offset += hd
             end
 
@@ -300,6 +306,10 @@ module MicroGPT
         layer_cache
       end
 
+      # Writes dq/dk_current/dv_current directly into pre-allocated output
+      # buffers (dq_all_data, dk_current_all_data, dv_current_all_data) at the
+      # given row offset. Uses caller-owned scratch buffers for d_weights,
+      # d_scores to avoid per-call allocations.
       def optimized_attention_backward_head(
         position : Int32,
         ancestor_ids : Array(Int32),
@@ -314,55 +324,62 @@ module MicroGPT
         layer_cache : LayerKVCache,
         accum : NodeGradAccum,
         grad_accums : Hash(Int32, NodeGradAccum),
-        rope : RoPE
-      ) : {Array(Float32), Array(Float32), Array(Float32)}
+        rope : RoPE,
+        scratch_d_weights : Array(Float32),
+        scratch_d_scores : Array(Float32),
+        scratch_rope : Array(Float32),
+        dq_all_data : Array(Float32),
+        dk_current_all_data : Array(Float32),
+        dv_current_all_data : Array(Float32),
+        out_offset : Int32
+      )
         hd = head_dims[head]
         prefix_len = layer_cache.len
         w_data = attn_weights.raw_data
         q_data = q_part.raw_data
         k_data = layer_cache.k_parts[head].raw_data
         v_data = layer_cache.v_parts[head].raw_data
-        d_weights = Array(Float32).new(prefix_len, 0.0_f32)
         scale = (1.0 / Math.sqrt(hd.to_f64)).to_f32
         dot = 0.0_f64
 
+        # d_weights[pos] = dOut · V[pos]; accumulate dot = Σ w[pos]*d_weights[pos]
         prefix_len.times do |pos|
           base = pos * hd
           sum = 0.0_f32
           hd.times do |j|
             sum += d_out_data[d_out_base + j] * v_data[base + j]
           end
-          d_weights[pos] = sum
+          scratch_d_weights[pos] = sum
           dot += sum * w_data[pos]
         end
 
-        d_scores = Array(Float32).new(prefix_len, 0.0_f32)
+        # d_scores[pos] = w[pos] * (d_weights[pos] - dot) * scale
         prefix_len.times do |pos|
-          d_scores[pos] = (w_data[pos] * (d_weights[pos] - dot) * scale).to_f32
+          scratch_d_scores[pos] = (w_data[pos] * (scratch_d_weights[pos] - dot) * scale).to_f32
         end
 
-        dq_vals = Array(Float32).new(hd, 0.0_f32)
+        # dq = d_scores × K — write directly into dq_all_data at out_offset
         hd.times do |j|
           sum = 0.0_f32
           prefix_len.times do |pos|
-            sum += d_scores[pos] * k_data[pos * hd + j]
+            sum += scratch_d_scores[pos] * k_data[pos * hd + j]
           end
-          dq_vals[j] = sum
+          dq_all_data[out_offset + j] = sum
         end
 
         last = prefix_len - 1
-        dk_current_vals = Array(Float32).new(hd, 0.0_f32)
-        dv_current_vals = Array(Float32).new(hd, 0.0_f32)
         accum_dk = accum.dk[layer][head].raw_data
         accum_dv = accum.dv[layer][head].raw_data
 
+        # dk/dv per position: current node uses accum'd ancestor contributions;
+        # ancestor positions scatter into their grad_accums
         prefix_len.times do |pos|
-          score_grad = d_scores[pos]
+          score_grad = scratch_d_scores[pos]
           weight = w_data[pos]
           if pos == last
             hd.times do |j|
-              dk_current_vals[j] = score_grad * q_data[j] + accum_dk[j]
-              dv_current_vals[j] = weight * d_out_data[d_out_base + j] + accum_dv[j]
+              dk_current_all_data[out_offset + j] = score_grad * q_data[j] + accum_dk[j]
+              dv_current_all_data[out_offset + j] = weight * d_out_data[d_out_base + j] + accum_dv[j]
             end
           else
             ancestor_id = ancestor_ids[pos]
@@ -380,10 +397,20 @@ module MicroGPT
           end
         end
 
-        apply_inverse_rope_values!(dq_vals, rope, position)
-        apply_inverse_rope_values!(dk_current_vals, rope, position)
+        # Inverse RoPE on dq and dk_current, operating in-place on output buffers
+        apply_inverse_rope_slice!(dq_all_data, out_offset, hd, rope, position, scratch_rope)
+        apply_inverse_rope_slice!(dk_current_all_data, out_offset, hd, rope, position, scratch_rope)
+      end
 
-        {dq_vals, dk_current_vals, dv_current_vals}
+      # Applies inverse RoPE to a slice of a flat array (data[offset..offset+hd])
+      # using scratch buffer to avoid allocation.
+      private def apply_inverse_rope_slice!(
+        data : Array(Float32), offset : Int32, hd : Int32,
+        rope : RoPE, position : Int32, scratch : Array(Float32)
+      )
+        hd.times { |j| scratch[j] = data[offset + j] }
+        apply_inverse_rope_values!(scratch, rope, position)
+        hd.times { |j| data[offset + j] = scratch[j] }
       end
 
       private def copy_mat(m : Mat) : Mat
