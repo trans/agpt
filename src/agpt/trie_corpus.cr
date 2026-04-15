@@ -406,6 +406,45 @@ module MicroGPT
         segments
       end
 
+      # Count branching parents (child_count > 1) at each depth.
+      # Returns an array indexed by depth; [0] counts root's branching
+      # (always 1 if root has >1 children, else 0).
+      def branching_counts_by_depth : Array(Int32)
+        counts = Array(Int32).new
+        @node_count.times do |id|
+          next if @child_count[id] <= 1
+          d = @depths[id]
+          while counts.size <= d
+            counts << 0
+          end
+          counts[d] += 1
+        end
+        counts
+      end
+
+      # Pick D_branch: smallest depth d such that all branching parents at
+      # depths > d total fewer than `tail_threshold`. Beyond D_branch, the trie
+      # is effectively a forest of chains — packed-chain forward wins, sibling
+      # batching has nothing to exploit.
+      #
+      # Returns 0 if the whole trie is branching (deep regime disabled).
+      # Returns max_depth if there is no meaningful branching past depth 0.
+      def pick_d_branch(tail_threshold : Int32 = 16) : Int32
+        counts = branching_counts_by_depth
+        return 0 if counts.empty?
+        tail_total = 0
+        chosen = counts.size - 1
+        (counts.size - 1).downto(0) do |d|
+          tail_total += counts[d]
+          if tail_total >= tail_threshold
+            chosen = d
+            break
+          end
+          chosen = d - 1
+        end
+        chosen < 0 ? 0 : chosen
+      end
+
       # Yield segments in topological order (parent segments before child segments).
       # Groups segments by start_depth so a batch of independent segments can be
       # processed together.
