@@ -294,113 +294,128 @@ module MicroGPT
         # have been keyed there too (since each_depth_level returns them). For
         # extra safety in the all-deep regime, walk up and reconstruct on demand.
 
-        # --- Deep regime: process segments group-by-group (topological order)
-        # ---
-        # Segments within a start_depth group are independent (their parents
-        # are in earlier groups), so each group is one packed forward_segments
-        # call. After each group, register chain-tail extended caches so the
-        # next group's parents resolve.
-        node_caches_deep = shallow_caches  # builds up across deep groups
+        # --- Deep regime: pack per root-child ---
+        #
+        # For each root-child rc, run packed forward over ALL of rc's deep
+        # segments (in topological start_depth order, so later segments see
+        # earlier chain tails via node_caches_deep). Accumulate results across
+        # all of rc's forwards, THEN fire one update per depth in rc's scope.
+        #
+        # Cadence: each (depth, root_child) bucket fires exactly one update per
+        # epoch — same as today. Staleness bounded by max_depth updates per rc.
+        node_caches_deep = shallow_caches
 
-        @corpus.each_segment_group do |group_depth, segments|
-          next if group_depth <= effective_d_branch && segments.all? { |s| (s.start_depth + s.node_ids.size - 1) <= effective_d_branch }
+        # Partition all segments by root-child of their deep-slice parent
+        segments_by_rc = Hash(Int32, Array(TrieCorpus::Segment)).new do |h, k|
+          h[k] = [] of TrieCorpus::Segment
+        end
+        @corpus.build_segments.each do |seg|
+          end_depth = seg.start_depth + seg.node_ids.size - 1
+          next if end_depth <= effective_d_branch
+          start_idx = seg.start_depth > effective_d_branch ? 0 : (effective_d_branch - seg.start_depth + 1)
+          parent_id = start_idx == 0 ? seg.parent_id : seg.node_ids[start_idx - 1]
+          rc = node_root_child[parent_id]? || derive_root_child(parent_id)
+          segments_by_rc[rc] << seg
+        end
 
-          seg_inputs = [] of BatchedDepthForward::SegmentInput
-          seg_to_orig = [] of TrieCorpus::Segment
+        segments_by_rc.each do |rc, rc_segments|
+          rc_segments.sort_by! { |s| s.start_depth }
 
-          segments.each do |seg|
-            end_depth = seg.start_depth + seg.node_ids.size - 1
-            next if end_depth <= effective_d_branch
-
-            start_idx = seg.start_depth > effective_d_branch ? 0 : (effective_d_branch - seg.start_depth + 1)
-            parent_id = start_idx == 0 ? seg.parent_id : seg.node_ids[start_idx - 1]
-            parent_cache = node_caches_deep[parent_id]?
-            next unless parent_cache
-
-            deep_nodes = [] of TrieNode
-            deep_len = seg.node_ids.size - start_idx
-            deep_len.times do |k|
-              idx = start_idx + k
-              d = seg.start_depth + idx
-              break if (d - 1) >= seq_len
-              deep_nodes << @corpus.node_for_id(seg.node_ids[idx])
-            end
-            next if deep_nodes.empty?
-
-            anc_base = build_ancestors(parent_id, seg, start_idx, node_ancestor_ids)
-            node_ancestor_ids[parent_id] = anc_base unless node_ancestor_ids.has_key?(parent_id)
-
-            rc = if node_root_child.has_key?(parent_id)
-                   node_root_child[parent_id]
-                 else
-                   derive_root_child(parent_id)
-                 end
-
-            deep_start_depth = seg.start_depth + start_idx
-            deep_nodes.each_with_index do |node, k|
-              node_positions[node.id] = deep_start_depth + k - 1
-              node_root_child[node.id] = rc
-            end
-
-            seg_inputs << BatchedDepthForward::SegmentInput.new(
-              chain_nodes: deep_nodes,
-              parent_cache: parent_cache,
-              ancestor_ids_base: anc_base,
-              start_depth: deep_start_depth
-            )
-            seg_to_orig << seg
+          # Group this rc's segments by start_depth (segments at same
+          # start_depth are independent; segments at later start_depth may
+          # depend on earlier ones via the shared kv_store + node_caches_deep).
+          rc_groups = Hash(Int32, Array(TrieCorpus::Segment)).new do |h, k|
+            h[k] = [] of TrieCorpus::Segment
           end
+          rc_segments.each { |s| rc_groups[s.start_depth] << s }
 
-          next if seg_inputs.empty?
-
-          seg_results = BatchedDepthForward.forward_segments(seg_inputs, kv_store, model, @corpus)
-
-          # Register chain-tail caches so next group's parents resolve
-          seg_to_orig.each_with_index do |orig, si|
-            tail_id = orig.node_ids.last
-            node_caches_deep[tail_id] = seg_results[si].extended_cache
-          end
-
-          # Per-depth backward/update for this group's results
-          by_depth = Hash(Int32, Array(BatchedDepthForward::NodeResult)).new do |h, k|
+          rc_results_by_depth = Hash(Int32, Array(BatchedDepthForward::NodeResult)).new do |h, k|
             h[k] = [] of BatchedDepthForward::NodeResult
           end
-          seg_results.each do |sr|
-            sr.node_results.each do |nr|
-              node_ancestor_ids[nr.node_id] = nr.ancestor_ids
-              by_depth[nr.position + 1] << nr
+
+          # Forward phase for this rc: iterate start_depth groups, packed call
+          # per group, register chain-tail caches between groups. No updates
+          # fire here — weights are frozen throughout rc's forward phase.
+          rc_groups.keys.sort.each do |gdepth|
+            segments = rc_groups[gdepth]
+            seg_inputs = [] of BatchedDepthForward::SegmentInput
+            seg_to_orig = [] of TrieCorpus::Segment
+
+            segments.each do |seg|
+              start_idx = seg.start_depth > effective_d_branch ? 0 : (effective_d_branch - seg.start_depth + 1)
+              parent_id = start_idx == 0 ? seg.parent_id : seg.node_ids[start_idx - 1]
+              parent_cache = node_caches_deep[parent_id]?
+              next unless parent_cache
+
+              deep_nodes = [] of TrieNode
+              deep_len = seg.node_ids.size - start_idx
+              deep_len.times do |k|
+                idx = start_idx + k
+                d = seg.start_depth + idx
+                break if (d - 1) >= seq_len
+                deep_nodes << @corpus.node_for_id(seg.node_ids[idx])
+              end
+              next if deep_nodes.empty?
+
+              anc_base = build_ancestors(parent_id, seg, start_idx, node_ancestor_ids)
+              node_ancestor_ids[parent_id] = anc_base unless node_ancestor_ids.has_key?(parent_id)
+
+              deep_start_depth = seg.start_depth + start_idx
+              deep_nodes.each_with_index do |node, k|
+                node_positions[node.id] = deep_start_depth + k - 1
+                node_root_child[node.id] = rc
+              end
+
+              seg_inputs << BatchedDepthForward::SegmentInput.new(
+                chain_nodes: deep_nodes,
+                parent_cache: parent_cache,
+                ancestor_ids_base: anc_base,
+                start_depth: deep_start_depth
+              )
+              seg_to_orig << seg
+            end
+
+            next if seg_inputs.empty?
+
+            seg_results = BatchedDepthForward.forward_segments(seg_inputs, kv_store, model, @corpus)
+
+            seg_to_orig.each_with_index do |orig, si|
+              tail_id = orig.node_ids.last
+              node_caches_deep[tail_id] = seg_results[si].extended_cache
+            end
+
+            seg_results.each do |sr|
+              sr.node_results.each do |nr|
+                node_ancestor_ids[nr.node_id] = nr.ancestor_ids
+                rc_results_by_depth[nr.position + 1] << nr
+              end
             end
           end
 
-          all_deep_results = seg_results.flat_map(&.node_results)
-          deep_loss_grads = compute_loss_grads(all_deep_results, model, pointerof(total_loss), pointerof(nodes_trained))
+          # Backward+update phase for this rc: one update per depth. All
+          # results in this bucket share the same rc by construction.
+          next if rc_results_by_depth.empty?
 
-          depths_sorted = by_depth.keys.sort
-          depths_sorted.each do |d|
-            depth_results = by_depth[d]
-            subtries = {} of Int32 => Array(BatchedDepthForward::NodeResult)
-            depth_results.each do |nr|
-              rc = node_root_child[nr.node_id]
-              (subtries[rc] ||= [] of BatchedDepthForward::NodeResult) << nr
+          rc_flat = rc_results_by_depth.values.flatten
+          rc_loss_grads = compute_loss_grads(rc_flat, model, pointerof(total_loss), pointerof(nodes_trained))
+
+          rc_results_by_depth.keys.sort.each do |d|
+            depth_results = rc_results_by_depth[d]
+            zero_gradients(model)
+            grad_accums = {} of Int32 => NodeGradAccum
+            sub_grads = depth_results.map do |nr|
+              rc_loss_grads.delete(nr.node_id) || Mat.new(1, model.config.vocab_size)
             end
-
-            subtries.each do |_rc, sub_results|
-              zero_gradients(model)
-              grad_accums = {} of Int32 => NodeGradAccum
-              sub_grads = sub_results.map do |nr|
-                deep_loss_grads.delete(nr.node_id) || Mat.new(1, model.config.vocab_size)
-              end
-              BatchedDepthBackward.backward_depth(
-                sub_results, sub_grads, grad_accums, kv_store, model, @corpus, nil
-              )
-              if sub_results.size > 0
-                scale_gradients(model, 1.0 / sub_results.size)
-                lr = model.config.learning_rate
-                model.embedding.update(lr)
-                model.blocks.each &.update(lr)
-                model.final_norm.update(lr)
-                model.output.update(lr)
-              end
+            BatchedDepthBackward.backward_depth(
+              depth_results, sub_grads, grad_accums, kv_store, model, @corpus, nil
+            )
+            if depth_results.size > 0
+              scale_gradients(model, 1.0 / depth_results.size)
+              lr = model.config.learning_rate
+              model.embedding.update(lr)
+              model.blocks.each &.update(lr)
+              model.final_norm.update(lr)
+              model.output.update(lr)
             end
           end
         end
