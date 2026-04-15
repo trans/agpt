@@ -26,6 +26,70 @@ module MicroGPT
         position : Int32,
         ancestor_ids : Array(Int32)
 
+      # ------------------------------------------------------------------------
+      # Unary chain compression (scaffolding for next implementation phase)
+      # ------------------------------------------------------------------------
+      #
+      # A unary chain is a sequence of trie nodes [n_0, n_1, ..., n_{L-1}] where
+      # each n_i has exactly one child n_{i+1} (the tail n_{L-1} may be a leaf
+      # or a branching node).
+      #
+      # Current forward (depth-major): processes one token per node per depth
+      # level. L nodes in a chain = L separate 1-token forward calls.
+      #
+      # Chain-compressed forward: processes the entire chain as one window-style
+      # batched forward — equivalent to MiniGPT.forward([t_0, t_1, ..., t_{L-1}])
+      # but:
+      #   (a) attention starts from the parent's KV cache (not empty),
+      #   (b) per-position BlockStepState is saved for later backward,
+      #   (c) per-position K/V is stored in the NodeKVStore keyed by chain node id,
+      #   (d) per-position logits are returned as NodeResults (one per chain position).
+      #
+      # Target: reduce L per-node attention ops into a single [L, L] causal
+      # attention matmul per head per layer. Projections/FFN become [L, d_model]
+      # matmuls.
+      #
+      # Contract (what this method MUST produce to pass the reference spec):
+      #   - logits at each position match the per-node path to float tolerance
+      #   - final_x at each position matches
+      #   - K/V stored per position matches (post-RoPE)
+      #
+      # Not yet implemented — this signature is the design target for next session.
+      # The implementation should:
+      #   1. Embed the chain tokens into a [L, d_model] matrix
+      #   2. For each block li:
+      #      a. Batched LN1 over [L, d_model]
+      #      b. Batched Q/K/V projections into [L, d_model] each
+      #      c. Per-head RoPE at each position's absolute depth
+      #      d. Attention where Q_i attends to (parent_cache.k_slice + chain_K[0..i])
+      #         — this is the causal attention that prefix_len varies per position
+      #         — consider: combined matmul [L, parent_len+L] × flattened K, then
+      #           mask the forbidden future positions
+      #      e. Batched WO projection → [L, d_model]
+      #      f. Residual + LN2
+      #      g. Batched FFN → back to [L, d_model]
+      #   3. Batched final norm + output projection → [L, vocab_size]
+      #   4. Build NodeResults per position
+      #   5. Append chain K/V entries to kv_store
+      #
+      # Tricky bits to watch:
+      #   - RoPE position for chain node n_i is (start_depth + i - 1), NOT i
+      #   - ancestor_ids for position i = parent_chain + [chain[0..i].ids]
+      #   - BlockStepState attn_weights must be [1, parent_len + i + 1] per position
+      #     (not uniform — different i has different prefix_len)
+      #   - Mask: position i in chain must NOT see positions j > i within the chain
+      def forward_unary_chain(
+        chain_nodes : Array(TrieNode),
+        parent_cache : Array(LayerKVCache),
+        ancestor_ids_base : Array(Int32),   # ancestor ids of chain[0]'s parent
+        start_depth : Int32,
+        kv_store : NodeKVStore,
+        model : MiniGPT,
+        corpus : TrieCorpus
+      ) : {Array(NodeResult), Array(LayerKVCache)}
+        raise NotImplementedError.new("forward_unary_chain is scaffold-only; see comment block above for implementation plan")
+      end
+
       # Forward all nodes at one depth level.
       #
       # nodes:       trie nodes at this depth (already filtered for seq_len)
