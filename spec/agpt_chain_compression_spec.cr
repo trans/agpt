@@ -180,6 +180,26 @@ describe "AGPT unary chain compression reference" do
       end
     end
   end
+
+  it "packed forward_segments over a branching trie matches reference" do
+    MicroGPT.use_crystal!
+    model = make_deterministic_model
+    reference = branching_reference_snapshot(model)
+    packed = packed_segments_snapshot(model)
+
+    reference.size.should eq packed.size
+    reference.each do |node_id, expected|
+      actual = packed[node_id]
+      assert_close(actual.logits, expected.logits, 1e-4_f32, "logits node=#{node_id}")
+      assert_close(actual.final_x, expected.final_x, 1e-5_f32, "final_x node=#{node_id}")
+      expected.k_rows.each_with_index do |row, li|
+        assert_close(actual.k_rows[li], row, 1e-5_f32, "k node=#{node_id} head=#{li}")
+      end
+      expected.v_rows.each_with_index do |row, li|
+        assert_close(actual.v_rows[li], row, 1e-5_f32, "v node=#{node_id} head=#{li}")
+      end
+    end
+  end
 end
 
 # Build the same trie used in reference_snapshot, walk it via segments, and
@@ -218,6 +238,128 @@ private def chain_compressed_snapshot(model : MicroGPT::MiniGPT) : Hash(Int32, N
       node_ancestors[last_id] = ancestor_ids_base + seg.node_ids
 
       results.each do |result|
+        logits = Array(Float32).new(result.logits.cols) { |j| result.logits[0, j] }
+        final_x = Array(Float32).new(result.final_x.cols) { |j| result.final_x[0, j] }
+        entry = kv_store.entries[result.node_id]
+        k_rows = Array(Array(Float32)).new(n_layers * n_heads)
+        v_rows = Array(Array(Float32)).new(n_layers * n_heads)
+        n_layers.times do |li|
+          n_heads.times do |hi|
+            k, v = entry[li][hi]
+            hd = head_dims[hi]
+            k_rows << Array(Float32).new(hd) { |j| k[0, j] }
+            v_rows << Array(Float32).new(hd) { |j| v[0, j] }
+          end
+        end
+        snapshots[result.node_id] = NodeSnapshot.new(
+          logits: logits, final_x: final_x, k_rows: k_rows, v_rows: v_rows
+        )
+      end
+    end
+  end
+
+  snapshots
+end
+
+# Build a trie with branching so depth groups contain multiple segments, then
+# snapshot via the per-node path used by reference_snapshot.
+private def branching_token_ids : Array(Int32)
+  [0, 1, 2, 3, 0, 1, 4, 5, 0, 2, 6, 7, 1, 2, 3, 4] of Int32
+end
+
+private def build_branching_corpus : MicroGPT::AGPT::TrieCorpus
+  MicroGPT::AGPT::TrieCorpus.from_token_ids(
+    branching_token_ids, max_depth: 5, max_starts: 6, vocab_size: 8
+  )
+end
+
+private def branching_reference_snapshot(model : MicroGPT::MiniGPT) : Hash(Int32, NodeSnapshot)
+  corpus = build_branching_corpus
+  kv_store = MicroGPT::AGPT::NodeKVStore.new
+  node_ancestor_ids = {corpus.root.id => [] of Int32}
+  node_positions = {} of Int32 => Int32
+  prev_caches = nil.as(Hash(Int32, Array(MicroGPT::AGPT::LayerKVCache))?)
+  snapshots = {} of Int32 => NodeSnapshot
+  head_dims = model.blocks.first.attn.head_dims
+  n_layers = model.config.n_layers
+  n_heads = head_dims.size
+
+  corpus.each_depth_level do |depth, nodes|
+    next if depth == 0
+    eligible = [] of MicroGPT::AGPT::TrieNode
+    nodes.each do |node|
+      parent = node.parent.not_nil!
+      next unless node_ancestor_ids.has_key?(parent.id)
+      next if parent.depth >= model.config.seq_len
+      eligible << node
+    end
+    next if eligible.empty?
+
+    eligible.each { |node| node_positions[node.id] = depth - 1 }
+
+    results, this_caches = MicroGPT::AGPT::BatchedDepthForward.forward_depth(
+      eligible, node_ancestor_ids, node_positions, kv_store, model, corpus, prev_caches
+    )
+    prev_caches = this_caches
+
+    results.each do |result|
+      logits = Array(Float32).new(result.logits.cols) { |j| result.logits[0, j] }
+      final_x = Array(Float32).new(result.final_x.cols) { |j| result.final_x[0, j] }
+      entry = kv_store.entries[result.node_id]
+      k_rows = Array(Array(Float32)).new(n_layers * n_heads)
+      v_rows = Array(Array(Float32)).new(n_layers * n_heads)
+      n_layers.times do |li|
+        n_heads.times do |hi|
+          k, v = entry[li][hi]
+          hd = head_dims[hi]
+          k_rows << Array(Float32).new(hd) { |j| k[0, j] }
+          v_rows << Array(Float32).new(hd) { |j| v[0, j] }
+        end
+      end
+      snapshots[result.node_id] = NodeSnapshot.new(
+        logits: logits, final_x: final_x, k_rows: k_rows, v_rows: v_rows
+      )
+    end
+  end
+
+  snapshots
+end
+
+private def packed_segments_snapshot(model : MicroGPT::MiniGPT) : Hash(Int32, NodeSnapshot)
+  corpus = build_branching_corpus
+  kv_store = MicroGPT::AGPT::NodeKVStore.new
+  head_dims = model.blocks.first.attn.head_dims
+  n_layers = model.config.n_layers
+  n_heads = head_dims.size
+  seq_len = model.config.seq_len
+
+  node_caches = {} of Int32 => Array(MicroGPT::AGPT::LayerKVCache)
+  node_caches[corpus.root.id] = Array.new(n_layers) {
+    MicroGPT::AGPT::LayerKVCache.new(head_dims, seq_len)
+  }
+  node_ancestors = {corpus.root.id => [] of Int32}
+  snapshots = {} of Int32 => NodeSnapshot
+
+  corpus.each_segment_group do |depth, segments|
+    seg_inputs = segments.map do |seg|
+      MicroGPT::AGPT::BatchedDepthForward::SegmentInput.new(
+        chain_nodes: seg.node_ids.map { |id| corpus.node_for_id(id) },
+        parent_cache: node_caches[seg.parent_id],
+        ancestor_ids_base: node_ancestors[seg.parent_id],
+        start_depth: depth
+      )
+    end
+
+    seg_results = MicroGPT::AGPT::BatchedDepthForward.forward_segments(
+      seg_inputs, kv_store, model, corpus
+    )
+
+    segments.zip(seg_results).each do |seg, seg_result|
+      last_id = seg.node_ids.last
+      node_caches[last_id] = seg_result.extended_cache
+      node_ancestors[last_id] = node_ancestors[seg.parent_id] + seg.node_ids
+
+      seg_result.node_results.each do |result|
         logits = Array(Float32).new(result.logits.cols) { |j| result.logits[0, j] }
         final_x = Array(Float32).new(result.final_x.cols) { |j| result.final_x[0, j] }
         entry = kv_store.entries[result.node_id]

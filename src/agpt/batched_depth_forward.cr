@@ -26,6 +26,281 @@ module MicroGPT
         position : Int32,
         ancestor_ids : Array(Int32)
 
+      # Input to the packed variable-length forward: one segment's shape and
+      # parent-cache context.
+      record SegmentInput,
+        chain_nodes : Array(TrieNode),
+        parent_cache : Array(LayerKVCache),
+        ancestor_ids_base : Array(Int32),
+        start_depth : Int32
+
+      # Output of the packed forward for one segment.
+      record SegmentResult,
+        node_results : Array(NodeResult),
+        extended_cache : Array(LayerKVCache)
+
+      # Packed variable-length forward over many segments in one pass.
+      #
+      # Execution model: concatenate all segments' tokens into a single
+      # [total_positions, d_model] tensor. Projections, LN, FFN are one big
+      # matmul across all positions — preserving today's cross-segment batch
+      # efficiency. Attention is per-segment with in-chain causal mask over
+      # (parent_prefix + chain_so_far).
+      #
+      # Segment inputs may have mixed chain lengths (L=1 for branching-tail
+      # single nodes, L>1 for unary chains) and mixed parent_cache lengths.
+      # A length-1 segment is the degenerate case — no special path.
+      def forward_segments(
+        segments : Array(SegmentInput),
+        kv_store : NodeKVStore,
+        model : MiniGPT,
+        corpus : TrieCorpus
+      ) : Array(SegmentResult)
+        return [] of SegmentResult if segments.empty?
+
+        d_model = model.config.d_model
+        head_dims = model.blocks.first.attn.head_dims
+        n_layers = model.config.n_layers
+        n_heads = head_dims.size
+
+        # Segment layout in the packed batch
+        seg_offsets = Array(Int32).new(segments.size)
+        seg_lengths = Array(Int32).new(segments.size)
+        total = 0
+        segments.each do |seg|
+          seg_offsets << total
+          seg_lengths << seg.chain_nodes.size
+          total += seg.chain_nodes.size
+        end
+
+        # Flat token ids and RoPE positions
+        tokens = Array(Int32).new(total)
+        positions = Array(Int32).new(total)
+        segments.each do |seg|
+          seg.chain_nodes.each_with_index do |node, i|
+            tokens << node.token_id.not_nil!
+            positions << seg.start_depth + i - 1
+          end
+        end
+
+        # Embedding [total, d_model]
+        x = Mat.new(total, d_model)
+        total.times do |r|
+          d_model.times { |j| x[r, j] = model.embedding.token_emb[tokens[r], j] }
+        end
+
+        all_block_states = Array(Array(BlockStepState)).new(total) { [] of BlockStepState }
+        per_seg_extended_caches = Array(Array(LayerKVCache)).new(segments.size) { Array(LayerKVCache).new(n_layers) }
+
+        n_layers.times do |li|
+          block = model.blocks[li]
+          attn = block.attn
+
+          x_input = copy_mat(x)
+
+          x_norm, ln1_norm, ln1_std_inv = MicroGPT.backend.layer_norm_forward(x, block.ln1.gamma, block.ln1.beta)
+          ln1_out = copy_mat(x_norm)
+
+          q_all = x_norm * attn.wq.w
+          add_bias_rows!(q_all, attn.wq.b)
+          k_all = x_norm * attn.wk.w
+          add_bias_rows!(k_all, attn.wk.b)
+          v_all = x_norm * attn.wv.w
+          add_bias_rows!(v_all, attn.wv.b)
+
+          q_parts = split_cols(q_all, head_dims)
+          k_parts = split_cols(k_all, head_dims)
+          v_parts = split_cols(v_all, head_dims)
+
+          # RoPE per head at each row's absolute position
+          n_heads.times do |hi|
+            total.times do |r|
+              apply_rope_row!(q_parts[hi], r, attn.ropes[hi], positions[r])
+              apply_rope_row!(k_parts[hi], r, attn.ropes[hi], positions[r])
+            end
+          end
+
+          # Store per-position K/V into kv_store and build per-segment extended cache
+          segments.each_with_index do |seg, si|
+            parent_layer_cache = seg.parent_cache[li]
+            layer_cache = parent_layer_cache.deep_clone
+            offset = seg_offsets[si]
+            len = seg_lengths[si]
+            len.times do |i|
+              k_row_parts = Array(Mat).new(n_heads)
+              v_row_parts = Array(Mat).new(n_heads)
+              n_heads.times do |hi|
+                hd = head_dims[hi]
+                k_row = Mat.new(1, hd)
+                v_row = Mat.new(1, hd)
+                hd.times do |j|
+                  k_row[0, j] = k_parts[hi][offset + i, j]
+                  v_row[0, j] = v_parts[hi][offset + i, j]
+                end
+                k_row_parts << k_row
+                v_row_parts << v_row
+              end
+              kv_store.store_layer(seg.chain_nodes[i].id, li, k_row_parts, v_row_parts)
+              layer_cache.extend(k_row_parts, v_row_parts)
+            end
+            per_seg_extended_caches[si] << layer_cache
+          end
+
+          # Per-segment causal attention over (parent prefix + chain so far)
+          attn_outputs = Mat.new(total, d_model)
+          per_pos_attn_weights = Array(Array(Mat)).new(total) { Array(Mat).new(n_heads) }
+
+          segments.each_with_index do |seg, si|
+            parent_layer_cache = seg.parent_cache[li]
+            prefix_len = parent_layer_cache.len
+            offset = seg_offsets[si]
+            len = seg_lengths[si]
+
+            col_offset = 0
+            n_heads.times do |hi|
+              hd = head_dims[hi]
+              scale = (1.0 / Math.sqrt(hd.to_f64)).to_f32
+
+              full_len_max = prefix_len + len
+              k_full = Mat.new(full_len_max, hd)
+              v_full = Mat.new(full_len_max, hd)
+              if prefix_len > 0
+                kp = parent_layer_cache.k_slice(hi)
+                vp = parent_layer_cache.v_slice(hi)
+                prefix_len.times do |r|
+                  hd.times do |j|
+                    k_full[r, j] = kp[r, j]
+                    v_full[r, j] = vp[r, j]
+                  end
+                end
+              end
+              len.times do |i|
+                hd.times do |j|
+                  k_full[prefix_len + i, j] = k_parts[hi][offset + i, j]
+                  v_full[prefix_len + i, j] = v_parts[hi][offset + i, j]
+                end
+              end
+
+              len.times do |i|
+                eff_len = prefix_len + i + 1
+                q_row = Mat.new(1, hd)
+                hd.times { |j| q_row[0, j] = q_parts[hi][offset + i, j] }
+
+                k_eff = Mat.new(eff_len, hd)
+                v_eff = Mat.new(eff_len, hd)
+                eff_len.times do |r|
+                  hd.times do |j|
+                    k_eff[r, j] = k_full[r, j]
+                    v_eff[r, j] = v_full[r, j]
+                  end
+                end
+
+                scores = q_row * k_eff.t
+                scores.scale!(scale)
+                weights = MicroGPT.backend.softmax_rows(scores)
+                out = weights * v_eff
+
+                hd.times { |j| attn_outputs[offset + i, col_offset + j] = out[0, j] }
+                per_pos_attn_weights[offset + i] << copy_mat(weights)
+              end
+
+              col_offset += hd
+            end
+          end
+
+          # WO + residual 1 (batched over all positions)
+          wo_input = copy_mat(attn_outputs)
+          attn_proj = attn_outputs * attn.wo.w
+          add_bias_rows!(attn_proj, attn.wo.b)
+          x.add!(attn_proj)
+          x_after_attn = copy_mat(x)
+
+          # LN2 + FFN + residual 2
+          x_norm2, ln2_norm, ln2_std_inv = MicroGPT.backend.layer_norm_forward(x, block.ln2.gamma, block.ln2.beta)
+          ln2_out = copy_mat(x_norm2)
+
+          h = x_norm2 * block.ff.l1.w
+          if MicroGPT.backend.is_a?(MicroGPT::CuBLASBackend)
+            h, ff_relu_mask = MicroGPT.backend.fused_bias_relu(h, block.ff.l1.b)
+          else
+            add_bias_rows!(h, block.ff.l1.b)
+            ff_relu_mask = Mat.new(h.rows, h.cols)
+            h.rows.times do |r|
+              h.cols.times do |c|
+                ff_relu_mask[r, c] = h[r, c] > 0 ? 1.0_f32 : 0.0_f32
+                h[r, c] *= ff_relu_mask[r, c]
+              end
+            end
+          end
+          ff_relu_out = copy_mat(h)
+
+          ff_out = h * block.ff.l2.w
+          add_bias_rows!(ff_out, block.ff.l2.b)
+          x.add!(ff_out)
+
+          # Per-position BlockStepState
+          total.times do |r|
+            bss = BlockStepState.new(
+              x_input: extract_row(x_input, r),
+              ln1_out: extract_row(ln1_out, r),
+              ln1_normed: extract_row(ln1_norm, r),
+              ln1_std_inv: ln1_std_inv[r, 0].to_f64,
+              q_parts: head_dims.map_with_index { |_, hi| extract_row_slice(q_parts[hi], r) },
+              attn_weights: per_pos_attn_weights[r],
+              wo_input: extract_row(wo_input, r),
+              x_after_attn: extract_row(x_after_attn, r),
+              ln2_out: extract_row(ln2_out, r),
+              ln2_normed: extract_row(ln2_norm, r),
+              ln2_std_inv: ln2_std_inv[r, 0].to_f64,
+              ff_relu_out: extract_row(ff_relu_out, r),
+              ff_relu_mask: extract_row(ff_relu_mask, r)
+            )
+            all_block_states[r] << bss
+          end
+        end
+
+        # Final norm + output projection (batched over all positions)
+        final_x = copy_mat(x)
+        final_out, final_norm, final_std_inv = MicroGPT.backend.layer_norm_forward(
+          x, model.final_norm.gamma, model.final_norm.beta
+        )
+        final_norm_out = copy_mat(final_out)
+
+        logits = final_out * model.output.proj.w
+        add_bias_rows!(logits, model.output.proj.b)
+
+        # Unpack per-segment NodeResults
+        results = Array(SegmentResult).new(segments.size)
+        segments.each_with_index do |seg, si|
+          offset = seg_offsets[si]
+          len = seg_lengths[si]
+          node_results = Array(NodeResult).new(len)
+          running_ancestors = seg.ancestor_ids_base.dup
+          len.times do |i|
+            r = offset + i
+            running_ancestors = running_ancestors + [seg.chain_nodes[i].id]
+            node_results << NodeResult.new(
+              node_id: seg.chain_nodes[i].id,
+              logits: extract_row(logits, r),
+              block_states: all_block_states[r],
+              final_x: extract_row(final_x, r),
+              final_normed: extract_row(final_norm, r),
+              final_std_inv: final_std_inv[r, 0].to_f64,
+              final_norm_out: extract_row(final_norm_out, r),
+              token_id: tokens[r],
+              position: positions[r],
+              ancestor_ids: running_ancestors.dup
+            )
+          end
+          results << SegmentResult.new(
+            node_results: node_results,
+            extended_cache: per_seg_extended_caches[si]
+          )
+        end
+
+        results
+      end
+
       # ------------------------------------------------------------------------
       # Unary chain compression (scaffolding for next implementation phase)
       # ------------------------------------------------------------------------
