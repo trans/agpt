@@ -901,7 +901,12 @@ module MicroGPT
 
           MicroGPT::PerfTrace.reset if MicroGPT::PerfTrace.enabled?
           epoch_started = Time.instant
-          loss, nodes = walk_trainer.train_epoch(model)
+          loss, nodes = if ENV["AGPT_TWO_REGIME"]? == "1"
+            d_branch_override = ENV["AGPT_D_BRANCH"]?.try &.to_i
+            walk_trainer.train_epoch_two_regime(model, d_branch_override)
+          else
+            walk_trainer.train_epoch(model)
+          end
           elapsed = Time.instant - epoch_started
           avg_loss = step == 0 ? loss : 0.99 * avg_loss + 0.01 * loss
 
