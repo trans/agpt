@@ -829,7 +829,12 @@ module MicroGPT
         puts "  Trie load: #{trie_build_time.total_milliseconds.round(1)} ms" if trie_source == "loaded"
         puts "  Trie build: #{trie_build_time.total_milliseconds.round(1)} ms" if trie_source == "built"
         puts "  Trie shape: root=#{trie_shape.root_children} leaves=#{trie_shape.leaves} unary=#{trie_shape.unary_nodes} branching=#{trie_shape.branching_nodes}"
-        puts "  Trie breadth: peak=#{trie_shape.peak_width} at depth #{trie_shape.peak_width_depth} max_children=#{trie_shape.max_children} avg_internal=#{trie_shape.avg_children_per_internal.round(2)}"
+        puts "  Trie breadth: peak=#{trie_shape.peak_width} at depth #{trie_shape.peak_width_depth} max_children=#{trie_shape.max_children} avg_children_per_internal=#{trie_shape.avg_children_per_internal.round(2)}"
+        if ENV["AGPT_LOG_D_BRANCH"]? == "1"
+          branching_counts = trie.branching_counts_by_depth
+          puts "  Branching counts by depth: #{branching_counts.map_with_index { |c, d| "#{d}:#{c}" }.join(",")}"
+          puts "  D_branch (naive): #{trie.pick_d_branch}"
+        end
         puts "  Model: #{save_path}"
         puts
 

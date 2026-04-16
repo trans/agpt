@@ -233,6 +233,7 @@ module MicroGPT
       # subtries drive .update() calls in both regimes.
       def train_epoch_two_regime(model : MiniGPT, d_branch : Int32? = nil) : {Float64, Int32}
         effective_d_branch = d_branch || @corpus.pick_d_branch
+        STDERR.puts "  [two-regime] D_branch=#{effective_d_branch}" if ENV["AGPT_LOG_D_BRANCH"]? == "1"
         seq_len = model.config.seq_len
         head_dims = model.blocks.first.attn.head_dims
         n_layers = model.config.n_layers
