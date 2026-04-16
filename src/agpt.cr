@@ -1,6 +1,7 @@
 require "./microgpt"
 require "./agpt/trie_node"
 require "./agpt/trie_corpus"
+require "./agpt/leveled_trie_reader"
 require "./agpt/weighted_loss"
 require "./agpt/trainer"
 require "./agpt/kv_cache"

@@ -17,6 +17,35 @@ private def build_sample_corpus : MicroGPT::AGPT::TrieCorpus
 end
 
 describe "AGPT leveled trie save/load" do
+  it "lazy reader matches in-memory trie accessors" do
+    original = build_sample_corpus
+
+    tmpdir = File.join(Dir.tempdir, "agpt_leveled_lazy_#{Random.rand(UInt64)}")
+    begin
+      original.save_by_depth(tmpdir)
+      reader = MicroGPT::AGPT::LeveledTrieReader.new(tmpdir, max_cached: 2)
+
+      reader.node_count.should eq original.node_count
+      reader.max_depth.should eq original.max_depth
+      reader.starts_used.should eq original.starts_used
+
+      original.node_count.times do |id|
+        reader.parent_id(id).should eq original.parent_id(id)
+        reader.token_id_of(id).should eq original.token_id_of(id)
+        reader.depth_of(id).should eq original.depth_of(id)
+
+        orig_entries = original.node_for_id(id).next_token_counts_hash
+        reader_entries = reader.counts_of(id)
+        reader_hash = {} of Int32 => Int32
+        reader_entries.each { |(t, c)| reader_hash[t] = c }
+        reader_hash.size.should eq orig_entries.size
+        orig_entries.each { |t, c| reader_hash[t].should eq c }
+      end
+    ensure
+      FileUtils.rm_rf(tmpdir) if Dir.exists?(tmpdir)
+    end
+  end
+
   it "round-trips columnar fields and next-token counts" do
     original = build_sample_corpus
 
