@@ -31,7 +31,11 @@ module MicroGPT
         total_loss    = 0.0
         nodes_trained = 0
 
-        kv_store = NodeKVStore.new
+        # No-op store: forward_caches covers all backward KV lookups, and
+        # prev_caches covers all forward parent lookups, so the store is never
+        # read in the CPU-backend interleaved design. Skipping writes saves
+        # O(total_nodes × kv_row_size) RAM — the main Phase B memory win.
+        kv_store = NodeKVStore.new(no_op: true)
 
         node_ancestor_ids = {} of Int32 => Array(Int32)
         node_positions    = {} of Int32 => Int32

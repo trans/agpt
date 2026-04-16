@@ -14,12 +14,19 @@ module MicroGPT
       # k_row, v_row are [1, head_dim] Mat.
       getter entries : Hash(Int32, Array(Array({Mat, Mat})))
 
-      def initialize
+      # When no_op is true all writes are skipped and entries stays empty.
+      # Use this in the leveled (disk-paged) trainer where forward_caches and
+      # prev_caches already cover all KV access patterns, making the store
+      # write-only dead weight that only wastes RAM.
+      getter no_op : Bool
+
+      def initialize(@no_op : Bool = false)
         @entries = {} of Int32 => Array(Array({Mat, Mat}))
       end
 
       # Store node's K/V contribution extracted from the KV cache after extend.
       def store(node_id : Int32, kv_cache : ModelKVCache, head_dims : Array(Int32))
+        return if @no_op
         position = kv_cache.len - 1
         layers = Array(Array({Mat, Mat})).new(kv_cache.layer_caches.size)
 
@@ -82,6 +89,7 @@ module MicroGPT
       # Store K/V for a single layer (used by batched forward which processes
       # one layer at a time). Initializes the entry if needed.
       def store_layer(node_id : Int32, layer : Int32, k_parts : Array(Mat), v_parts : Array(Mat))
+        return if @no_op
         entry = @entries[node_id]? || begin
           e = Array(Array({Mat, Mat})).new
           @entries[node_id] = e
