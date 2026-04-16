@@ -13,6 +13,12 @@ module MicroGPT
       abstract def parent_id(id : Int32) : Int32
       abstract def token_id_of(id : Int32) : Int32
       abstract def depth_of(id : Int32) : Int32
+      # Next-token counts for the node: Array of {token_id, count}.
+      # Empty when the node has no observed continuations (leaf or root).
+      abstract def counts_of(id : Int32) : Array({Int32, Int32})
+      # Number of direct children. Used to decide whether siblings share a
+      # parent cache (>1 → deep_clone needed in cpu_per_node_attention).
+      abstract def child_count_of(id : Int32) : Int32
     end
   end
 end

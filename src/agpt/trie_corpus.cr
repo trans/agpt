@@ -748,6 +748,10 @@ module MicroGPT
         entries.dup
       end
 
+      def child_count_of(id : Int32) : Int32
+        @child_count[id]
+      end
+
       # Binary search over parent's sorted child slice. Returns child id, or -1.
       def find_child(parent_id : Int32, token : Int32) : Int32
         start = @first_child[parent_id]

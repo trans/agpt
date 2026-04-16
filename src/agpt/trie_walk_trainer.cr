@@ -64,12 +64,12 @@ module MicroGPT
           next if depth == 0
 
           depth_started = Time.instant if MicroGPT::PerfTrace.enabled?
-          eligible = Array(TrieNode).new
+          eligible = Array(BatchedDepthForward::NodeProxy).new
           nodes.each do |node|
-            parent = node.parent.not_nil!
-            next unless node_ancestor_ids.has_key?(parent.id)
-            next if parent.depth >= seq_len
-            eligible << node
+            parent_id = @corpus.parent_id(node.id)
+            next unless node_ancestor_ids.has_key?(parent_id)
+            next if @corpus.depth_of(parent_id) >= seq_len
+            eligible << BatchedDepthForward::NodeProxy.new(node.id, node.token_id.not_nil!, node.depth)
           end
           next if eligible.empty?
 
@@ -79,7 +79,7 @@ module MicroGPT
             if depth == 1
               node_root_child[node.id] = node.id
             else
-              node_root_child[node.id] = node_root_child[node.parent.not_nil!.id]
+              node_root_child[node.id] = node_root_child[@corpus.parent_id(node.id)]
             end
           end
 
@@ -119,16 +119,15 @@ module MicroGPT
             lambda = @entropy_lambda
             results.each_with_index do |result, i|
               result_map[result.node_id] = result
-              node = @corpus.node_for_id(result.node_id)
-              unless node.next_token_counts.empty?
-                counts = node.next_token_counts_hash
-                total = counts.values.sum(0)
+              counts_arr = @corpus.counts_of(result.node_id)
+              unless counts_arr.empty?
+                total = counts_arr.sum(0) { |t| t[1] }
                 total_f = total.to_f64
 
                 # Compute empirical entropy H(p) from counts
                 entropy = 0.0
-                if lambda > 0.0 && counts.size > 1
-                  counts.each do |_tok, count|
+                if lambda > 0.0 && counts_arr.size > 1
+                  counts_arr.each do |tok, count|
                     q = count / total_f
                     entropy -= q * Math.log(q) if q > 0.0
                   end
@@ -138,7 +137,7 @@ module MicroGPT
                 # Loss from CPU probs
                 loss_value = 0.0
                 prob_offset = i * vocab_size
-                counts.each do |token_id, count|
+                counts_arr.each do |token_id, count|
                   loss_value -= count * Math.log(all_probs[prob_offset + token_id] + 1e-10)
                 end
                 loss_value /= total
@@ -148,7 +147,7 @@ module MicroGPT
                 grad = Mat.new(1, vocab_size)
                 weight_f32 = weight.to_f32
                 vocab_size.times { |j| grad[0, j] = all_probs[prob_offset + j] * weight_f32 }
-                counts.each do |token_id, count|
+                counts_arr.each do |token_id, count|
                   grad[0, token_id] -= (count.to_f32 / total) * weight_f32
                 end
 

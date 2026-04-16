@@ -12,6 +12,15 @@ module MicroGPT
       extend self
       include MathUtils
 
+      # Minimal node descriptor for forward_depth.
+      # Decouples the hot path from TrieNode/LoadedRecord internals.
+      # Build from a TrieNode via NodeProxy.from_trie_node, or from a
+      # LoadedRecord via NodeProxy.from_record.
+      record NodeProxy,
+        id : Int32,
+        token_id : Int32,
+        depth : Int32
+
       # Per-node result from the batched forward: everything needed for backward.
       record NodeResult,
         node_id : Int32,
@@ -309,7 +318,7 @@ module MicroGPT
       # Returns {results, this_depth_caches} — caller keeps this_depth_caches for
       # the next depth and frees parent_caches.
       def forward_depth(
-        nodes : Array(TrieNode),
+        nodes : Array(NodeProxy),
         node_ancestor_ids : Hash(Int32, Array(Int32)),
         node_positions : Hash(Int32, Int32),
         kv_store : NodeKVStore,
@@ -337,10 +346,9 @@ module MicroGPT
           ancestors = Array(Array(Int32)).new(n)
 
           nodes.each do |node|
-            parent = node.parent.not_nil!
-            token = node.token_id.not_nil!
+            token = node.token_id
             position = node_positions[node.id]? || (node.depth - 1)
-            parent_ancestors = node_ancestor_ids[parent.id]
+            parent_ancestors = node_ancestor_ids[corpus.parent_id(node.id)]
             anc = parent_ancestors + [node.id]
 
             tokens << token
@@ -797,7 +805,7 @@ module MicroGPT
         # Group node indices by parent id, preserving the iteration order
         groups = Hash(Int32, Array(Int32)).new
         n.times do |i|
-          pid = nodes[i].parent.not_nil!.id
+          pid = corpus.parent_id(nodes[i].id)
           (groups[pid] ||= [] of Int32) << i
         end
 
@@ -931,12 +939,12 @@ module MicroGPT
           GC.collect if i > 0 && i % 500 == 0
 
           node_id = nodes[i].id
-          parent_id = nodes[i].parent.not_nil!.id
+          parent_id = corpus.parent_id(node_id)
 
           layer_cache = if pc = parent_caches
             if parent_layer_caches = pc[parent_id]?
               parent_lc = parent_layer_caches[li]
-              if nodes[i].parent.not_nil!.children.size > 1
+              if corpus.child_count_of(parent_id) > 1
                 parent_lc.deep_clone
               else
                 parent_lc

@@ -209,6 +209,10 @@ module MicroGPT
         chunk.counts[id]? || ([] of {Int32, Int32})
       end
 
+      def child_count_of(id : Int32) : Int32
+        record(id).child_count
+      end
+
       def nodes_at_depth(d : Int32) : Array(LoadedRecord)
         fault(d).records
       end

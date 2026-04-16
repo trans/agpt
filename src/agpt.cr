@@ -13,6 +13,7 @@ require "./agpt/node_kv_store"
 require "./agpt/batched_depth_forward"
 require "./agpt/batched_depth_backward"
 require "./agpt/trie_walk_trainer"
+require "./agpt/leveled_trie_walk_trainer"
 
 module MicroGPT
   module AGPT
