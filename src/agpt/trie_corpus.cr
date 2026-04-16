@@ -263,6 +263,259 @@ module MicroGPT
         end
       end
 
+      # --- Per-depth (leveled) storage format v1 ---
+      #
+      # Writes trie metadata and counts into a directory with one file per
+      # depth. Establishes the on-disk layout that Phase B will extend for
+      # K/V paging. Round-trip-compatible with load_by_depth.
+      #
+      # Layout:
+      #   dir/
+      #     meta.bin        — global metadata (magic, version, max_depth,
+      #                        max_starts, start_offset, starts_used,
+      #                        node_count, IndexMetadata fields)
+      #     depth_000.bin
+      #     depth_001.bin
+      #     ...
+      #
+      # Each depth_NNN.bin: records for nodes at that depth, in ascending
+      # global node_id order. Format per record:
+      #   u32 global_id
+      #   u32 parent_id (Int32, -1 sentinel for root)
+      #   i32 token (-1 for root)
+      #   i32 depth  (redundant with filename, kept for self-describing records)
+      #   i32 child_count
+      #   i32 first_child_id (-1 if none)
+      #   i32 entry_count   (next_token_counts size)
+      #   (i32 token, i32 count) * entry_count
+      LEVELED_MAGIC = 0x4C475041_u32  # 'LGPA' — leveled AGPT
+      LEVELED_VERSION = 1_i32
+
+      def save_by_depth(dir : String)
+        Dir.mkdir_p(dir)
+        metadata = @index_metadata || IndexMetadata.new(
+          corpus_token_count: 0,
+          vocab_size: 0,
+          corpus_hash: 0_u64,
+          tokenizer_tag: "unknown"
+        )
+
+        # Group nodes by depth
+        by_depth = {} of Int32 => Array(Int32)
+        max_d = 0
+        @node_count.times do |id|
+          d = @depths[id]
+          (by_depth[d] ||= [] of Int32) << id
+          max_d = d if d > max_d
+        end
+
+        # Write meta.bin
+        File.open(File.join(dir, "meta.bin"), "wb") do |io|
+          io.write_bytes(LEVELED_MAGIC, IO::ByteFormat::LittleEndian)
+          io.write_bytes(LEVELED_VERSION, IO::ByteFormat::LittleEndian)
+          io.write_bytes((@max_depth || -1).to_i32, IO::ByteFormat::LittleEndian)
+          io.write_bytes((@max_starts || -1).to_i32, IO::ByteFormat::LittleEndian)
+          io.write_bytes(@start_offset.to_i32, IO::ByteFormat::LittleEndian)
+          io.write_bytes(@starts_used.to_i32, IO::ByteFormat::LittleEndian)
+          io.write_bytes(@node_count.to_i32, IO::ByteFormat::LittleEndian)
+          io.write_bytes((max_d + 1).to_i32, IO::ByteFormat::LittleEndian) # depth file count
+          io.write_bytes(metadata.corpus_token_count.to_i32, IO::ByteFormat::LittleEndian)
+          io.write_bytes(metadata.vocab_size.to_i32, IO::ByteFormat::LittleEndian)
+          io.write_bytes(metadata.corpus_hash, IO::ByteFormat::LittleEndian)
+          tokenizer_bytes = metadata.tokenizer_tag.to_slice
+          io.write_bytes(tokenizer_bytes.size.to_i32, IO::ByteFormat::LittleEndian)
+          io.write(tokenizer_bytes)
+        end
+
+        # Write each depth_NNN.bin
+        (0..max_d).each do |d|
+          ids = by_depth[d]? || [] of Int32
+          ids.sort!
+          path = File.join(dir, "depth_#{"%03d" % d}.bin")
+          File.open(path, "wb") do |io|
+            io.write_bytes(LEVELED_MAGIC, IO::ByteFormat::LittleEndian)
+            io.write_bytes(d.to_i32, IO::ByteFormat::LittleEndian)
+            io.write_bytes(ids.size.to_i32, IO::ByteFormat::LittleEndian)
+            ids.each do |id|
+              io.write_bytes(id.to_i32, IO::ByteFormat::LittleEndian)
+              io.write_bytes(@parents[id].to_i32, IO::ByteFormat::LittleEndian)
+              io.write_bytes(@tokens[id].to_i32, IO::ByteFormat::LittleEndian)
+              io.write_bytes(@depths[id].to_i32, IO::ByteFormat::LittleEndian)
+              io.write_bytes(@child_count[id].to_i32, IO::ByteFormat::LittleEndian)
+              io.write_bytes(@first_child[id].to_i32, IO::ByteFormat::LittleEndian)
+              entries = @counts[id]? || ([] of {Int32, Int32})
+              io.write_bytes(entries.size.to_i32, IO::ByteFormat::LittleEndian)
+              entries.each do |token_id, count|
+                io.write_bytes(token_id.to_i32, IO::ByteFormat::LittleEndian)
+                io.write_bytes(count.to_i32, IO::ByteFormat::LittleEndian)
+              end
+            end
+          end
+        end
+      end
+
+      def self.load_by_depth(dir : String) : TrieCorpus
+        meta_path = File.join(dir, "meta.bin")
+        raise "meta.bin missing in #{dir}" unless File.exists?(meta_path)
+
+        corpus = TrieCorpus.allocate
+        corpus.init_empty_for_leveled_load
+
+        depth_file_count = 0
+        node_count = 0
+        File.open(meta_path, "rb") do |io|
+          magic = io.read_bytes(UInt32, IO::ByteFormat::LittleEndian)
+          raise "bad leveled magic in #{meta_path}" unless magic == LEVELED_MAGIC
+          version = io.read_bytes(Int32, IO::ByteFormat::LittleEndian)
+          raise "unsupported leveled version #{version}" unless version == LEVELED_VERSION
+          max_depth = io.read_bytes(Int32, IO::ByteFormat::LittleEndian)
+          max_starts = io.read_bytes(Int32, IO::ByteFormat::LittleEndian)
+          start_offset = io.read_bytes(Int32, IO::ByteFormat::LittleEndian)
+          starts_used = io.read_bytes(Int32, IO::ByteFormat::LittleEndian)
+          node_count = io.read_bytes(Int32, IO::ByteFormat::LittleEndian)
+          depth_file_count = io.read_bytes(Int32, IO::ByteFormat::LittleEndian)
+          corpus_token_count = io.read_bytes(Int32, IO::ByteFormat::LittleEndian)
+          vocab_size = io.read_bytes(Int32, IO::ByteFormat::LittleEndian)
+          corpus_hash = io.read_bytes(UInt64, IO::ByteFormat::LittleEndian)
+          tokenizer_len = io.read_bytes(Int32, IO::ByteFormat::LittleEndian)
+          tokenizer_bytes = Bytes.new(tokenizer_len)
+          io.read_fully(tokenizer_bytes)
+          tokenizer_tag = String.new(tokenizer_bytes)
+
+          corpus.set_leveled_meta(
+            max_depth: max_depth < 0 ? nil : max_depth,
+            max_starts: max_starts < 0 ? nil : max_starts,
+            start_offset: start_offset,
+            starts_used: starts_used,
+            index_metadata: IndexMetadata.new(
+              corpus_token_count: corpus_token_count,
+              vocab_size: vocab_size,
+              corpus_hash: corpus_hash,
+              tokenizer_tag: tokenizer_tag
+            )
+          )
+        end
+
+        corpus.reserve_leveled_storage(node_count)
+
+        depth_file_count.times do |d|
+          path = File.join(dir, "depth_#{"%03d" % d}.bin")
+          next unless File.exists?(path)
+          File.open(path, "rb") do |io|
+            magic = io.read_bytes(UInt32, IO::ByteFormat::LittleEndian)
+            raise "bad depth file magic in #{path}" unless magic == LEVELED_MAGIC
+            stored_depth = io.read_bytes(Int32, IO::ByteFormat::LittleEndian)
+            raise "depth mismatch in #{path}: #{stored_depth} vs #{d}" unless stored_depth == d
+            n = io.read_bytes(Int32, IO::ByteFormat::LittleEndian)
+            n.times do
+              id = io.read_bytes(Int32, IO::ByteFormat::LittleEndian)
+              parent = io.read_bytes(Int32, IO::ByteFormat::LittleEndian)
+              token = io.read_bytes(Int32, IO::ByteFormat::LittleEndian)
+              depth = io.read_bytes(Int32, IO::ByteFormat::LittleEndian)
+              child_count = io.read_bytes(Int32, IO::ByteFormat::LittleEndian)
+              first_child = io.read_bytes(Int32, IO::ByteFormat::LittleEndian)
+              entry_count = io.read_bytes(Int32, IO::ByteFormat::LittleEndian)
+              entries = [] of {Int32, Int32}
+              entry_count.times do
+                tok = io.read_bytes(Int32, IO::ByteFormat::LittleEndian)
+                cnt = io.read_bytes(Int32, IO::ByteFormat::LittleEndian)
+                entries << {tok, cnt}
+              end
+              corpus.load_leveled_node(id, parent, token, depth, child_count, first_child, entries)
+            end
+          end
+        end
+
+        corpus.finalize_leveled_load
+
+        corpus
+      end
+
+      # Internal helpers for load_by_depth — populate columnar storage and
+      # the child_storage CSR slices from the per-depth records we read off
+      # disk. Public because called from the `self.load_by_depth` class method.
+      protected def init_empty_for_leveled_load
+        @parents = [] of Int32
+        @tokens = [] of Int32
+        @depths = [] of Int32
+        @first_child = [] of Int32
+        @child_count = [] of Int32
+        @child_storage = [] of {Int32, Int32}
+        @counts = {} of Int32 => Array({Int32, Int32})
+        @node_count = 0
+        @start_offset = 0
+        @progress_interval = 0
+      end
+
+      protected def set_leveled_meta(max_depth, max_starts, start_offset, starts_used, index_metadata)
+        @max_depth = max_depth
+        @max_starts = max_starts
+        @start_offset = start_offset
+        @starts_used = starts_used
+        @index_metadata = index_metadata
+      end
+
+      protected def reserve_leveled_storage(total : Int32)
+        @parents = Array(Int32).new(total, -1)
+        @tokens = Array(Int32).new(total, -1)
+        @depths = Array(Int32).new(total, 0)
+        @first_child = Array(Int32).new(total, -1)
+        @child_count = Array(Int32).new(total, 0)
+      end
+
+      protected def load_leveled_node(id, parent, token, depth, child_count, first_child, entries)
+        @parents[id] = parent
+        @tokens[id] = token
+        @depths[id] = depth
+        @child_count[id] = child_count
+        @first_child[id] = first_child
+        if !entries.empty?
+          @counts[id] = entries
+        end
+        @node_count = id + 1 if id + 1 > @node_count
+      end
+
+      protected def finalize_leveled_load
+        # Rebuild @child_storage from parent/first_child relationships.
+        # For each parent p with first_child_id F and child_count C,
+        # children occupy slots F..F+C-1 in child_storage (token-sorted by
+        # original ingest). We reconstruct by iterating all nodes: each
+        # non-root node occupies one slot in its parent's children region.
+        max_offset = 0
+        @node_count.times do |id|
+          fc = @first_child[id]
+          cc = @child_count[id]
+          if fc >= 0 && fc + cc > max_offset
+            max_offset = fc + cc
+          end
+        end
+        @child_storage = Array({Int32, Int32}).new(max_offset, {-1, -1})
+        # Each node with a valid parent places its (token, id) into
+        # parent.first_child .. parent.first_child + parent.child_count
+        # We need to fill them in the slot where they were originally
+        # written (sorted by token within each parent). Since entries in
+        # our file were ordered by global id ascending, and children are
+        # allocated in ingest-order within a parent (token-sorted), this
+        # requires placing each node into a specific slot.
+        #
+        # Strategy: for each parent, collect its children by scanning all
+        # nodes whose parent equals that id. Sort by token. Write into
+        # slots starting at first_child.
+        children_by_parent = Hash(Int32, Array({Int32, Int32})).new
+        @node_count.times do |id|
+          p = @parents[id]
+          next if p < 0
+          (children_by_parent[p] ||= [] of {Int32, Int32}) << {@tokens[id], id}
+        end
+        children_by_parent.each do |parent_id, pairs|
+          pairs.sort_by! { |pair| pair[0] }
+          fc = @first_child[parent_id]
+          pairs.each_with_index do |pair, i|
+            @child_storage[fc + i] = pair
+          end
+        end
+      end
+
       def validate_metadata!(
         *,
         corpus_token_count : Int32,
