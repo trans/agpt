@@ -198,7 +198,7 @@ module MicroGPT
               results, li, n, d_model, head_dims, n_heads, n_layers, seq_len,
               d_head_outs, kv_store, corpus, attn,
               dq_all_data, dk_current_all_data, dv_current_all_data,
-              grad_accums, scratch_rope
+              grad_accums, scratch_rope, forward_caches
             )
             MicroGPT::PerfTrace.add_time("agpt.backward.layer#{li}.attention", Time.instant - attn_started.not_nil!) if attn_started
 
@@ -339,7 +339,8 @@ module MicroGPT
         results, li, n, d_model, head_dims, n_heads, n_layers, seq_len,
         d_head_outs, kv_store, corpus, attn,
         dq_all_data, dk_current_all_data, dv_current_all_data,
-        grad_accums, scratch_rope
+        grad_accums, scratch_rope,
+        forward_caches : Hash(Int32, Array(LayerKVCache))? = nil
       )
         hd = head_dims[0]  # assumes uniform head dims (matches forward kernel)
 
@@ -393,6 +394,32 @@ module MicroGPT
         n.times do |i|
           node_id = results[i].node_id
           offset = kv_offsets[i]
+          pl = prefix_lens[i]
+
+          # Fast path: read from forward_caches (the full accumulated LayerKVCache).
+          # This is already assembled during forward so no ancestor walk needed.
+          # Used by the leveled trainer (no_op kv_store) and whenever forward_caches
+          # is available (which is always in the interleaved design).
+          if fc = forward_caches
+            if node_caches = fc[node_id]?
+              layer_cache = node_caches[li]
+              n_heads.times do |hi|
+                k_mat = layer_cache.k_slice(hi)  # [pl, hd]
+                v_mat = layer_cache.v_slice(hi)
+                pl.times do |pos|
+                  base = (offset + pos) * n_heads * hd + hi * hd
+                  hd.times do |j|
+                    k_flat[base + j] = k_mat[pos, j]
+                    v_flat[base + j] = v_mat[pos, j]
+                  end
+                end
+              end
+              next
+            end
+          end
+
+          # Fallback: reconstruct from kv_store by walking ancestor chain.
+          # Used when forward_caches is nil (e.g. non-interleaved training).
           chain = [] of Int32
           current = node_id
           while current != -1

@@ -63,12 +63,12 @@ private def build_results_by_depth(model : MicroGPT::MiniGPT) : Hash(Int32, {Mic
   corpus.each_depth_level do |depth, nodes|
     next if depth == 0
 
-    eligible = [] of MicroGPT::AGPT::TrieNode
+    eligible = [] of MicroGPT::AGPT::BatchedDepthForward::NodeProxy
     nodes.each do |node|
-      parent = node.parent.not_nil!
-      next unless node_ancestor_ids.has_key?(parent.id)
-      next if parent.depth >= model.config.seq_len
-      eligible << node
+      parent_id = corpus.parent_id(node.id)
+      next unless node_ancestor_ids.has_key?(parent_id)
+      next if corpus.depth_of(parent_id) >= model.config.seq_len
+      eligible << MicroGPT::AGPT::BatchedDepthForward::NodeProxy.new(node.id, node.token_id.not_nil!, node.depth)
     end
     next if eligible.empty?
 
@@ -77,7 +77,7 @@ private def build_results_by_depth(model : MicroGPT::MiniGPT) : Hash(Int32, {Mic
       if depth == 1
         node_root_child[node.id] = node.id
       else
-        node_root_child[node.id] = node_root_child[node.parent.not_nil!.id]
+        node_root_child[node.id] = node_root_child[corpus.parent_id(node.id)]
       end
     end
 
@@ -106,12 +106,12 @@ private def build_branching_depth_batch(model : MicroGPT::MiniGPT) : {Array(Micr
   corpus.each_depth_level do |depth, nodes|
     next if depth == 0
 
-    eligible = [] of MicroGPT::AGPT::TrieNode
+    eligible = [] of MicroGPT::AGPT::BatchedDepthForward::NodeProxy
     nodes.each do |node|
-      parent = node.parent.not_nil!
-      next unless node_ancestor_ids.has_key?(parent.id)
-      next if parent.depth >= model.config.seq_len
-      eligible << node
+      parent_id = corpus.parent_id(node.id)
+      next unless node_ancestor_ids.has_key?(parent_id)
+      next if corpus.depth_of(parent_id) >= model.config.seq_len
+      eligible << MicroGPT::AGPT::BatchedDepthForward::NodeProxy.new(node.id, node.token_id.not_nil!, node.depth)
     end
     next if eligible.empty?
 
@@ -353,7 +353,13 @@ describe "AGPT backward attention optimization" do
           grad_accums: grads_old,
           rope: block.attn.ropes[hi]
         )
-        new_dq, new_dk, new_dv = MicroGPT::AGPT::BatchedDepthBackward.optimized_attention_backward_head(
+        scratch_dw = Array(Float32).new(prefix_len, 0.0_f32)
+        scratch_ds = Array(Float32).new(prefix_len, 0.0_f32)
+        scratch_rp = Array(Float32).new(hd, 0.0_f32)
+        new_dq = Array(Float32).new(hd, 0.0_f32)
+        new_dk = Array(Float32).new(hd, 0.0_f32)
+        new_dv = Array(Float32).new(hd, 0.0_f32)
+        MicroGPT::AGPT::BatchedDepthBackward.optimized_attention_backward_head(
           position: result.position,
           ancestor_ids: result.ancestor_ids,
           layer: 0,
@@ -367,7 +373,14 @@ describe "AGPT backward attention optimization" do
           layer_cache: layer_cache,
           accum: current_new,
           grad_accums: grads_new,
-          rope: block.attn.ropes[hi]
+          rope: block.attn.ropes[hi],
+          scratch_d_weights: scratch_dw,
+          scratch_d_scores: scratch_ds,
+          scratch_rope: scratch_rp,
+          dq_all_data: new_dq,
+          dk_current_all_data: new_dk,
+          dv_current_all_data: new_dv,
+          out_offset: 0
         )
 
         max_abs_diff(old_dq, new_dq).should be <= tolerance
@@ -464,7 +477,13 @@ describe "AGPT backward attention optimization" do
           grad_accums: grads_old,
           rope: block.attn.ropes[hi]
         )
-        new_dq, new_dk, new_dv = MicroGPT::AGPT::BatchedDepthBackward.optimized_attention_backward_head(
+        scratch_dw2 = Array(Float32).new(layer_cache.len, 0.0_f32)
+        scratch_ds2 = Array(Float32).new(layer_cache.len, 0.0_f32)
+        scratch_rp2 = Array(Float32).new(hd, 0.0_f32)
+        new_dq = Array(Float32).new(hd, 0.0_f32)
+        new_dk = Array(Float32).new(hd, 0.0_f32)
+        new_dv = Array(Float32).new(hd, 0.0_f32)
+        MicroGPT::AGPT::BatchedDepthBackward.optimized_attention_backward_head(
           position: result.position,
           ancestor_ids: result.ancestor_ids,
           layer: 0,
@@ -478,7 +497,14 @@ describe "AGPT backward attention optimization" do
           layer_cache: layer_cache,
           accum: current_new,
           grad_accums: grads_new,
-          rope: block.attn.ropes[hi]
+          rope: block.attn.ropes[hi],
+          scratch_d_weights: scratch_dw2,
+          scratch_d_scores: scratch_ds2,
+          scratch_rope: scratch_rp2,
+          dq_all_data: new_dq,
+          dk_current_all_data: new_dk,
+          dv_current_all_data: new_dv,
+          out_offset: 0
         )
 
         max_abs_diff(old_dq, new_dq).should be <= tolerance

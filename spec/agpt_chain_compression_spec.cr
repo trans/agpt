@@ -91,12 +91,12 @@ private def reference_snapshot(model : MicroGPT::MiniGPT) : Hash(Int32, NodeSnap
 
   corpus.each_depth_level do |depth, nodes|
     next if depth == 0
-    eligible = [] of MicroGPT::AGPT::TrieNode
+    eligible = [] of MicroGPT::AGPT::BatchedDepthForward::NodeProxy
     nodes.each do |node|
-      parent = node.parent.not_nil!
-      next unless node_ancestor_ids.has_key?(parent.id)
-      next if parent.depth >= model.config.seq_len
-      eligible << node
+      parent_id = corpus.parent_id(node.id)
+      next unless node_ancestor_ids.has_key?(parent_id)
+      next if corpus.depth_of(parent_id) >= model.config.seq_len
+      eligible << MicroGPT::AGPT::BatchedDepthForward::NodeProxy.new(node.id, node.token_id.not_nil!, node.depth)
     end
     next if eligible.empty?
 
