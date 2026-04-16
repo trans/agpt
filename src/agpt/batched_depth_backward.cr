@@ -175,76 +175,248 @@ module MicroGPT
           end
           d_head_outs = d_head_outs.not_nil!
 
-          # --- Per-node attention backward (different KV histories) ---
+          # --- Sibling-grouped attention backward ---
+          # Mirrors cpu_grouped_attention in forward: siblings sharing a parent
+          # share the K/V prefix. Prefix-related computations are batched across
+          # C siblings per group; self-position handled per sibling.
           dq_all = Mat.new(n, d_model)
           dk_current_all = Mat.new(n, d_model)
           dv_current_all = Mat.new(n, d_model)
+          max_head_dim = head_dims.max
+          scratch_rope = Array(Float32).new(max_head_dim, 0.0_f32)
+          scratch_d_weights = Array(Float32).new(seq_len, 0.0_f32)
+          scratch_d_scores = Array(Float32).new(seq_len, 0.0_f32)
           dq_all_data = dq_all.raw_data
           dk_current_all_data = dk_current_all.raw_data
           dv_current_all_data = dv_current_all.raw_data
 
-          # Pre-allocated scratch buffers — reused across all N nodes × n_heads
-          # to avoid per-call Array allocations (was ~10M allocs/epoch).
-          max_head_dim = head_dims.max
-          scratch_d_weights = Array(Float32).new(seq_len, 0.0_f32)
-          scratch_d_scores = Array(Float32).new(seq_len, 0.0_f32)
-          scratch_rope = Array(Float32).new(max_head_dim, 0.0_f32)
-
+          # Group node indices by parent id
+          groups = Hash(Int32, Array(Int32)).new
           n.times do |i|
-            GC.collect if i > 0 && i % 2000 == 0
+            pid = corpus.parent_id(results[i].node_id)
+            (groups[pid] ||= [] of Int32) << i
+          end
 
-            result = results[i]
-            bs = result.block_states[li]
-            position = result.position
+          groups.each do |parent_id, idxs|
+            c = idxs.size
 
-            accum = grad_accums[result.node_id]? || NodeGradAccum.new(n_layers, head_dims)
-
-            # Reuse KV cache from forward pass if available (fast path),
-            # otherwise reconstruct from kv_store (slow path).
-            layer_cache = if fc = forward_caches
-              if node_caches = fc[result.node_id]?
-                node_caches[li]  # already includes this node's K/V
+            # Fast path for unary groups: use tight per-node code, no Mat allocs
+            if c == 1
+              i = idxs[0]
+              result = results[i]
+              bs = result.block_states[li]
+              accum = grad_accums[result.node_id]? || NodeGradAccum.new(n_layers, head_dims)
+              layer_cache = if fc = forward_caches
+                if node_caches = fc[result.node_id]?
+                  node_caches[li]
+                else
+                  reconstruct_node_layer_cache(result.node_id, li, kv_store, corpus, head_dims, seq_len, n_heads)
+                end
               else
                 reconstruct_node_layer_cache(result.node_id, li, kv_store, corpus, head_dims, seq_len, n_heads)
               end
-            else
-              reconstruct_node_layer_cache(result.node_id, li, kv_store, corpus, head_dims, seq_len, n_heads)
+              col_offset = 0
+              n_heads.times do |hi|
+                hd = head_dims[hi]
+                optimized_attention_backward_head(
+                  position: result.position,
+                  ancestor_ids: result.ancestor_ids,
+                  layer: li, head: hi, head_dims: head_dims, n_layers: n_layers,
+                  d_out_data: d_head_outs[hi].raw_data, d_out_base: i * hd,
+                  attn_weights: bs.attn_weights[hi], q_part: bs.q_parts[hi],
+                  layer_cache: layer_cache, accum: accum, grad_accums: grad_accums,
+                  rope: attn.ropes[hi],
+                  scratch_d_weights: scratch_d_weights, scratch_d_scores: scratch_d_scores,
+                  scratch_rope: scratch_rope,
+                  dq_all_data: dq_all_data, dk_current_all_data: dk_current_all_data,
+                  dv_current_all_data: dv_current_all_data, out_offset: i * d_model + col_offset
+                )
+                col_offset += hd
+              end
+              grad_accums.delete(result.node_id)
+              next
             end
+
+            # Grouped path for C > 1 siblings: batch prefix computations
+            # Reconstruct parent's prefix cache ONCE for this group
+            parent_layer_cache = if fc = forward_caches
+              if node_caches = fc[results[idxs[0]].node_id]?
+                # forward cache includes self K/V — truncate to get parent-only
+                lc = node_caches[li]
+                parent_lc = LayerKVCache.new(head_dims, seq_len)
+                prefix_len = lc.len - 1
+                n_heads.times do |hi|
+                  hd = head_dims[hi]
+                  prefix_len.times do |r|
+                    hd.times do |j|
+                      parent_lc.k_parts[hi][r, j] = lc.k_parts[hi][r, j]
+                      parent_lc.v_parts[hi][r, j] = lc.v_parts[hi][r, j]
+                    end
+                  end
+                end
+                parent_lc.len = prefix_len
+                parent_lc
+              else
+                kv_store.reconstruct_layer_cache(results[idxs[0]].node_id, corpus, li, head_dims, seq_len)
+              end
+            else
+              kv_store.reconstruct_layer_cache(results[idxs[0]].node_id, corpus, li, head_dims, seq_len)
+            end
+            prefix_len = parent_layer_cache.len
+
+            # All siblings share the same position (same depth)
+            position = results[idxs[0]].position
+            ancestor_ids = results[idxs[0]].ancestor_ids
 
             col_offset = 0
             n_heads.times do |hi|
               hd = head_dims[hi]
-              d_out_data = d_head_outs[hi].raw_data
-              d_out_base = i * hd
-              row_base = i * d_model + col_offset
-              optimized_attention_backward_head(
-                position: position,
-                ancestor_ids: result.ancestor_ids,
-                layer: li,
-                head: hi,
-                head_dims: head_dims,
-                n_layers: n_layers,
-                d_out_data: d_out_data,
-                d_out_base: d_out_base,
-                attn_weights: bs.attn_weights[hi],
-                q_part: bs.q_parts[hi],
-                layer_cache: layer_cache,
-                accum: accum,
-                grad_accums: grad_accums,
-                rope: attn.ropes[hi],
-                scratch_d_weights: scratch_d_weights,
-                scratch_d_scores: scratch_d_scores,
-                scratch_rope: scratch_rope,
-                dq_all_data: dq_all_data,
-                dk_current_all_data: dk_current_all_data,
-                dv_current_all_data: dv_current_all_data,
-                out_offset: row_base
-              )
+              scale = (1.0 / Math.sqrt(hd.to_f64)).to_f32
+              full_len = prefix_len + 1
+
+              # Gather per-sibling data into batched matrices
+              q_group = Mat.new(c, hd)         # [C, hd]
+              d_out_group = Mat.new(c, hd)      # [C, hd]
+              w_prefix = Mat.new(c, prefix_len) # [C, prefix_len]
+              w_self = Array(Float32).new(c, 0.0_f32)
+
+              c.times do |k|
+                row = idxs[k]
+                bs = results[row].block_states[li]
+                hd.times do |j|
+                  q_group[k, j] = bs.q_parts[hi][0, j]
+                  d_out_group[k, j] = d_head_outs[hi][row, j]
+                end
+                prefix_len.times { |p| w_prefix[k, p] = bs.attn_weights[hi][0, p] }
+                w_self[k] = bs.attn_weights[hi][0, prefix_len]
+              end
+
+              # Get per-sibling self K/V from kv_store
+              k_self_group = Mat.new(c, hd)
+              v_self_group = Mat.new(c, hd)
+              c.times do |k|
+                row = idxs[k]
+                nid = results[row].node_id
+                k_row, v_row = kv_store.entries[nid][li][hi]
+                hd.times do |j|
+                  k_self_group[k, j] = k_row[0, j]
+                  v_self_group[k, j] = v_row[0, j]
+                end
+              end
+
+              if prefix_len > 0
+                k_prefix = parent_layer_cache.k_slice(hi)  # [prefix_len, hd]
+                v_prefix = parent_layer_cache.v_slice(hi)  # [prefix_len, hd]
+
+                # Step 1: d_weights_prefix = d_out × V_prefix^T  [C, prefix_len]
+                d_weights_prefix = d_out_group * v_prefix.t
+
+                # d_weights_self[k] = d_out[k,:] · v_self[k,:]
+                d_weights_self = Array(Float32).new(c, 0.0_f32)
+                c.times do |k|
+                  sum = 0.0_f32
+                  hd.times { |j| sum += d_out_group[k, j] * v_self_group[k, j] }
+                  d_weights_self[k] = sum
+                end
+
+                # Step 2: dot[k] = w_prefix[k,:] · d_weights_prefix[k,:] + w_self[k] * d_weights_self[k]
+                dots = Array(Float64).new(c, 0.0)
+                c.times do |k|
+                  d = 0.0_f64
+                  prefix_len.times { |p| d += w_prefix[k, p] * d_weights_prefix[k, p] }
+                  d += w_self[k] * d_weights_self[k]
+                  dots[k] = d
+                end
+
+                # Step 3: d_scores_prefix[k, p] = w_prefix[k,p] * (d_weights_prefix[k,p] - dot[k]) * scale
+                d_scores_prefix = Mat.new(c, prefix_len)
+                c.times do |k|
+                  prefix_len.times do |p|
+                    d_scores_prefix[k, p] = (w_prefix[k, p] * (d_weights_prefix[k, p] - dots[k]) * scale).to_f32
+                  end
+                end
+
+                # d_scores_self[k] = w_self[k] * (d_weights_self[k] - dot[k]) * scale
+                d_scores_self = Array(Float32).new(c, 0.0_f32)
+                c.times do |k|
+                  d_scores_self[k] = (w_self[k] * (d_weights_self[k] - dots[k]) * scale).to_f32
+                end
+
+                # Step 4: dq = d_scores_prefix × K_prefix + d_scores_self * k_self
+                dq_prefix = d_scores_prefix * k_prefix  # [C, hd]
+                c.times do |k|
+                  row = idxs[k]
+                  hd.times do |j|
+                    dq_all[row, col_offset + j] = dq_prefix[k, j] + d_scores_self[k] * k_self_group[k, j]
+                  end
+                end
+
+                # Step 5: Ancestor scatter — batched across siblings
+                # dk_ancestors = d_scores_prefix^T × Q_group  [prefix_len, hd]
+                # dv_ancestors = w_prefix^T × d_out_group     [prefix_len, hd]
+                dk_ancestors = d_scores_prefix.t * q_group  # [prefix_len, hd]
+                dv_ancestors = w_prefix.t * d_out_group     # [prefix_len, hd]
+
+                prefix_len.times do |pos|
+                  anc_id = ancestor_ids[pos]
+                  acc = grad_accums[anc_id]? || begin
+                    a = NodeGradAccum.new(n_layers, head_dims)
+                    grad_accums[anc_id] = a
+                    a
+                  end
+                  acc_dk = acc.dk[li][hi].raw_data
+                  acc_dv = acc.dv[li][hi].raw_data
+                  hd.times do |j|
+                    acc_dk[j] += dk_ancestors[pos, j]
+                    acc_dv[j] += dv_ancestors[pos, j]
+                  end
+                end
+
+                # Step 6: Self-position dk/dv per sibling (includes own accum)
+                c.times do |k|
+                  row = idxs[k]
+                  nid = results[row].node_id
+                  accum = grad_accums[nid]? || NodeGradAccum.new(n_layers, head_dims)
+                  accum_dk = accum.dk[li][hi].raw_data
+                  accum_dv = accum.dv[li][hi].raw_data
+                  hd.times do |j|
+                    dk_current_all[row, col_offset + j] = d_scores_self[k] * q_group[k, j] + accum_dk[j]
+                    dv_current_all[row, col_offset + j] = w_self[k] * d_out_group[k, j] + accum_dv[j]
+                  end
+                  grad_accums.delete(nid)
+                end
+              else
+                # prefix_len == 0: root's children, self-only attention
+                c.times do |k|
+                  row = idxs[k]
+                  nid = results[row].node_id
+                  accum = grad_accums[nid]? || NodeGradAccum.new(n_layers, head_dims)
+                  accum_dk = accum.dk[li][hi].raw_data
+                  accum_dv = accum.dv[li][hi].raw_data
+                  # d_weights_self = d_out · v_self; dot = w_self * d_weights_self
+                  dw_self = 0.0_f32
+                  hd.times { |j| dw_self += d_out_group[k, j] * v_self_group[k, j] }
+                  dot = w_self[k] * dw_self
+                  ds_self = (w_self[k] * (dw_self - dot) * scale).to_f32
+                  hd.times do |j|
+                    dq_all[row, col_offset + j] = ds_self * k_self_group[k, j]
+                    dk_current_all[row, col_offset + j] = ds_self * q_group[k, j] + accum_dk[j]
+                    dv_current_all[row, col_offset + j] = w_self[k] * d_out_group[k, j] + accum_dv[j]
+                  end
+                  grad_accums.delete(nid)
+                end
+              end
+
+              # Step 7: Inverse RoPE on dq and dk_current per sibling
+              c.times do |k|
+                row = idxs[k]
+                offset = row * d_model + col_offset
+                apply_inverse_rope_slice!(dq_all.raw_data, offset, hd, attn.ropes[hi], position, scratch_rope)
+                apply_inverse_rope_slice!(dk_current_all.raw_data, offset, hd, attn.ropes[hi], position, scratch_rope)
+              end
+
               col_offset += hd
             end
-
-            # Free this node's grad accumulator
-            grad_accums.delete(result.node_id)
           end
           MicroGPT::PerfTrace.add_time("agpt.backward.layer#{li}.attention", Time.instant - attn_started.not_nil!) if attn_started
 
