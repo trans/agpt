@@ -761,6 +761,62 @@ extern "C" void cuda_adam_bulk(float* params, float* grads,
 }
 
 // =============================================================================
+// Alternative optimizers: SGD, momentum-SGD, RMSProp
+// =============================================================================
+// Motivation (AGPT-specific): Adam's per-parameter variance normalization is
+// designed to smooth noisy per-sample gradients. AGPT's gradients are already
+// pre-aggregated over many corpus events per trie node, so there's little
+// sampling noise to smooth — Adam's adaptation may be unnecessary overhead.
+// Plain SGD or SGD+momentum can converge in fewer epochs with higher lr.
+
+// Plain SGD: w -= lr * g
+__global__ void sgd_bulk_kernel(float* params, float* grads, float lr, int n) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= n) return;
+    params[idx] -= lr * grads[idx];
+}
+extern "C" void cuda_sgd_bulk(float* params, float* grads, float lr, int n) {
+    int threads = 256;
+    int blocks = (n + threads - 1) / threads;
+    sgd_bulk_kernel<<<blocks, threads>>>(params, grads, lr, n);
+}
+
+// SGD with momentum: v = beta * v + g; w -= lr * v
+__global__ void momentum_bulk_kernel(float* params, float* grads,
+                                     float* m, float lr, float beta, int n) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= n) return;
+    float g = grads[idx];
+    float v = beta * m[idx] + g;
+    m[idx] = v;
+    params[idx] -= lr * v;
+}
+extern "C" void cuda_momentum_bulk(float* params, float* grads,
+                                    float* m, float lr, float beta, int n) {
+    int threads = 256;
+    int blocks = (n + threads - 1) / threads;
+    momentum_bulk_kernel<<<blocks, threads>>>(params, grads, m, lr, beta, n);
+}
+
+// RMSProp: s = beta * s + (1 - beta) * g^2; w -= lr * g / (sqrt(s) + eps)
+// Tests "adaptive lr without momentum" — separates Adam's two mechanisms.
+__global__ void rmsprop_bulk_kernel(float* params, float* grads,
+                                    float* s, float lr, float beta, float eps, int n) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= n) return;
+    float g = grads[idx];
+    float si = beta * s[idx] + (1.0f - beta) * g * g;
+    s[idx] = si;
+    params[idx] -= lr * g / (sqrtf(si) + eps);
+}
+extern "C" void cuda_rmsprop_bulk(float* params, float* grads,
+                                   float* s, float lr, float beta, float eps, int n) {
+    int threads = 256;
+    int blocks = (n + threads - 1) / threads;
+    rmsprop_bulk_kernel<<<blocks, threads>>>(params, grads, s, lr, beta, eps, n);
+}
+
+// =============================================================================
 // Batched Variable-Length Attention (for AGPT trie-walk)
 // =============================================================================
 // Processes all nodes at a depth level in ONE kernel launch.

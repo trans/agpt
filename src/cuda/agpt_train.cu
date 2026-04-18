@@ -63,6 +63,9 @@ extern "C" {
     void cuda_adam_bulk(float* params, float* grads, float* m, float* v,
                          float lr, float beta1, float beta2, float eps,
                          int t, int n);
+    void cuda_sgd_bulk(float* params, float* grads, float lr, int n);
+    void cuda_momentum_bulk(float* params, float* grads, float* m, float lr, float beta, int n);
+    void cuda_rmsprop_bulk(float* params, float* grads, float* s, float lr, float beta, float eps, int n);
     void cuda_batched_varlen_attention(
         const float* q_packed, const float* k_packed, const float* v_packed,
         const int* kv_offsets, const int* kv_lengths,
@@ -103,6 +106,15 @@ struct Config {
 //                are trained (invariants doc: "bounded subtries up to depth d").
 // - Random [TODO]: random interior subtree sampling; requires RoPE offset.
 enum class CurriculumMode { Flat, Progressive };
+
+// Optimizer choice. AGPT's aggregated gradients are low-variance, so Adam's
+// per-parameter adaptation may be unnecessary — cheaper optimizers can match
+// or beat Adam at fewer steps with tuned lr.
+//  - Adam:     default, adaptive lr per param with momentum
+//  - SGD:      plain w -= lr * g; tests whether AGPT needs any optimizer smarts
+//  - Momentum: SGD + velocity; tests if just gradient smoothing is what helps
+//  - RMSProp:  per-param variance without momentum; isolates Adam's two mechanisms
+enum class OptimizerKind { Adam, SGD, Momentum, RMSProp };
 
 // ============================================================================
 // Weight layout: flat buffer with computed offsets
@@ -2532,8 +2544,14 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                         int epochs, float entropy_lambda, bool mass_weight,
                         int subtree_splits,
                         bool single_subtree, float intermediate_weight,
+                        OptimizerKind optimizer, float momentum_beta, float rmsprop_beta,
                         CurriculumMode curriculum, const char* save_path)
 {
+    const char* opt_name = (optimizer == OptimizerKind::Adam)     ? "adam"
+                         : (optimizer == OptimizerKind::SGD)      ? "sgd"
+                         : (optimizer == OptimizerKind::Momentum) ? "momentum"
+                         :                                          "rmsprop";
+    printf("  optimizer: %s (lr=%.4g)\n", opt_name, cfg.lr);
     if (entropy_lambda > 0.0f) {
         printf("  entropy lambda: %.3f (branching-endpoint icing enabled)\n", entropy_lambda);
     }
@@ -3470,8 +3488,26 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
             // have been accumulated into d_grads (Jacobian factorization realized
             // via additive gradient accumulation).
             adam_t++;
-            cuda_adam_bulk(d_weights, d_grads, d_adam_m, d_adam_v,
-                            cfg.lr, 0.9f, 0.999f, 1e-8f, adam_t, wo.total_floats);
+            switch (optimizer) {
+                case OptimizerKind::Adam:
+                    cuda_adam_bulk(d_weights, d_grads, d_adam_m, d_adam_v,
+                                    cfg.lr, momentum_beta, rmsprop_beta, 1e-8f,
+                                    adam_t, wo.total_floats);
+                    break;
+                case OptimizerKind::SGD:
+                    cuda_sgd_bulk(d_weights, d_grads, cfg.lr, wo.total_floats);
+                    break;
+                case OptimizerKind::Momentum:
+                    // Reuses d_adam_m as the velocity buffer.
+                    cuda_momentum_bulk(d_weights, d_grads, d_adam_m,
+                                       cfg.lr, momentum_beta, wo.total_floats);
+                    break;
+                case OptimizerKind::RMSProp:
+                    // Reuses d_adam_v as the running-square buffer.
+                    cuda_rmsprop_bulk(d_weights, d_grads, d_adam_v,
+                                      cfg.lr, rmsprop_beta, 1e-8f, wo.total_floats);
+                    break;
+            }
             subtrees_trained++;
 
             subtree_offset += split_size;
@@ -3514,6 +3550,9 @@ int main(int argc, char** argv) {
     int chunk_queries  = 0;   // 0 → default 50000 inside trainer
     bool single_subtree = false;  // treat entire trie as one subtree (1 Adam/epoch)
     float intermediate_weight = 1.0f;  // loss scale at unary-intermediate positions; 1.0 = unchanged
+    OptimizerKind optimizer = OptimizerKind::Adam;
+    float momentum_beta = 0.9f;   // used by momentum + (via β₁) adam
+    float rmsprop_beta = 0.999f;  // used by rmsprop + (via β₂) adam
     CurriculumMode curriculum = CurriculumMode::Flat;
 
     for (int i = 1; i < argc; i++) {
@@ -3528,6 +3567,16 @@ int main(int argc, char** argv) {
         else if (strcmp(argv[i], "--chunk-queries") == 0 && i + 1 < argc) chunk_queries = atoi(argv[++i]);
         else if (strcmp(argv[i], "--single-subtree") == 0) single_subtree = true;
         else if (strcmp(argv[i], "--intermediate-weight") == 0 && i + 1 < argc) intermediate_weight = atof(argv[++i]);
+        else if (strcmp(argv[i], "--optimizer") == 0 && i + 1 < argc) {
+            const char* o = argv[++i];
+            if      (strcmp(o, "adam")     == 0) optimizer = OptimizerKind::Adam;
+            else if (strcmp(o, "sgd")      == 0) optimizer = OptimizerKind::SGD;
+            else if (strcmp(o, "momentum") == 0) optimizer = OptimizerKind::Momentum;
+            else if (strcmp(o, "rmsprop")  == 0) optimizer = OptimizerKind::RMSProp;
+            else { fprintf(stderr, "Unknown optimizer '%s' (adam|sgd|momentum|rmsprop)\n", o); return 1; }
+        }
+        else if (strcmp(argv[i], "--momentum-beta") == 0 && i + 1 < argc) momentum_beta = atof(argv[++i]);
+        else if (strcmp(argv[i], "--rmsprop-beta") == 0 && i + 1 < argc) rmsprop_beta = atof(argv[++i]);
         else if (strcmp(argv[i], "--curriculum") == 0 && i + 1 < argc) {
             const char* c = argv[++i];
             if (strcmp(c, "flat") == 0) curriculum = CurriculumMode::Flat;
@@ -3551,6 +3600,11 @@ int main(int argc, char** argv) {
                         "  [--single-subtree]          — merge all root-child subtrees into one → 1 Adam/epoch\n"
                         "  [--intermediate-weight F]   — loss scale at unary-intermediate positions (default 1.0;\n"
                         "                                F<1 softens run-on predictions, unchanged at endpoints).\n"
+                        "  [--optimizer adam|sgd|momentum|rmsprop] — default adam.\n"
+                        "                                adam uses (β₁, β₂) from --momentum-beta --rmsprop-beta.\n"
+                        "                                momentum/rmsprop use their single β from the same flag.\n"
+                        "  [--momentum-beta F]         — default 0.9 (= Adam β₁ when optimizer=adam)\n"
+                        "  [--rmsprop-beta F]          — default 0.999 (= Adam β₂ when optimizer=adam)\n"
                         "  [--save <path>]\n");
         return 1;
     }
@@ -3619,9 +3673,10 @@ int main(int argc, char** argv) {
                                        int epochs, float entropy_lambda,
                                        bool mass_weight, int subtree_splits,
                                        bool single_subtree, float intermediate_weight,
+                                       OptimizerKind optimizer, float momentum_beta, float rmsprop_beta,
                                        CurriculumMode curriculum,
                                        const char* save_path);
-        return run_radix_training(cfg, wo, h_weights, radix_trie, epochs, entropy_lambda, mass_weight, subtree_splits, single_subtree, intermediate_weight, curriculum, save_path);
+        return run_radix_training(cfg, wo, h_weights, radix_trie, epochs, entropy_lambda, mass_weight, subtree_splits, single_subtree, intermediate_weight, optimizer, momentum_beta, rmsprop_beta, curriculum, save_path);
     }
 
     // Load leveled trie
