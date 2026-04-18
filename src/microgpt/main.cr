@@ -75,6 +75,11 @@ module MicroGPT
         "description": "Skip saving model after training",
         "default": false
       },
+      "gen": {
+        "type": "boolean",
+        "description": "Generate a 500-token sample after training (default: off)",
+        "default": false
+      },
       "lr": {
         "type": "number",
         "description": "Learning rate",
@@ -154,7 +159,30 @@ module MicroGPT
       },
       "agpt-save-index-dir": {
         "type": "string",
-        "description": "Save the built AGPT trie as a leveled (per-depth) index to this directory"
+        "description": "Save the built AGPT trie as a leveled (per-depth) index to this directory (default: /tmp/agpt_<file>_d<depth> when --agpt-build-index is set)"
+      },
+      "agpt-build-index": {
+        "type": "boolean",
+        "description": "Build AGPT trie index with auto-constructed path /tmp/agpt_<file_basename>_d<max_depth>",
+        "default": false
+      },
+      "agpt-build-radix": {
+        "type": "string",
+        "description": "Build a radix-compressed trie from an existing leveled trie directory (pass that dir's path)"
+      },
+      "agpt-radix-out": {
+        "type": "string",
+        "description": "Output directory for --agpt-build-radix (default: <input>_radix)"
+      },
+      "agpt-per-subtree": {
+        "type": "boolean",
+        "description": "Also emit per-root-child subtree files (manifest.bin + subtrees/radix_subtree_NNNNNN.bin) for scalable training at d≥32",
+        "default": false
+      },
+      "agpt-max-depth": {
+        "type": "integer",
+        "description": "AGPT: cap trie depth during streaming build (default: seq_len). Use smaller values to limit disk usage for full-corpus builds.",
+        "default": -1
       },
       "agpt-load-index-dir": {
         "type": "string",
@@ -282,6 +310,7 @@ module MicroGPT
       eval_file   = result["eval"]?.try(&.as_s)
       model_path  = result["model"]?.try(&.as_s)
       no_save     = result["no-save"]?.try(&.as_bool) || false
+      do_gen      = result["gen"]?.try(&.as_bool) || false
       lr          = result["lr"].as_f
       compare     = result["compare"]?.try(&.as_s)
       cooperative  = result["cooperative"]?.try(&.as_s)
@@ -305,6 +334,38 @@ module MicroGPT
       agpt_load_index = result["agpt-load-index"]?.try(&.as_s)
       agpt_save_index_dir = result["agpt-save-index-dir"]?.try(&.as_s)
       agpt_load_index_dir = result["agpt-load-index-dir"]?.try(&.as_s)
+      agpt_build_index   = result["agpt-build-index"]?.try(&.as_bool) || false
+      agpt_max_depth_raw = result["agpt-max-depth"].as_i64.to_i
+
+      # Auto-construct save path if --agpt-build-index is set without an explicit dir
+      if agpt_build_index && agpt_save_index_dir.nil?
+        input_basename = File.basename(filename, File.extname(filename))
+        effective_depth = agpt_max_depth_raw > 0 ? agpt_max_depth_raw : 128
+        agpt_save_index_dir = "/tmp/agpt_#{input_basename}_d#{effective_depth}"
+      end
+
+      # --- Standalone mode: build radix from an existing leveled trie, then exit ---
+      if radix_src = result["agpt-build-radix"]?.try(&.as_s)
+        radix_out = result["agpt-radix-out"]?.try(&.as_s)
+        if radix_out.nil?
+          src_base = File.basename(radix_src.rstrip('/'))
+          radix_out = "/tmp/#{src_base}_radix"
+        end
+        per_subtree = result["agpt-per-subtree"]?.try(&.as_bool) || false
+        puts "Building radix trie from #{radix_src} → #{radix_out}#{per_subtree ? " (with per-subtree files)" : ""}"
+        # Keep all depths cached during radix build — avoids thrashing with
+        # BFS frontier jumping across depths.
+        reader = AGPT::LeveledTrieReader.new(radix_src, max_cached: 256)
+        builder = AGPT::StreamingRadixBuilder.new(reader, radix_out, per_subtree: per_subtree)
+        result_info = builder.build
+        puts "  radix_count:        #{result_info[:radix_count]}"
+        puts "  total_edge_chars:   #{result_info[:total_edge_chars]}"
+        puts "  max_endpoint_depth: #{result_info[:max_endpoint_depth]}"
+        puts "Original leveled trie had #{reader.node_count} nodes."
+        compression = reader.node_count.to_f64 / result_info[:radix_count].to_f64
+        puts "  compression ratio:  #{compression.round(2)}×"
+        exit 0
+      end
       val_size     = result["val-tokens"].as_i64.to_i
       val_interval = result["val-interval"].as_f
       build_only = result["build-only"]?.try(&.as_bool) || false
@@ -561,11 +622,13 @@ module MicroGPT
           extra += use_calculator ? " calculator" : (use_trigram ? " trigram" : " bigram") if use_bigram
           log_result(rid_str, coop.param_count, steps, avg_loss, extra, filename)
         end
-        puts
-        puts "Final generation:"
-        seed = dataset.data[0, 16]
-        generated = coop.generate(seed, 500, temperature: 0.8)
-        puts dataset.decode(generated)
+        if do_gen
+          puts
+          puts "Final generation:"
+          seed = dataset.data[0, 16]
+          generated = coop.generate(seed, 500, temperature: 0.8)
+          puts dataset.decode(generated)
+        end
 
         # Eval mode
         if ef = eval_file
@@ -672,6 +735,7 @@ module MicroGPT
           end
         end
 
+        if do_gen
         puts
         puts "Final generation (each model):"
         seed = dataset.data[0, 16]
@@ -680,6 +744,7 @@ module MicroGPT
           puts "--- [#{s.label}] ---"
           puts dataset.decode(generated)
           puts
+        end
         end
 
         # Eval mode for compare
@@ -803,6 +868,51 @@ module MicroGPT
             puts
           rescue ex
             STDERR.puts "AGPT leveled index error: #{ex.message}"
+            exit 1
+          end
+        elsif save_dir = agpt_save_index_dir
+          # --- Streaming leveled builder path ---
+          # Builds the full-corpus leveled index depth-by-depth without holding
+          # the entire trie in RAM, then loads it for training.
+          begin
+            STDERR.puts "[agpt stream] building full-corpus leveled index → #{save_dir}"
+            stream_started_at = Time.instant
+            build_max_depth = agpt_max_depth_raw > 0 ? agpt_max_depth_raw : config.seq_len
+            builder = AGPT::StreamingLeveledBuilder.new(
+              train_tokens,
+              save_dir,
+              max_depth: build_max_depth,
+              vocab_size: dataset.vocab_size,
+              corpus_hash: corpus_hash,
+              tokenizer_tag: AGPT_TOKENIZER_TAG
+            )
+            builder.build
+            stream_elapsed = Time.instant - stream_started_at
+            STDERR.puts "[agpt stream] index saved in #{stream_elapsed.total_seconds.round(1)}s"
+
+            load_started_at = Time.instant
+            leveled_reader = AGPT::LeveledTrieReader.new(save_dir)
+            load_elapsed = Time.instant - load_started_at
+            lev_trainer = AGPT::LeveledTrieWalkTrainer.new(leveled_reader)
+            lev_trainer.entropy_lambda = agpt_entropy_lambda
+            agpt_leveled_trainer = lev_trainer
+            puts "MiniGPT ready."
+            puts "  Mode: AGPT leveled trie-walk (disk-paged BFS + KV cache)"
+            puts "  Vocab: #{dataset.vocab_size} chars"
+            puts "  Params: #{active_params}"
+            puts "  Config: d_model=#{config.d_model} n_layers=#{config.n_layers} d_ff=#{config.d_ff} seq_len=#{config.seq_len} lr=#{config.learning_rate}"
+            puts "  Backend: #{backend}"
+            puts "  Trie nodes: #{leveled_reader.node_count}"
+            puts "  Trie depths: #{leveled_reader.depth_file_count}"
+            puts "  Prefix examples: #{lev_trainer.observed_count}"
+            puts "  Trie index dir: #{save_dir}"
+            puts "  Trie build: #{stream_elapsed.total_seconds.round(1)}s"
+            puts "  Trie load: #{load_elapsed.total_milliseconds.round(1)} ms (metadata only)"
+            puts "  Model: #{save_path}"
+            puts
+          rescue ex
+            STDERR.puts "AGPT streaming builder error: #{ex.message}"
+            STDERR.puts ex.backtrace.first(5).join("\n")
             exit 1
           end
         else
@@ -1077,12 +1187,14 @@ module MicroGPT
         extra += " mode=agpt" if agpt_mode
         log_result(rid_str, active_params, steps, avg_loss, extra, filename)
       end
-      puts
-      puts "Final generation:"
-      seed = dataset.data[0, 16]
-      gen_model = future_model || la_model
-      generated = gen_model ? gen_model.generate(seed, 500, temperature: 0.8) : model.generate(seed, 500, temperature: 0.8)
-      puts dataset.decode(generated)
+      if do_gen
+        puts
+        puts "Final generation:"
+        seed = dataset.data[0, 16]
+        gen_model = future_model || la_model
+        generated = gen_model ? gen_model.generate(seed, 500, temperature: 0.8) : model.generate(seed, 500, temperature: 0.8)
+        puts dataset.decode(generated)
+      end
 
       # --- Eval mode: complete prompts from file ---
       if ef = eval_file

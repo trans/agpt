@@ -19,6 +19,10 @@ module MicroGPT
       # model:       the MiniGPT model (weight gradients accumulated in place)
       # forward_caches: if provided, reuses KV caches from the forward pass
       # instead of reconstructing from kv_store. Key = node_id → Array(LayerKVCache).
+      # TODO: when forward_caches is always present (leveled trainer), kv_store is
+      # never read — only threaded through and checked against. Make kv_store nilable
+      # (NodeKVStore?) so callers that own forward_caches don't need to allocate a
+      # no-op store at all.
       def backward_depth(
         results : Array(BatchedDepthForward::NodeResult),
         loss_grads : Array(Mat),

@@ -40,7 +40,11 @@ module MicroGPT
       end
 
       def deep_clone : LayerKVCache
-        copy = LayerKVCache.new(@head_dims, @k_parts[0].rows)
+        # Allocate to @len + 1 (room for one more extend), NOT the full pre-allocated
+        # max_len. This keeps cache Mats proportional to actual depth rather than
+        # seq_len, which is critical at large breadth (e.g. 50k nodes × 128 rows = 6 GB).
+        max_len = [@len + 1, 1].max
+        copy = LayerKVCache.new(@head_dims, max_len)
         @head_dims.size.times do |i|
           dim = @head_dims[i]
           @len.times do |row|
@@ -52,6 +56,12 @@ module MicroGPT
         end
         copy.len = @len
         copy
+      end
+
+      # Explicitly release backing Mat memory without waiting for GC.
+      def free!
+        @k_parts.each(&.free!)
+        @v_parts.each(&.free!)
       end
 
       private def slice_rows(m : Mat, n : Int32) : Mat

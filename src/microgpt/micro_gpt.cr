@@ -191,6 +191,17 @@ class Mat
     end
   end
 
+  # Explicitly release this Mat's memory immediately, without waiting for GC.
+  # Call this when you know the Mat is dead and GC won't collect it promptly
+  # (e.g. large depth-level intermediates in the AGPT leveled trainer where
+  # Boehm GC is blocked by conservative interior-pointer false positives).
+  # After free!, the Mat still exists as a Crystal object but its data is gone.
+  def free!
+    track_free
+    free_gpu
+    @data = Array(Float32).new(0)
+  end
+
   # Assign a GPU pointer from a WeightStore (no allocation, no free)
   def set_store_ptr(ptr : Pointer(Void))
     free_gpu  # release any existing independent allocation

@@ -465,7 +465,7 @@ module MicroGPT
                 nodes, n, li, head_dims, n_heads, d_model, seq_len,
                 q_parts, node_k_rows, node_v_rows,
                 kv_store, corpus, per_node_attn_weights,
-                this_depth_caches
+                this_depth_caches, parent_caches
               )
             else
               # CPU path: grouped by parent (siblings share K/V prefix)
@@ -640,7 +640,8 @@ module MicroGPT
         nodes, n, li, head_dims, n_heads, d_model, seq_len,
         q_parts, node_k_rows, node_v_rows,
         kv_store, corpus, per_node_attn_weights,
-        this_depth_caches
+        this_depth_caches,
+        parent_caches : Hash(Int32, Array(LayerKVCache))? = nil
       ) : Mat
         hd = head_dims[0]  # assumes uniform heads for GPU path
 
@@ -680,8 +681,38 @@ module MicroGPT
         n.times do |i|
           node_id = nodes[i].id
           offset = kv_offsets[i]
+          parent_id = corpus.parent_id(node_id)
 
-          # Walk ancestor chain to collect K/V per position
+          # Fast path: read ancestor K/V from parent_caches (leveled trainer).
+          # The parent's LayerKVCache already has all prefix positions packed.
+          if pc = parent_caches
+            if pcs = pc[parent_id]?
+              layer_cache = pcs[li]
+              pl = layer_cache.len
+              n_heads.times do |hi|
+                k_mat = layer_cache.k_parts[hi]
+                v_mat = layer_cache.v_parts[hi]
+                pl.times do |pos|
+                  base = (offset + pos) * n_heads * hd + hi * hd
+                  hd.times do |j|
+                    k_flat[base + j] = k_mat[pos, j]
+                    v_flat[base + j] = v_mat[pos, j]
+                  end
+                end
+              end
+              # Own K/V at position pl
+              n_heads.times do |hi|
+                base = (offset + pl) * n_heads * hd + hi * hd
+                hd.times do |j|
+                  k_flat[base + j] = node_k_rows[i][hi][0, j]
+                  v_flat[base + j] = node_v_rows[i][hi][0, j]
+                end
+              end
+              next
+            end
+          end
+
+          # Fallback: walk ancestor chain via kv_store (non-leveled trainer).
           chain = [] of Int32
           current = node_id
           while current != -1
@@ -769,11 +800,21 @@ module MicroGPT
           end
           per_node_attn_weights << head_weights
 
-          # Build a dummy layer cache for parent cache propagation
-          # (reconstruct from kv_store for the next depth's parent_caches)
-          lc = kv_store.reconstruct_layer_cache(nodes[i].id, corpus, li, head_dims, seq_len)
+          # Build this_depth_caches entry: clone parent cache and extend with own K/V.
+          # Fast path uses parent_caches (leveled trainer); fallback reconstructs from kv_store.
+          node_id = nodes[i].id
+          parent_id = corpus.parent_id(node_id)
+          lc = if pc = parent_caches
+            if pcs = pc[parent_id]?
+              pcs[li].deep_clone
+            else
+              kv_store.reconstruct_layer_cache(node_id, corpus, li, head_dims, seq_len)
+            end
+          else
+            kv_store.reconstruct_layer_cache(node_id, corpus, li, head_dims, seq_len)
+          end
           lc.extend(node_k_rows[i], node_v_rows[i])
-          this_depth_caches[nodes[i].id] << lc
+          this_depth_caches[node_id] << lc
         end
 
         # Free GPU buffers
@@ -913,16 +954,16 @@ module MicroGPT
             col_offset += hd
           end
 
-          # For each sibling, this_depth_caches[node_id] = parent_cache extended by this sibling's K/V
-          # We need a separate layer_cache per sibling for the NEXT depth level.
+          # For each sibling, this_depth_caches[node_id] = parent_cache extended by this sibling's K/V.
+          # Always deep_clone (even for unary c==1) so prev_caches and this_depth_caches are
+          # fully disjoint — this lets the leveled trainer explicitly free prev_caches after
+          # forward_depth returns without risk of use-after-free.
+          # deep_clone now allocates only @len+1 rows (not seq_len), so unary chains
+          # grow depth-proportional caches instead of fixed 128-row ones.
           c.times do |k|
             row = idxs[k]
             nid = nodes[row].id
-            sibling_cache = if c > 1
-              parent_layer_cache.deep_clone
-            else
-              parent_layer_cache  # unary — can share (future extensions are in-place)
-            end
+            sibling_cache = parent_layer_cache.deep_clone
             sibling_cache.extend(node_k_rows[row], node_v_rows[row])
             this_depth_caches[nid] << sibling_cache
           end

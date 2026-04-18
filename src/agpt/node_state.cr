@@ -23,6 +23,16 @@ module MicroGPT
         @ff_relu_out, @ff_relu_mask
       )
       end
+
+      # Explicitly release all backing Mat memory without waiting for GC.
+      def free!
+        @x_input.free!; @ln1_out.free!; @ln1_normed.free!
+        @q_parts.each(&.free!)
+        @attn_weights.each(&.free!)
+        @wo_input.free!; @x_after_attn.free!
+        @ln2_out.free!; @ln2_normed.free!
+        @ff_relu_out.free!; @ff_relu_mask.free!
+      end
     end
 
     # All intermediates for one token step through the full model.
