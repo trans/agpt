@@ -1,0 +1,10 @@
+Coverage report for depth=4
+========================================
+Total paths at this depth: 26998
+Median log_abs_err: 0.3459
+90th pctile log_abs_err: 13.7766
+
+Probability mass coverage (by exp(log_pi_mean) weight):
+  log_abs_err < 0.10: 39.0%
+  log_abs_err < 0.05: 23.1%
+  log_abs_err < 0.01: 4.1%

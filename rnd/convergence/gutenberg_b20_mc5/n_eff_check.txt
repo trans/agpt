@@ -1,0 +1,22 @@
+N_eff check: estimated vs actual corpus size
+==================================================
+Actual corpus size: ~1115394 tokens (each half ~557697)
+
+depth=4:
+  median N_eff = 242002
+  10th pctile N_eff = 2578
+  90th pctile N_eff = 127265788600
+  paths used: 80994
+
+depth=8:
+  median N_eff = 718306870
+  10th pctile N_eff = 3851922
+  90th pctile N_eff = 221559370224
+  paths used: 112442
+
+depth=16:
+  median N_eff = 441063682
+  10th pctile N_eff = 12982404
+  90th pctile N_eff = 100645715845
+  paths used: 990
+
