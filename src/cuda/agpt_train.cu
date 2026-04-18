@@ -66,6 +66,9 @@ extern "C" {
     void cuda_sgd_bulk(float* params, float* grads, float lr, int n);
     void cuda_momentum_bulk(float* params, float* grads, float* m, float lr, float beta, int n);
     void cuda_rmsprop_bulk(float* params, float* grads, float* s, float lr, float beta, float eps, int n);
+    void cuda_weight_decay(float* params, float lr, float wd, int n);
+    void cuda_grad_clip_by_norm(float* grads, float max_norm, int n,
+                                 float* partials_scratch, float* norm_scratch);
     void cuda_batched_varlen_attention(
         const float* q_packed, const float* k_packed, const float* v_packed,
         const int* kv_offsets, const int* kv_lengths,
@@ -2571,6 +2574,7 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                         bool single_subtree, float intermediate_weight,
                         OptimizerKind optimizer, float momentum_beta, float rmsprop_beta,
                         LRSchedule lr_schedule, int warmup_epochs,
+                        float weight_decay, float grad_clip_norm, int save_every,
                         CurriculumMode curriculum, const char* save_path)
 {
     const char* sched_name = (lr_schedule == LRSchedule::Constant)    ? "constant"
@@ -2578,6 +2582,15 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                            :                                             "warmup-cosine";
     if (lr_schedule != LRSchedule::Constant) {
         printf("  lr-schedule: %s (peak=%.4g, warmup_epochs=%d)\n", sched_name, cfg.lr, warmup_epochs);
+    }
+    if (weight_decay > 0.0f) {
+        printf("  weight-decay: %.4g (decoupled, AdamW-style)\n", weight_decay);
+    }
+    if (grad_clip_norm > 0.0f) {
+        printf("  grad-clip-norm: %.4g\n", grad_clip_norm);
+    }
+    if (save_every > 0 && save_path) {
+        printf("  save-every: %d epochs (checkpoints as <save_path>.epN)\n", save_every);
     }
     const char* opt_name = (optimizer == OptimizerKind::Adam)     ? "adam"
                          : (optimizer == OptimizerKind::SGD)      ? "sgd"
@@ -2648,6 +2661,16 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
     CUDA_CHECK(cudaMemset(d_adam_m, 0, wo.total_floats * sizeof(float)));
     CUDA_CHECK(cudaMemset(d_adam_v, 0, wo.total_floats * sizeof(float)));
     CUDA_CHECK(cudaMemcpy(d_weights, h_weights, wo.total_floats * sizeof(float), cudaMemcpyHostToDevice));
+
+    // Scratch for gradient clipping: one partial per block + one float for norm.
+    float* d_clip_partials = NULL;
+    float* d_clip_norm = NULL;
+    if (grad_clip_norm > 0.0f) {
+        int threads = 256;
+        int blocks = (wo.total_floats + threads - 1) / threads;
+        CUDA_CHECK(cudaMalloc(&d_clip_partials, blocks * sizeof(float)));
+        CUDA_CHECK(cudaMalloc(&d_clip_norm, sizeof(float)));
+    }
 
     // KV cache (unified memory, per character position)
     long long kv_bytes = trie.total_edge_chars * (long long)D * sizeof(float);
@@ -3540,6 +3563,13 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
             float step_lr = compute_lr(cfg.lr, adam_t - 1, total_opt_steps_estimate,
                                        warmup_steps, lr_schedule);
 
+            // Grad clipping (applies to the accumulated chunk-gradient sum for this
+            // subtree-split before the optimizer uses it).
+            if (grad_clip_norm > 0.0f) {
+                cuda_grad_clip_by_norm(d_grads, grad_clip_norm, wo.total_floats,
+                                        d_clip_partials, d_clip_norm);
+            }
+
             switch (optimizer) {
                 case OptimizerKind::Adam:
                     cuda_adam_bulk(d_weights, d_grads, d_adam_m, d_adam_v,
@@ -3558,6 +3588,11 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                                       step_lr, rmsprop_beta, 1e-8f, wo.total_floats);
                     break;
             }
+            // Decoupled weight decay (applies after optimizer step — AdamW style
+            // across all optimizers). lr is the scheduled lr so decay also decays.
+            if (weight_decay > 0.0f) {
+                cuda_weight_decay(d_weights, step_lr, weight_decay, wo.total_floats);
+            }
             subtrees_trained++;
 
             subtree_offset += split_size;
@@ -3570,6 +3605,15 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
         float mean_loss = nodes_trained > 0 ? (float)(total_loss / nodes_trained) : 0.0f;
         printf("Epoch %d: loss=%.6f  (%.2f sec, %d subtrees, %d chunks, %d nodes)\n",
                epoch + 1, mean_loss, elapsed, subtrees_trained, chunks_processed, nodes_trained);
+
+        // Intermediate checkpoint every save_every epochs. External tooling
+        // (bin/perplexity) can score these to find the best-held-out stopping point.
+        if (save_every > 0 && save_path && (epoch + 1) % save_every == 0) {
+            char ck_path[2048];
+            snprintf(ck_path, sizeof(ck_path), "%s.ep%d", save_path, epoch + 1);
+            CUDA_CHECK(cudaMemcpy(h_weights, d_weights, wo.total_floats * sizeof(float), cudaMemcpyDeviceToHost));
+            save_model_weights(ck_path, cfg, h_weights, wo);
+        }
     }
 
     // Save
@@ -3605,6 +3649,9 @@ int main(int argc, char** argv) {
     float rmsprop_beta = 0.999f;  // used by rmsprop + (via β₂) adam
     LRSchedule lr_schedule = LRSchedule::Constant;
     int warmup_epochs = 0;
+    float weight_decay = 0.0f;
+    float grad_clip_norm = 0.0f;  // 0 = disabled
+    int save_every = 0;            // 0 = don't save intermediates
     CurriculumMode curriculum = CurriculumMode::Flat;
 
     for (int i = 1; i < argc; i++) {
@@ -3637,6 +3684,9 @@ int main(int argc, char** argv) {
             else { fprintf(stderr, "Unknown lr-schedule '%s' (constant|cosine|warmup-cosine)\n", s); return 1; }
         }
         else if (strcmp(argv[i], "--warmup-epochs") == 0 && i + 1 < argc) warmup_epochs = atoi(argv[++i]);
+        else if (strcmp(argv[i], "--weight-decay") == 0 && i + 1 < argc) weight_decay = atof(argv[++i]);
+        else if (strcmp(argv[i], "--grad-clip-norm") == 0 && i + 1 < argc) grad_clip_norm = atof(argv[++i]);
+        else if (strcmp(argv[i], "--save-every") == 0 && i + 1 < argc) save_every = atoi(argv[++i]);
         else if (strcmp(argv[i], "--curriculum") == 0 && i + 1 < argc) {
             const char* c = argv[++i];
             if (strcmp(c, "flat") == 0) curriculum = CurriculumMode::Flat;
@@ -3667,6 +3717,11 @@ int main(int argc, char** argv) {
                         "  [--rmsprop-beta F]          — default 0.999 (= Adam β₂ when optimizer=adam)\n"
                         "  [--lr-schedule constant|cosine|warmup-cosine] — default constant.\n"
                         "  [--warmup-epochs N]         — warmup length for warmup-cosine (default 0).\n"
+                        "  [--weight-decay F]          — decoupled AdamW-style weight decay (default 0).\n"
+                        "  [--grad-clip-norm F]        — clip gradient L2 norm per subtree step (default 0=off).\n"
+                        "                                Needed for stable SGD/momentum training at non-tiny lr.\n"
+                        "  [--save-every N]            — checkpoint as <save>.epN every N epochs for external\n"
+                        "                                best-PPL selection.\n"
                         "  [--save <path>]\n");
         return 1;
     }
@@ -3737,9 +3792,10 @@ int main(int argc, char** argv) {
                                        bool single_subtree, float intermediate_weight,
                                        OptimizerKind optimizer, float momentum_beta, float rmsprop_beta,
                                        LRSchedule lr_schedule, int warmup_epochs,
+                                       float weight_decay, float grad_clip_norm, int save_every,
                                        CurriculumMode curriculum,
                                        const char* save_path);
-        return run_radix_training(cfg, wo, h_weights, radix_trie, epochs, entropy_lambda, mass_weight, subtree_splits, single_subtree, intermediate_weight, optimizer, momentum_beta, rmsprop_beta, lr_schedule, warmup_epochs, curriculum, save_path);
+        return run_radix_training(cfg, wo, h_weights, radix_trie, epochs, entropy_lambda, mass_weight, subtree_splits, single_subtree, intermediate_weight, optimizer, momentum_beta, rmsprop_beta, lr_schedule, warmup_epochs, weight_decay, grad_clip_norm, save_every, curriculum, save_path);
     }
 
     // Load leveled trie

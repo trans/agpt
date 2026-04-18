@@ -816,6 +816,59 @@ extern "C" void cuda_rmsprop_bulk(float* params, float* grads,
     rmsprop_bulk_kernel<<<blocks, threads>>>(params, grads, s, lr, beta, eps, n);
 }
 
+// Decoupled weight decay (AdamW-style): params -= lr * wd * params
+// Apply right after the optimizer step so it's independent of the update rule.
+__global__ void weight_decay_kernel(float* params, float wd_scaled, int n) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) params[idx] -= wd_scaled * params[idx];
+}
+extern "C" void cuda_weight_decay(float* params, float lr, float wd, int n) {
+    int threads = 256;
+    int blocks = (n + threads - 1) / threads;
+    weight_decay_kernel<<<blocks, threads>>>(params, lr * wd, n);
+}
+
+// Gradient-norm clipping: if ||g||_2 > max_norm, scale g by max_norm / ||g||_2.
+// We use a two-kernel pattern: first a sum-of-squares reduction, then a conditional
+// scale. For n ~ 100k parameters this is cheap.
+__global__ void sum_sq_kernel(const float* g, float* partial, int n) {
+    extern __shared__ float sdata[];
+    int tid = threadIdx.x;
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    float v = (idx < n) ? g[idx] : 0.0f;
+    sdata[tid] = v * v;
+    __syncthreads();
+    for (int s = blockDim.x / 2; s > 0; s >>= 1) {
+        if (tid < s) sdata[tid] += sdata[tid + s];
+        __syncthreads();
+    }
+    if (tid == 0) partial[blockIdx.x] = sdata[0];
+}
+__global__ void scale_if_needed_kernel(float* g, float max_norm, const float* norm, int n) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= n) return;
+    float nrm = norm[0];
+    if (nrm > max_norm) {
+        g[idx] *= (max_norm / nrm);
+    }
+}
+__global__ void sqrt_reduce_kernel(const float* partials, float* out, int n_partials) {
+    float acc = 0.0f;
+    for (int i = 0; i < n_partials; i++) acc += partials[i];
+    out[0] = sqrtf(acc);
+}
+
+extern "C" void cuda_grad_clip_by_norm(float* grads, float max_norm, int n,
+                                        float* partials_scratch, float* norm_scratch) {
+    // partials_scratch must have space for ceil(n / 256) floats.
+    // norm_scratch must have space for 1 float.
+    int threads = 256;
+    int blocks = (n + threads - 1) / threads;
+    sum_sq_kernel<<<blocks, threads, threads * sizeof(float)>>>(grads, partials_scratch, n);
+    sqrt_reduce_kernel<<<1, 1>>>(partials_scratch, norm_scratch, blocks);
+    scale_if_needed_kernel<<<blocks, threads>>>(grads, max_norm, norm_scratch, n);
+}
+
 // =============================================================================
 // Batched Variable-Length Attention (for AGPT trie-walk)
 // =============================================================================

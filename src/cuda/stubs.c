@@ -36,6 +36,9 @@ void cuda_adam_bulk(float* params, float* grads, float* m, float* v,
 void cuda_sgd_bulk(float* params, float* grads, float lr, int n) {}
 void cuda_momentum_bulk(float* params, float* grads, float* m, float lr, float beta, int n) {}
 void cuda_rmsprop_bulk(float* params, float* grads, float* s, float lr, float beta, float eps, int n) {}
+void cuda_weight_decay(float* params, float lr, float wd, int n) {}
+void cuda_grad_clip_by_norm(float* grads, float max_norm, int n,
+                             float* partials_scratch, float* norm_scratch) {}
 void cuda_batched_varlen_attention(
     const float* q_packed, const float* k_packed, const float* v_packed,
     const int* kv_offsets, const int* kv_lengths,
