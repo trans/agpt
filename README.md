@@ -145,8 +145,3 @@ research institutions are permitted and encouraged. Commercial use
 (including commercial products or services built on this code)
 requires a separate license — contact the author at
 `transfire@gmail.com`.
-
-Prior revisions of this repository were published under the MIT
-License; those earlier revisions remain available under MIT for the
-code as it existed at those points in the git history. The PolyForm
-Noncommercial license applies to the repository going forward.
