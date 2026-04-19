@@ -16,7 +16,7 @@ computable from a prefix trie of the corpus — one gradient per
 distinct prefix, not one per sampled window. I have implemented this
 end-to-end (CUDA trainer, radix-compressed trie, per-subtree
 KV-cache scoping, bigram partition, auto-LR scaling) and validated
-on a 4.6 MB Shakespeare corpus: **9% lower held-out perplexity at
+on a 1.1 MB Shakespeare corpus: **9% lower held-out perplexity at
 matched context with 10× fewer optimizer steps** versus a
 step-saturated window baseline. Working code, reproducible numbers,
 and a theoretical paper with the full gradient-factorization
@@ -24,7 +24,7 @@ derivation are published.
 
 ## What's demonstrated vs. what's unknown
 
-**Demonstrated** (4.6 MB corpus, 108k-param char-level model,
+**Demonstrated** (1.1 MB corpus, 108k-param char-level model,
 consumer GPU):
 
 - Gradient factorization is real and implementable — the trie

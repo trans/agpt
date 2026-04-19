@@ -20,7 +20,7 @@ of full-window training, up to minibatch noise.
 
 This turns the optimizer loop into one gradient step per branching
 subtree, with the trie's structure supplying the training schedule.
-On a 4.6 MB Shakespeare corpus with a 108k-parameter transformer
+On a 1.1 MB Shakespeare corpus with a 108k-parameter transformer
 (§11), trie-based training at depth 32 reaches held-out perplexity
 **13.17** in **195 Adam steps**, versus **14.51** in **2000 SGD steps**
 for a step-sweep-tuned window baseline at matched context (seq_len=32)
@@ -636,7 +636,7 @@ step for scaling the framework to larger corpora.
 
 ### 11.1 Setup
 
-- **Corpus**: Shakespeare `input.txt`, 4.62 MB, 65-character vocabulary.
+- **Corpus**: Shakespeare `input.txt`, 1.12 MB, 65-character vocabulary.
 - **Model**: 2-layer transformer, d_model=64, 4 heads × 16 head-dim,
   d_ff=256, seq_len=128. 108,481 parameters.
 - **Hardware**: single 8 GB consumer GPU + 15 GB system RAM + 15 GB
@@ -707,7 +707,7 @@ to hand-tune the super-epoch count.
 
 Stated without hedging:
 
-1. **Scale**. All results are on a 4.6 MB char-level corpus with a
+1. **Scale**. All results are on a 1.1 MB char-level corpus with a
    108k-parameter model. Modern LLM training is ~9 orders of magnitude
    larger. This paper's claims are that trie-based training beats window
    training *on a small corpus at matched context*; whether the advantage
@@ -811,7 +811,7 @@ chain rule. The resulting objective eliminates redundant prefix
 computation and aggregates gradient contributions at shared nodes,
 exposing a different computational structure for training.
 
-The empirical validation on a 4.6 MB corpus demonstrates that the
+The empirical validation on a 1.1 MB corpus demonstrates that the
 factorization translates to a real per-step efficiency advantage at
 matched context (9-10% lower PPL in 10-40× fewer optimizer steps).
 Per-subtree training and bigram partitioning make the approach
