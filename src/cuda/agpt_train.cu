@@ -605,6 +605,96 @@ void free_subtree(SubtreeData& s) {
     memset(&s, 0, sizeof(s));
 }
 
+// Adapter: wrap a SubtreeData in a RadixTrieData view so run_radix_training can
+// consume it unchanged. The mismatch is that the global radix format reserves
+// radix_id=0 as the virtual root (run_radix_training's root-child detection
+// scans r>=1 and checks parents[r]==0), while SubtreeData has local_id 0 as the
+// real root-child with parent=-1.
+//
+// Fix: synthesize a virtual-root entry at index 0 and shift every subtree node
+// up by one. Allocates fresh arrays for the shifted index buffers
+// (parents/edge_starts/counts_offset/ancestor_char_offsets). Borrows the data
+// arrays where contents don't need remapping (edge_tokens_flat, counts_tok,
+// counts_val, ancestor_char_ids — these hold character positions and token ids,
+// which are subtree-local and don't need shifting).
+//
+// free_radix_view frees only the arrays we allocated here.
+struct RadixView {
+    RadixTrieData t;
+    int* owned_parents;
+    int* owned_edge_starts;
+    int* owned_edge_lens;
+    int* owned_edge_first_char_depths;
+    int* owned_edge_mass;
+    int* owned_counts_offset;
+    int* owned_ancestor_char_offsets;
+};
+
+RadixView subtree_to_radix_view(const SubtreeData& s) {
+    RadixView v;
+    memset(&v, 0, sizeof(v));
+    int N = s.n_nodes + 1;  // +1 for virtual root at index 0
+
+    v.owned_parents              = (int*)calloc(N, sizeof(int));
+    v.owned_edge_starts          = (int*)calloc(N, sizeof(int));
+    v.owned_edge_lens            = (int*)calloc(N, sizeof(int));
+    v.owned_edge_first_char_depths = (int*)calloc(N, sizeof(int));
+    v.owned_edge_mass            = (int*)calloc(N, sizeof(int));
+    v.owned_counts_offset        = (int*)calloc(N + 1, sizeof(int));
+    v.owned_ancestor_char_offsets = (int*)calloc(N + 1, sizeof(int));
+
+    // Virtual root at index 0.
+    v.owned_parents[0] = 0;
+    v.owned_edge_starts[0] = 0;
+    v.owned_edge_lens[0] = 0;
+    v.owned_edge_first_char_depths[0] = 0;
+    v.owned_edge_mass[0] = 0;
+    v.owned_counts_offset[0] = 0;
+    v.owned_counts_offset[1] = 0;  // virtual root has no counts
+    v.owned_ancestor_char_offsets[0] = 0;
+    v.owned_ancestor_char_offsets[1] = 0;  // virtual root has no ancestors
+
+    for (int i = 0; i < s.n_nodes; i++) {
+        int g = i + 1;  // global index in the view
+        // Parent: -1 in subtree means "IS the root-child" → point at virtual-root 0.
+        // Any other local id p maps to p+1 in the view.
+        v.owned_parents[g] = (s.parents[i] < 0) ? 0 : (s.parents[i] + 1);
+        v.owned_edge_starts[g]           = s.edge_starts[i];
+        v.owned_edge_lens[g]             = s.edge_lens[i];
+        v.owned_edge_first_char_depths[g] = s.edge_first_char_depths[i];
+        v.owned_edge_mass[g]             = s.edge_mass[i];
+        v.owned_counts_offset[g + 1]        = s.counts_offset[i + 1];
+        v.owned_ancestor_char_offsets[g + 1] = s.ancestor_char_offsets[i + 1];
+    }
+
+    v.t.radix_count           = N;
+    v.t.depth_file_count      = s.max_endpoint_depth + 1;
+    v.t.total_edge_chars      = s.total_edge_chars;
+    v.t.parents               = v.owned_parents;
+    v.t.edge_starts           = v.owned_edge_starts;
+    v.t.edge_lens             = v.owned_edge_lens;
+    v.t.edge_first_char_depths = v.owned_edge_first_char_depths;
+    v.t.edge_mass             = v.owned_edge_mass;
+    v.t.edge_tokens_flat      = s.edge_tokens_flat;      // borrowed
+    v.t.endpoint_depth_start  = NULL;                    // unused by run_radix_training
+    v.t.endpoint_depth_count  = NULL;
+    v.t.counts_offset         = v.owned_counts_offset;
+    v.t.counts_tok            = s.counts_tok;            // borrowed
+    v.t.counts_val            = s.counts_val;            // borrowed
+    v.t.total_counts          = s.total_counts;
+    v.t.ancestor_char_offsets = v.owned_ancestor_char_offsets;
+    v.t.ancestor_char_ids     = s.ancestor_char_ids;     // borrowed
+    v.t.total_ancestor_chars  = s.total_ancestor_chars;
+    return v;
+}
+
+void free_radix_view(RadixView& v) {
+    free(v.owned_parents); free(v.owned_edge_starts); free(v.owned_edge_lens);
+    free(v.owned_edge_first_char_depths); free(v.owned_edge_mass);
+    free(v.owned_counts_offset); free(v.owned_ancestor_char_offsets);
+    memset(&v, 0, sizeof(v));
+}
+
 // --------------------------------------------------------------------
 // Radix trie loader
 // --------------------------------------------------------------------
@@ -2567,6 +2657,19 @@ __global__ void gather_endpoint_rows_kernel(
     dst[n * D + d] = src[end_q * D + d];
 }
 
+// run_radix_training optional parameters (declared here via overload-less defaults).
+// When invoked from the per-subtree wrapper, these thread optimizer state across
+// calls so RMSProp/Adam running averages don't reset per subtree, and suppress
+// the usual startup banner for a clean repeated-call log.
+struct TrainPersistence {
+    float* h_adam_m_io = nullptr;  // if non-null: load in on entry, copy out on exit
+    float* h_adam_v_io = nullptr;
+    int*   adam_t_io   = nullptr;  // read on entry as starting step, write on exit
+    bool   quiet       = false;    // suppress banner + per-epoch lines
+    int    total_opt_steps_override = 0;  // for LR schedule when the caller knows the true horizon
+    int    warmup_steps_override    = 0;  // caller-known warmup length (0 = derive from warmup_epochs)
+};
+
 int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                         float* h_weights, RadixTrieData& trie,
                         int epochs, float entropy_lambda, bool mass_weight,
@@ -2575,8 +2678,11 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                         OptimizerKind optimizer, float momentum_beta, float rmsprop_beta,
                         LRSchedule lr_schedule, int warmup_epochs,
                         float weight_decay, float grad_clip_norm, int save_every,
-                        CurriculumMode curriculum, const char* save_path)
+                        CurriculumMode curriculum, const char* save_path,
+                        TrainPersistence* persist = nullptr)
 {
+    const bool quiet = persist && persist->quiet;
+    if (!quiet) {
     const char* sched_name = (lr_schedule == LRSchedule::Constant)    ? "constant"
                            : (lr_schedule == LRSchedule::Cosine)       ? "cosine"
                            :                                             "warmup-cosine";
@@ -2613,6 +2719,7 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
         printf("  intermediate-weight: %.3f (scale loss at unary-intermediate positions)\n", intermediate_weight);
     }
     printf("  curriculum: %s\n", curriculum == CurriculumMode::Progressive ? "progressive (d=1..d=max per epoch)" : "flat (d=max each epoch)");
+    }
     int D = cfg.d_model;
     int F = cfg.d_ff;
     int V = cfg.vocab_size;
@@ -2641,7 +2748,7 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
         if (a > max_ancestor_chars) max_ancestor_chars = a;
     }
     int max_kv_per_node = max_ancestor_chars + max_edge_len;
-    printf("  max edge_len: %d, max ancestor chars: %d, max KV per node: %d, max endpoint depth: %d\n",
+    if (!quiet) printf("  max edge_len: %d, max ancestor chars: %d, max KV per node: %d, max endpoint depth: %d\n",
            max_edge_len, max_ancestor_chars, max_kv_per_node, max_endpoint_depth);
 
     // Total working buffer sizes
@@ -2658,8 +2765,16 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
     CUDA_CHECK(cudaMalloc(&d_grads,   wo.total_floats * sizeof(float)));
     CUDA_CHECK(cudaMalloc(&d_adam_m,  wo.total_floats * sizeof(float)));
     CUDA_CHECK(cudaMalloc(&d_adam_v,  wo.total_floats * sizeof(float)));
-    CUDA_CHECK(cudaMemset(d_adam_m, 0, wo.total_floats * sizeof(float)));
-    CUDA_CHECK(cudaMemset(d_adam_v, 0, wo.total_floats * sizeof(float)));
+    if (persist && persist->h_adam_m_io) {
+        CUDA_CHECK(cudaMemcpy(d_adam_m, persist->h_adam_m_io, wo.total_floats * sizeof(float), cudaMemcpyHostToDevice));
+    } else {
+        CUDA_CHECK(cudaMemset(d_adam_m, 0, wo.total_floats * sizeof(float)));
+    }
+    if (persist && persist->h_adam_v_io) {
+        CUDA_CHECK(cudaMemcpy(d_adam_v, persist->h_adam_v_io, wo.total_floats * sizeof(float), cudaMemcpyHostToDevice));
+    } else {
+        CUDA_CHECK(cudaMemset(d_adam_v, 0, wo.total_floats * sizeof(float)));
+    }
     CUDA_CHECK(cudaMemcpy(d_weights, h_weights, wo.total_floats * sizeof(float), cudaMemcpyHostToDevice));
 
     // Scratch for gradient clipping: one partial per block + one float for norm.
@@ -2693,7 +2808,7 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
         CUDA_CHECK(cudaMallocManaged(&d_kv_keys[l],   kv_bytes));
         CUDA_CHECK(cudaMallocManaged(&d_kv_values[l], kv_bytes));
     }
-    printf("  KV cache: %.1f MB unified memory\n", total_kv_bytes / 1e6);
+    if (!quiet) printf("  KV cache: %.1f MB unified memory\n", total_kv_bytes / 1e6);
 
     // RoPE cache
     float* d_rope_cos; float* d_rope_sin;
@@ -2807,10 +2922,12 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
     cublasHandle_t cublas;
     CUBLAS_CHECK(cublasCreate(&cublas));
 
-    size_t free_mem, total_mem;
-    cudaMemGetInfo(&free_mem, &total_mem);
-    printf("  GPU memory: %.1f MB used, %.1f MB free, %.1f MB total\n",
-           (total_mem - free_mem) / 1e6, free_mem / 1e6, total_mem / 1e6);
+    if (!quiet) {
+        size_t free_mem, total_mem;
+        cudaMemGetInfo(&free_mem, &total_mem);
+        printf("  GPU memory: %.1f MB used, %.1f MB free, %.1f MB total\n",
+               (total_mem - free_mem) / 1e6, free_mem / 1e6, total_mem / 1e6);
+    }
 
     // ------------------------------------------------------------
     // Build root-child subtree grouping.
@@ -2955,7 +3072,7 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
             if (subtree_sizes[i] > max_sz) max_sz = subtree_sizes[i];
             total_sz += subtree_sizes[i];
         }
-        printf("  %d root-child subtrees: sizes min=%d max=%d avg=%.1f (total=%lld radix nodes)\n",
+        if (!quiet) printf("  %d root-child subtrees: sizes min=%d max=%d avg=%.1f (total=%lld radix nodes)\n",
                n_root_children, min_sz, max_sz, (double)total_sz / n_root_children, total_sz);
     }
 
@@ -3002,7 +3119,7 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
             free(sorted); free(bucket_counts); free(cursors);
         }
         n_root_children = 1;
-        printf("  single-subtree mode: one subtree of %d radix nodes (BFS-sorted)\n", fill);
+        if (!quiet) printf("  single-subtree mode: one subtree of %d radix nodes (BFS-sorted)\n", fill);
     }
 
     // For progressive curriculum: per-subtree cumulative "how many nodes are
@@ -3031,7 +3148,7 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
         }
     }
 
-    int adam_t = 0;
+    int adam_t = (persist && persist->adam_t_io) ? *persist->adam_t_io : 0;
 
     // ------------------------------------------------------------
     // Training loop
@@ -3546,20 +3663,26 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
             // Apply LR schedule: `adam_t` counts total optimizer steps taken so
             // far (monotonically across epochs). We need total_steps to compute
             // cosine progress — estimate once at first step from structural info.
-            static int total_opt_steps_estimate = 0;
-            if (adam_t == 1) {
-                // Rough estimate: expected updates per epoch × epochs.
-                // For flat curriculum: n_root_children × subtree_splits.
-                // For progressive: same × curriculum_max_depth (actually less at shallow levels,
-                // but this upper-bounds the cosine progress so late steps effectively stay at
-                // final lr instead of overshooting past end).
+            // Compute total_opt_steps: prefer caller-supplied override (the
+            // per-subtree wrapper knows the real horizon across subtrees), else
+            // estimate from this call's structure. Rebuilt each step — cheap,
+            // and avoids the static-variable trap of stale values across calls.
+            int total_opt_steps_estimate;
+            if (persist && persist->total_opt_steps_override > 0) {
+                total_opt_steps_estimate = persist->total_opt_steps_override;
+            } else {
                 int per_epoch = n_root_children * subtree_splits;
                 if (curriculum == CurriculumMode::Progressive) per_epoch *= curriculum_max_depth;
                 total_opt_steps_estimate = per_epoch * epochs;
                 if (total_opt_steps_estimate < 1) total_opt_steps_estimate = 1;
             }
-            int warmup_steps = warmup_epochs * n_root_children * subtree_splits;
-            if (curriculum == CurriculumMode::Progressive) warmup_steps *= curriculum_max_depth;
+            int warmup_steps;
+            if (persist && persist->warmup_steps_override > 0) {
+                warmup_steps = persist->warmup_steps_override;
+            } else {
+                warmup_steps = warmup_epochs * n_root_children * subtree_splits;
+                if (curriculum == CurriculumMode::Progressive) warmup_steps *= curriculum_max_depth;
+            }
             float step_lr = compute_lr(cfg.lr, adam_t - 1, total_opt_steps_estimate,
                                        warmup_steps, lr_schedule);
 
@@ -3603,8 +3726,10 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
         clock_gettime(CLOCK_MONOTONIC, &t1);
         double elapsed = (t1.tv_sec - t0.tv_sec) + (t1.tv_nsec - t0.tv_nsec) / 1e9;
         float mean_loss = nodes_trained > 0 ? (float)(total_loss / nodes_trained) : 0.0f;
-        printf("Epoch %d: loss=%.6f  (%.2f sec, %d subtrees, %d chunks, %d nodes)\n",
-               epoch + 1, mean_loss, elapsed, subtrees_trained, chunks_processed, nodes_trained);
+        if (!quiet) {
+            printf("Epoch %d: loss=%.6f  (%.2f sec, %d subtrees, %d chunks, %d nodes)\n",
+                   epoch + 1, mean_loss, elapsed, subtrees_trained, chunks_processed, nodes_trained);
+        }
 
         // Intermediate checkpoint every save_every epochs. External tooling
         // (bin/perplexity) can score these to find the best-held-out stopping point.
@@ -3616,14 +3741,193 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
         }
     }
 
-    // Save
+    // Save weights back to host.
+    CUDA_CHECK(cudaMemcpy(h_weights, d_weights, wo.total_floats * sizeof(float), cudaMemcpyDeviceToHost));
     if (save_path) {
-        CUDA_CHECK(cudaMemcpy(h_weights, d_weights, wo.total_floats * sizeof(float), cudaMemcpyDeviceToHost));
         save_model_weights(save_path, cfg, h_weights, wo);
-        printf("Saved to %s\n", save_path);
+        if (!quiet) printf("Saved to %s\n", save_path);
+    }
+    // Save optimizer state back to caller if requested.
+    if (persist) {
+        if (persist->h_adam_m_io) CUDA_CHECK(cudaMemcpy(persist->h_adam_m_io, d_adam_m, wo.total_floats * sizeof(float), cudaMemcpyDeviceToHost));
+        if (persist->h_adam_v_io) CUDA_CHECK(cudaMemcpy(persist->h_adam_v_io, d_adam_v, wo.total_floats * sizeof(float), cudaMemcpyDeviceToHost));
+        if (persist->adam_t_io)   *persist->adam_t_io = adam_t;
+    }
+
+    // --- GPU cleanup (required so the per-subtree wrapper can call us
+    //     repeatedly without OOMing). Order mirrors allocation. ---
+    cudaFree(d_weights); cudaFree(d_grads); cudaFree(d_adam_m); cudaFree(d_adam_v);
+    if (d_clip_partials) cudaFree(d_clip_partials);
+    if (d_clip_norm)     cudaFree(d_clip_norm);
+    for (int l = 0; l < L_layers; l++) {
+        cudaFree(d_kv_keys[l]); cudaFree(d_kv_values[l]);
+    }
+    free(d_kv_keys); free(d_kv_values);
+    cudaFree(d_rope_cos); cudaFree(d_rope_sin);
+    cudaFree(d_x); cudaFree(d_x_res1); cudaFree(d_x_res2); cudaFree(d_ln_out);
+    cudaFree(d_q); cudaFree(d_k); cudaFree(d_v); cudaFree(d_attn_out);
+    cudaFree(d_ff_h); cudaFree(d_ff_mask); cudaFree(d_ff_out);
+    cudaFree(d_final_out); cudaFree(d_final_norm_save); cudaFree(d_final_std_inv_save);
+    cudaFree(d_logits); cudaFree(d_d_logits); cudaFree(d_loss); cudaFree(d_d_final_out);
+    for (int l = 0; l < L_layers; l++) {
+        cudaFree(sv_x_res1[l]); cudaFree(sv_ln1_norm[l]); cudaFree(sv_ln1_std_inv[l]); cudaFree(sv_ln1_out[l]);
+        cudaFree(sv_x_res2[l]); cudaFree(sv_ln2_norm[l]); cudaFree(sv_ln2_std_inv[l]); cudaFree(sv_ln2_out[l]);
+        cudaFree(sv_ff_h[l]); cudaFree(sv_ff_mask[l]); cudaFree(sv_attn_out[l]); cudaFree(sv_attn_weights[l]);
+    }
+    free(sv_x_res1); free(sv_ln1_norm); free(sv_ln1_std_inv); free(sv_ln1_out);
+    free(sv_x_res2); free(sv_ln2_norm); free(sv_ln2_std_inv); free(sv_ln2_out);
+    free(sv_ff_h); free(sv_ff_mask); free(sv_attn_out); free(sv_attn_weights);
+    cudaFree(d_q_pack_flat); cudaFree(d_kv_pack_k); cudaFree(d_kv_pack_v);
+    cudaFree(d_dq_pack); cudaFree(d_dk_pack); cudaFree(d_dv_pack);
+    cudaFree(d_radix_counts_offset); cudaFree(d_radix_counts_tok); cudaFree(d_radix_counts_val);
+    cudaFree(d_radix_ids); cudaFree(d_query_to_node); cudaFree(d_query_offsets);
+    cudaFree(d_kv_offsets); cudaFree(d_kv_lengths); cudaFree(d_token_ids);
+    cudaFree(d_rope_positions); cudaFree(d_char_pos);
+    if (d_mass_weights) cudaFree(d_mass_weights);
+    free(root_child_of); free(root_children);
+    for (int i = 0; i < n_root_children; i++) free(subtree_nodes[i]);
+    free(subtree_nodes); free(subtree_sizes);
+    if (depth_limit) {
+        for (int i = 0; i < n_root_children; i++) free(depth_limit[i]);
+        free(depth_limit);
     }
 
     cublasDestroy(cublas);
+    if (!quiet) printf("Done.\n");
+    return 0;
+}
+
+// ============================================================================
+// Per-subtree training path (task #43)
+// ============================================================================
+//
+// For deep tries (d=32+) the global KV cache won't fit in RAM. The per-subtree
+// radix format splits the trie into one file per root-child, each with a
+// self-contained local index space. This function loads one subtree at a
+// time, sizes the KV cache to just that subtree's character count, runs one
+// Adam/RMSProp step on it, frees the KV cache, and moves on.
+//
+// Optimizer state (Adam m/v, RMSProp s, step counter) persists in host buffers
+// across subtree calls so the running averages don't reset each subtree. Weights
+// persist via the caller's h_weights buffer which run_radix_training updates
+// in-place.
+int run_per_subtree_training(const Config& cfg, const WeightOffsets& wo,
+                              float* h_weights,
+                              const SubtreeManifest& manifest,
+                              int super_epochs, float entropy_lambda, bool mass_weight,
+                              int subtree_splits,
+                              bool single_subtree, float intermediate_weight,
+                              OptimizerKind optimizer, float momentum_beta, float rmsprop_beta,
+                              LRSchedule lr_schedule, int warmup_super_epochs,
+                              float weight_decay, float grad_clip_norm, int save_every,
+                              CurriculumMode curriculum, const char* save_path)
+{
+    printf("Per-subtree training: %d subtrees, %d super-epochs\n",
+           manifest.n_subtrees, super_epochs);
+
+    const char* opt_name = (optimizer == OptimizerKind::Adam)     ? "adam"
+                         : (optimizer == OptimizerKind::SGD)      ? "sgd"
+                         : (optimizer == OptimizerKind::Momentum) ? "momentum"
+                         :                                          "rmsprop";
+    printf("  optimizer: %s (lr=%.4g)\n", opt_name, cfg.lr);
+    const char* sched_name = (lr_schedule == LRSchedule::Constant)    ? "constant"
+                           : (lr_schedule == LRSchedule::Cosine)       ? "cosine"
+                           :                                             "warmup-cosine";
+    printf("  lr-schedule: %s (warmup %d super-epochs = %d steps)\n",
+           sched_name, warmup_super_epochs, warmup_super_epochs * manifest.n_subtrees * subtree_splits);
+    if (entropy_lambda > 0.0f) printf("  entropy lambda: %.3f\n", entropy_lambda);
+    if (mass_weight) printf("  mass weighting: enabled\n");
+    if (single_subtree) printf("  single-subtree (per file): 1 Adam step per subtree per super-epoch\n");
+
+    // Allocate optimizer-state host buffers so state persists across the many
+    // run_radix_training invocations below.
+    float* h_adam_m = (float*)calloc(wo.total_floats, sizeof(float));
+    float* h_adam_v = (float*)calloc(wo.total_floats, sizeof(float));
+    int adam_t = 0;
+
+    // Total optimizer steps across the whole training (for cosine horizon).
+    int steps_per_super_epoch = manifest.n_subtrees * subtree_splits;
+    int total_opt_steps = super_epochs * steps_per_super_epoch;
+    int warmup_steps    = warmup_super_epochs * steps_per_super_epoch;
+
+    printf("  total optimizer steps: %d (%d per super-epoch)\n",
+           total_opt_steps, steps_per_super_epoch);
+
+    // Largest subtree (by char count) paced first to surface OOM early.
+    int largest_idx = 0;
+    long long largest_chars = manifest.entries[0].total_edge_chars;
+    for (int i = 1; i < manifest.n_subtrees; i++) {
+        if (manifest.entries[i].total_edge_chars > largest_chars) {
+            largest_chars = manifest.entries[i].total_edge_chars;
+            largest_idx = i;
+        }
+    }
+    printf("  largest subtree: rc=%d, %lld chars (peak per-subtree KV ≈ %.1f MB)\n",
+           manifest.entries[largest_idx].root_child_id, largest_chars,
+           largest_chars * cfg.d_model * 4.0 * 2 * cfg.n_layers / 1e6);
+
+    for (int ep = 0; ep < super_epochs; ep++) {
+        struct timespec t0, t1;
+        clock_gettime(CLOCK_MONOTONIC, &t0);
+        double super_loss_sum = 0.0;
+        long long super_nodes_trained = 0;
+        int subtrees_done = 0;
+
+        // Visit subtrees in size-descending order on the first super-epoch
+        // (surface OOM early); simple rc-id order afterward for determinism.
+        for (int ii = 0; ii < manifest.n_subtrees; ii++) {
+            int i = ii;
+            if (ep == 0 && ii == 0) i = largest_idx;
+            else if (ep == 0 && ii == largest_idx) i = 0;
+
+            SubtreeData s = load_subtree(manifest, i);
+            RadixView view = subtree_to_radix_view(s);
+
+            TrainPersistence persist;
+            persist.h_adam_m_io = h_adam_m;
+            persist.h_adam_v_io = h_adam_v;
+            persist.adam_t_io = &adam_t;
+            persist.quiet = true;
+            persist.total_opt_steps_override = total_opt_steps;
+            persist.warmup_steps_override = warmup_steps;
+
+            // One subtree, one Adam/RMSProp step (single_subtree semantics per file).
+            // Save path is deferred to the super-epoch level below.
+            run_radix_training(cfg, wo, h_weights, view.t,
+                               /*epochs=*/1, entropy_lambda, mass_weight, subtree_splits,
+                               /*single_subtree=*/true, intermediate_weight,
+                               optimizer, momentum_beta, rmsprop_beta,
+                               lr_schedule, warmup_super_epochs,
+                               weight_decay, grad_clip_norm, /*save_every=*/0,
+                               curriculum, /*save_path=*/NULL,
+                               &persist);
+
+            super_nodes_trained += s.n_nodes;
+            subtrees_done++;
+
+            free_radix_view(view);
+            free_subtree(s);
+        }
+
+        clock_gettime(CLOCK_MONOTONIC, &t1);
+        double elapsed = (t1.tv_sec - t0.tv_sec) + (t1.tv_nsec - t0.tv_nsec) / 1e9;
+        printf("Super-epoch %d: %d subtrees, %lld radix nodes  (%.1f sec, adam_t=%d)\n",
+               ep + 1, subtrees_done, super_nodes_trained, elapsed, adam_t);
+        (void)super_loss_sum;  // loss is printed by run_radix_training when !quiet
+
+        if (save_every > 0 && save_path && (ep + 1) % save_every == 0) {
+            char ck_path[2048];
+            snprintf(ck_path, sizeof(ck_path), "%s.ep%d", save_path, ep + 1);
+            save_model_weights(ck_path, cfg, h_weights, wo);
+            printf("  checkpoint: %s\n", ck_path);
+        }
+    }
+
+    if (save_path) {
+        save_model_weights(save_path, cfg, h_weights, wo);
+        printf("Saved to %s\n", save_path);
+    }
+    free(h_adam_m); free(h_adam_v);
     printf("Done.\n");
     return 0;
 }
@@ -3738,63 +4042,31 @@ int main(int argc, char** argv) {
     // Detect trie format
     int format = detect_trie_format(trie_dir);
     if (format == 2) {
-        // Per-subtree format: load manifest, optionally verify by loading each
-        // subtree file. Full per-subtree training path is a planned next step;
-        // for now this confirms the format is readable.
         printf("Per-subtree radix format detected at %s\n", trie_dir);
         SubtreeManifest manifest = load_subtree_manifest(trie_dir);
         printf("  Manifest: %d subtree files\n", manifest.n_subtrees);
-
-        long long total_nodes = 0;
-        long long total_chars = 0;
-        int max_ep = 0;
-        long long largest_chars = 0;
-        int largest_rc = -1;
+        long long total_nodes = 0, total_chars = 0;
         for (int i = 0; i < manifest.n_subtrees; i++) {
             total_nodes += manifest.entries[i].n_nodes;
             total_chars += manifest.entries[i].total_edge_chars;
-            if (manifest.entries[i].max_endpoint_depth > max_ep) max_ep = manifest.entries[i].max_endpoint_depth;
-            if (manifest.entries[i].total_edge_chars > largest_chars) {
-                largest_chars = manifest.entries[i].total_edge_chars;
-                largest_rc = manifest.entries[i].root_child_id;
-            }
         }
-        printf("  Total: %lld radix nodes, %lld edge chars, max endpoint depth %d\n",
-               total_nodes, total_chars, max_ep);
-        printf("  Largest subtree: rc=%d, %lld chars (peak per-subtree KV ≈ %.1f MB)\n",
-               largest_rc, largest_chars,
-               largest_chars * cfg.d_model * 4.0 * 2 * cfg.n_layers / 1e6);
+        printf("  Total: %lld radix nodes, %lld edge chars\n", total_nodes, total_chars);
 
-        // Load-verify the largest subtree to confirm the file is readable.
-        int largest_idx = 0;
-        for (int i = 0; i < manifest.n_subtrees; i++) {
-            if (manifest.entries[i].root_child_id == largest_rc) { largest_idx = i; break; }
-        }
-        SubtreeData s = load_subtree(manifest, largest_idx);
-        printf("  Largest subtree loaded: %d nodes, %d chars, %d counts entries, %lld ancestor char entries\n",
-               s.n_nodes, s.total_edge_chars, s.total_counts, s.total_ancestor_chars);
-        free_subtree(s);
-
+        int rc = run_per_subtree_training(cfg, wo, h_weights, manifest,
+                                           /*super_epochs=*/epochs,
+                                           entropy_lambda, mass_weight, subtree_splits,
+                                           single_subtree, intermediate_weight,
+                                           optimizer, momentum_beta, rmsprop_beta,
+                                           lr_schedule, warmup_epochs,
+                                           weight_decay, grad_clip_norm, save_every,
+                                           curriculum, save_path);
         free(manifest.entries);
-        printf("\nPer-subtree training path not yet implemented.\n");
-        printf("For training at current scale, use the global radix format (same dir, omit --agpt-per-subtree).\n");
-        return 0;
+        return rc;
     }
     if (format == 1) {
         printf("Loading radix trie from %s...\n", trie_dir);
         RadixTrieData radix_trie = load_radix_trie(trie_dir);
 
-        // Run radix training
-        extern int run_radix_training(const Config& cfg, const WeightOffsets& wo,
-                                       float* h_weights, RadixTrieData& trie,
-                                       int epochs, float entropy_lambda,
-                                       bool mass_weight, int subtree_splits,
-                                       bool single_subtree, float intermediate_weight,
-                                       OptimizerKind optimizer, float momentum_beta, float rmsprop_beta,
-                                       LRSchedule lr_schedule, int warmup_epochs,
-                                       float weight_decay, float grad_clip_norm, int save_every,
-                                       CurriculumMode curriculum,
-                                       const char* save_path);
         return run_radix_training(cfg, wo, h_weights, radix_trie, epochs, entropy_lambda, mass_weight, subtree_splits, single_subtree, intermediate_weight, optimizer, momentum_beta, rmsprop_beta, lr_schedule, warmup_epochs, weight_decay, grad_clip_norm, save_every, curriculum, save_path);
     }
 
