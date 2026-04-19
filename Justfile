@@ -30,8 +30,8 @@ build-radix-verify:
 # For cublas, rebuild the tool with real CUDA kernels linked.
 build-perplexity:
     mkdir -p build bin
-    cc -c -O2 src/cuda/stubs.c -o build/kernels.o
-    timeout 3m crystal build src/tools/perplexity.cr -o bin/perplexity --release --link-flags="{{root}}/build/kernels.o"
+    /opt/cuda/bin/nvcc -c -O2 src/cuda/kernels.cu -o build/kernels.o
+    timeout 3m crystal build src/tools/perplexity.cr -o bin/perplexity --release --link-flags="{{root}}/build/kernels.o -lstdc++"
 
 # Build AGPT CUDA training engine (standalone GPU trainer)
 build-agpt-train:
