@@ -54,36 +54,49 @@ model, consumer GPU):
 
 ## What the grant buys
 
-A one-month cloud experiment at ~100× current scale:
+Three months of full-time research to take the method from
+char-level validated to BPE-scale tested, culminating in an arXiv
+paper and a workshop submission. Concretely:
 
-- **Corpus**: WikiText-103 (~100M tokens) with a standard BPE
-  tokenizer (GPT-2 vocab).
-- **Model**: ~10M parameters, 6-layer transformer.
-- **Hardware**: single A100-class GPU on spot pricing.
-- **Comparison**: AGPT vs. a standard window-training baseline at
-  matched model size and compute.
-- **Output**: updated paper with scale results, arXiv v2,
-  and submission to a workshop (NeurIPS ML-Sys, ICLR Tiny Papers,
-  or similar).
+**Phase 1 — BPE integration and a pilot run** (WikiText-2 scale,
+~2M tokens). Validates that the trie formulation survives the jump
+from a 65-token character vocabulary to a 50k-entry BPE vocabulary.
+Small enough to iterate quickly; big enough to surface the real
+engineering issues.
 
-Estimated compute cost: **$500-1,500** (cloud spot, ~100-300
-A100-hours).
+**Phase 2 — Mid-scale comparison** (WikiText-103 scale, ~100M
+tokens, ~10M parameters). Head-to-head against a saturated
+window-training baseline at matched model size and compute. Scaling
+to 100M BPE tokens on cloud hardware will require the per-subtree
+infrastructure + bigram/trigram partitioning + aggressive pruning;
+single-GPU may be sufficient or may need a small cluster,
+resolved during Phase 1.
+
+**Phase 3 — Writeup and ablations.** Per-component contribution
+analysis, failure cases, peer-method comparison (ByT5 or similar
+tokenizer-sensitive baseline), paper revisions.
+
+Estimated cloud compute across phases: **$500-2,500** — depending
+on whether mid-scale fits a single 80GB GPU or needs a 2-4 GPU node.
+The larger cost is time, not compute.
 
 ## Funding ask
 
-**$15,000** to cover:
+**$15,000** for three months of full-time focused research. This
+covers living expenses, cloud compute, and software/infrastructure
+costs while I execute the plan above. I am presently without other
+income; this grant would let me work on the project full-time rather
+than split attention with contract work.
 
-- Cloud compute budget ($1,500)
-- 3 months of personal runway to focus on the experiments and
-  writeup full-time ($13,500 — bare-bones; I am currently without
-  other income)
+Deliverables at three months:
 
-Deliverables in 3 months:
-
-1. Mid-scale experiment result (BPE, 100M tokens, ~10M params).
-2. Updated paper posted to arXiv.
-3. Workshop submission.
-4. Paper, trained models, and evaluation scripts released publicly;
+1. Phase 1 pilot result (BPE integration validated, negative or
+   positive reported honestly).
+2. Phase 2 mid-scale comparison result on WikiText-103.
+3. Updated paper on arXiv.
+4. Workshop submission (NeurIPS ML-Sys, ICLR Tiny Papers, or
+   similar).
+5. Paper, trained models, and evaluation scripts released publicly;
    training pipeline released under a source-available license
    suitable for academic use and reproduction.
 
