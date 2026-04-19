@@ -39,7 +39,7 @@ model, consumer GPU):
   both adaptive).
 - The method fits depth-32 training in a consumer-memory budget
   through per-subtree KV allocation, and scales to deeper depth
-  through bigram partitioning.
+  through n-gram partitioning.
 
 **Unknown** (what the grant enables validating):
 
@@ -51,6 +51,31 @@ model, consumer GPU):
   free — a possible asymmetric advantage for trie-based training.
 - Can AGPT compete with conventional window training at matched
   model size and compute on a mid-scale benchmark?
+
+## Why scaling should work (not fingers crossed)
+
+The scaling hypothesis has a principled basis, not just an empirical
+extrapolation from Shakespeare:
+
+- **Redundancy compounds with corpus size.** A larger corpus has more
+  prefix reuse; the trie's deduplication ratio grows rather than
+  shrinks. The factorization benefit (§5 of the paper) strengthens
+  at scale.
+- **Pruning becomes closer to free.** At small corpus, mass-1 paths
+  are a meaningful fraction of the gradient signal; at billion-token
+  scale, the mass-1 long tail is approximately noise. The quality
+  cost of aggressive pruning drops as the corpus grows.
+- **Radix compression works harder.** More repeated substrings =
+  more unary chains to collapse = lower asymptotic storage cost per
+  unit of branching signal.
+- **Per-subtree training is natively distributable.** Each subtree
+  is self-contained; cluster-level parallelism is a manifest split,
+  not a gradient-averaging protocol. The memory-scaling infrastructure
+  already in the codebase is the distributed-training interface.
+
+The grant validates constants, not concepts. The unknown is how far
+these asymptotic advantages extend into the BPE-vocabulary + 100M-
+token regime — not whether there is a scaling path at all.
 
 ## What the grant buys
 
