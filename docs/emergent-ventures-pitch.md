@@ -136,15 +136,24 @@ methodological advance or a small-corpus artifact.
 
 This is a good fit for EV's model of supporting independent
 researchers who've shipped something concrete but need a small,
-targeted push to answer an important open question.
+targeted push to answer an important open question — whether a
+new training primitive has a practical place in how large language
+models are built.
 
 ## What success looks like
 
-Even a negative result would be publishable, because the method is
+Even a negative result would be publishable — the method is
 concrete and the experiment cleanly identifies whether the advantage
 survives scale. The memory-scaling infrastructure (per-subtree
 allocation, bigram partitioning, and trie construction tooling) is a
 reusable contribution either way.
+
+On the upside, frontier-model pretraining costs now measure in
+tens of billions of dollars annually; even a modest per-step
+efficiency gain would compound into substantial savings at that
+scale. The grant answers the scaling question cleanly and at a
+small fraction of what a single frontier training run costs,
+whichever way the answer turns out.
 
 ## Why this is EV-shaped
 
