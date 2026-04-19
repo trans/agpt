@@ -54,7 +54,7 @@ The resulting formulation exposes a different computational structure for traini
 
 ## 2. From Sequences to Prefix Trie
 
-Let a corpus be represented as a collection of token sequences. Instead of treating each sequence independently, we construct a prefix trie \( \mathcal{T} \), where each node \( p \in \mathcal{T} \) represents a unique prefix.
+Let a corpus be represented as a collection of token sequences. Instead of treating each sequence independently, we construct a prefix trie $\mathcal{T}$, where each node \( p \in \mathcal{T} \) represents a unique prefix.
 
 For each node \( p \), define:
 
@@ -63,15 +63,15 @@ For each node \( p \), define:
 
 Model recurrence:
 
-\[
+$$
 h_{p \cdot x} = f_\theta(h_p, x)
-\]
+$$
 
 Training objective:
 
-\[
+$$
 L = -\sum_{p \in \mathcal{T}} \sum_x n(p,x)\log \pi_\theta(x \mid h_p)
-\]
+$$
 
 This objective is equivalent to standard next-token training, but expressed over **unique prefixes** rather than token positions.
 
@@ -81,15 +81,15 @@ This objective is equivalent to standard next-token training, but expressed over
 
 Define the error at node \( p \):
 
-\[
+$$
 e_{p,x} = \pi_{p,x} N_p - n_{p,x}
-\]
+$$
 
 Local gradient:
 
-\[
+$$
 g_p^{\text{local}} = \sum_x e_{p,x} W_x
-\]
+$$
 
 This represents the discrepancy between predicted and empirical next-token distributions at the node.
 
@@ -99,15 +99,15 @@ This represents the discrepancy between predicted and empirical next-token distr
 
 Gradients propagate through the trie as:
 
-\[
+$$
 G_p = g_p^{\text{local}} + \sum_x J_{p\to p\cdot x} \cdot G_{p\cdot x}
-\]
+$$
 
 where:
 
-\[
+$$
 J_{p\to p\cdot x} = \frac{\partial h_{p\cdot x}}{\partial h_p}
-\]
+$$
 
 This defines a backward pass over a **shared prefix DAG**, rather than independent sequences.
 
@@ -486,15 +486,15 @@ The trie representation exposes structural information unavailable in window-bas
 
 Each node has an empirical entropy:
 
-\[
+$$
 H(p) = -\sum_x q(x|p)\log q(x|p)
-\]
+$$
 
 Loss can be weighted:
 
-\[
+$$
 L_p^{weighted} = (1 + \lambda H(p)) \cdot L_p
-\]
+$$
 
 This emphasizes ambiguous contexts and reduces overtraining on deterministic chains.
 
