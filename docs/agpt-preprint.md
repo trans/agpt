@@ -24,10 +24,13 @@ of many redundant window-based steps.
 On a 4.6 MB Shakespeare corpus with a 108k-parameter transformer, AGPT
 trained on a radix-compressed trie at depth 32 reaches held-out PPL
 **13.17** in **195 Adam steps** (21 minutes on a single consumer GPU).
-Standard window-based training on the same model/data reaches PPL
-**17.68** in **2000 SGD steps** at matched context (seq_len=32) — a
-26% relative improvement with an order of magnitude fewer optimizer
-updates.
+Standard window-based training on the same model/data, step-sweep-tuned
+to saturation at matched context (seq_len=32), reaches PPL **14.51** in
+2000 SGD steps — a **9% improvement with 10× fewer optimizer updates.**
+Longer-context window training (seq=1024, 10k steps) reaches PPL 6.30,
+below AGPT d=32 — illustrating that the AGPT advantage holds at
+matched depth, and that extending AGPT's depth is the natural next
+experiment.
 
 The contributions are: (1) a formulation of trie training with a
 subtree-scoped Adam step as the factorization-aware training unit;
@@ -192,23 +195,41 @@ finer-grained partitions without re-tuning per config.
 ### 4.2 Comparison vs. standard window training
 
 All numbers from the same codebase; same model architecture; same
-corpus.
+corpus. For each window-training seq_len we swept step counts
+{1k, 2k, 3k, 5k, 10k} and report the saturated best; AGPT results are
+from the recipe described in §3.
 
 | Model | Context | Optimizer steps | Held-out PPL |
 |---|---:|---:|---:|
 | Random init | — | 0 | 144.2 |
-| Window seq=16 | 16 | 2,000 | 19.76 |
+| Window seq=16 (saturated) | 16 | 2,000 | 16.92 |
 | **AGPT d=16**, RMSProp+warmup-cosine | 16 | 50 | **15.28** |
-| Window seq=32 | 32 | 2,000 | 17.68 |
+| Window seq=32 (saturated) | 32 | 2,000 | 14.51 |
 | **AGPT d=32**, per-subtree, 3 super-epochs | 32 | 195 | **13.17** |
 | **AGPT d=32 bigram**, auto-LR, 1 super-epoch | 32 | 1,465 | **13.30** |
-| Window seq=128 | 128 | 2,000 | 11.64 |
+| Window seq=128 (saturated) | 128 | 10,000 | 7.00 |
+| Window seq=512 (saturated) | 512 | 10,000 | 7.13 |
+| Window seq=1024 (saturated) | 1024 | 10,000 | 6.30 |
 
-At matched context d=16, AGPT reaches PPL 15.28 in 50 Adam steps vs.
-window's 19.76 in 2000 steps (20% better PPL, 40× fewer steps). At
-d=32 the ratio widens to 26% and 10× respectively. Window training at
-seq=128 reaches lower PPL (11.64) but requires 4× the effective context
-and substantially more wall-clock time.
+**At matched context, AGPT wins by ~10%.** At d=16: 15.28 vs 16.92 (10%
+lower PPL) in 50 Adam steps vs. 2000 SGD steps (40× fewer). At d=32:
+13.17 vs 14.51 (9% lower PPL) in 195 Adam steps vs. 2000 (10× fewer).
+
+**At longer context, window training wins.** The 108k-parameter window
+model absorbs substantially more context: seq=128 reaches PPL 7.00 and
+seq=1024 reaches 6.30 — well below AGPT d=32's 13.17. This is the
+natural boundary: AGPT's advantage is per-step gradient efficiency at
+matched depth, but depth costs memory in a way that context-length for
+window training does not. Scaling AGPT to d≥128 is the natural next
+experiment; the per-subtree + bigram + pruning infrastructure in §3
+was built for exactly this.
+
+An earlier version of this preprint reported a larger AGPT win (20-26%
+at matched context) based on undersaturated 2k-step window baselines
+that we now report as having overfit the short-context configurations.
+The step-count sweep above shows seq=16/32 peak at 2k steps (longer
+training degrades PPL — short context memorizes), while seq=128+ needs
+10k steps to saturate.
 
 ### 4.3 Super-epoch sensitivity (d=32 unigram)
 
