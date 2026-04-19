@@ -3811,7 +3811,7 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
 // across subtree calls so the running averages don't reset each subtree. Weights
 // persist via the caller's h_weights buffer which run_radix_training updates
 // in-place.
-int run_per_subtree_training(const Config& cfg, const WeightOffsets& wo,
+int run_per_subtree_training(const Config& cfg_in, const WeightOffsets& wo,
                               float* h_weights,
                               const SubtreeManifest& manifest,
                               int super_epochs, float entropy_lambda, bool mass_weight,
@@ -3820,10 +3820,30 @@ int run_per_subtree_training(const Config& cfg, const WeightOffsets& wo,
                               OptimizerKind optimizer, float momentum_beta, float rmsprop_beta,
                               LRSchedule lr_schedule, int warmup_super_epochs,
                               float weight_decay, float grad_clip_norm, int save_every,
-                              CurriculumMode curriculum, const char* save_path)
+                              CurriculumMode curriculum, const char* save_path,
+                              bool lr_scale_by_steps = false)
 {
-    printf("Per-subtree training: %d subtrees, %d super-epochs\n",
-           manifest.n_subtrees, super_epochs);
+    // Auto-LR scaling: the optimal LR depends on total gradient-movement per pass
+    // (lr × steps_per_super_epoch ≈ constant for a fixed depth). The winning d=16
+    // unigram recipe was calibrated at 65 steps/super-epoch, lr=3e-3. When the
+    // user changes subtree granularity (bigram: 1465 steps, trigram later) we
+    // rescale lr so the same base_lr knob keeps working. Reference step count is
+    // hardcoded at 65 because that's what the shipped recipe in memory was
+    // calibrated against — don't change without a fresh calibration.
+    Config cfg = cfg_in;
+    const int LR_SCALE_REFERENCE_STEPS = 65;
+    int steps_per_super_epoch = manifest.n_subtrees * subtree_splits;
+    if (lr_scale_by_steps && steps_per_super_epoch > 0) {
+        float scale = (float)LR_SCALE_REFERENCE_STEPS / (float)steps_per_super_epoch;
+        float scaled_lr = cfg_in.lr * scale;
+        printf("Per-subtree training: %d subtrees, %d super-epochs (lr auto-scaled %.4g → %.4g × %d/%d)\n",
+               manifest.n_subtrees, super_epochs, cfg_in.lr, scaled_lr,
+               LR_SCALE_REFERENCE_STEPS, steps_per_super_epoch);
+        cfg.lr = scaled_lr;
+    } else {
+        printf("Per-subtree training: %d subtrees, %d super-epochs\n",
+               manifest.n_subtrees, super_epochs);
+    }
 
     const char* opt_name = (optimizer == OptimizerKind::Adam)     ? "adam"
                          : (optimizer == OptimizerKind::SGD)      ? "sgd"
@@ -3846,7 +3866,6 @@ int run_per_subtree_training(const Config& cfg, const WeightOffsets& wo,
     int adam_t = 0;
 
     // Total optimizer steps across the whole training (for cosine horizon).
-    int steps_per_super_epoch = manifest.n_subtrees * subtree_splits;
     int total_opt_steps = super_epochs * steps_per_super_epoch;
     int warmup_steps    = warmup_super_epochs * steps_per_super_epoch;
 
@@ -3957,6 +3976,9 @@ int main(int argc, char** argv) {
     float grad_clip_norm = 0.0f;  // 0 = disabled
     int save_every = 0;            // 0 = don't save intermediates
     CurriculumMode curriculum = CurriculumMode::Flat;
+    bool lr_scale_by_steps = false;  // per-subtree: auto-rescale lr to keep the same
+                                      // effective "gradient budget per pass" as the
+                                      // unigram-d=16 reference recipe (65 steps/pass).
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--model") == 0 && i + 1 < argc) model_path = argv[++i];
@@ -3969,6 +3991,7 @@ int main(int argc, char** argv) {
         else if (strcmp(argv[i], "--subtree-splits") == 0 && i + 1 < argc) subtree_splits = atoi(argv[++i]);
         else if (strcmp(argv[i], "--chunk-queries") == 0 && i + 1 < argc) chunk_queries = atoi(argv[++i]);
         else if (strcmp(argv[i], "--single-subtree") == 0) single_subtree = true;
+        else if (strcmp(argv[i], "--lr-scale-by-steps") == 0) lr_scale_by_steps = true;
         else if (strcmp(argv[i], "--intermediate-weight") == 0 && i + 1 < argc) intermediate_weight = atof(argv[++i]);
         else if (strcmp(argv[i], "--optimizer") == 0 && i + 1 < argc) {
             const char* o = argv[++i];
@@ -4059,7 +4082,8 @@ int main(int argc, char** argv) {
                                            optimizer, momentum_beta, rmsprop_beta,
                                            lr_schedule, warmup_epochs,
                                            weight_decay, grad_clip_norm, save_every,
-                                           curriculum, save_path);
+                                           curriculum, save_path,
+                                           lr_scale_by_steps);
         free(manifest.entries);
         return rc;
     }
