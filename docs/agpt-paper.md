@@ -131,9 +131,9 @@ Let:
 
 Define the **prefix Jacobian**:
 
-\[
+$$
 J_p := \prod_{k \in \text{prefix}(p)} \frac{\partial h_{k+1}}{\partial h_k}
-\]
+$$
 
 This represents the total derivative mapping from the root state \( h_\epsilon \) to the state \( h_p \), or more generally from any ancestor to \( h_p \) depending on context.
 
@@ -143,14 +143,14 @@ This represents the total derivative mapping from the root state \( h_\epsilon \
 
 In the standard (sequence-based) formulation, the total gradient at prefix \( p \) is expressed as a sum over all suffix paths:
 
-\[
+$$
 \frac{\partial L}{\partial h_p}
 =
 \sum_{s \in \text{subtree}(p)}
 \left(
 J_p \cdot g_s
 \right)
-\]
+$$
 
 Here, each suffix path contributes independently, and the shared prefix Jacobian \( J_p \) is applied repeatedly.
 
@@ -160,19 +160,19 @@ Here, each suffix path contributes independently, and the shared prefix Jacobian
 
 In the trie formulation, suffix contributions are first aggregated:
 
-\[
+$$
 G_{\text{suffix}}(p)
 :=
 \sum_{s \in \text{subtree}(p)} g_s
-\]
+$$
 
 The total gradient is then:
 
-\[
+$$
 \frac{\partial L}{\partial h_p}
 =
 J_p \cdot G_{\text{suffix}}(p)
-\]
+$$
 
 ---
 
@@ -180,13 +180,13 @@ J_p \cdot G_{\text{suffix}}(p)
 
 Combining the above expressions yields the fundamental identity:
 
-\[
+$$
 \boxed{
 J_p \cdot \left(\sum_{s} g_s\right)
 =
 \sum_{s} \left(J_p \cdot g_s\right)
 }
-\]
+$$
 
 This follows from linearity of multiplication over summation, but its implications are structural in the context of gradient computation.
 
@@ -216,17 +216,17 @@ The identity implies that gradient computation can be reorganized as:
 
 This yields the recursive form:
 
-\[
+$$
 \frac{\partial L}{\partial h_p}
 =
 J_p \cdot \left(\sum_{s \in \text{subtree}(p)} g_s\right)
-\]
+$$
 
 which replaces:
 
-\[
+$$
 \sum_{s} \left(J_p \cdot g_s\right)
-\]
+$$
 
 ---
 
@@ -305,9 +305,9 @@ Then:
 
 In realistic corpora:
 
-\[
+$$
 P \ll T
-\]
+$$
 
 due to repeated prefixes across sequences.
 
@@ -319,11 +319,11 @@ Thus, the trie formulation reduces the number of distinct forward and backward c
 
 From Section 5, the gradient at a prefix node can be written as:
 
-\[
+$$
 \frac{\partial L}{\partial h_p}
 =
 J_p \cdot \left(\sum_{s \in \text{subtree}(p)} g_s\right)
-\]
+$$
 
 Rather than applying the prefix Jacobian \( J_p \) separately for each suffix path, the trie formulation aggregates suffix gradients first.
 
