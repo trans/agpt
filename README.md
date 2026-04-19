@@ -141,7 +141,14 @@ This repository is released under the [PolyForm Noncommercial License
 see [`LICENSE`](LICENSE).
 
 Academic research, personal study, and use by educational or
-research institutions are permitted and encouraged. Commercial use
-(including commercial products or services built on this code)
-requires a separate license — contact the author at
-`transfire@gmail.com`.
+research institutions are permitted and encouraged.
+
+### Commercial licensing available
+
+If you want to use this code in a commercial product, service, or
+for-profit internal workflow, a separate commercial license is
+required. Terms are flexible and sized to the deployment —
+startup-friendly arrangements are welcome.
+
+See [`COMMERCIAL_LICENSE.md`](COMMERCIAL_LICENSE.md) for details, or
+contact **`transfire@gmail.com`** directly.
