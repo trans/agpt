@@ -184,6 +184,16 @@ module MicroGPT
         "description": "When --agpt-per-subtree is set, depth of the subtree-key prefix: 1 = unigram (up to 65 subtrees, default), 2 = bigram (up to 65² subtrees, attacks dominant-root-child problem for d≥48)",
         "default": 1
       },
+      "agpt-prune-min-mass": {
+        "type": "integer",
+        "description": "Drop radix edges whose head-of-edge prefix count is below this threshold. Path mass=1 (appears once in corpus) contributes ~0 gradient under count-weighted loss but costs memory proportional to its depth. At d=128+ the vast majority of paths are mass=1. Applies only past --agpt-prune-min-depth. Default 1 (keep everything).",
+        "default": 1
+      },
+      "agpt-prune-min-depth": {
+        "type": "integer",
+        "description": "Never prune at depths shallower than this — preserves vocabulary / short-prefix coverage. Default 4.",
+        "default": 4
+      },
       "agpt-max-depth": {
         "type": "integer",
         "description": "AGPT: cap trie depth during streaming build (default: seq_len). Use smaller values to limit disk usage for full-corpus builds.",
@@ -366,7 +376,14 @@ module MicroGPT
         # Keep all depths cached during radix build — avoids thrashing with
         # BFS frontier jumping across depths.
         reader = AGPT::LeveledTrieReader.new(radix_src, max_cached: 256)
-        builder = AGPT::StreamingRadixBuilder.new(reader, radix_out, per_subtree: per_subtree, subtree_level: subtree_level)
+        prune_min_mass = result["agpt-prune-min-mass"]?.try(&.as_i) || 1
+        prune_min_depth = result["agpt-prune-min-depth"]?.try(&.as_i) || 4
+        if prune_min_mass > 1
+          puts "  Pruning: drop paths with mass < #{prune_min_mass} past depth #{prune_min_depth}"
+        end
+        builder = AGPT::StreamingRadixBuilder.new(reader, radix_out,
+          per_subtree: per_subtree, subtree_level: subtree_level,
+          prune_min_mass: prune_min_mass, prune_min_depth: prune_min_depth)
         result_info = builder.build
         puts "  radix_count:        #{result_info[:radix_count]}"
         puts "  total_edge_chars:   #{result_info[:total_edge_chars]}"

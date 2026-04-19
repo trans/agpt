@@ -54,12 +54,23 @@ module MicroGPT
       # loss is partial. If quality regresses vs unigram at matched compute, the
       # fix is to duplicate the root-child as a context-only node (entry_count=0)
       # in each of its bigram subtree files so the ancestor chain resolves locally.
+      # prune_min_mass: drop radix edges whose head-of-edge prefix count is below
+      # this threshold. Mass=1 paths (paths that appear exactly once in the corpus)
+      # contribute essentially zero gradient signal in count-weighted loss, but
+      # consume KV-cache memory proportionally to their char positions. Pruning
+      # these is nearly free in loss quality and dramatic for memory at deep d
+      # — at d=128 typically 90%+ of paths have mass=1. Default 1 (keep everything).
+      #
+      # prune_min_depth: never prune at depths shallower than this (preserve
+      # vocabulary coverage). Default 4.
       def initialize(
         @reader : LeveledTrieReader,
         @out_dir : String,
         @progress : Bool = true,
         @per_subtree : Bool = false,
-        @subtree_level : Int32 = 1
+        @subtree_level : Int32 = 1,
+        @prune_min_mass : Int32 = 1,
+        @prune_min_depth : Int32 = 4
       )
       end
 
@@ -132,6 +143,25 @@ module MicroGPT
             endpoint_counts = @reader.counts_of(current.id)
             if endpoint_counts.empty?
               # End-of-corpus leaf: drop entirely (no training signal, no descendants).
+              next
+            end
+
+            # Frequency pruning.
+            #
+            # Intuition for what this actually prunes: in the trie's interior,
+            # mass=1 paths are always unary-all-the-way (integer counts summing
+            # to 1 allow only size=0 or size=1 continuations), so radix already
+            # absorbs them and they drop at EOF. The mass=1 emissions we see
+            # past this point come from the *max-depth boundary* of the leveled
+            # trie — depth-D nodes whose counts point to a depth-(D+1) successor
+            # that was never stored because we capped the trie.
+            #
+            # Dropping those boundary tails past prune_min_depth saves KV memory
+            # dramatically at deep d (at Shakespeare d=32, ~23× reduction) in
+            # exchange for real PPL cost on small corpora (~3 at d=32). The
+            # trade flips at scale: on a 1B-token corpus the long tail of
+            # mass=1 paths is essentially noise, and pruning them is near-free.
+            if edge_mass < @prune_min_mass && start_char_depth >= @prune_min_depth
               next
             end
 
