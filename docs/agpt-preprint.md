@@ -1,7 +1,7 @@
 # AGPT: Branching-Aware Training for Character-Level Language Models
 
 **Author:** Thomas Sawyer &nbsp; `transfire@gmail.com`
-**Status:** Technical preprint, v1 &nbsp; · &nbsp; **Date:** 2026-04-19
+**Status:** Technical preprint, v1.2 &nbsp; · &nbsp; **Date:** 2026-04-19
 **Code:** https://github.com/trans/microgpt
 
 ---
@@ -22,15 +22,20 @@ schedule, and a single Adam step per root-child subtree takes the place
 of many redundant window-based steps.
 
 On a 4.6 MB Shakespeare corpus with a 108k-parameter transformer, AGPT
-trained on a radix-compressed trie at depth 32 reaches held-out PPL
-**13.17** in **195 Adam steps** (21 minutes on a single consumer GPU).
-Standard window-based training on the same model/data, step-sweep-tuned
-to saturation at matched context (seq_len=32), reaches PPL **14.51** in
-2000 SGD steps — a **9% improvement with 10× fewer optimizer updates.**
-Longer-context window training (seq=1024, 10k steps) reaches PPL 6.30,
-below AGPT d=32 — illustrating that the AGPT advantage holds at
-matched depth, and that extending AGPT's depth is the natural next
-experiment.
+trained on a radix-compressed trie at depth 32 reaches held-out
+perplexity **13.17** in **195 Adam steps**. Standard window-based
+training on the same model/data, step-sweep-tuned to saturation at
+matched context (seq_len=32), reaches PPL **14.51** in 2000 SGD steps —
+a **9% lower PPL with 10× fewer optimizer updates** at matched depth.
+
+The advantage is specifically per-step gradient efficiency at matched
+depth. At longer context, standard window training reaches lower PPL
+than AGPT d=32 (seq=1024, 10k steps: PPL 6.30) — because the 108k-param
+model benefits substantially from more context, and extending AGPT's
+depth costs memory in a way that extending window context does not.
+The infrastructure to push AGPT past d=32 (per-subtree training +
+bigram partitioning + count-based pruning) is the main engineering
+contribution of this work.
 
 The contributions are: (1) a formulation of trie training with a
 subtree-scoped Adam step as the factorization-aware training unit;
@@ -44,24 +49,34 @@ referenced code.
 ## 1. Motivation
 
 Consider a character-level corpus of N tokens. Window training with
-sequence length L produces up to N − L training examples; many of these
-share long prefix substrings. For a next-token objective at position i,
-the optimizer sees:
+sequence length L samples many windows that share long prefix substrings.
+For each sampled window, the optimizer computes a gradient at the
+next-token position and averages it with the rest of the batch.
 
-- The same `(prefix → next)` event many times (once per window it
-  occurs in)
-- Different prefix contexts in different windows
+For a fixed prefix `p` that occurs `k` times in the corpus, the
+expected gradient contribution over a full epoch of uniformly-sampled
+windows is `k / N` times the per-occurrence gradient — linear in corpus
+frequency. The optimizer is effectively being asked to reconstruct a
+count-weighted sum by stochastic sampling.
 
-In the limit of a small corpus or deep shared structure, the net
-gradient at a given prefix is a weighted sum of the contributions from
-every window that contains it. Rather than ask the optimizer to
-reconstruct that sum through sampling, AGPT computes it explicitly:
-*one* gradient per unique prefix, weighted by frequency.
+**The trie makes that sum explicit.** Every unique prefix is a single
+node; the count of next-tokens at that node is exactly `k`. Computing
+the gradient *once* at that node, weighted by `k`, produces the same
+expected contribution as sampling all `k` windows — but without the
+sampling variance, and with one forward/backward pass instead of `k`.
 
-This is the same principle behind *natural-gradient* and
-*Fisher-information* methods — exploit known structure in the data
-rather than sampling around it. The trie is that structure made
-explicit at the character level.
+For a corpus with heavy long-range redundancy (Shakespeare has many
+repeated stock phrases; BPE-tokenized web text has many repeated
+common sequences; code corpora have repeated boilerplate) the
+compute-and-variance savings compound. AGPT computes the gradient at
+each unique prefix-continuation pair once, then lets the optimizer take
+one step against the count-weighted sum over all pairs in a related
+subtree.
+
+This is adjacent in spirit to *importance-weighted* and
+*deduplication-aware* training — rather than letting the optimizer
+rediscover the corpus's redundancy statistically, give it the
+redundancy-free structure directly.
 
 ## 2. The AGPT training unit
 
@@ -104,19 +119,30 @@ subtree is itself plus all descendants. Each subtree is trained in
 isolation:
 
 1. Forward pass: compute Q/K/V, RoPE-position, attention, FFN, and
-   next-token logits at every endpoint in the subtree.
+   next-token logits at every branching endpoint in the subtree.
 2. Loss: cross-entropy weighted by endpoint count (i.e., prefix
    frequency in the corpus).
 3. Backward pass: accumulate gradients across all chunks of the
-   subtree, with the model parameters held fixed through the whole
-   subtree.
-4. **One Adam/RMSProp step** per subtree.
+   subtree. Model parameters stay fixed throughout.
+4. **One Adam/RMSProp step** per subtree — applied *after* all
+   gradients have been accumulated.
 
-Holding parameters fixed through the forward-backward of the full
-subtree is not an optimization detail — it is the factorization that
-makes the one-shot gradient equal to the sum over all windows that
-share this prefix. Firing the optimizer mid-subtree re-introduces the
-staleness it was built to eliminate.
+The subtree-scoped step is not an engineering convenience — it is what
+makes the factorization valid. Within the subtree, every endpoint's
+gradient is computed against the *same* weight snapshot. Accumulating
+them and taking one step produces the count-weighted gradient for the
+whole subtree, which is the gradient that a standard-training full-data
+pass would have accumulated (up to minibatch noise).
+
+If the optimizer fires partway through the subtree (e.g., between
+chunks), later endpoints in the same subtree see *different* weights
+than earlier ones — the K/V cache used for attention at depth `d` was
+computed with an older weight snapshot than the query at depth `d+1`.
+This is the "K/V staleness" problem: the subtree is no longer
+factorable into one gradient; it's a mid-optimization inconsistency.
+Prior iterations of this codebase tried finer-grained updates and
+measured convergence degradation; the one-step-per-subtree rule is
+what the paper-bracketed recipe restored.
 
 ## 3. Memory scaling
 
@@ -224,12 +250,14 @@ window training does not. Scaling AGPT to d≥128 is the natural next
 experiment; the per-subtree + bigram + pruning infrastructure in §3
 was built for exactly this.
 
-An earlier version of this preprint reported a larger AGPT win (20-26%
-at matched context) based on undersaturated 2k-step window baselines
-that we now report as having overfit the short-context configurations.
-The step-count sweep above shows seq=16/32 peak at 2k steps (longer
-training degrades PPL — short context memorizes), while seq=128+ needs
-10k steps to saturate.
+The step-count sweep shows seq=16 and seq=32 peak at 2k steps and
+degrade with more training — short-context models memorize specific
+windows rather than learn the distribution — while seq=128+ need 10k
+steps to saturate. The numbers in this section are post-fix
+measurements taken after resolving a backend-save bug in the Crystal-
+side window trainer that had been silently masking whether gradients
+reached the checkpoint at all. See the repository's
+`docs/known-bugs-cublas-training.md` for the history.
 
 ### 4.3 Super-epoch sensitivity (d=32 unigram)
 
@@ -301,14 +329,30 @@ Honestly stated:
 4. **Generation quality**. This paper reports PPL only; subjective
    quality of generated text has not been systematically compared.
 
-5. **Window baseline saturation**. The window baseline ran for 2,000
-   steps. A fully saturated window baseline at matched compute would be
-   a stronger comparison. The AGPT advantage is likely larger on
-   compute-matched ground than on step-matched ground, but this is
-   worth confirming.
+5. **Compute-matched comparison**. Our baseline is step-saturated at
+   each context length. AGPT uses ~10× fewer optimizer steps but each
+   step does more forward/backward work (it covers an entire
+   subtree). A wall-clock compute-matched comparison would quantify
+   how much of the per-step advantage translates to real training-
+   time savings. On the same 108k-param model and 8 GB GPU, the
+   observed wall-clock times are: AGPT d=32 at best-PPL = 21 minutes;
+   window seq=32 2k steps at best-PPL ≈ 45 seconds. AGPT spent more
+   compute per-PPL-unit here, which tilts the honest framing away
+   from "faster" toward "different operating point."
 
 6. **Peer comparison**. No head-to-head with tokenizer-free neighbors
-   (ByT5, MambaByte, etc.) has been run.
+   (ByT5, MambaByte, etc.) has been run. These are the natural peer
+   group for a char-level method; a proper comparison requires running
+   them on the same corpus at the same model scale.
+
+7. **Data-structure scaling**. The radix trie is a straightforward
+   representation but not the most compact. For billion-token BPE
+   corpora, a suffix array + LCP would give O(N) storage (8 bytes per
+   token instead of ~20-40 bytes per radix record) and enable
+   streaming enumeration of branching events without materializing
+   the trie. Moving to an SA-based builder is a clear next engineering
+   step for scale experiments; the radix trie in this paper served its
+   role as a reference implementation for validating the core idea.
 
 The natural next validation is **WikiText-103 scale with a real BPE
 tokenizer on a cluster-grade GPU** — approximately 2 orders of magnitude
@@ -317,26 +361,40 @@ larger than the experiment here, achievable on a single A100 for
 advantage holds at BPE vocab sizes and 100M-token corpora, which
 would be the meaningful first step toward frontier scale.
 
-## 7. Priority claim
+## 7. Summary of contributions
 
-The specific contributions of this work, for priority purposes:
+1. **Subtree-scoped Adam-step invariant.** Treating a root-child
+   subtree as a single training unit (forward-backward-step) makes
+   the one-shot gradient equal to the count-weighted sum of all
+   corpus events with that prefix, without mid-subtree K/V
+   staleness.
 
-1. The subtree-scoped Adam-step invariant as the factorization-aware
-   training unit for trie-structured language model training.
-2. The radix-compressed, per-subtree-file format for memory-scalable
-   trie training.
-3. The bigram (and by extension n-gram) subtree partition for
-   unlocking deeper d at fixed memory budget.
-4. The `lr × steps_per_super_epoch = constant` scaling heuristic
-   enabling a single base-LR hyperparameter across subtree
-   granularities.
-5. Frequency-pruned trie construction past a depth threshold, with
-   the observed tradeoff profile.
+2. **Radix-compressed, per-subtree-file trie format.** Collapses
+   unary chains and scopes KV-cache allocation to one subtree at a
+   time, making depth-32 training fit in a 15 GB consumer RAM
+   budget.
 
-First public disclosure of these mechanisms is the referenced
-repository's git history.
+3. **Bigram subtree partition.** Splits each root-child by the
+   second character of the path, attacking the dominant-root-child
+   memory ceiling (the space character's subtree in English).
+   6× further peak-memory reduction at Shakespeare d=32.
+
+4. **Auto-LR scaling for subtree granularities.** The empirical
+   invariant `lr × steps_per_super_epoch ≈ constant` lets a single
+   base LR hold across unigram, bigram, and (prospectively) deeper
+   partitions. A single `--lr-scale-by-steps` flag handles
+   cross-granularity calibration.
+
+5. **Frequency-pruned trie construction.** A `(min_mass, min_depth)`
+   pair gates out paths whose prefix count is below threshold past a
+   safety depth. Large memory savings (23×) at modest quality cost
+   (3 PPL) on the small corpus; the tradeoff ratio is expected to
+   improve at scale.
+
+Full code is published at the referenced repository under an
+MIT license; the git history provides the disclosure trail for
+priority purposes.
 
 ---
 
-*Corrections, discussion, and collaboration inquiries welcome. The
-repository is MIT-licensed and open to pull requests.*
+*Corrections, discussion, and collaboration inquiries welcome.*
