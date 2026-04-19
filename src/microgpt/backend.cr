@@ -655,6 +655,16 @@ class CuBLASBackend
     # cuBLAS is column-major; row-major C = A*B becomes C^T = B^T * A^T
     alpha = 1.0_f32
     beta = 0.0_f32
+    # TODO(agpt-paper): cublasSgemm fails with InvalidValue ~step 500 when
+    # bin/microgpt trains with --seq-len ≥ 2048 (--backend cublas). Smaller
+    # seq_len and the AGPT trainer bin/agpt_train are unaffected. Symptom is
+    # this exception firing mid-training, not at init. Suspected causes:
+    #   - an intermediate tensor dimension (attention scores at L×L or a
+    #     packed-batch matmul) crosses a cuBLAS parameter limit — possibly
+    #     int32 byte-count overflow in one of the size calcs.
+    #   - a stride/alignment condition only hit at larger N.
+    # Workaround: cap window-training sweep at seq_len=1024. Full repro in
+    # scripts/window_saturation_sweep.sh (currently stops at 1024).
     status = LibCUDA.cublasSgemm_v2(
       @handle,
       LibCUDA::CublasOperation::N,
@@ -664,7 +674,7 @@ class CuBLASBackend
       d_a.as(Float32*), k,
       pointerof(beta), d_c.as(Float32*), n
     )
-    raise "cublasSgemm failed: #{status}" unless status == LibCUDA::CublasStatus::Success
+    raise "cublasSgemm failed: #{status} (m=#{m} n=#{n} k=#{k})" unless status == LibCUDA::CublasStatus::Success
 
     Mat.new(m, n, d_c)
   end

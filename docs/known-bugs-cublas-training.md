@@ -97,3 +97,24 @@ go through the suspect codepath.
 
 Medium. Workaround is clean. Fix would unblock faster window-baseline runs
 and restore trust in cublas for future work.
+
+---
+
+## Related: `cublasSgemm failed: InvalidValue` at `seq_len ≥ 2048`
+
+Separate bug surfaced while re-running the saturated window baseline after
+the above fixes. When `bin/microgpt` trains with `--seq-len 2048` or
+`--seq-len 4096` and `--backend cublas`, it runs for ~500 steps and then
+crashes with `cublasSgemm failed: InvalidValue` from
+`src/microgpt/backend.cr`. `seq_len ≤ 1024` is unaffected; `bin/agpt_train`
+is unaffected (does not go through the Crystal-side matmul path).
+
+Suspected: an intermediate attention-scores tensor at `seq_len × seq_len`
+crosses a cuBLAS parameter limit at larger L (possibly int32 byte-count
+overflow in a size calc, possibly a stride/alignment condition). Error
+messages in `backend.cr` now include matmul dims so next repro will show
+which call fails.
+
+**Impact**: the AGPT paper's window baselines cap at `seq=1024` (PPL 6.30).
+A fix would extend the fair-comparison table to `seq=2048`/`4096`/`8192`.
+The AGPT side doesn't need this path.
