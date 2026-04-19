@@ -31,14 +31,35 @@ module MicroGPT
       # prefix frequency — avoids truncation-reduced endpoint counts.
       RADIX_VERSION = 2_i32
 
-      # per_subtree: when true, emit one file per root-child subtree (radix_subtree_NNNNNN.bin)
+      # per_subtree: when true, emit one file per subtree (radix_subtree_NNNNNN.bin)
       # + a manifest.bin listing them. Enables per-subtree loading for memory scaling
-      # at large depths (d=32+) where a global KV cache would exceed available memory.
+      # at large depths where a global KV cache would exceed available memory.
+      #
+      # subtree_level: depth of the key prefix that defines a subtree.
+      #   1 = one subtree per first-character (unigram, ≤65 subtrees) — default.
+      #   2 = one subtree per (first, second) character pair (bigram, ≤65² subtrees) —
+      #       attacks the "one dominant root-child" problem at deep tries (e.g. space
+      #       is 30% of Shakespeare corpus, its d=32 subtree alone is 4 GB KV). Bigram
+      #       splits that single subtree by the second character, bringing peak down to
+      #       ~1 GB and unlocking d=48+.
+      #
+      # KNOWN APPROXIMATION (bigram): when a root-child has edge_len==1 AND has
+      # descendants, those descendants land in bigram subtrees that do NOT contain
+      # the root-child (it lives in its own "(first,255)" singleton group). During
+      # training, each descendant's ancestor chain is truncated — the first char's
+      # KV is not available in the subtree's local KV cache, so attention at
+      # depth ≥ 2 proceeds without that context. In practice this mostly affects
+      # the high-frequency root-children (space, 'e', 't') whose edges are usually
+      # exactly 1 char. The token embedding still encodes first-char identity, so
+      # loss is partial. If quality regresses vs unigram at matched compute, the
+      # fix is to duplicate the root-child as a context-only node (entry_count=0)
+      # in each of its bigram subtree files so the ancestor chain resolves locally.
       def initialize(
         @reader : LeveledTrieReader,
         @out_dir : String,
         @progress : Bool = true,
-        @per_subtree : Bool = false
+        @per_subtree : Bool = false,
+        @subtree_level : Int32 = 1
       )
       end
 
@@ -61,8 +82,12 @@ module MicroGPT
         # Record tuple: {radix_id, parent_radix_id, first_char_depth, edge_tokens, edge_mass, endpoint_counts}
         radix_records_by_endpoint = {} of Int32 => Array({Int32, Int32, Int32, Array(Int32), Int32, Array({Int32, Int32})})
         radix_records_by_subtree  = {} of Int32 => Array({Int32, Int32, Int32, Array(Int32), Int32, Array({Int32, Int32})})
-        # Track each radix node's root_child ancestor so we know which subtree it belongs to.
-        root_child_of = {} of Int32 => Int32
+        # subtree_of[radix_id] = integer key identifying the subtree this node belongs to.
+        #   subtree_level = 1 (unigram): key = the depth-1 radix ancestor's radix_id.
+        #   subtree_level = 2 (bigram):  key = first_char * 256 + second_char, where 255 is
+        #                                the "no second char yet" sentinel for root-children
+        #                                with edge_len=1 and no descendants.
+        subtree_of = {} of Int32 => Int32
         next_radix_id = 1_i32  # 0 reserved for virtual root
         radix_count = 1        # count the virtual root
         total_edge_chars = 0_i64
@@ -121,11 +146,35 @@ module MicroGPT
               max_endpoint_depth = endpoint_depth
             end
 
-            # Determine root_child for this new radix node. If its parent is the
-            # virtual root (parent_radix_id == 0), it IS a root_child itself.
-            # Otherwise inherit from parent.
-            rc = parent_radix_id == 0 ? radix_id : root_child_of[parent_radix_id]
-            root_child_of[radix_id] = rc
+            # Determine the subtree key for this new radix node.
+            #   subtree_level = 1 (unigram): key = depth-1 radix ancestor's radix_id.
+            #   subtree_level = 2 (bigram):  key = first_char * 256 + second_char.
+            subtree_key : Int32
+            if @subtree_level == 2
+              if parent_radix_id == 0
+                # This IS a root-child. First char = edge[0]; second char = edge[1] if
+                # the edge is ≥2 chars (or 255 sentinel until a descendant defines it).
+                first_c  = edge[0]
+                second_c = edge.size >= 2 ? edge[1] : 255
+                subtree_key = (first_c.to_i32 << 8) | second_c.to_i32
+              else
+                parent_key = subtree_of[parent_radix_id]
+                parent_first  = (parent_key >> 8) & 0xff
+                parent_second = parent_key & 0xff
+                if parent_second != 255
+                  # Bigram already determined up the chain — inherit.
+                  subtree_key = parent_key
+                else
+                  # Parent was a root-child with edge_len=1 and hadn't seen a second
+                  # char yet. This node's edge[0] is the second character of the path.
+                  subtree_key = (parent_first.to_i32 << 8) | edge[0].to_i32
+                end
+              end
+            else
+              # Unigram: the depth-1 ancestor is the key.
+              subtree_key = parent_radix_id == 0 ? radix_id : subtree_of[parent_radix_id]
+            end
+            subtree_of[radix_id] = subtree_key
 
             record = {radix_id, parent_radix_id, start_char_depth, edge, edge_mass, endpoint_counts}
 
@@ -137,10 +186,10 @@ module MicroGPT
             list << record
 
             if @per_subtree
-              slist = radix_records_by_subtree[rc]?
+              slist = radix_records_by_subtree[subtree_key]?
               if slist.nil?
                 slist = [] of {Int32, Int32, Int32, Array(Int32), Int32, Array({Int32, Int32})}
-                radix_records_by_subtree[rc] = slist
+                radix_records_by_subtree[subtree_key] = slist
               end
               slist << record
             end

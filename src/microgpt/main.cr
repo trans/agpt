@@ -176,8 +176,13 @@ module MicroGPT
       },
       "agpt-per-subtree": {
         "type": "boolean",
-        "description": "Also emit per-root-child subtree files (manifest.bin + subtrees/radix_subtree_NNNNNN.bin) for scalable training at d≥32",
+        "description": "Also emit per-subtree files (manifest.bin + subtrees/radix_subtree_NNNNNN.bin) for scalable training at d≥32",
         "default": false
+      },
+      "agpt-subtree-level": {
+        "type": "integer",
+        "description": "When --agpt-per-subtree is set, depth of the subtree-key prefix: 1 = unigram (up to 65 subtrees, default), 2 = bigram (up to 65² subtrees, attacks dominant-root-child problem for d≥48)",
+        "default": 1
       },
       "agpt-max-depth": {
         "type": "integer",
@@ -352,11 +357,16 @@ module MicroGPT
           radix_out = "/tmp/#{src_base}_radix"
         end
         per_subtree = result["agpt-per-subtree"]?.try(&.as_bool) || false
-        puts "Building radix trie from #{radix_src} → #{radix_out}#{per_subtree ? " (with per-subtree files)" : ""}"
+        subtree_level = result["agpt-subtree-level"]?.try(&.as_i) || 1
+        unless subtree_level == 1 || subtree_level == 2
+          STDERR.puts "Error: --agpt-subtree-level must be 1 (unigram) or 2 (bigram)"
+          exit 1
+        end
+        puts "Building radix trie from #{radix_src} → #{radix_out}#{per_subtree ? " (with per-subtree files, level=#{subtree_level})" : ""}"
         # Keep all depths cached during radix build — avoids thrashing with
         # BFS frontier jumping across depths.
         reader = AGPT::LeveledTrieReader.new(radix_src, max_cached: 256)
-        builder = AGPT::StreamingRadixBuilder.new(reader, radix_out, per_subtree: per_subtree)
+        builder = AGPT::StreamingRadixBuilder.new(reader, radix_out, per_subtree: per_subtree, subtree_level: subtree_level)
         result_info = builder.build
         puts "  radix_count:        #{result_info[:radix_count]}"
         puts "  total_edge_chars:   #{result_info[:total_edge_chars]}"
