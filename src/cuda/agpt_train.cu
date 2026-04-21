@@ -119,6 +119,18 @@ enum class CurriculumMode { Flat, Progressive };
 //  - RMSProp:  per-param variance without momentum; isolates Adam's two mechanisms
 enum class OptimizerKind { Adam, SGD, Momentum, RMSProp };
 
+// Mass-weight compression schemes. Each assigns a per-query weight
+// w_i = compress(edge_mass_i) / mean_j(compress(edge_mass_j)), which
+// scales the loss+gradient of each endpoint query. Off disables
+// weighting (equal per radix endpoint).
+//
+//   Off    : w_i = 1  (AGPT default — equal per context, ignores count)
+//   Log    : w_i = log(1 + count_i) / mean                 (compressed)
+//   Sqrt   : w_i = sqrt(count_i)    / mean                 (partial)
+//   Linear : w_i = count_i          / mean                 (matches SGD
+//            frequency weighting — common patterns dominate training)
+enum class MassWeightMode { Off, Log, Sqrt, Linear };
+
 // Learning rate schedules.
 //  - Constant:     lr stays at base_lr throughout training.
 //  - Cosine:       lr decays as 0.5·base_lr·(1 + cos(π·progress)), progress ∈ [0,1] over total steps
@@ -2672,7 +2684,7 @@ struct TrainPersistence {
 
 int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                         float* h_weights, RadixTrieData& trie,
-                        int epochs, float entropy_lambda, bool mass_weight,
+                        int epochs, float entropy_lambda, MassWeightMode mass_weight,
                         int subtree_splits,
                         bool single_subtree, float intermediate_weight,
                         OptimizerKind optimizer, float momentum_beta, float rmsprop_beta,
@@ -2706,8 +2718,12 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
     if (entropy_lambda > 0.0f) {
         printf("  entropy lambda: %.3f (branching-endpoint icing enabled)\n", entropy_lambda);
     }
-    if (mass_weight) {
-        printf("  mass weighting: enabled (head-of-edge count restores corpus-frequency exposure)\n");
+    if (mass_weight != MassWeightMode::Off) {
+        const char* mode_name = (mass_weight == MassWeightMode::Log)    ? "log"
+                              : (mass_weight == MassWeightMode::Sqrt)   ? "sqrt"
+                              : (mass_weight == MassWeightMode::Linear) ? "linear"
+                              :                                            "?";
+        printf("  mass weighting: %s (head-of-edge count restores corpus-frequency exposure)\n", mode_name);
     }
     if (subtree_splits > 1) {
         printf("  subtree splits: %d (N sub-batches per subtree; trades some within-subtree consistency for more updates)\n", subtree_splits);
@@ -2912,9 +2928,9 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
     CUDA_CHECK(cudaMalloc(&d_rope_positions, T_q_cap * H * sizeof(int)));
     CUDA_CHECK(cudaMalloc(&d_char_pos,       T_q_cap * sizeof(int)));
 
-    // Per-query mass weight buffer (only populated when mass_weight is true).
+    // Per-query mass weight buffer (populated when mass_weight mode != Off).
     float* d_mass_weights = NULL;
-    if (mass_weight) {
+    if (mass_weight != MassWeightMode::Off) {
         CUDA_CHECK(cudaMalloc(&d_mass_weights, T_q_cap * sizeof(float)));
     }
 
@@ -3296,14 +3312,20 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                 // the chunk. This preserves ORDER (common > rare) while bounding
                 // the per-step ratio to ~log(max_mass) / log(min_mass + 1) ≈ 10x.
                 // Gradient stability wins out over exact linear-mass correspondence.
-                if (mass_weight) {
+                if (mass_weight != MassWeightMode::Off) {
                     float* h_mass_weights = (float*)malloc(T_q * sizeof(float));
-                    // Per-node compressed weight
                     float* node_w = (float*)malloc(N * sizeof(float));
                     double total_w = 0.0;
                     for (int i = 0; i < N; i++) {
                         int r = h_radix_ids[i];
-                        float w = logf(1.0f + (float)trie.edge_mass[r]);
+                        float count = (float)trie.edge_mass[r];
+                        float w;
+                        switch (mass_weight) {
+                            case MassWeightMode::Log:    w = logf(1.0f + count); break;
+                            case MassWeightMode::Sqrt:   w = sqrtf(count);       break;
+                            case MassWeightMode::Linear: w = count;              break;
+                            default:                     w = 1.0f;               break;
+                        }
                         node_w[i] = w;
                         int L = trie.edge_lens[r];
                         total_w += (double)w * L;
@@ -3487,7 +3509,7 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                 launch_agpt_loss_per_query(d_logits, d_query_to_node, d_query_offsets,
                                             d_radix_ids, d_token_ids,
                                             d_radix_counts_offset, d_radix_counts_tok, d_radix_counts_val,
-                                            mass_weight ? d_mass_weights : NULL,
+                                            (mass_weight != MassWeightMode::Off) ? d_mass_weights : NULL,
                                             d_d_logits, d_loss, T_q, V, entropy_lambda,
                                             intermediate_weight);
 
@@ -3814,7 +3836,7 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
 int run_per_subtree_training(const Config& cfg_in, const WeightOffsets& wo,
                               float* h_weights,
                               const SubtreeManifest& manifest,
-                              int super_epochs, float entropy_lambda, bool mass_weight,
+                              int super_epochs, float entropy_lambda, MassWeightMode mass_weight,
                               int subtree_splits,
                               bool single_subtree, float intermediate_weight,
                               OptimizerKind optimizer, float momentum_beta, float rmsprop_beta,
@@ -3856,7 +3878,13 @@ int run_per_subtree_training(const Config& cfg_in, const WeightOffsets& wo,
     printf("  lr-schedule: %s (warmup %d super-epochs = %d steps)\n",
            sched_name, warmup_super_epochs, warmup_super_epochs * manifest.n_subtrees * subtree_splits);
     if (entropy_lambda > 0.0f) printf("  entropy lambda: %.3f\n", entropy_lambda);
-    if (mass_weight) printf("  mass weighting: enabled\n");
+    if (mass_weight != MassWeightMode::Off) {
+        const char* mode_name = (mass_weight == MassWeightMode::Log)    ? "log"
+                              : (mass_weight == MassWeightMode::Sqrt)   ? "sqrt"
+                              : (mass_weight == MassWeightMode::Linear) ? "linear"
+                              :                                            "?";
+        printf("  mass weighting: %s\n", mode_name);
+    }
     if (single_subtree) printf("  single-subtree (per file): 1 Adam step per subtree per super-epoch\n");
 
     // Allocate optimizer-state host buffers so state persists across the many
@@ -3962,7 +3990,7 @@ int main(int argc, char** argv) {
     int epochs = 1;
     float lr = 3e-4f;
     float entropy_lambda = 0.0f;
-    bool mass_weight = false;
+    MassWeightMode mass_weight = MassWeightMode::Off;
     int subtree_splits = 1;   // 1 = one Adam step per root-child subtree (invariant)
     int chunk_queries  = 0;   // 0 → default 50000 inside trainer
     bool single_subtree = false;  // treat entire trie as one subtree (1 Adam/epoch)
@@ -3987,7 +4015,23 @@ int main(int argc, char** argv) {
         else if (strcmp(argv[i], "--epochs") == 0 && i + 1 < argc) epochs = atoi(argv[++i]);
         else if (strcmp(argv[i], "--lr") == 0 && i + 1 < argc) lr = atof(argv[++i]);
         else if (strcmp(argv[i], "--entropy-lambda") == 0 && i + 1 < argc) entropy_lambda = atof(argv[++i]);
-        else if (strcmp(argv[i], "--mass-weight") == 0) mass_weight = true;
+        else if (strcmp(argv[i], "--mass-weight") == 0) {
+            // Two-form argument:
+            //   --mass-weight           → log (alias for backward compat)
+            //   --mass-weight <mode>    → mode ∈ {off, log, sqrt, linear}
+            // We peek the next arg; if it matches a known mode string we
+            // consume it. Otherwise treat this as bare --mass-weight (= log).
+            if (i + 1 < argc) {
+                const char* m = argv[i + 1];
+                if      (strcmp(m, "off")    == 0) { mass_weight = MassWeightMode::Off;    i++; }
+                else if (strcmp(m, "log")    == 0) { mass_weight = MassWeightMode::Log;    i++; }
+                else if (strcmp(m, "sqrt")   == 0) { mass_weight = MassWeightMode::Sqrt;   i++; }
+                else if (strcmp(m, "linear") == 0) { mass_weight = MassWeightMode::Linear; i++; }
+                else                               { mass_weight = MassWeightMode::Log; }  // bare flag
+            } else {
+                mass_weight = MassWeightMode::Log;
+            }
+        }
         else if (strcmp(argv[i], "--subtree-splits") == 0 && i + 1 < argc) subtree_splits = atoi(argv[++i]);
         else if (strcmp(argv[i], "--chunk-queries") == 0 && i + 1 < argc) chunk_queries = atoi(argv[++i]);
         else if (strcmp(argv[i], "--single-subtree") == 0) single_subtree = true;
@@ -4027,7 +4071,13 @@ int main(int argc, char** argv) {
         fprintf(stderr, "Usage: agpt_train --model <path> --trie-dir <path>\n"
                         "  [--epochs N] [--lr F]\n"
                         "  [--entropy-lambda F]        — endpoint icing, λ≥0 (0=off)\n"
-                        "  [--mass-weight]             — corpus-mass weighting (log-compressed)\n"
+                        "  [--mass-weight [off|log|sqrt|linear]] — corpus-mass weighting. Bare\n"
+                        "                                flag defaults to 'log' (backward compat).\n"
+                        "                                log = log(1+count)/mean (compressed, stable).\n"
+                        "                                sqrt = sqrt(count)/mean (moderate compression).\n"
+                        "                                linear = count/mean (matches SGD's frequency\n"
+                        "                                weighting — common patterns dominate).\n"
+                        "                                off = equal weight per radix endpoint.\n"
                         "  [--curriculum flat|progressive]\n"
                         "  [--subtree-splits N]        — split subtree into N sub-batches, N\n"
                         "                                Adam steps per subtree (1 = strict invariant;\n"
