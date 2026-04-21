@@ -17,6 +17,9 @@
 #include <sys/sysinfo.h>
 #include <cublas_v2.h>
 #include <cuda_runtime.h>
+#include <string>
+#include <unordered_map>
+#include <vector>
 
 // ============================================================================
 // Error checking
@@ -1581,6 +1584,7 @@ __global__ void agpt_loss_per_query_kernel(
     const int* counts_tok,
     const int* counts_val,
     const float* mass_weights,    // [T_q] per-query mass weight, or NULL to disable
+    const int* target_radix_ids,  // [T_q] per-query rolling-D target radix (NULL = use per-node path)
     float* d_logits,              // [T_q, V] — written with gradient
     float* loss_out,              // [T_q]
     int T_q, int V,
@@ -1626,6 +1630,56 @@ __global__ void agpt_loss_per_query_kernel(
         int n_idx = query_to_node[q];
         int node_end_q = query_offsets[n_idx + 1];
         bool is_endpoint = (q + 1) == node_end_q;
+
+        // Rolling-D target override (cycle-k>1 path). target_radix_ids[q] holds
+        // the radix_id whose stored count distribution is the correct target
+        // for this query's last-D-token window. -1 means "no usable window
+        // (backoff failed)" — skip the loss term.
+        if (target_radix_ids != NULL) {
+            int target_id = target_radix_ids[q];
+            if (target_id < 0) {
+                loss_out[q] = 0.0f;
+                for (int j = 0; j < V; j++) grad_row[j] = 0.0f;
+                return;
+            }
+            int start = counts_offset[target_id];
+            int end = counts_offset[target_id + 1];
+            if (start == end) {
+                loss_out[q] = 0.0f;
+                for (int j = 0; j < V; j++) grad_row[j] = 0.0f;
+                return;
+            }
+            int total = 0;
+            for (int e = start; e < end; e++) total += counts_val[e];
+            float total_f = (float)total;
+
+            float weight = 1.0f;
+            if (entropy_lambda > 0.0f && (end - start) > 1) {
+                float H = 0.0f;
+                for (int e = start; e < end; e++) {
+                    float q_e = counts_val[e] / total_f;
+                    if (q_e > 0.0f) H -= q_e * logf(q_e);
+                }
+                float log_V = logf((float)V);
+                weight = 1.0f + entropy_lambda * (H / log_V);
+            }
+            if (mass_weights != NULL) weight *= mass_weights[q];
+
+            float loss = 0.0f;
+            for (int e = start; e < end; e++) {
+                int tok = counts_tok[e];
+                int cnt = counts_val[e];
+                float p = grad_row[tok];
+                loss -= (cnt / total_f) * logf(p + 1e-10f);
+                grad_row[tok] -= cnt / total_f;
+            }
+            if (weight != 1.0f) {
+                loss *= weight;
+                for (int j = 0; j < V; j++) grad_row[j] *= weight;
+            }
+            loss_out[q] = loss;
+            return;
+        }
 
         if (is_endpoint) {
             // Endpoint: use stored counts (may be branching)
@@ -1698,6 +1752,7 @@ void launch_agpt_loss_per_query(const float* logits, const int* query_to_node,
                                  const int* counts_offset, const int* counts_tok,
                                  const int* counts_val,
                                  const float* mass_weights,
+                                 const int* target_radix_ids,
                                  float* d_logits, float* loss_out,
                                  int T_q, int V, float entropy_lambda,
                                  float intermediate_weight) {
@@ -1708,6 +1763,7 @@ void launch_agpt_loss_per_query(const float* logits, const int* query_to_node,
     agpt_loss_per_query_kernel<<<T_q, threads, smem>>>(
         logits, query_to_node, query_offsets, radix_ids, token_ids,
         counts_offset, counts_tok, counts_val, mass_weights,
+        target_radix_ids,
         d_logits, loss_out, T_q, V, entropy_lambda, intermediate_weight);
 }
 
@@ -2798,6 +2854,72 @@ static void build_rope_cache_prior(float** d_cos, float** d_sin,
     free(h_sin);
 }
 
+// ============================================================================
+// Root-loop rolling-D target support (state_index)
+// ============================================================================
+//
+// For cycle-k>1 training to give the prior any predictive role in the
+// gradient signal, the target distribution at each query position must
+// condition on the rolling-D-token window (which spans into the prior for
+// early in-segment positions), not just on the segment-relative ancestor
+// chain (Mj). Build a lookup from D-tuple byte-strings → radix_id of the
+// matching endpoint. Backoff: on miss, try the length-(D-1) suffix, then
+// (D-2), etc. If no suffix matches, fall back to radix_id == 0 (root) and
+// the caller treats it as "no usable target — skip this query."
+//
+// Key encoding: one uint8 byte per token. Assumes vocab_size ≤ 256 (true
+// for all AGPT Shakespeare runs; assert at build time).
+typedef std::unordered_map<std::string, int32_t> StateIndex;
+
+static void build_state_index(const RadixTrieData& trie, int vocab_size,
+                              StateIndex& out /* empty */)
+{
+    if (vocab_size > 256) {
+        fprintf(stderr, "build_state_index: vocab_size=%d > 256 (byte-encoding limit). "
+                        "Switch key type if corpora with larger vocab are added.\n", vocab_size);
+        exit(1);
+    }
+    // For each radix endpoint r, encode its root-to-endpoint token path as
+    // a byte string and map to r. Later nodes at the same path (shouldn't
+    // occur for a well-formed trie) silently overwrite earlier entries.
+    for (int r = 1; r < trie.radix_count; r++) {
+        int anc_off = trie.ancestor_char_offsets[r];
+        int anc_len = trie.ancestor_char_offsets[r + 1] - anc_off;
+        int edge_start = trie.edge_starts[r];
+        int edge_len = trie.edge_lens[r];
+        std::string key;
+        key.reserve(anc_len + edge_len);
+        for (int a = 0; a < anc_len; a++) {
+            int char_pos = trie.ancestor_char_ids[anc_off + a];
+            int tok = trie.edge_tokens_flat[char_pos];
+            key.push_back((char)(tok & 0xFF));
+        }
+        for (int e = 0; e < edge_len; e++) {
+            int tok = trie.edge_tokens_flat[edge_start + e];
+            key.push_back((char)(tok & 0xFF));
+        }
+        out[key] = r;
+    }
+}
+
+// Look up a token path with suffix-backoff. `window` is the D most recent
+// tokens; we try lengths D, D-1, ..., 1. Returns the matching radix_id or
+// -1 if nothing matched (no usable distribution target — caller should
+// skip the loss term at this query).
+static int lookup_state_with_backoff(const StateIndex& state_index,
+                                      const int* window, int window_len)
+{
+    std::string key;
+    key.reserve(window_len);
+    for (int i = 0; i < window_len; i++) key.push_back((char)(window[i] & 0xFF));
+    for (int len = window_len; len >= 1; len--) {
+        std::string suffix = key.substr(key.size() - len);
+        auto it = state_index.find(suffix);
+        if (it != state_index.end()) return it->second;
+    }
+    return -1;
+}
+
 // run_radix_training optional parameters (declared here via overload-less defaults).
 // When invoked from the per-subtree wrapper, these thread optimizer state across
 // calls so RMSProp/Adam running averages don't reset per subtree, and suppress
@@ -3344,6 +3466,8 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
     int* d_prior_kv_lengths = NULL;
     int* d_prior_query_to_node = NULL;
     int* d_prior_char_pos = NULL;  // [prior_len]: slot indices in d_kv_keys where prior K,V live
+    StateIndex state_index;        // D-tuple → radix_id, for rolling-D target lookup
+    int* d_target_radix_ids = NULL;  // [T_q_cap]: per-query target radix_id for cycle-k>1 loss
 
     if (virtual_cycles > 1) {
         prior_len = (virtual_cycles - 1) * max_endpoint_depth;
@@ -3395,6 +3519,14 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
             CUDA_CHECK(cudaMemcpy(d_prior_char_pos, pcp, prior_len * sizeof(int), cudaMemcpyHostToDevice));
             free(pcp);
         }
+
+        // Rolling-D target support: build state_index over radix endpoints so
+        // cycle-k>1 queries can look up the D-tuple → radix_id target node.
+        build_state_index(trie, V, state_index);
+        if (!quiet) {
+            printf("  state_index: %zu D-path → radix_id entries\n", state_index.size());
+        }
+        CUDA_CHECK(cudaMalloc(&d_target_radix_ids, T_q_cap * sizeof(int)));
     }
 
     // ------------------------------------------------------------
@@ -3829,10 +3961,13 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
 
                 // Per-query loss: intermediate positions = single-target CE, endpoints
                 // = distribution CE. d_d_logits (per-query grad) written in place.
+                // target_radix_ids = NULL at cycle 1 preserves pre-Phase-2 behavior
+                // (K=1 bit-identical). Cycle-k>1 below uses the rolling-D path.
                 launch_agpt_loss_per_query(d_logits, d_query_to_node, d_query_offsets,
                                             d_radix_ids, d_token_ids,
                                             d_radix_counts_offset, d_radix_counts_tok, d_radix_counts_val,
                                             mass_weight ? d_mass_weights : NULL,
+                                            /*target_radix_ids=*/NULL,
                                             d_d_logits, d_loss, T_q, V, entropy_lambda,
                                             intermediate_weight);
 
@@ -4160,10 +4295,60 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                                                   &alpha_c, W_out_c, V, d_final_out, D, &beta_c, d_logits, V));
                         cuda_bias_add(d_logits, B_out_c, T_q, V);
 
+                        // Build per-query target_radix_ids using rolling-D window
+                        // lookup (with suffix-backoff). For NOPRIOR (prior_extend==0),
+                        // the window is just the query's own ancestry → same target
+                        // as Mj would pick via state_index lookup of that path.
+                        const int* prior_tokens = h_prior_tokens_all + (long long)rc_idx * prior_len;
+                        int* h_target = (int*)malloc(T_q * sizeof(int));
+                        int window_cap = max_endpoint_depth;
+                        int* window = (int*)malloc(window_cap * sizeof(int));
+                        for (int i = 0; i < N; i++) {
+                            int r = h_radix_ids[i];
+                            int L = trie.edge_lens[r];
+                            int anc_off = trie.ancestor_char_offsets[r];
+                            int anc_len = trie.ancestor_char_offsets[r + 1] - anc_off;
+                            int edge_start = trie.edge_starts[r];
+                            for (int j = 0; j < L; j++) {
+                                int q_idx = h_query_offsets[i] + j;
+                                int total_seen = prior_extend + anc_len + j + 1;
+                                int wlen = (total_seen < window_cap) ? total_seen : window_cap;
+                                int remaining = wlen;
+                                // last edge tokens [0..j]: up to (j+1) of them
+                                int edge_avail = j + 1;
+                                int edge_take = (edge_avail < remaining) ? edge_avail : remaining;
+                                for (int e = 0; e < edge_take; e++) {
+                                    window[wlen - edge_take + e] =
+                                        trie.edge_tokens_flat[edge_start + j - edge_take + 1 + e];
+                                }
+                                remaining -= edge_take;
+                                // then ancestor tokens (last `remaining` of anc chain)
+                                int anc_take = (anc_len < remaining) ? anc_len : remaining;
+                                for (int a = 0; a < anc_take; a++) {
+                                    int anc_idx = anc_len - anc_take + a;
+                                    int char_pos = trie.ancestor_char_ids[anc_off + anc_idx];
+                                    window[wlen - edge_take - anc_take + a] =
+                                        trie.edge_tokens_flat[char_pos];
+                                }
+                                remaining -= anc_take;
+                                // then prior tokens (last `remaining` of prior)
+                                int prior_take = (prior_extend < remaining) ? prior_extend : remaining;
+                                for (int p = 0; p < prior_take; p++) {
+                                    int prior_idx = prior_extend - prior_take + p;
+                                    window[p] = prior_tokens[prior_idx];
+                                }
+                                h_target[q_idx] = lookup_state_with_backoff(state_index, window, wlen);
+                            }
+                        }
+                        free(window);
+                        CUDA_CHECK(cudaMemcpy(d_target_radix_ids, h_target, T_q * sizeof(int), cudaMemcpyHostToDevice));
+                        free(h_target);
+
                         launch_agpt_loss_per_query(d_logits, d_query_to_node, d_query_offsets,
                                                     d_radix_ids, d_token_ids,
                                                     d_radix_counts_offset, d_radix_counts_tok, d_radix_counts_val,
                                                     mass_weight ? d_mass_weights : NULL,
+                                                    /*target_radix_ids=*/d_target_radix_ids,
                                                     d_d_logits, d_loss, T_q, V, entropy_lambda,
                                                     intermediate_weight);
 
@@ -4428,6 +4613,7 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
         cudaFree(d_prior_query_offsets); cudaFree(d_prior_kv_offsets);
         cudaFree(d_prior_kv_lengths); cudaFree(d_prior_query_to_node);
         cudaFree(d_prior_char_pos);
+        if (d_target_radix_ids) cudaFree(d_target_radix_ids);
         free(h_prior_tokens_all);
     }
     free(root_child_of); free(root_children);
