@@ -2679,6 +2679,7 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                         LRSchedule lr_schedule, int warmup_epochs,
                         float weight_decay, float grad_clip_norm, int save_every,
                         CurriculumMode curriculum, const char* save_path,
+                        int virtual_cycles = 1,
                         TrainPersistence* persist = nullptr)
 {
     const bool quiet = persist && persist->quiet;
@@ -2719,6 +2720,17 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
         printf("  intermediate-weight: %.3f (scale loss at unary-intermediate positions)\n", intermediate_weight);
     }
     printf("  curriculum: %s\n", curriculum == CurriculumMode::Progressive ? "progressive (d=1..d=max per epoch)" : "flat (d=max each epoch)");
+    if (virtual_cycles > 1) {
+        printf("  virtual-cycles: K=%d (root-loop; effective seq_len = K*D_trie)\n", virtual_cycles);
+    }
+    }
+    if (virtual_cycles > 1) {
+        // Phase 2 scaffold: flag is threaded but cycle loop + prior attention
+        // are not yet in. K=1 semantics still apply until stages C–G land.
+        fprintf(stderr,
+            "  [root-loop] virtual_cycles=%d plumbed but cycle/prior path not yet wired;\n"
+            "              training will run as K=1 until stages B–G land.\n",
+            virtual_cycles);
     }
     int D = cfg.d_model;
     int F = cfg.d_ff;
@@ -3821,7 +3833,8 @@ int run_per_subtree_training(const Config& cfg_in, const WeightOffsets& wo,
                               LRSchedule lr_schedule, int warmup_super_epochs,
                               float weight_decay, float grad_clip_norm, int save_every,
                               CurriculumMode curriculum, const char* save_path,
-                              bool lr_scale_by_steps = false)
+                              bool lr_scale_by_steps = false,
+                              int virtual_cycles = 1)
 {
     // Auto-LR scaling: the optimal LR depends on total gradient-movement per pass
     // (lr × steps_per_super_epoch ≈ constant for a fixed depth). The winning d=16
@@ -3919,6 +3932,7 @@ int run_per_subtree_training(const Config& cfg_in, const WeightOffsets& wo,
                                lr_schedule, warmup_super_epochs,
                                weight_decay, grad_clip_norm, /*save_every=*/0,
                                curriculum, /*save_path=*/NULL,
+                               virtual_cycles,
                                &persist);
 
             super_nodes_trained += s.n_nodes;
@@ -4030,16 +4044,6 @@ int main(int argc, char** argv) {
     }
     if (subtree_splits < 1) subtree_splits = 1;
     if (virtual_cycles < 1) virtual_cycles = 1;
-    if (virtual_cycles > 1) {
-        fprintf(stderr, "\n"
-            "  ==========================================================================\n"
-            "  --virtual-cycles=%d (root-loop virtual tree training)\n"
-            "  Phase 1 of 2: CLI plumbed; priors will be derived from the D-trie itself.\n"
-            "  Phase 2 (CUDA forward-pass extension) NOT YET IMPLEMENTED — virtual cycles\n"
-            "  > 1 will log diagnostic info and fall back to K=1 training for now.\n"
-            "  ==========================================================================\n\n",
-            virtual_cycles);
-    }
 
     if (!model_path || !trie_dir) {
         fprintf(stderr, "Usage: agpt_train --model <path> --trie-dir <path>\n"
@@ -4101,7 +4105,8 @@ int main(int argc, char** argv) {
                                            lr_schedule, warmup_epochs,
                                            weight_decay, grad_clip_norm, save_every,
                                            curriculum, save_path,
-                                           lr_scale_by_steps);
+                                           lr_scale_by_steps,
+                                           virtual_cycles);
         free(manifest.entries);
         return rc;
     }
@@ -4109,7 +4114,7 @@ int main(int argc, char** argv) {
         printf("Loading radix trie from %s...\n", trie_dir);
         RadixTrieData radix_trie = load_radix_trie(trie_dir);
 
-        return run_radix_training(cfg, wo, h_weights, radix_trie, epochs, entropy_lambda, mass_weight, subtree_splits, single_subtree, intermediate_weight, optimizer, momentum_beta, rmsprop_beta, lr_schedule, warmup_epochs, weight_decay, grad_clip_norm, save_every, curriculum, save_path);
+        return run_radix_training(cfg, wo, h_weights, radix_trie, epochs, entropy_lambda, mass_weight, subtree_splits, single_subtree, intermediate_weight, optimizer, momentum_beta, rmsprop_beta, lr_schedule, warmup_epochs, weight_decay, grad_clip_norm, save_every, curriculum, save_path, virtual_cycles);
     }
 
     // Load leveled trie
