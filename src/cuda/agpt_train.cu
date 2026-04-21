@@ -2657,6 +2657,91 @@ __global__ void gather_endpoint_rows_kernel(
     dst[n * D + d] = src[end_q * D + d];
 }
 
+// ============================================================================
+// Root-loop virtual-tree training support (Phase 2: stages B, C)
+// ============================================================================
+//
+// For virtual_cycles K > 1, training needs:
+//   1. A "prior" of (K-1)*D tokens prepended to each radix node's attention
+//      window at cycle k>1. Here we use ONE GLOBAL prior derived from the
+//      D-trie via Markov-1-greedy radix walk (simplification from the
+//      per-root-child design in the plan; revisit if training quality is
+//      limited by shared-prior stereotyping).
+//   2. A RoPE cos/sin cache covering negative positions -(K-1)*D..-1, used
+//      exclusively when rotating the prior's K,V. RoPE's attention-score
+//      formula depends only on RELATIVE position (q - k), so placing the
+//      prior at negative positions and leaving ancestors at 0..d_N-1 gives
+//      the correct "prior is (K-1)*D steps earlier than ancestry" semantic
+//      without re-baking ancestor K,V.
+//
+// Derive the prior by walking the radix trie from root, at each step picking
+// the unique child with the greatest `edge_mass` (= most-frequent bigram
+// continuation, since root's children are depth-1 radix nodes keyed by the
+// first corpus token). Collect the chosen radix nodes' edge tokens until we
+// have `prior_len` tokens; pad with zero if the trie is shallower.
+static void compute_virtual_prior_tokens(const RadixTrieData& trie,
+                                         int prior_len,
+                                         int* out_tokens /* [prior_len] */)
+{
+    for (int i = 0; i < prior_len; i++) out_tokens[i] = 0;
+    if (prior_len <= 0) return;
+
+    int cur = 0;  // virtual root
+    int filled = 0;
+    while (filled < prior_len) {
+        // Find highest-edge_mass child of `cur`.
+        int best = -1;
+        int best_mass = -1;
+        for (int r = 1; r < trie.radix_count; r++) {
+            if (trie.parents[r] != cur) continue;
+            int m = trie.edge_mass[r];
+            if (m > best_mass) { best_mass = m; best = r; }
+        }
+        if (best < 0) break;  // dead end: pad with zeros
+        int edge_start = trie.edge_starts[best];
+        int L = trie.edge_lens[best];
+        int take = (L < prior_len - filled) ? L : (prior_len - filled);
+        for (int j = 0; j < take; j++) {
+            out_tokens[filled + j] = trie.edge_tokens_flat[edge_start + j];
+        }
+        filled += take;
+        cur = best;
+    }
+}
+
+// Build a RoPE cos/sin cache for NEGATIVE positions -prior_len..-1, stored
+// at indices 0..prior_len-1 respectively. Used to rotate prior K,V so that
+// in the attention score (q - k_prior) the prior sits (prior_len) steps
+// before any ancestor at position 0+.
+//
+// cos(-theta) = cos(theta); sin(-theta) = -sin(theta). Paired with the
+// same pair indexing as build_rope_cache (doubled entries per half-pair).
+static void build_rope_cache_prior(float** d_cos, float** d_sin,
+                                   int prior_len, int dim, float base = 10000.0f)
+{
+    int half = dim / 2;
+    float* h_cos = (float*)malloc(prior_len * dim * sizeof(float));
+    float* h_sin = (float*)malloc(prior_len * dim * sizeof(float));
+    for (int idx = 0; idx < prior_len; idx++) {
+        int pos = idx - prior_len;  // maps 0..prior_len-1 → -prior_len..-1
+        for (int i = 0; i < half; i++) {
+            float theta = (float)pos / powf(base, 2.0f * i / dim);
+            float c = cosf(theta);
+            float s = sinf(theta);
+            h_cos[idx * dim + 2 * i]     = c;
+            h_cos[idx * dim + 2 * i + 1] = c;
+            h_sin[idx * dim + 2 * i]     = s;
+            h_sin[idx * dim + 2 * i + 1] = s;
+        }
+    }
+    CUDA_CHECK(cudaMalloc(d_cos, prior_len * dim * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(d_sin, prior_len * dim * sizeof(float)));
+    CUDA_CHECK(cudaMemcpy(*d_cos, h_cos, prior_len * dim * sizeof(float), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(*d_sin, h_sin, prior_len * dim * sizeof(float), cudaMemcpyHostToDevice));
+    free(h_cos);
+    free(h_sin);
+}
+
 // run_radix_training optional parameters (declared here via overload-less defaults).
 // When invoked from the per-subtree wrapper, these thread optimizer state across
 // calls so RMSProp/Adam running averages don't reset per subtree, and suppress
