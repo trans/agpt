@@ -2879,9 +2879,16 @@ static void build_state_index(const RadixTrieData& trie, int vocab_size,
                         "Switch key type if corpora with larger vocab are added.\n", vocab_size);
         exit(1);
     }
-    // For each radix endpoint r, encode its root-to-endpoint token path as
-    // a byte string and map to r. Later nodes at the same path (shouldn't
-    // occur for a well-formed trie) silently overwrite earlier entries.
+    // Register every root-to-anywhere path in the radix trie: for each
+    // radix node r, walk its ancestor + edge tokens, emitting an entry at
+    // each edge position (not just the endpoint). Intermediate positions
+    // map to the owning radix's endpoint id — an approximation (the true
+    // distribution at an intermediate depth is a deterministic singleton,
+    // while the endpoint's distribution is branching), but it gives the
+    // state_index full coverage of all valid root-to-anywhere paths. Without
+    // this, the last-N-tokens backoff misses whenever the matching path
+    // sits inside a radix edge rather than at an endpoint, which at d=16
+    // was 60% of queries.
     for (int r = 1; r < trie.radix_count; r++) {
         int anc_off = trie.ancestor_char_offsets[r];
         int anc_len = trie.ancestor_char_offsets[r + 1] - anc_off;
@@ -2894,11 +2901,15 @@ static void build_state_index(const RadixTrieData& trie, int vocab_size,
             int tok = trie.edge_tokens_flat[char_pos];
             key.push_back((char)(tok & 0xFF));
         }
+        // Register each edge position: ancestors + edge[0..i] for i in 0..edge_len-1.
         for (int e = 0; e < edge_len; e++) {
             int tok = trie.edge_tokens_flat[edge_start + e];
             key.push_back((char)(tok & 0xFF));
+            // Only overwrite if absent — keeps the shallowest radix_id that
+            // first registered this path (usually the ancestor radix node's
+            // endpoint, which is more precise than a deeper intermediate).
+            if (out.find(key) == out.end()) out[key] = r;
         }
-        out[key] = r;
     }
 }
 
