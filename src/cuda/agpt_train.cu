@@ -17,6 +17,7 @@
 #include <sys/sysinfo.h>
 #include <cublas_v2.h>
 #include <cuda_runtime.h>
+#include <algorithm>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -2729,6 +2730,71 @@ __global__ void gather_endpoint_rows_kernel(
 //      the correct "prior is (K-1)*D steps earlier than ancestry" semantic
 //      without re-baking ancestor K,V.
 //
+// Global: corpus tokens for corpus-sampled priors. Loaded once in main when
+// --corpus is provided. nullptr when no corpus was given (falls back to the
+// Markov-1-greedy per_rc path, which doesn't need a corpus file).
+static std::vector<int>* g_corpus_tokens = nullptr;
+
+// Load a text corpus file and tokenize it char-by-char using the exact
+// mapping the Crystal-side tokenizer uses: collect unique chars from the
+// file, sort ascending by byte value, assign consecutive integer IDs
+// starting at 0. Identical tokenization to src/microgpt/micro_gpt.cr's
+// Tokenizer initializer (chars.uniq.sort).
+static std::vector<int> load_corpus_tokens(const char* corpus_path) {
+    FILE* f = fopen(corpus_path, "rb");
+    if (!f) { fprintf(stderr, "Cannot open corpus %s\n", corpus_path); exit(1); }
+    fseek(f, 0, SEEK_END); long sz = ftell(f); fseek(f, 0, SEEK_SET);
+    std::vector<uint8_t> bytes(sz);
+    if (sz > 0) fread(bytes.data(), 1, sz, f);
+    fclose(f);
+
+    bool seen[256] = {0};
+    for (auto b : bytes) seen[b] = true;
+    std::vector<uint8_t> unique_sorted;
+    for (int i = 0; i < 256; i++) if (seen[i]) unique_sorted.push_back((uint8_t)i);
+    int char_to_id[256];
+    for (int i = 0; i < 256; i++) char_to_id[i] = -1;
+    for (size_t i = 0; i < unique_sorted.size(); i++) char_to_id[unique_sorted[i]] = (int)i;
+
+    std::vector<int> tokens;
+    tokens.reserve(bytes.size());
+    for (auto b : bytes) tokens.push_back(char_to_id[b]);
+    return tokens;
+}
+
+// Corpus-sampled priors. For each root-child R with first-token t_R,
+// find the first corpus position p where corpus[p] == t_R and p >= prior_len,
+// then copy corpus[p-prior_len..p-1] as the prior. This guarantees the
+// (prior + segment-2-first-token) junction is a real corpus bigram embedded
+// in a real (prior_len+1)-gram, so rolling-D lookups that span the boundary
+// match actual D-trie paths.
+static void compute_virtual_prior_tokens_from_corpus(
+    const std::vector<int>& corpus,
+    const RadixTrieData& trie,
+    const int* root_children, int n_root_children,
+    int prior_len,
+    int* out_tokens /* [n_root_children * prior_len] */)
+{
+    for (long long i = 0; i < (long long)n_root_children * prior_len; i++) out_tokens[i] = 0;
+    if (prior_len <= 0 || (int)corpus.size() < prior_len + 1) return;
+
+    int rcs_with_prior = 0;
+    for (int rc_idx = 0; rc_idx < n_root_children; rc_idx++) {
+        int rc = root_children[rc_idx];
+        int t_R = trie.edge_tokens_flat[trie.edge_starts[rc]];
+        // Scan corpus for first position p >= prior_len with corpus[p] == t_R.
+        int found = -1;
+        for (int p = prior_len; p < (int)corpus.size(); p++) {
+            if (corpus[p] == t_R) { found = p; break; }
+        }
+        if (found < 0) continue;  // no corpus occurrence — leave zeros
+        int* dst = out_tokens + (long long)rc_idx * prior_len;
+        for (int j = 0; j < prior_len; j++) dst[j] = corpus[found - prior_len + j];
+        rcs_with_prior++;
+    }
+    (void)rcs_with_prior;
+}
+
 // NOTE: this implementation only handles K=2 cleanly — the prior is ONE
 // depth-D path. For K≥3 we would need recursive D-segment walks (segment k
 // starts at the depth-1 trie node whose token equals segment k-1's leaf).
@@ -3502,8 +3568,17 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
         build_rope_cache_prior(&d_rope_cos_prior, &d_rope_sin_prior, prior_len, HD);
 
         h_prior_tokens_all = (int*)calloc((long long)n_root_children * prior_len, sizeof(int));
-        compute_virtual_prior_tokens_per_rc(trie, V, root_children, n_root_children,
-                                             prior_len, h_prior_tokens_all);
+        if (g_corpus_tokens != nullptr && !g_corpus_tokens->empty()) {
+            // Corpus-sampled: priors come from actual pre-occurrence corpus
+            // positions, so segment-boundary splice is a real corpus (K*D)-gram.
+            compute_virtual_prior_tokens_from_corpus(*g_corpus_tokens, trie,
+                                                      root_children, n_root_children,
+                                                      prior_len, h_prior_tokens_all);
+        } else {
+            // Fallback: Markov-1-greedy per-rc walk from D-trie (no corpus file).
+            compute_virtual_prior_tokens_per_rc(trie, V, root_children, n_root_children,
+                                                 prior_len, h_prior_tokens_all);
+        }
 
         int rcs_with_prior = 0;
         for (int rc_idx = 0; rc_idx < n_root_children; rc_idx++) {
@@ -4885,6 +4960,9 @@ int main(int argc, char** argv) {
     const char* model_path = NULL;
     const char* trie_dir = NULL;
     const char* save_path = NULL;
+    const char* corpus_path = NULL;  // --corpus: required when --virtual-cycles > 1
+                                      // (used to sample real pre-occurrence priors so
+                                      // the segment boundary is a real corpus K*D-gram).
     int epochs = 1;
     float lr = 3e-4f;
     float entropy_lambda = 0.0f;
@@ -4925,6 +5003,7 @@ int main(int argc, char** argv) {
         else if (strcmp(argv[i], "--single-subtree") == 0) single_subtree = true;
         else if (strcmp(argv[i], "--lr-scale-by-steps") == 0) lr_scale_by_steps = true;
         else if (strcmp(argv[i], "--virtual-cycles") == 0 && i + 1 < argc) virtual_cycles = atoi(argv[++i]);
+        else if (strcmp(argv[i], "--corpus") == 0 && i + 1 < argc) corpus_path = argv[++i];
         else if (strcmp(argv[i], "--intermediate-weight") == 0 && i + 1 < argc) intermediate_weight = atof(argv[++i]);
         else if (strcmp(argv[i], "--optimizer") == 0 && i + 1 < argc) {
             const char* o = argv[++i];
@@ -4956,6 +5035,28 @@ int main(int argc, char** argv) {
     }
     if (subtree_splits < 1) subtree_splits = 1;
     if (virtual_cycles < 1) virtual_cycles = 1;
+
+    // Load corpus tokens if --corpus was provided (used for corpus-sampled
+    // priors at virtual_cycles > 1). Store in a static global so both the
+    // single-radix and per-subtree training paths can see it without
+    // plumbing another arg through every signature.
+    static std::vector<int> corpus_tokens_storage;
+    if (corpus_path != NULL) {
+        corpus_tokens_storage = load_corpus_tokens(corpus_path);
+        g_corpus_tokens = &corpus_tokens_storage;
+        printf("Loaded corpus %s: %zu tokens (unique=%d)\n",
+               corpus_path, corpus_tokens_storage.size(),
+               // approximate unique count: max token id + 1
+               corpus_tokens_storage.empty() ? 0 :
+                   (*std::max_element(corpus_tokens_storage.begin(), corpus_tokens_storage.end()) + 1));
+    }
+    if (virtual_cycles > 1 && corpus_path == NULL) {
+        fprintf(stderr,
+            "  [root-loop] note: --virtual-cycles=%d without --corpus. "
+            "Priors will be Markov-1-greedy walks from the D-trie (no corpus context).\n"
+            "  Pass --corpus <file> for corpus-sampled priors.\n",
+            virtual_cycles);
+    }
 
     if (!model_path || !trie_dir) {
         fprintf(stderr, "Usage: agpt_train --model <path> --trie-dir <path>\n"
