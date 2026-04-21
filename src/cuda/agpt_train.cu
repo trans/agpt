@@ -1586,6 +1586,9 @@ __global__ void agpt_loss_per_query_kernel(
     const int* counts_val,
     const float* mass_weights,    // [T_q] per-query mass weight, or NULL to disable
     const int* target_radix_ids,  // [T_q] per-query rolling-D target radix (NULL = use per-node path)
+    const float* dense_targets,   // [T_q, V] dense per-query target distribution (NULL = use sparse counts).
+                                  // When non-NULL AND query is an endpoint, takes precedence over the
+                                  // counts-based target. Used by suffix-depth blending (K=1 path).
     float* d_logits,              // [T_q, V] — written with gradient
     float* loss_out,              // [T_q]
     int T_q, int V,
@@ -1631,6 +1634,32 @@ __global__ void agpt_loss_per_query_kernel(
         int n_idx = query_to_node[q];
         int node_end_q = query_offsets[n_idx + 1];
         bool is_endpoint = (q + 1) == node_end_q;
+
+        // Suffix-depth blending override. At endpoint queries, if a dense
+        // per-query target distribution is supplied, use it directly. The
+        // caller (CPU, run_radix_training) has already combined the suffix-
+        // depth distributions into a [V]-dimensional vector summing to ≤ 1.
+        // Intermediate (unary-chain) queries fall through to the existing
+        // deterministic-singleton path below — we deliberately don't blend
+        // intermediate positions on this first pass.
+        if (dense_targets != NULL && is_endpoint) {
+            const float* target = dense_targets + (long long)q * V;
+            float loss = 0.0f;
+            for (int v = 0; v < V; v++) {
+                float p = grad_row[v];     // softmax prob
+                float t = target[v];
+                if (t > 0.0f) loss -= t * logf(p + 1e-10f);
+                grad_row[v] = p - t;       // dCE/dlogit = softmax - target
+            }
+            float weight = 1.0f;
+            if (mass_weights != NULL) weight *= mass_weights[q];
+            if (weight != 1.0f) {
+                loss *= weight;
+                for (int j = 0; j < V; j++) grad_row[j] *= weight;
+            }
+            loss_out[q] = loss;
+            return;
+        }
 
         // Rolling-D target override (cycle-k>1 path). target_radix_ids[q] holds
         // the radix_id whose stored count distribution is the correct target
@@ -1754,6 +1783,7 @@ void launch_agpt_loss_per_query(const float* logits, const int* query_to_node,
                                  const int* counts_val,
                                  const float* mass_weights,
                                  const int* target_radix_ids,
+                                 const float* dense_targets,
                                  float* d_logits, float* loss_out,
                                  int T_q, int V, float entropy_lambda,
                                  float intermediate_weight) {
@@ -1764,7 +1794,7 @@ void launch_agpt_loss_per_query(const float* logits, const int* query_to_node,
     agpt_loss_per_query_kernel<<<T_q, threads, smem>>>(
         logits, query_to_node, query_offsets, radix_ids, token_ids,
         counts_offset, counts_tok, counts_val, mass_weights,
-        target_radix_ids,
+        target_radix_ids, dense_targets,
         d_logits, loss_out, T_q, V, entropy_lambda, intermediate_weight);
 }
 
@@ -3027,6 +3057,7 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                         float weight_decay, float grad_clip_norm, int save_every,
                         CurriculumMode curriculum, const char* save_path,
                         int virtual_cycles = 1,
+                        float blend_alpha = 0.0f,
                         TrainPersistence* persist = nullptr)
 {
     const bool quiet = persist && persist->quiet;
@@ -3558,8 +3589,9 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
     int* d_prior_kv_lengths = NULL;
     int* d_prior_query_to_node = NULL;
     int* d_prior_char_pos = NULL;  // [prior_len]: slot indices in d_kv_keys where prior K,V live
-    StateIndex state_index;        // D-tuple → radix_id, for rolling-D target lookup
+    StateIndex state_index;        // D-tuple → radix_id, for rolling-D target lookup + blending
     int* d_target_radix_ids = NULL;  // [T_q_cap]: per-query target radix_id for cycle-k>1 loss
+    float* d_blended_targets = NULL; // [T_q_cap, V]: dense per-query blended target distribution (K=1 blending)
 
     if (virtual_cycles > 1) {
         prior_len = (virtual_cycles - 1) * max_endpoint_depth;
@@ -3628,6 +3660,21 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
             printf("  state_index: %zu D-path → radix_id entries\n", state_index.size());
         }
         CUDA_CHECK(cudaMalloc(&d_target_radix_ids, T_q_cap * sizeof(int)));
+    }
+
+    // Suffix-depth blending support (K=1 path). Build state_index (if not already
+    // built for virtual_cycles>1) and allocate the dense target buffer.
+    if (blend_alpha > 0.0f && virtual_cycles == 1) {
+        build_state_index(trie, V, state_index);
+        if (!quiet) {
+            printf("  state_index: %zu D-path → radix_id entries (for blending)\n", state_index.size());
+        }
+    }
+    if (blend_alpha > 0.0f) {
+        CUDA_CHECK(cudaMalloc(&d_blended_targets, (long long)T_q_cap * V * sizeof(float)));
+        if (!quiet) {
+            printf("  blend-alpha: %.3f (suffix-depth blending at endpoint queries)\n", blend_alpha);
+        }
     }
 
     // ------------------------------------------------------------
@@ -4060,6 +4107,88 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                                           &alpha, W_out, V, d_final_out, D, &beta_zero, d_logits, V));
                 cuda_bias_add(d_logits, B_out, T_q, V);
 
+                // Suffix-depth blending: at each endpoint query, compute a blended
+                // target distribution over V tokens by mixing D-trie count
+                // distributions at multiple suffix depths. λ_k = α^(d-k) / Z.
+                //
+                // Each endpoint is the last query of its radix node: at chunk index i,
+                // the node's path is ancestors + edge (full root-to-endpoint tokens),
+                // length d = endpoint_depth. For k = 1..d, we look up the last-k
+                // tokens of that path in state_index → some radix_id whose count
+                // distribution we mix in with weight λ_k. For k = 0, we use a uniform
+                // (1/V) distribution as a weak root prior.
+                if (blend_alpha > 0.0f) {
+                    // [T_q * V] buffer, zeroed. Only endpoint rows are written; the
+                    // kernel gates on is_endpoint and ignores the rest.
+                    std::vector<float> h_blended((long long)T_q * V, 0.0f);
+                    std::vector<int> path_toks;  // scratch
+                    path_toks.reserve(max_endpoint_depth + 1);
+                    int path_window[512];  // stack scratch for lookup
+                    for (int i = 0; i < N; i++) {
+                        int r = h_radix_ids[i];
+                        int L_i = trie.edge_lens[r];
+                        int anc_off = trie.ancestor_char_offsets[r];
+                        int anc_len = trie.ancestor_char_offsets[r + 1] - anc_off;
+                        int edge_start = trie.edge_starts[r];
+                        int d = anc_len + L_i;
+                        // Endpoint query index in flat T_q buffer:
+                        int q_ep = h_query_offsets[i + 1] - 1;
+                        // Gather full path tokens
+                        path_toks.clear();
+                        for (int a = 0; a < anc_len; a++) {
+                            int char_pos = trie.ancestor_char_ids[anc_off + a];
+                            path_toks.push_back(trie.edge_tokens_flat[char_pos]);
+                        }
+                        for (int e = 0; e < L_i; e++) {
+                            path_toks.push_back(trie.edge_tokens_flat[edge_start + e]);
+                        }
+                        // Normalizer Z
+                        float Z = 0.0f;
+                        for (int k = 0; k <= d; k++) Z += powf(blend_alpha, (float)(d - k));
+                        if (Z <= 0.0f) continue;
+                        float* out_row = h_blended.data() + (long long)q_ep * V;
+                        for (int k = 0; k <= d; k++) {
+                            float lam = powf(blend_alpha, (float)(d - k)) / Z;
+                            if (k == 0) {
+                                // Uniform root prior
+                                float uv = 1.0f / (float)V;
+                                for (int v = 0; v < V; v++) out_row[v] += lam * uv;
+                                continue;
+                            }
+                            // Suffix of length k: last k tokens of path
+                            for (int j = 0; j < k; j++) path_window[j] = path_toks[d - k + j];
+                            int matched_len = 0;
+                            int radix_id = lookup_state_with_backoff(state_index, path_window, k, &matched_len);
+                            if (radix_id < 0) continue;  // no match, skip this depth
+                            // Only use if matched at exactly length k (avoids
+                            // double-counting via backoff to a shorter depth we'll
+                            // also score separately in the loop).
+                            if (matched_len != k) continue;
+                            int cs = trie.counts_offset[radix_id];
+                            int ce = trie.counts_offset[radix_id + 1];
+                            if (cs == ce) continue;
+                            int tot = 0;
+                            for (int e = cs; e < ce; e++) tot += trie.counts_val[e];
+                            if (tot <= 0) continue;
+                            float inv_tot = 1.0f / (float)tot;
+                            for (int e = cs; e < ce; e++) {
+                                int tok = trie.counts_tok[e];
+                                out_row[tok] += lam * (float)trie.counts_val[e] * inv_tot;
+                            }
+                        }
+                        // Renormalize the row — some k's may have been skipped.
+                        float row_sum = 0.0f;
+                        for (int v = 0; v < V; v++) row_sum += out_row[v];
+                        if (row_sum > 0.0f) {
+                            float inv = 1.0f / row_sum;
+                            for (int v = 0; v < V; v++) out_row[v] *= inv;
+                        }
+                    }
+                    CUDA_CHECK(cudaMemcpy(d_blended_targets, h_blended.data(),
+                                          (long long)T_q * V * sizeof(float),
+                                          cudaMemcpyHostToDevice));
+                }
+
                 // Per-query loss: intermediate positions = single-target CE, endpoints
                 // = distribution CE. d_d_logits (per-query grad) written in place.
                 // target_radix_ids = NULL at cycle 1 preserves pre-Phase-2 behavior
@@ -4069,6 +4198,7 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                                             d_radix_counts_offset, d_radix_counts_tok, d_radix_counts_val,
                                             mass_weight ? d_mass_weights : NULL,
                                             /*target_radix_ids=*/NULL,
+                                            (blend_alpha > 0.0f) ? d_blended_targets : NULL,
                                             d_d_logits, d_loss, T_q, V, entropy_lambda,
                                             intermediate_weight);
 
@@ -4457,6 +4587,7 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                                                     d_radix_counts_offset, d_radix_counts_tok, d_radix_counts_val,
                                                     mass_weight ? d_mass_weights : NULL,
                                                     /*target_radix_ids=*/d_target_radix_ids,
+                                                    /*dense_targets=*/NULL,
                                                     d_d_logits, d_loss, T_q, V, entropy_lambda,
                                                     intermediate_weight);
 
@@ -4751,6 +4882,7 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
         if (hit_hist) free(hit_hist);
         free(h_prior_tokens_all);
     }
+    if (d_blended_targets) cudaFree(d_blended_targets);
     free(root_child_of); free(root_children);
     for (int i = 0; i < n_root_children; i++) free(subtree_nodes[i]);
     free(subtree_nodes); free(subtree_sizes);
@@ -4789,7 +4921,8 @@ int run_per_subtree_training(const Config& cfg_in, const WeightOffsets& wo,
                               float weight_decay, float grad_clip_norm, int save_every,
                               CurriculumMode curriculum, const char* save_path,
                               bool lr_scale_by_steps = false,
-                              int virtual_cycles = 1)
+                              int virtual_cycles = 1,
+                              float blend_alpha = 0.0f)
 {
     // Auto-LR scaling: the optimal LR depends on total gradient-movement per pass
     // (lr × steps_per_super_epoch ≈ constant for a fixed depth). The winning d=16
@@ -4898,6 +5031,7 @@ int run_per_subtree_training(const Config& cfg_in, const WeightOffsets& wo,
                                weight_decay, grad_clip_norm, /*save_every=*/0,
                                curriculum, /*save_path=*/NULL,
                                virtual_cycles,
+                               blend_alpha,
                                &persist);
 
             super_nodes_trained += s.n_nodes;
@@ -4983,6 +5117,10 @@ int main(int argc, char** argv) {
     bool lr_scale_by_steps = false;  // per-subtree: auto-rescale lr to keep the same
                                       // effective "gradient budget per pass" as the
                                       // unigram-d=16 reference recipe (65 steps/pass).
+    float blend_alpha = 0.0f;         // suffix-depth blending: at K=1 endpoints, use
+                                       // target = Σ λ_k * D-trie[k-suffix], λ_k = α^(d-k)
+                                       // normalized. 0 disables blending (current AGPT).
+                                       // 0.5 is a reasonable starting value.
     int virtual_cycles = 1;           // root-loop virtual-tree: K cycles of the D-trie
                                       // strung end-to-end. K=1 is current AGPT.
                                       // K>1 extends transformer training context to K*D.
@@ -5004,6 +5142,7 @@ int main(int argc, char** argv) {
         else if (strcmp(argv[i], "--lr-scale-by-steps") == 0) lr_scale_by_steps = true;
         else if (strcmp(argv[i], "--virtual-cycles") == 0 && i + 1 < argc) virtual_cycles = atoi(argv[++i]);
         else if (strcmp(argv[i], "--corpus") == 0 && i + 1 < argc) corpus_path = argv[++i];
+        else if (strcmp(argv[i], "--blend-alpha") == 0 && i + 1 < argc) blend_alpha = atof(argv[++i]);
         else if (strcmp(argv[i], "--intermediate-weight") == 0 && i + 1 < argc) intermediate_weight = atof(argv[++i]);
         else if (strcmp(argv[i], "--optimizer") == 0 && i + 1 < argc) {
             const char* o = argv[++i];
@@ -5119,7 +5258,8 @@ int main(int argc, char** argv) {
                                            weight_decay, grad_clip_norm, save_every,
                                            curriculum, save_path,
                                            lr_scale_by_steps,
-                                           virtual_cycles);
+                                           virtual_cycles,
+                                           blend_alpha);
         free(manifest.entries);
         return rc;
     }
@@ -5127,7 +5267,7 @@ int main(int argc, char** argv) {
         printf("Loading radix trie from %s...\n", trie_dir);
         RadixTrieData radix_trie = load_radix_trie(trie_dir);
 
-        return run_radix_training(cfg, wo, h_weights, radix_trie, epochs, entropy_lambda, mass_weight, subtree_splits, single_subtree, intermediate_weight, optimizer, momentum_beta, rmsprop_beta, lr_schedule, warmup_epochs, weight_decay, grad_clip_norm, save_every, curriculum, save_path, virtual_cycles);
+        return run_radix_training(cfg, wo, h_weights, radix_trie, epochs, entropy_lambda, mass_weight, subtree_splits, single_subtree, intermediate_weight, optimizer, momentum_beta, rmsprop_beta, lr_schedule, warmup_epochs, weight_decay, grad_clip_norm, save_every, curriculum, save_path, virtual_cycles, blend_alpha);
     }
 
     // Load leveled trie
