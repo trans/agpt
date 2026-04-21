@@ -3848,6 +3848,17 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                 // per-query loss terms (≈ T_q, not N).
                 float grad_scale = (chunk_trained > 0) ? (1.0f / (float)chunk_trained) : 0.0f;
 
+                // K-averaging: scale d_d_logits by 1/K once, at the start of backward.
+                // That single scaling propagates through the whole chain (output-proj
+                // bwd → LN → per-layer → residuals → d_dx → embedding scatter), so
+                // BOTH the weight-grad matmuls AND the embedding scatter-add get the
+                // correct 1/K per-cycle factor. Summed over K cycles, total gradient
+                // = K=1's gradient. grad_scale stays at 1/ct (unchanged for K=1).
+                if (virtual_cycles > 1) {
+                    float inv_K = 1.0f / (float)virtual_cycles;
+                    CUBLAS_CHECK(cublasSscal(cublas, T_q * V, &inv_K, d_d_logits, 1));
+                }
+
                 // Output projection backward — all T_q rows.
                 float* dG_out = d_grads + wo.out_w;
                 // d_d_final_out[T_q, D] = d_d_logits[T_q, V] × W_out^T[V, D]
@@ -4010,6 +4021,16 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                 if (virtual_cycles > 1) {
                     for (int cycle_k = 2; cycle_k <= virtual_cycles; cycle_k++) {
                         int prior_extend = (cycle_k - 1) * max_endpoint_depth;
+                        // Diagnostic override: AGPT_NOPRIOR=1 makes cycle-k reuse
+                        // cycle-1's attention window (pure replay; no prior slots).
+                        // Used to isolate whether degradation comes from negative-pos
+                        // RoPE / prior content vs. cycle-2 plumbing.
+                        static int env_noprior = -1;
+                        if (env_noprior < 0) {
+                            const char* s = getenv("AGPT_NOPRIOR");
+                            env_noprior = (s && strcmp(s, "1") == 0) ? 1 : 0;
+                        }
+                        if (env_noprior) prior_extend = 0;
                         // Rebuild per-node kv offsets + lengths for this cycle.
                         int kv_fill_c = 0;
                         for (int i = 0; i < N; i++) {
@@ -4155,6 +4176,15 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                         free(h_loss_c);
 
                         float grad_scale_c = (chunk_trained_c > 0) ? (1.0f / (float)chunk_trained_c) : 0.0f;
+
+                        // Same 1/K d_d_logits scaling as cycle 1. Applied here (inside
+                        // cycle-k loop, after cycle-k loss kernel) so each cycle's
+                        // contribution is pre-scaled by 1/K before flowing through
+                        // backward. Summed across K cycles → same total as K=1.
+                        if (virtual_cycles > 1) {
+                            float inv_K = 1.0f / (float)virtual_cycles;
+                            CUBLAS_CHECK(cublasSscal(cublas, T_q * V, &inv_K, d_d_logits, 1));
+                        }
 
                         float* dG_out_c = d_grads + wo.out_w;
                         CUBLAS_CHECK(cublasSgemm(cublas, CUBLAS_OP_T, CUBLAS_OP_N, D, T_q, V,
