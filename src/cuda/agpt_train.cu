@@ -2905,9 +2905,11 @@ static void build_state_index(const RadixTrieData& trie, int vocab_size,
 // Look up a token path with suffix-backoff. `window` is the D most recent
 // tokens; we try lengths D, D-1, ..., 1. Returns the matching radix_id or
 // -1 if nothing matched (no usable distribution target — caller should
-// skip the loss term at this query).
+// skip the loss term at this query). If matched_len_out is non-NULL, it
+// receives the length at which the match occurred (for hit-rate diagnostics).
 static int lookup_state_with_backoff(const StateIndex& state_index,
-                                      const int* window, int window_len)
+                                      const int* window, int window_len,
+                                      int* matched_len_out = NULL)
 {
     std::string key;
     key.reserve(window_len);
@@ -2915,8 +2917,12 @@ static int lookup_state_with_backoff(const StateIndex& state_index,
     for (int len = window_len; len >= 1; len--) {
         std::string suffix = key.substr(key.size() - len);
         auto it = state_index.find(suffix);
-        if (it != state_index.end()) return it->second;
+        if (it != state_index.end()) {
+            if (matched_len_out) *matched_len_out = len;
+            return it->second;
+        }
     }
+    if (matched_len_out) *matched_len_out = 0;
     return -1;
 }
 
@@ -2931,6 +2937,7 @@ struct TrainPersistence {
     bool   quiet       = false;    // suppress banner + per-epoch lines
     int    total_opt_steps_override = 0;  // for LR schedule when the caller knows the true horizon
     int    warmup_steps_override    = 0;  // caller-known warmup length (0 = derive from warmup_epochs)
+    long long* hit_hist_io          = nullptr;  // [max_endpoint_depth+2]: rolling-D match-length counts accumulator
 };
 
 int run_radix_training(const Config& cfg, const WeightOffsets& wo,
@@ -3436,6 +3443,14 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
     }
 
     int adam_t = (persist && persist->adam_t_io) ? *persist->adam_t_io : 0;
+
+    // Rolling-D target hit-rate histogram (cycle-k>1 only): [0] = miss
+    // (backoff exhausted), [1..max_endpoint_depth] = match at that suffix
+    // length. max_endpoint_depth bucket = exact-D match (prior fully used).
+    long long* hit_hist = NULL;
+    if (virtual_cycles > 1) {
+        hit_hist = (long long*)calloc(max_endpoint_depth + 2, sizeof(long long));
+    }
 
     // ============================================================
     // Stage D: virtual-tree prior support (virtual_cycles > 1)
@@ -4337,7 +4352,14 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                                     int prior_idx = prior_extend - prior_take + p;
                                     window[p] = prior_tokens[prior_idx];
                                 }
-                                h_target[q_idx] = lookup_state_with_backoff(state_index, window, wlen);
+                                int matched_len = 0;
+                                int lookup = lookup_state_with_backoff(state_index, window, wlen, &matched_len);
+                                if (hit_hist) hit_hist[matched_len]++;
+                                // Fallback on miss: use the query's own radix_id
+                                // (Mj target) rather than skipping the loss. This
+                                // guarantees a training signal at every position —
+                                // prior-aware when state_index matches, Mj otherwise.
+                                h_target[q_idx] = (lookup >= 0) ? lookup : r;
                             }
                         }
                         free(window);
@@ -4553,6 +4575,32 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
             printf("Epoch %d: loss=%.6f  (%.2f sec, %d subtrees, %d chunks, %d nodes)\n",
                    epoch + 1, mean_loss, elapsed, subtrees_trained, chunks_processed, nodes_trained);
         }
+        if (hit_hist && persist && persist->hit_hist_io) {
+            // Accumulate per-subtree histogram into caller-managed buffer for
+            // aggregated printing at super-epoch granularity.
+            for (int k = 0; k <= max_endpoint_depth; k++) persist->hit_hist_io[k] += hit_hist[k];
+            // Reset local histogram so next subtree call starts fresh.
+            for (int k = 0; k <= max_endpoint_depth + 1; k++) hit_hist[k] = 0;
+        } else if (hit_hist) {
+            long long total = 0;
+            for (int k = 0; k <= max_endpoint_depth; k++) total += hit_hist[k];
+            if (total > 0) {
+                long long exact = hit_hist[max_endpoint_depth];
+                long long miss  = hit_hist[0];
+                if (!quiet) {
+                    printf("  rolling-D hits: exact-D=%.2f%%, miss=%.2f%% (total %lld queries)\n",
+                           100.0 * exact / total, 100.0 * miss / total, total);
+                    printf("  match-len histogram (top): ");
+                    for (int k = max_endpoint_depth; k >= 1; k--) {
+                        if (hit_hist[k] > 0) {
+                            printf("L%d=%.1f%% ", k, 100.0 * hit_hist[k] / total);
+                        }
+                    }
+                    printf("\n");
+                }
+            }
+            for (int k = 0; k <= max_endpoint_depth + 1; k++) hit_hist[k] = 0;
+        }
 
         // Intermediate checkpoint every save_every epochs. External tooling
         // (bin/perplexity) can score these to find the best-held-out stopping point.
@@ -4614,6 +4662,7 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
         cudaFree(d_prior_kv_lengths); cudaFree(d_prior_query_to_node);
         cudaFree(d_prior_char_pos);
         if (d_target_radix_ids) cudaFree(d_target_radix_ids);
+        if (hit_hist) free(hit_hist);
         free(h_prior_tokens_all);
     }
     free(root_child_of); free(root_children);
@@ -4698,6 +4747,15 @@ int run_per_subtree_training(const Config& cfg_in, const WeightOffsets& wo,
     float* h_adam_v = (float*)calloc(wo.total_floats, sizeof(float));
     int adam_t = 0;
 
+    // Rolling-D hit histogram buffer (cycle-k>1 only). Sized generously to
+    // cover any subtree's max_endpoint_depth. 256 is a safe upper bound for
+    // AGPT runs we'd plausibly attempt.
+    long long* hit_hist_super = NULL;
+    int hit_hist_cap = 256;
+    if (virtual_cycles > 1) {
+        hit_hist_super = (long long*)calloc(hit_hist_cap, sizeof(long long));
+    }
+
     // Total optimizer steps across the whole training (for cosine horizon).
     int total_opt_steps = super_epochs * steps_per_super_epoch;
     int warmup_steps    = warmup_super_epochs * steps_per_super_epoch;
@@ -4742,6 +4800,7 @@ int run_per_subtree_training(const Config& cfg_in, const WeightOffsets& wo,
             persist.quiet = true;
             persist.total_opt_steps_override = total_opt_steps;
             persist.warmup_steps_override = warmup_steps;
+            persist.hit_hist_io = hit_hist_super;
 
             // One subtree, one Adam/RMSProp step (single_subtree semantics per file).
             // Save path is deferred to the super-epoch level below.
@@ -4766,6 +4825,27 @@ int run_per_subtree_training(const Config& cfg_in, const WeightOffsets& wo,
         double elapsed = (t1.tv_sec - t0.tv_sec) + (t1.tv_nsec - t0.tv_nsec) / 1e9;
         printf("Super-epoch %d: %d subtrees, %lld radix nodes  (%.1f sec, adam_t=%d)\n",
                ep + 1, subtrees_done, super_nodes_trained, elapsed, adam_t);
+        if (hit_hist_super) {
+            long long total = 0;
+            int max_nz_len = 0;
+            for (int k = 0; k < hit_hist_cap; k++) {
+                total += hit_hist_super[k];
+                if (hit_hist_super[k] > 0 && k > max_nz_len) max_nz_len = k;
+            }
+            if (total > 0) {
+                printf("  rolling-D: exact-D(L=%d)=%.2f%%, miss=%.2f%% (%lld queries)\n",
+                       max_nz_len, 100.0 * hit_hist_super[max_nz_len] / total,
+                       100.0 * hit_hist_super[0] / total, total);
+                printf("  match-len histogram: ");
+                for (int k = max_nz_len; k >= 1; k--) {
+                    if (hit_hist_super[k] > 0) {
+                        printf("L%d=%.1f%% ", k, 100.0 * hit_hist_super[k] / total);
+                    }
+                }
+                printf("\n");
+            }
+            for (int k = 0; k < hit_hist_cap; k++) hit_hist_super[k] = 0;
+        }
         (void)super_loss_sum;  // loss is printed by run_radix_training when !quiet
 
         if (save_every > 0 && save_path && (ep + 1) % save_every == 0) {
@@ -4781,6 +4861,7 @@ int run_per_subtree_training(const Config& cfg_in, const WeightOffsets& wo,
         printf("Saved to %s\n", save_path);
     }
     free(h_adam_m); free(h_adam_v);
+    if (hit_hist_super) free(hit_hist_super);
     printf("Done.\n");
     return 0;
 }
