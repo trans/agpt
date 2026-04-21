@@ -2662,11 +2662,10 @@ __global__ void gather_endpoint_rows_kernel(
 // ============================================================================
 //
 // For virtual_cycles K > 1, training needs:
-//   1. A "prior" of (K-1)*D tokens prepended to each radix node's attention
-//      window at cycle k>1. Here we use ONE GLOBAL prior derived from the
-//      D-trie via Markov-1-greedy radix walk (simplification from the
-//      per-root-child design in the plan; revisit if training quality is
-//      limited by shared-prior stereotyping).
+//   1. A per-root-child "prior" of (K-1)*D tokens prepended to each radix
+//      node's attention window at cycle k>1. For root-child rc with first
+//      token t_R, we pick a depth-D D-trie path whose leaf token X satisfies
+//      bigram(X, t_R) so the prior naturally transitions into the subtree.
 //   2. A RoPE cos/sin cache covering negative positions -(K-1)*D..-1, used
 //      exclusively when rotating the prior's K,V. RoPE's attention-score
 //      formula depends only on RELATIVE position (q - k), so placing the
@@ -2674,39 +2673,96 @@ __global__ void gather_endpoint_rows_kernel(
 //      the correct "prior is (K-1)*D steps earlier than ancestry" semantic
 //      without re-baking ancestor K,V.
 //
-// Derive the prior by walking the radix trie from root, at each step picking
-// the unique child with the greatest `edge_mass` (= most-frequent bigram
-// continuation, since root's children are depth-1 radix nodes keyed by the
-// first corpus token). Collect the chosen radix nodes' edge tokens until we
-// have `prior_len` tokens; pad with zero if the trie is shallower.
-static void compute_virtual_prior_tokens(const RadixTrieData& trie,
-                                         int prior_len,
-                                         int* out_tokens /* [prior_len] */)
+// NOTE: this implementation only handles K=2 cleanly — the prior is ONE
+// depth-D path. For K≥3 we would need recursive D-segment walks (segment k
+// starts at the depth-1 trie node whose token equals segment k-1's leaf).
+// Until that's coded, K≥3 falls back to zero-pad for any rc that can't be
+// satisfied by a single depth-D walk. OK for the first experiment (K=2).
+static void compute_virtual_prior_tokens_per_rc(
+    const RadixTrieData& trie, int vocab_size,
+    const int* root_children, int n_root_children,
+    int prior_len,
+    int* out_tokens /* [n_root_children * prior_len] */)
 {
-    for (int i = 0; i < prior_len; i++) out_tokens[i] = 0;
-    if (prior_len <= 0) return;
+    for (long long i = 0; i < (long long)n_root_children * prior_len; i++) out_tokens[i] = 0;
+    if (prior_len <= 0 || n_root_children <= 0) return;
 
-    int cur = 0;  // virtual root
-    int filled = 0;
-    while (filled < prior_len) {
-        // Find highest-edge_mass child of `cur`.
-        int best = -1;
+    // Bigram matrix: bigram[a*V + b] = true iff the D-trie has a depth-1→2
+    // transition from token `a` to token `b`. Covers both (case 1) radix
+    // edges whose span crosses depth 1→2 internally, and (case 2) radix
+    // edges starting at depth 2 whose parent edge ended at depth 1.
+    int V = vocab_size;
+    bool* bigram = (bool*)calloc((long long)V * V, sizeof(bool));
+    for (int r = 1; r < trie.radix_count; r++) {
+        int fcd = trie.edge_first_char_depths[r];
+        int L = trie.edge_lens[r];
+        int start = trie.edge_starts[r];
+        // Case 1: edge covers both depth 1 and depth 2.
+        if (fcd <= 1 && (fcd + L - 1) >= 2 && L >= 2) {
+            int j_at_1 = 1 - fcd;  // edge-local index of depth-1 token
+            int a = trie.edge_tokens_flat[start + j_at_1];
+            int b = trie.edge_tokens_flat[start + j_at_1 + 1];
+            if (a >= 0 && a < V && b >= 0 && b < V) bigram[a * V + b] = true;
+        }
+        // Case 2: edge starts at depth 2, parent ended at depth 1.
+        if (fcd == 2) {
+            int parent = trie.parents[r];
+            if (parent > 0) {
+                int pL = trie.edge_lens[parent];
+                int pstart = trie.edge_starts[parent];
+                int a = trie.edge_tokens_flat[pstart + pL - 1];
+                int b = trie.edge_tokens_flat[start];
+                if (a >= 0 && a < V && b >= 0 && b < V) bigram[a * V + b] = true;
+            }
+        }
+    }
+
+    for (int rc_idx = 0; rc_idx < n_root_children; rc_idx++) {
+        int rc = root_children[rc_idx];
+        int t_R = trie.edge_tokens_flat[trie.edge_starts[rc]];
+
+        // Find the radix leaf at endpoint depth == prior_len whose last edge
+        // token X has bigram(X, t_R). Among candidates, pick highest edge_mass.
+        int best_leaf = -1;
         int best_mass = -1;
         for (int r = 1; r < trie.radix_count; r++) {
-            if (trie.parents[r] != cur) continue;
-            int m = trie.edge_mass[r];
-            if (m > best_mass) { best_mass = m; best = r; }
+            int fcd = trie.edge_first_char_depths[r];
+            int L = trie.edge_lens[r];
+            int ep = fcd + L - 1;  // 1-indexed endpoint depth
+            if (ep != prior_len) continue;
+            int last_tok = trie.edge_tokens_flat[trie.edge_starts[r] + L - 1];
+            if (last_tok < 0 || last_tok >= V) continue;
+            if (!bigram[last_tok * V + t_R]) continue;
+            int mass = trie.edge_mass[r];
+            if (mass > best_mass) { best_mass = mass; best_leaf = r; }
         }
-        if (best < 0) break;  // dead end: pad with zeros
-        int edge_start = trie.edge_starts[best];
-        int L = trie.edge_lens[best];
-        int take = (L < prior_len - filled) ? L : (prior_len - filled);
-        for (int j = 0; j < take; j++) {
-            out_tokens[filled + j] = trie.edge_tokens_flat[edge_start + j];
+
+        if (best_leaf < 0) continue;  // leave zero-pad for this rc
+
+        // Reconstruct root→leaf radix path, then stream edge tokens in order.
+        int* path_radix = (int*)malloc(prior_len * sizeof(int));
+        int path_len = 0;
+        int cur = best_leaf;
+        while (cur != 0 && path_len < prior_len) {
+            path_radix[path_len++] = cur;
+            cur = trie.parents[cur];
         }
-        filled += take;
-        cur = best;
+        int fill = 0;
+        int* dst = out_tokens + (long long)rc_idx * prior_len;
+        for (int i = path_len - 1; i >= 0 && fill < prior_len; i--) {
+            int r = path_radix[i];
+            int L = trie.edge_lens[r];
+            int start = trie.edge_starts[r];
+            int take = (L < prior_len - fill) ? L : (prior_len - fill);
+            for (int j = 0; j < take; j++) {
+                dst[fill + j] = trie.edge_tokens_flat[start + j];
+            }
+            fill += take;
+        }
+        free(path_radix);
     }
+
+    free(bigram);
 }
 
 // Build a RoPE cos/sin cache for NEGATIVE positions -prior_len..-1, stored
