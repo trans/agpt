@@ -1,23 +1,64 @@
 Loading radix trie: /tmp/agpt_input_d16_radix
-  radix_count: 1607928
-  depth_file_count: 17
-  total_edge_chars: 9313896
-  vocab_size: 65
-  corpus_token_count: 1115394
 
-Endpoint-depth profile (per endpoint depth d):
-  n_nodes      = radix endpoints with endpoint_depth == d
-  total_count  = Σ counts_val across those endpoints (mass that hits
-                 a branching decision at this depth; a D-gram may
-                 contribute to multiple depths)
-  avg_branch   = mean # of distinct next-tokens per endpoint (= counts.size)
-                 interior depths ≥ 2 by construction; cap can be 1
-  avg_edge_len = mean length of the unary-compressed edge ending at d
-                 1 = no compression; larger = bigger unary chain absorbed
-  chars_absorbed = Σ (edge_len - 1) = # of original (leveled-trie) nodes
-                   collapsed INTO edges ending at this depth
+==============================================================================
+TRIE SIZE
+==============================================================================
+  radix_count        = 1607928
+    Number of nodes AFTER radix compression (storage units in this file).
+    Each radix node has an 'edge' of 1+ tokens that represents a unary
+    chain collapsed from the uncompressed trie.
+    (Includes the virtual root at id=0, edge_len=0.)
 
-  depth  n_nodes    total_count  median_cnt  mean_cnt   max_cnt  avg_branch  avg_edge_len  chars_absorbed  %singleton(at cap only)
+  total_edge_chars   = 9313896
+    Sum of edge lengths across all radix nodes. Equivalent to the node
+    count of the UNCOMPRESSED (leveled) D-trie — i.e., the number of
+    distinct (path-from-root, token) character positions the corpus
+    produced.
+
+  compression        = 5.79x
+    = total_edge_chars / radix_count. How many leveled-trie nodes, on
+    average, each radix storage unit represents.
+
+  depth_file_count   = 17 (= D+1, files are indexed 0..D where D = cap depth)
+  vocab_size         = 65
+  corpus_token_count = 1115394
+
+==============================================================================
+PER-DEPTH PROFILE
+==============================================================================
+  depth          Endpoint depth of radix nodes (where their edges end).
+                 d=1..D-1 = interior branching points.
+                 d=D     = CAP — the max depth, where long unary tails terminate.
+
+  n_nodes        Number of radix endpoints at this depth.
+
+  total_count    Σ counts_val across those endpoints = total corpus mass
+                 that hits a branching decision at this depth.
+                 (A corpus D-gram branches multiple times on its way to
+                 the cap; it contributes to several depths' total_count.)
+
+  median_cnt     Median / mean / max of the per-endpoint total count
+  mean_cnt       at this depth (how many corpus positions passed through
+  max_cnt        each endpoint at this depth).
+
+  avg_branch     Mean branching factor = mean counts.size per endpoint.
+                 At interior depths ≥ 2 by construction (radix collapses
+                 unary chains, so only real branching points survive as
+                 interior endpoints). At the cap, can be 1 (singleton).
+
+  avg_edge_len   Mean length of the unary-compressed edge ending at this
+                 endpoint. 1 = no compression; larger = longer unary
+                 chain got absorbed into this edge.
+
+  chars_absorbed Σ (edge_len - 1) at this depth = # of leveled-trie nodes
+                 that got collapsed INTO edges ending at this depth.
+
+  %singleton     At the cap only: fraction of endpoints with counts.size==1
+                 (i.e., unique corpus D-grams with a single observed
+                 continuation). Interior depths are tautologically 0% and
+                 shown as (n/a).
+
+  depth  n_nodes    total_count  median_cnt  mean_cnt   max_cnt  avg_branch  avg_edge_len  chars_absorbed  %singleton
       1         62        1114756        6187   17979.94     169892      22.58          1.00               0     (n/a)
       2       1139        1102212         181     967.70      27643       9.91          1.00               1     (n/a)
       3       7624        1059288          26     138.94      16032       6.14          1.01              76     (n/a)
@@ -35,4 +76,11 @@ Endpoint-depth profile (per endpoint depth d):
      15       8738          26086           2       2.99        236       2.33          4.21           28012     (n/a)
      16    1081061        1115378           1       1.03        236       1.01          7.75         7294121  99.43%
 
-Totals:  radix endpoints=1607927, total edge chars=9313896, absorbed=7705969 (82.74% of leveled nodes), compression=5.79x
+==============================================================================
+COMPRESSION SUMMARY
+==============================================================================
+  leveled trie node count  = 9313896  (= total_edge_chars)
+  radix endpoints          = 1607927  (= storage units with an edge)
+  absorbed into edges      = 7705969  (= leveled nodes hidden inside radix edges)
+                             82.74% of leveled nodes got compressed
+  compression ratio        = 5.79x  (avg leveled nodes per radix storage unit)
