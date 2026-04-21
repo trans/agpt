@@ -2866,12 +2866,10 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
     }
     }
     if (virtual_cycles > 1 && !quiet) {
-        // Stage D is in: prior tokens computed per-rc, per-subtree
-        // mini-forward projects and saves per-layer K,V. Stages E–G
-        // (extended attention window + cycle-K loop) still pending, so
-        // training semantics remain effectively K=1 until those land.
-        printf("  [root-loop] Stage D active: prior K,V recomputed per subtree;\n"
-               "              cycle-k>1 attention extension (stages E–G) still pending.\n");
+        printf("  [root-loop] K=%d cycles per radix node; prior K,V recomputed per subtree\n"
+               "              and scattered to KV tail slots; each cycle k>1 prepends\n"
+               "              (k-1)*D prior positions to every node's attention window.\n",
+               virtual_cycles);
     }
     int D = cfg.d_model;
     int F = cfg.d_ff;
@@ -2940,8 +2938,16 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
         CUDA_CHECK(cudaMalloc(&d_clip_norm, sizeof(float)));
     }
 
-    // KV cache (unified memory, per character position)
-    long long kv_bytes = trie.total_edge_chars * (long long)D * sizeof(float);
+    // KV cache (unified memory, per character position).
+    // For root-loop virtual-tree training (virtual_cycles > 1), we reserve
+    // prior_len extra positions at the TAIL of the cache so the prior's K,V
+    // can be scattered with regular char-position indices and subsequently
+    // gathered by the same kv_gather kernel used for ancestor+edge KV. Prior
+    // slots sit at [total_edge_chars, total_edge_chars + prior_len).
+    long long kv_tail_prior_slots =
+        (virtual_cycles > 1) ? (long long)(virtual_cycles - 1) * max_endpoint_depth : 0;
+    long long kv_slots_total = trie.total_edge_chars + kv_tail_prior_slots;
+    long long kv_bytes = kv_slots_total * (long long)D * sizeof(float);
     long long total_kv_bytes = kv_bytes * 2 * L_layers;
     {
         struct sysinfo si;
@@ -3019,7 +3025,13 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
         CUDA_CHECK(cudaMalloc(&sv_ff_h[l],        (long long)T_q_cap * F * sizeof(float)));
         CUDA_CHECK(cudaMalloc(&sv_ff_mask[l],     (long long)T_q_cap * F * sizeof(float)));
         CUDA_CHECK(cudaMalloc(&sv_attn_out[l],    (long long)T_q_cap * D * sizeof(float)));
-        CUDA_CHECK(cudaMalloc(&sv_attn_weights[l],(long long)T_q_cap * H * max_kv_per_node * sizeof(float)));
+        // For virtual_cycles > 1, per-node kv_len at cycle K is extended by
+        // (virtual_cycles-1)*max_endpoint_depth prior slots, so the kernel's
+        // stride into sv_attn_weights is larger. Allocate with the worst-case
+        // stride to avoid overruns when the cycle-k kernel writes attn weights.
+        int attn_w_stride = max_kv_per_node
+            + ((virtual_cycles > 1) ? (virtual_cycles - 1) * max_endpoint_depth : 0);
+        CUDA_CHECK(cudaMalloc(&sv_attn_weights[l],(long long)T_q_cap * H * attn_w_stride * sizeof(float)));
     }
 
     // Packed attention buffers
@@ -3321,10 +3333,9 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
     // (q_pos - k_pos), so this places the prior strictly before the ancestry
     // in relative-time without touching ancestor K,V.
     int prior_len = 0;
+    long long prior_slot_base = 0;  // first prior slot in d_kv_keys; radix queries use this at cycle k>1
     float* d_rope_cos_prior = NULL;
     float* d_rope_sin_prior = NULL;
-    float** d_prior_kv_k = NULL;
-    float** d_prior_kv_v = NULL;
     int* h_prior_tokens_all = NULL;  // [n_root_children * prior_len]
     int* d_prior_token_ids = NULL;
     int* d_prior_rope_positions = NULL;
@@ -3332,24 +3343,18 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
     int* d_prior_kv_offsets = NULL;
     int* d_prior_kv_lengths = NULL;
     int* d_prior_query_to_node = NULL;
+    int* d_prior_char_pos = NULL;  // [prior_len]: slot indices in d_kv_keys where prior K,V live
 
     if (virtual_cycles > 1) {
         prior_len = (virtual_cycles - 1) * max_endpoint_depth;
+        prior_slot_base = trie.total_edge_chars;
 
         build_rope_cache_prior(&d_rope_cos_prior, &d_rope_sin_prior, prior_len, HD);
-
-        d_prior_kv_k = (float**)malloc(L_layers * sizeof(float*));
-        d_prior_kv_v = (float**)malloc(L_layers * sizeof(float*));
-        for (int l = 0; l < L_layers; l++) {
-            CUDA_CHECK(cudaMalloc(&d_prior_kv_k[l], (long long)prior_len * D * sizeof(float)));
-            CUDA_CHECK(cudaMalloc(&d_prior_kv_v[l], (long long)prior_len * D * sizeof(float)));
-        }
 
         h_prior_tokens_all = (int*)calloc((long long)n_root_children * prior_len, sizeof(int));
         compute_virtual_prior_tokens_per_rc(trie, V, root_children, n_root_children,
                                              prior_len, h_prior_tokens_all);
 
-        // Report how many rcs got non-zero priors (rest are zero-padded fallback).
         int rcs_with_prior = 0;
         for (int rc_idx = 0; rc_idx < n_root_children; rc_idx++) {
             const int* src = h_prior_tokens_all + (long long)rc_idx * prior_len;
@@ -3358,17 +3363,18 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
             }
         }
         if (!quiet) {
-            printf("  virtual-tree prior: K=%d, prior_len=%d, rcs_with_prior=%d/%d (zero-pad for the rest)\n",
-                   virtual_cycles, prior_len, rcs_with_prior, n_root_children);
+            printf("  virtual-tree prior: K=%d, prior_len=%d, slots=[%lld,%lld), rcs_with_prior=%d/%d (zero-pad for the rest)\n",
+                   virtual_cycles, prior_len, (long long)prior_slot_base,
+                   (long long)(prior_slot_base + prior_len), rcs_with_prior, n_root_children);
         }
 
-        // Structural upload buffers for the prior mini-forward (all constant).
         CUDA_CHECK(cudaMalloc(&d_prior_token_ids,      prior_len * sizeof(int)));
         CUDA_CHECK(cudaMalloc(&d_prior_rope_positions, (long long)prior_len * H * sizeof(int)));
         CUDA_CHECK(cudaMalloc(&d_prior_query_offsets,  2 * sizeof(int)));
         CUDA_CHECK(cudaMalloc(&d_prior_kv_offsets,     2 * sizeof(int)));
         CUDA_CHECK(cudaMalloc(&d_prior_kv_lengths,     sizeof(int)));
         CUDA_CHECK(cudaMalloc(&d_prior_query_to_node,  prior_len * sizeof(int)));
+        CUDA_CHECK(cudaMalloc(&d_prior_char_pos,       prior_len * sizeof(int)));
         {
             int* rp = (int*)malloc((long long)prior_len * H * sizeof(int));
             for (int p = 0; p < prior_len; p++)
@@ -3384,6 +3390,10 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
             int* zeros = (int*)calloc(prior_len, sizeof(int));
             CUDA_CHECK(cudaMemcpy(d_prior_query_to_node, zeros, prior_len * sizeof(int), cudaMemcpyHostToDevice));
             free(zeros);
+            int* pcp = (int*)malloc(prior_len * sizeof(int));
+            for (int p = 0; p < prior_len; p++) pcp[p] = (int)(prior_slot_base + p);
+            CUDA_CHECK(cudaMemcpy(d_prior_char_pos, pcp, prior_len * sizeof(int), cudaMemcpyHostToDevice));
+            free(pcp);
         }
     }
 
@@ -3481,10 +3491,11 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                     launch_rope_batched(d_q, d_prior_rope_positions, d_rope_cos_prior, d_rope_sin_prior, T_p * H, HD);
                     launch_rope_batched(d_k, d_prior_rope_positions, d_rope_cos_prior, d_rope_sin_prior, T_p * H, HD);
 
-                    // Snapshot post-RoPE K, V for this layer BEFORE self-attention mutates nothing
-                    // in d_k/d_v (it reads only). Saving here keeps one DeviceToDevice copy per layer.
-                    CUDA_CHECK(cudaMemcpy(d_prior_kv_k[l], d_k, (long long)T_p * D * sizeof(float), cudaMemcpyDeviceToDevice));
-                    CUDA_CHECK(cudaMemcpy(d_prior_kv_v[l], d_v, (long long)T_p * D * sizeof(float), cudaMemcpyDeviceToDevice));
+                    // Scatter post-RoPE K, V into the reserved tail slots of d_kv_keys[l]
+                    // at positions [prior_slot_base, prior_slot_base + prior_len). Cycle-k>1
+                    // radix queries look up these same slots via their extended prefix_char_ids.
+                    launch_kv_scatter(d_k, d_prior_char_pos, d_kv_keys[l],   T_p, D);
+                    launch_kv_scatter(d_v, d_prior_char_pos, d_kv_values[l], T_p, D);
 
                     // Self-attention (causal within prior): N=1 node, T_p queries, T_p KV.
                     // d_k / d_v are already in packed [T_p, H, HD] layout = [T_p, D], the
@@ -3979,6 +3990,269 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                 float* dG_emb = d_grads + wo.token_emb;
                 cuda_embedding_scatter_add(d_dx, d_token_ids, dG_emb, T_q, D);
 
+                // ============================================================
+                // Stages F+G: cycle-k>1 virtual-tree forward+backward
+                // ------------------------------------------------------------
+                // For virtual_cycles > 1, add K-1 more forward+backward passes
+                // over the same chunk. Each cycle k prepends (k-1)*D prior slot
+                // indices to every radix node's attention window, so the query
+                // at position fcd+j-1 attends to the (k-1)*D prior positions
+                // (baked at RoPE -(k-1)*D..-1 at subtree entry) plus the same
+                // ancestor+edge positions as cycle 1. RoPE's relative-position
+                // attention score means the query's own RoPE index is unchanged.
+                // Gradients accumulate into d_grads across cycles; the subtree's
+                // single RMSProp step then sees the sum.
+                //
+                // Implementation note: cycle 1 (existing code above) is left
+                // bit-identical. Cycle-k>1 is a duplicated forward+backward —
+                // deliberate duplication to avoid any risk of cycle-1 regression.
+                // Refactor into a shared helper once K=2 results are in.
+                if (virtual_cycles > 1) {
+                    for (int cycle_k = 2; cycle_k <= virtual_cycles; cycle_k++) {
+                        int prior_extend = (cycle_k - 1) * max_endpoint_depth;
+                        // Rebuild per-node kv offsets + lengths for this cycle.
+                        int kv_fill_c = 0;
+                        for (int i = 0; i < N; i++) {
+                            int r = h_radix_ids[i];
+                            int anc_len = trie.ancestor_char_offsets[r + 1] - trie.ancestor_char_offsets[r];
+                            int L = trie.edge_lens[r];
+                            int K_i = prior_extend + anc_len + L;
+                            h_kv_offsets[i] = kv_fill_c;
+                            h_kv_lengths[i] = K_i;
+                            kv_fill_c += K_i;
+                        }
+                        h_kv_offsets[N] = kv_fill_c;
+                        int T_kv_c = kv_fill_c;
+                        if ((long long)T_kv_c > T_kv_max) {
+                            fprintf(stderr, "cycle %d chunk T_kv=%d exceeds T_kv_max=%lld; skip cycle\n",
+                                    cycle_k, T_kv_c, T_kv_max);
+                            continue;
+                        }
+                        int max_kv_len_c = 0;
+                        for (int i = 0; i < N; i++) if (h_kv_lengths[i] > max_kv_len_c) max_kv_len_c = h_kv_lengths[i];
+
+                        CUDA_CHECK(cudaMemcpy(d_kv_offsets, h_kv_offsets, (N + 1) * sizeof(int), cudaMemcpyHostToDevice));
+                        CUDA_CHECK(cudaMemcpy(d_kv_lengths, h_kv_lengths, N * sizeof(int), cudaMemcpyHostToDevice));
+
+                        // Build prefix char ids with prior prepend (last prior_extend entries
+                        // of [prior_slot_base, prior_slot_base+prior_len), the ones baked
+                        // at RoPE -(prior_extend)..-1).
+                        int* h_prefix_c = (int*)malloc(T_kv_c * sizeof(int));
+                        {
+                            int fill = 0;
+                            int slot_start = (int)prior_slot_base + (prior_len - prior_extend);
+                            for (int i = 0; i < N; i++) {
+                                int r = h_radix_ids[i];
+                                for (int p = 0; p < prior_extend; p++) h_prefix_c[fill++] = slot_start + p;
+                                int anc_off = trie.ancestor_char_offsets[r];
+                                int anc_len = trie.ancestor_char_offsets[r + 1] - anc_off;
+                                for (int a = 0; a < anc_len; a++) h_prefix_c[fill++] = trie.ancestor_char_ids[anc_off + a];
+                                int edge_start = trie.edge_starts[r];
+                                int L = trie.edge_lens[r];
+                                for (int e = 0; e < L; e++) h_prefix_c[fill++] = edge_start + e;
+                            }
+                        }
+                        static int* d_prefix_c = NULL;
+                        static int d_prefix_c_size = 0;
+                        if (T_kv_c > d_prefix_c_size) {
+                            if (d_prefix_c) cudaFree(d_prefix_c);
+                            CUDA_CHECK(cudaMalloc(&d_prefix_c, T_kv_c * sizeof(int)));
+                            d_prefix_c_size = T_kv_c;
+                        }
+                        CUDA_CHECK(cudaMemcpy(d_prefix_c, h_prefix_c, T_kv_c * sizeof(int), cudaMemcpyHostToDevice));
+                        free(h_prefix_c);
+
+                        // ---- cycle-k FORWARD ----
+                        cuda_embedding_gather(d_weights + wo.token_emb, d_token_ids, d_x, T_q, D);
+
+                        float alpha_c = 1.0f, beta_c = 0.0f;
+                        for (int l = 0; l < L_layers; l++) {
+                            float* W_qw = d_weights + wo.wq_w[l]; float* W_qb = d_weights + wo.wq_b[l];
+                            float* W_kw = d_weights + wo.wk_w[l]; float* W_kb = d_weights + wo.wk_b[l];
+                            float* W_vw = d_weights + wo.wv_w[l]; float* W_vb = d_weights + wo.wv_b[l];
+                            float* W_ow = d_weights + wo.wo_w[l]; float* W_ob = d_weights + wo.wo_b[l];
+                            float* G1_c = d_weights + wo.ln1_gamma[l]; float* B1_c = d_weights + wo.ln1_beta[l];
+                            float* W_1w = d_weights + wo.l1_w[l]; float* W_1b = d_weights + wo.l1_b[l];
+                            float* W_2w = d_weights + wo.l2_w[l]; float* W_2b = d_weights + wo.l2_b[l];
+                            float* G2_c = d_weights + wo.ln2_gamma[l]; float* B2_c = d_weights + wo.ln2_beta[l];
+
+                            CUDA_CHECK(cudaMemcpy(sv_x_res1[l], d_x, (long long)T_q * D * sizeof(float), cudaMemcpyDeviceToDevice));
+                            cuda_layer_norm_forward(d_x, d_ln_out, sv_ln1_norm[l], sv_ln1_std_inv[l], G1_c, B1_c, T_q, D);
+                            CUDA_CHECK(cudaMemcpy(sv_ln1_out[l], d_ln_out, (long long)T_q * D * sizeof(float), cudaMemcpyDeviceToDevice));
+
+                            CUBLAS_CHECK(cublasSgemm(cublas, CUBLAS_OP_N, CUBLAS_OP_N, D, T_q, D,
+                                                      &alpha_c, W_qw, D, d_ln_out, D, &beta_c, d_q, D));
+                            cuda_bias_add(d_q, W_qb, T_q, D);
+                            CUBLAS_CHECK(cublasSgemm(cublas, CUBLAS_OP_N, CUBLAS_OP_N, D, T_q, D,
+                                                      &alpha_c, W_kw, D, d_ln_out, D, &beta_c, d_k, D));
+                            cuda_bias_add(d_k, W_kb, T_q, D);
+                            CUBLAS_CHECK(cublasSgemm(cublas, CUBLAS_OP_N, CUBLAS_OP_N, D, T_q, D,
+                                                      &alpha_c, W_vw, D, d_ln_out, D, &beta_c, d_v, D));
+                            cuda_bias_add(d_v, W_vb, T_q, D);
+
+                            launch_rope_batched(d_q, d_rope_positions, d_rope_cos, d_rope_sin, T_q * H, HD);
+                            launch_rope_batched(d_k, d_rope_positions, d_rope_cos, d_rope_sin, T_q * H, HD);
+
+                            // No scatter: d_kv_keys[l] already contains the chunk's edge K,V
+                            // from the cycle-1 scatter + all earlier chunks' scatters +
+                            // this subtree's prior K,V at tail slots.
+                            launch_kv_gather(d_kv_keys[l],   d_prefix_c, d_kv_offsets,
+                                              d_kv_offsets, d_kv_lengths, d_kv_pack_k, N, H, HD);
+                            launch_kv_gather(d_kv_values[l], d_prefix_c, d_kv_offsets,
+                                              d_kv_offsets, d_kv_lengths, d_kv_pack_v, N, H, HD);
+
+                            float scale_c = 1.0f / sqrtf((float)HD);
+                            cuda_batched_varlen_attention_L_queries(
+                                d_q, d_kv_pack_k, d_kv_pack_v,
+                                d_query_to_node, d_query_offsets, d_kv_offsets, d_kv_lengths,
+                                d_attn_out, sv_attn_weights[l],
+                                T_q, H, HD, max_kv_len_c, scale_c);
+                            CUDA_CHECK(cudaMemcpy(sv_attn_out[l], d_attn_out, (long long)T_q * D * sizeof(float), cudaMemcpyDeviceToDevice));
+
+                            CUBLAS_CHECK(cublasSgemm(cublas, CUBLAS_OP_N, CUBLAS_OP_N, D, T_q, D,
+                                                      &alpha_c, W_ow, D, d_attn_out, D, &beta_c, d_ff_out, D));
+                            cuda_bias_add(d_ff_out, W_ob, T_q, D);
+                            CUDA_CHECK(cudaMemcpy(d_x, sv_x_res1[l], (long long)T_q * D * sizeof(float), cudaMemcpyDeviceToDevice));
+                            launch_elem_add(d_x, d_ff_out, T_q * D);
+
+                            CUDA_CHECK(cudaMemcpy(sv_x_res2[l], d_x, (long long)T_q * D * sizeof(float), cudaMemcpyDeviceToDevice));
+                            cuda_layer_norm_forward(d_x, d_ln_out, sv_ln2_norm[l], sv_ln2_std_inv[l], G2_c, B2_c, T_q, D);
+                            CUDA_CHECK(cudaMemcpy(sv_ln2_out[l], d_ln_out, (long long)T_q * D * sizeof(float), cudaMemcpyDeviceToDevice));
+
+                            CUBLAS_CHECK(cublasSgemm(cublas, CUBLAS_OP_N, CUBLAS_OP_N, F, T_q, D,
+                                                      &alpha_c, W_1w, F, d_ln_out, D, &beta_c, d_ff_h, F));
+                            cuda_fused_bias_relu(d_ff_h, W_1b, d_ff_h, sv_ff_mask[l], T_q, F);
+                            CUDA_CHECK(cudaMemcpy(sv_ff_h[l], d_ff_h, (long long)T_q * F * sizeof(float), cudaMemcpyDeviceToDevice));
+                            CUBLAS_CHECK(cublasSgemm(cublas, CUBLAS_OP_N, CUBLAS_OP_N, D, T_q, F,
+                                                      &alpha_c, W_2w, D, d_ff_h, F, &beta_c, d_ff_out, D));
+                            cuda_bias_add(d_ff_out, W_2b, T_q, D);
+                            CUDA_CHECK(cudaMemcpy(d_x, sv_x_res2[l], (long long)T_q * D * sizeof(float), cudaMemcpyDeviceToDevice));
+                            launch_elem_add(d_x, d_ff_out, T_q * D);
+                        }
+
+                        float* G_fn_c = d_weights + wo.final_gamma;
+                        float* B_fn_c = d_weights + wo.final_beta;
+                        float* W_out_c = d_weights + wo.out_w;
+                        float* B_out_c = d_weights + wo.out_b;
+                        cuda_layer_norm_forward(d_x, d_final_out, d_final_norm_save, d_final_std_inv_save, G_fn_c, B_fn_c, T_q, D);
+                        CUBLAS_CHECK(cublasSgemm(cublas, CUBLAS_OP_N, CUBLAS_OP_N, V, T_q, D,
+                                                  &alpha_c, W_out_c, V, d_final_out, D, &beta_c, d_logits, V));
+                        cuda_bias_add(d_logits, B_out_c, T_q, V);
+
+                        launch_agpt_loss_per_query(d_logits, d_query_to_node, d_query_offsets,
+                                                    d_radix_ids, d_token_ids,
+                                                    d_radix_counts_offset, d_radix_counts_tok, d_radix_counts_val,
+                                                    mass_weight ? d_mass_weights : NULL,
+                                                    d_d_logits, d_loss, T_q, V, entropy_lambda,
+                                                    intermediate_weight);
+
+                        // Count loss terms (for grad_scale); don't add to total_loss
+                        // — display total stays "per-radix-query loss" not "K× that".
+                        float* h_loss_c = (float*)malloc(T_q * sizeof(float));
+                        CUDA_CHECK(cudaMemcpy(h_loss_c, d_loss, T_q * sizeof(float), cudaMemcpyDeviceToHost));
+                        int chunk_trained_c = 0;
+                        for (int i = 0; i < T_q; i++) if (h_loss_c[i] > 0.0f) chunk_trained_c++;
+                        free(h_loss_c);
+
+                        float grad_scale_c = (chunk_trained_c > 0) ? (1.0f / (float)chunk_trained_c) : 0.0f;
+
+                        float* dG_out_c = d_grads + wo.out_w;
+                        CUBLAS_CHECK(cublasSgemm(cublas, CUBLAS_OP_T, CUBLAS_OP_N, D, T_q, V,
+                                                  &alpha_c, W_out_c, V, d_d_logits, V, &beta_c, d_d_final_out, D));
+                        CUBLAS_CHECK(cublasSgemm(cublas, CUBLAS_OP_N, CUBLAS_OP_T, V, D, T_q,
+                                                  &grad_scale_c, d_d_logits, V, d_final_out, D, &alpha_c, dG_out_c, V));
+
+                        float* dG_fn_c = d_grads + wo.final_gamma;
+                        float* dB_fn_c = d_grads + wo.final_beta;
+                        cuda_layer_norm_backward(d_d_final_out, d_final_norm_save, d_final_std_inv_save,
+                                                  G_fn_c, d_d_final_out, dG_fn_c, dB_fn_c, T_q, D);
+
+                        CUDA_CHECK(cudaMemcpy(d_x, d_d_final_out, (long long)T_q * D * sizeof(float), cudaMemcpyDeviceToDevice));
+
+                        float* d_dx_c = d_x;
+                        float* d_d_ff_out_c = d_ff_out;
+                        float* d_d_ln_out_c = d_ln_out;
+                        float* d_d_ff_h_c = d_ff_h;
+                        float* d_d_attn_out_c = d_attn_out;
+
+                        for (int l = L_layers - 1; l >= 0; l--) {
+                            float* W_ow_b = d_weights + wo.wo_w[l];
+                            float* W_1w_b = d_weights + wo.l1_w[l];
+                            float* W_2w_b = d_weights + wo.l2_w[l];
+                            float* G1_b = d_weights + wo.ln1_gamma[l];
+                            float* G2_b = d_weights + wo.ln2_gamma[l];
+                            float* dW_ow_b = d_grads + wo.wo_w[l];
+                            float* dW_1w_b = d_grads + wo.l1_w[l];
+                            float* dW_2w_b = d_grads + wo.l2_w[l];
+                            float* dG1_b = d_grads + wo.ln1_gamma[l]; float* dB1_b = d_grads + wo.ln1_beta[l];
+                            float* dG2_b = d_grads + wo.ln2_gamma[l]; float* dB2_b = d_grads + wo.ln2_beta[l];
+                            float* dW_qw_b = d_grads + wo.wq_w[l];
+
+                            CUDA_CHECK(cudaMemcpy(d_d_ff_out_c, d_dx_c, (long long)T_q * D * sizeof(float), cudaMemcpyDeviceToDevice));
+
+                            CUBLAS_CHECK(cublasSgemm(cublas, CUBLAS_OP_T, CUBLAS_OP_N, F, T_q, D,
+                                                      &alpha_c, W_2w_b, D, d_d_ff_out_c, D, &beta_c, d_d_ff_h_c, F));
+                            CUBLAS_CHECK(cublasSgemm(cublas, CUBLAS_OP_N, CUBLAS_OP_T, D, F, T_q,
+                                                      &grad_scale_c, d_d_ff_out_c, D, sv_ff_h[l], F, &alpha_c, dW_2w_b, D));
+
+                            cuda_relu_backward(d_d_ff_h_c, sv_ff_mask[l], d_d_ff_h_c, T_q * F);
+
+                            CUBLAS_CHECK(cublasSgemm(cublas, CUBLAS_OP_T, CUBLAS_OP_N, D, T_q, F,
+                                                      &alpha_c, W_1w_b, F, d_d_ff_h_c, F, &beta_c, d_d_ln_out_c, D));
+                            CUBLAS_CHECK(cublasSgemm(cublas, CUBLAS_OP_N, CUBLAS_OP_T, F, D, T_q,
+                                                      &grad_scale_c, d_d_ff_h_c, F, sv_ln2_out[l], D, &alpha_c, dW_1w_b, F));
+
+                            cuda_layer_norm_backward(d_d_ln_out_c, sv_ln2_norm[l], sv_ln2_std_inv[l],
+                                                      G2_b, d_d_ln_out_c, dG2_b, dB2_b, T_q, D);
+                            launch_elem_add(d_dx_c, d_d_ln_out_c, T_q * D);
+
+                            CUBLAS_CHECK(cublasSgemm(cublas, CUBLAS_OP_T, CUBLAS_OP_N, D, T_q, D,
+                                                      &alpha_c, W_ow_b, D, d_dx_c, D, &beta_c, d_d_attn_out_c, D));
+                            CUBLAS_CHECK(cublasSgemm(cublas, CUBLAS_OP_N, CUBLAS_OP_T, D, D, T_q,
+                                                      &grad_scale_c, d_dx_c, D, sv_attn_out[l], D, &alpha_c, dW_ow_b, D));
+
+                            // Re-gather K/V for backward (cycle-k prefix, same as forward)
+                            launch_kv_gather(d_kv_keys[l],   d_prefix_c, d_kv_offsets,
+                                              d_kv_offsets, d_kv_lengths, d_kv_pack_k, N, H, HD);
+                            launch_kv_gather(d_kv_values[l], d_prefix_c, d_kv_offsets,
+                                              d_kv_offsets, d_kv_lengths, d_kv_pack_v, N, H, HD);
+
+                            CUDA_CHECK(cudaMemset(d_dk_pack, 0, (long long)T_kv_c * H * HD * sizeof(float)));
+                            CUDA_CHECK(cudaMemset(d_dv_pack, 0, (long long)T_kv_c * H * HD * sizeof(float)));
+
+                            // Recompute post-RoPE Q from saved ln1_out
+                            CUBLAS_CHECK(cublasSgemm(cublas, CUBLAS_OP_N, CUBLAS_OP_N, D, T_q, D,
+                                                      &alpha_c, d_weights + wo.wq_w[l], D,
+                                                      sv_ln1_out[l], D, &beta_c, d_q, D));
+                            cuda_bias_add(d_q, d_weights + wo.wq_b[l], T_q, D);
+                            launch_rope_batched(d_q, d_rope_positions, d_rope_cos, d_rope_sin, T_q * H, HD);
+
+                            float scale_b = 1.0f / sqrtf((float)HD);
+                            cuda_batched_varlen_attention_L_queries_backward(
+                                d_q, d_kv_pack_k, d_kv_pack_v, sv_attn_weights[l], d_d_attn_out_c,
+                                d_query_to_node, d_query_offsets, d_kv_offsets, d_kv_lengths,
+                                d_dq_pack, d_dk_pack, d_dv_pack,
+                                T_q, H, HD, max_kv_len_c, scale_b);
+
+                            launch_rope_batched_inverse(d_dq_pack, d_rope_positions, d_rope_cos, d_rope_sin, T_q * H, HD);
+
+                            CUBLAS_CHECK(cublasSgemm(cublas, CUBLAS_OP_T, CUBLAS_OP_N, D, T_q, D,
+                                                      &alpha_c, d_weights + wo.wq_w[l], D,
+                                                      d_dq_pack, D, &beta_c, d_d_ln_out_c, D));
+                            CUBLAS_CHECK(cublasSgemm(cublas, CUBLAS_OP_N, CUBLAS_OP_T, D, D, T_q,
+                                                      &grad_scale_c, d_dq_pack, D,
+                                                      sv_ln1_out[l], D, &alpha_c, dW_qw_b, D));
+
+                            cuda_layer_norm_backward(d_d_ln_out_c, sv_ln1_norm[l], sv_ln1_std_inv[l],
+                                                      G1_b, d_d_ln_out_c, dG1_b, dB1_b, T_q, D);
+                            launch_elem_add(d_dx_c, d_d_ln_out_c, T_q * D);
+                        }
+
+                        // Embedding backward for cycle-k
+                        cuda_embedding_scatter_add(d_dx_c, d_token_ids, dG_emb, T_q, D);
+                    }
+                }
+
                 // NOTE: no Adam step here — gradients accumulate in d_grads
                 // across all chunks of this root-child subtree; one step at subtree end.
 
@@ -4119,15 +4393,11 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
     cudaFree(d_rope_positions); cudaFree(d_char_pos);
     if (d_mass_weights) cudaFree(d_mass_weights);
     if (virtual_cycles > 1) {
-        for (int l = 0; l < L_layers; l++) {
-            cudaFree(d_prior_kv_k[l]);
-            cudaFree(d_prior_kv_v[l]);
-        }
-        free(d_prior_kv_k); free(d_prior_kv_v);
         cudaFree(d_rope_cos_prior); cudaFree(d_rope_sin_prior);
         cudaFree(d_prior_token_ids); cudaFree(d_prior_rope_positions);
         cudaFree(d_prior_query_offsets); cudaFree(d_prior_kv_offsets);
         cudaFree(d_prior_kv_lengths); cudaFree(d_prior_query_to_node);
+        cudaFree(d_prior_char_pos);
         free(h_prior_tokens_all);
     }
     free(root_child_of); free(root_children);
