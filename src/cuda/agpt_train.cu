@@ -4142,38 +4142,43 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                         for (int e = 0; e < L_i; e++) {
                             path_toks.push_back(trie.edge_tokens_flat[edge_start + e]);
                         }
-                        // Normalizer Z
-                        float Z = 0.0f;
-                        for (int k = 0; k <= d; k++) Z += powf(blend_alpha, (float)(d - k));
-                        if (Z <= 0.0f) continue;
-                        float* out_row = h_blended.data() + (long long)q_ep * V;
-                        for (int k = 0; k <= d; k++) {
-                            float lam = powf(blend_alpha, (float)(d - k)) / Z;
-                            if (k == 0) {
-                                // Uniform root prior
-                                float uv = 1.0f / (float)V;
-                                for (int v = 0; v < V; v++) out_row[v] += lam * uv;
-                                continue;
-                            }
-                            // Suffix of length k: last k tokens of path
+                        // Count-aware blending: λ_k ∝ log(1 + count_k) for k=1..d.
+                        // Gather matched (radix_id, count) pairs across depths first,
+                        // compute total log-weight, then accumulate the blend.
+                        // Root (k=0) excluded — its count is the full corpus and would
+                        // swamp deeper specific signals.
+                        int matched_rids[64];
+                        int matched_cnts[64];
+                        int n_matched = 0;
+                        double total_log_w = 0.0;
+                        for (int k = 1; k <= d && n_matched < 64; k++) {
                             for (int j = 0; j < k; j++) path_window[j] = path_toks[d - k + j];
                             int matched_len = 0;
                             int radix_id = lookup_state_with_backoff(state_index, path_window, k, &matched_len);
-                            if (radix_id < 0) continue;  // no match, skip this depth
-                            // Only use if matched at exactly length k (avoids
-                            // double-counting via backoff to a shorter depth we'll
-                            // also score separately in the loop).
-                            if (matched_len != k) continue;
+                            if (radix_id < 0 || matched_len != k) continue;
                             int cs = trie.counts_offset[radix_id];
                             int ce = trie.counts_offset[radix_id + 1];
                             if (cs == ce) continue;
                             int tot = 0;
                             for (int e = cs; e < ce; e++) tot += trie.counts_val[e];
                             if (tot <= 0) continue;
+                            matched_rids[n_matched] = radix_id;
+                            matched_cnts[n_matched] = tot;
+                            total_log_w += log(1.0 + (double)tot);
+                            n_matched++;
+                        }
+                        if (total_log_w <= 0.0) continue;
+                        float* out_row = h_blended.data() + (long long)q_ep * V;
+                        for (int m = 0; m < n_matched; m++) {
+                            int radix_id = matched_rids[m];
+                            int tot = matched_cnts[m];
+                            double lam = log(1.0 + (double)tot) / total_log_w;
+                            int cs = trie.counts_offset[radix_id];
+                            int ce = trie.counts_offset[radix_id + 1];
                             float inv_tot = 1.0f / (float)tot;
                             for (int e = cs; e < ce; e++) {
                                 int tok = trie.counts_tok[e];
-                                out_row[tok] += lam * (float)trie.counts_val[e] * inv_tot;
+                                out_row[tok] += (float)lam * (float)trie.counts_val[e] * inv_tot;
                             }
                         }
                         // Renormalize the row — some k's may have been skipped.
