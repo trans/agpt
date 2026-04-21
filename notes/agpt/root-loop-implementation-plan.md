@@ -9,7 +9,21 @@ AGPT aggregation and avoiding classical-backoff sparse regions.
 K>1 is validated and rejected with a Phase 2 not-implemented message
 until this spec is built.
 
-**Phase 2 status**: spec below, not yet coded.
+**Phase 2 status**: in progress.
+- Stage A (bbb090d): `virtual_cycles` threaded through `run_radix_training`
+  and `run_per_subtree_training`. CLI → training entry points. K=1 is
+  bit-identical; K>1 logs a scaffold notice and falls through to K=1.
+- Stages B+C (384fed6): `compute_virtual_prior_tokens` (Markov-1-greedy
+  radix walk from root, collects (K-1)*D tokens from highest-edge_mass
+  child at each step). `build_rope_cache_prior` (cos/sin cache for
+  negative positions -(K-1)*D..-1). Not yet called from training.
+- **Decision vs. original plan**: using ONE global prior (not per-root-child)
+  for the first experiment. Simpler KV layout, smaller extension. If
+  shared-prior stereotyping turns out to limit training quality,
+  upgrade to per-root-child priors later.
+- Stages D-G: not yet coded (allocate+project prior K/V per layer;
+  extend KV cache; attention window extension for cycle k>1;
+  cycle loop + grad accumulation).
 
 ## Construction (to confirm before coding)
 
