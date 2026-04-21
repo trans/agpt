@@ -9,21 +9,25 @@ AGPT aggregation and avoiding classical-backoff sparse regions.
 K>1 is validated and rejected with a Phase 2 not-implemented message
 until this spec is built.
 
-**Phase 2 status**: in progress.
+**Phase 2 status**: complete at K=2.
 - Stage A (bbb090d): `virtual_cycles` threaded through `run_radix_training`
-  and `run_per_subtree_training`. CLI → training entry points. K=1 is
-  bit-identical; K>1 logs a scaffold notice and falls through to K=1.
-- Stages B+C (384fed6): `compute_virtual_prior_tokens` (Markov-1-greedy
-  radix walk from root, collects (K-1)*D tokens from highest-edge_mass
-  child at each step). `build_rope_cache_prior` (cos/sin cache for
-  negative positions -(K-1)*D..-1). Not yet called from training.
-- **Decision vs. original plan**: using ONE global prior (not per-root-child)
-  for the first experiment. Simpler KV layout, smaller extension. If
-  shared-prior stereotyping turns out to limit training quality,
-  upgrade to per-root-child priors later.
-- Stages D-G: not yet coded (allocate+project prior K/V per layer;
-  extend KV cache; attention window extension for cycle k>1;
-  cycle loop + grad accumulation).
+  and `run_per_subtree_training`. CLI → training entry points.
+- Stages B+C (384fed6, 1439130): `compute_virtual_prior_tokens_per_rc`
+  (per-root-child prior via D-trie bigram-valid Markov-1-greedy walks)
+  + `build_rope_cache_prior` (neg-pos RoPE cache).
+- Stage D (28d6756): per-layer prior K,V mini-forward at each subtree
+  entry. Stop-gradient.
+- Stages E+F+G (58534ee): KV cache extended with prior tail slots;
+  prior scattered into those slots instead of separate buffer;
+  cycle-k>1 forward+backward runs on the same chunk with prior-prepended
+  prefix_char_ids; grads accumulate into one RMSProp step per subtree.
+  sv_attn_weights[l] stride extended to cover prior prepend.
+- Behavior: K=1 bit-identical to pre-Phase-2. K=2 d=8 runs at ~2× K=1
+  runtime, losses within run-to-run noise. K=2 d=16 per-subtree
+  completes in ~18s/super-epoch on the test machine.
+- K≥3 is supported architecturally but `compute_virtual_prior_tokens_per_rc`
+  only handles single-segment priors today — needs recursive D-segment
+  walks for K≥3.
 
 ## Construction (to confirm before coding)
 
