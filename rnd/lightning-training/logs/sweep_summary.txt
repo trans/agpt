@@ -1,0 +1,16 @@
+==============================================================
+Lightning L3 p_stop sweep at d=8 (global radix)
+  init: data/input.random.model  trie: /tmp/agpt_input_d8_radix  git: 20e8121
+  baseline ref (d=8, 3 SE, 65 steps/SE, per-root-child, lr=3e-3): 17.99 mean
+==============================================================
+l3-pstop-0.2-s65-ep3  run 1  PPL = 22.0255  time = 3s  (rc=0)
+l3-pstop-0.2-s65-ep3  run 2  PPL = 19.2610  time = 3s  (rc=0)
+l3-pstop-0.2-s65-ep3  run 3  PPL = 20.0951  time = 3s  (rc=0)
+l3-pstop-0.3-s65-ep3  run 1  PPL = 22.8666  time = 4s  (rc=0)
+l3-pstop-0.3-s65-ep3  run 2  PPL = 18.3955  time = 4s  (rc=0)
+l3-pstop-0.3-s65-ep3  run 3  PPL = 19.1036  time = 4s  (rc=0)
+l3-pstop-0.5-s65-ep3  run 1  PPL = 19.4121  time = 6s  (rc=0)
+l3-pstop-0.5-s65-ep3  run 2  PPL = 19.8833  time = 6s  (rc=0)
+l3-pstop-0.5-s65-ep3  run 3  PPL = 20.9604  time = 6s  (rc=0)
+
+Done.

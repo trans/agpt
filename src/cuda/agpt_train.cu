@@ -3279,17 +3279,27 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
     int lightning_active = (lightning.steps > 0);
     unsigned lightning_rng = lightning.seed;
 
+    // Lightning resamples subtree_nodes[] each epoch, overwriting any partition
+    // layout (--partition-depth, --single-subtree) — so combining them just
+    // wastes the pre-build. Hard-error to surface the mistake. These flags are
+    // alternative ways to shape the training unit, not orthogonal modifiers.
+    // --curriculum progressive would need depth_limit[] rebuilt per-sample;
+    // not implemented here — Lightning's p_stop is the stochastic analogue
+    // (depth control via sampling bias, not explicit depth bounds).
     if (lightning_active && curriculum == CurriculumMode::Progressive) {
-        fprintf(stderr, "Lightning Training is not compatible with --curriculum progressive "
-                        "(needs depth_limit rebuild per sample, not implemented).\n");
+        fprintf(stderr, "Lightning is incompatible with --curriculum progressive: progressive "
+                        "controls depth via an explicit d=1..D schedule, Lightning controls "
+                        "depth stochastically via p_stop. Use one or the other.\n");
         exit(1);
     }
     if (lightning_active && single_subtree) {
-        fprintf(stderr, "Lightning Training subsumes --single-subtree; do not combine them.\n");
+        fprintf(stderr, "Lightning resamples subtrees each epoch; --single-subtree's one-subtree "
+                        "layout would be discarded. Do not combine.\n");
         exit(1);
     }
     if (lightning_active && partition_depth > 1) {
-        fprintf(stderr, "Lightning Training replaces --partition-depth; do not combine them.\n");
+        fprintf(stderr, "Lightning resamples subtrees each epoch; --partition-depth's n-gram "
+                        "bucket layout would be discarded. Do not combine.\n");
         exit(1);
     }
 
@@ -4520,9 +4530,11 @@ int main(int argc, char** argv) {
                         "  [--lightning-steps N]       — Lightning Training: N stochastic subtree samples\n"
                         "                                per super-epoch; one optimizer step per sample.\n"
                         "                                0 = off (default deterministic sweep).\n"
-                        "                                Implies --no-accumulate; mutually exclusive with\n"
-                        "                                --single-subtree, --partition-depth N>1, and\n"
-                        "                                --curriculum progressive.\n"
+                        "                                Implies --no-accumulate. Mutually exclusive with\n"
+                        "                                --single-subtree and --partition-depth N>1 because\n"
+                        "                                Lightning overwrites their pre-built partition every\n"
+                        "                                epoch. Also mutex with --curriculum progressive\n"
+                        "                                (use p_stop as the stochastic depth-control analogue).\n"
                         "  [--lightning-sampler l1|l2|l3] — sampler variant. Default l3 (mass-walk).\n"
                         "                                l1 = uniform over all radix nodes.\n"
                         "                                l2 = uniform over depth-1 root-children.\n"

@@ -1,0 +1,19 @@
+==============================================================
+Lightning step-budget sweep at d=8. p_stop=0.5 + L1/L2 comparison.
+  init: data/input.random.model  trie: /tmp/agpt_input_d8_radix  git: 20e8121
+  baseline det 65×3: 17.99 mean  |  matched-L3 p_stop=0.5: 20.09 mean
+==============================================================
+l3-pstop-0.5-s130-ep3  run 1  PPL = 25.3135  time = 10s  (rc=0)
+l3-pstop-0.5-s130-ep3  run 2  PPL = 21.0069  time = 11s  (rc=0)
+l3-pstop-0.5-s130-ep3  run 3  PPL = 31.1702  time = 10s  (rc=0)
+l3-pstop-0.5-s260-ep3  run 1  PPL = 28.4492  time = 19s  (rc=0)
+l3-pstop-0.5-s260-ep3  run 2  PPL = 24.7086  time = 21s  (rc=0)
+l3-pstop-0.5-s260-ep3  run 3  PPL = 25.2252  time = 20s  (rc=0)
+l1-s65-ep3  run 1  PPL = 28.3658  time = 2s  (rc=0)
+l1-s65-ep3  run 2  PPL = 28.3953  time = 2s  (rc=0)
+l1-s65-ep3  run 3  PPL = 28.9007  time = 2s  (rc=0)
+l2-s65-ep3  run 1  PPL = 18.5921  time = 4s  (rc=0)
+l2-s65-ep3  run 2  PPL = 18.9116  time = 4s  (rc=0)
+l2-s65-ep3  run 3  PPL = 21.1227  time = 4s  (rc=0)
+
+Done.
