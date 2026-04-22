@@ -84,6 +84,38 @@ its PPL curve sits relative to AGPT's.
 - `logs/` — raw training output per config.
 - `results/summary.md` — condensed PPL comparison.
 
+## Results so far (AGPT side, mass-weight sweep)
+
+| d | mode | mean PPL | SD | notes |
+|---|---|---|---|---|
+| 16 | off | 13.76 | 0.18 | default, equal per context |
+| 16 | log | 14.18 | 0.06 | compressed frequency — hurts |
+| 16 | sqrt | 14.49 | 0.09 | between off and linear — worst |
+| 16 | linear | **13.74** | 0.16 | matches SGD weighting — tied-best |
+| 32 | off | 13.48 | 0.11 | |
+| 32 | log | 13.47 | 0.09 | |
+| 32 | sqrt | 13.47 | 0.12 | all non-linear modes tied at d=32 |
+| 32 | linear | **13.36** | 0.14 | **BEST overall mean** (tied with blending at d=16) |
+
+**Key reads**:
+
+- Linear weighting (≡ SGD frequency weighting) wins or ties at both depths.
+  The "rare sequences count too much" concern is real; SGD-style weighting
+  is the right direction.
+- At d=16, log and sqrt actively hurt. They're a bad middle ground — enough
+  frequency bias to break AGPT's equal-per-context compensating structure,
+  not enough to match SGD's actual distribution.
+- At d=32, weighting mode barely matters (except linear edges ahead).
+  Because most cap endpoints are singletons with count=1-2, log(1+count) ≈
+  sqrt(count) ≈ count in that regime.
+- d=32 linear = 13.36 is the new overall best mean seen in this project
+  (tied with d=16 blending within noise).
+
+**Implication for AGPT defaults**: consider making `--mass-weight linear` the
+default once we see how it interacts with SGD comparison and other
+experiments. Leave `off` accessible for the equal-per-context philosophy when
+that's wanted deliberately.
+
 ## Decisions made (documentable so we don't re-litigate)
 
 - **Training data**: `data/input.txt` (Shakespeare, 1.11M chars).
