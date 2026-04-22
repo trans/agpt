@@ -9,22 +9,23 @@ Per-subtree training: 65 subtrees, 3 super-epochs
   optimizer: rmsprop (lr=0.003)
   lr-schedule: warmup-cosine (warmup 1 super-epochs = 65 steps)
   entropy lambda: 1.000
+  mass weighting: log
   single-subtree (per file): 1 Adam step per subtree per super-epoch
   total optimizer steps: 195 (65 per super-epoch)
   largest subtree: rc=2, 1265315 chars (peak per-subtree KV ≈ 1295.7 MB)
-Super-epoch 1: 65 subtrees, 1607927 radix nodes  (10.7 sec, adam_t=65)
-  checkpoint: /tmp/mw_agpt-d16-off_r2.model.work.ep1
-Super-epoch 2: 65 subtrees, 1607927 radix nodes  (10.2 sec, adam_t=130)
-  checkpoint: /tmp/mw_agpt-d16-off_r2.model.work.ep2
-Super-epoch 3: 65 subtrees, 1607927 radix nodes  (10.2 sec, adam_t=195)
-  checkpoint: /tmp/mw_agpt-d16-off_r2.model.work.ep3
-Saved to /tmp/mw_agpt-d16-off_r2.model.work
+Super-epoch 1: 65 subtrees, 1607927 radix nodes  (10.5 sec, adam_t=65)
+  checkpoint: /tmp/mw_agpt-d16-log_r1.model.work.ep1
+Super-epoch 2: 65 subtrees, 1607927 radix nodes  (10.3 sec, adam_t=130)
+  checkpoint: /tmp/mw_agpt-d16-log_r1.model.work.ep2
+Super-epoch 3: 65 subtrees, 1607927 radix nodes  (10.4 sec, adam_t=195)
+  checkpoint: /tmp/mw_agpt-d16-log_r1.model.work.ep3
+Saved to /tmp/mw_agpt-d16-log_r1.model.work
 Done.
 
 === Evaluating each checkpoint on held-out PPL ===
-  ep1: PPL = 14.2632
-  ep2: PPL = 13.8136
-  ep3: PPL = 13.7912
+  ep1: PPL = 14.1775
+  ep2: PPL = 14.5731
+  ep3: PPL = 14.7795
 
-=== Best: ep3 with PPL = 13.7912 ===
-Saved to: /tmp/mw_agpt-d16-off_r2.model
+=== Best: ep1 with PPL = 14.1775 ===
+Saved to: /tmp/mw_agpt-d16-log_r1.model
