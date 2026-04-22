@@ -49,3 +49,47 @@ Global d=16 radix + `--partition-depth 2 --partition-kv-scoped` — the "1 step 
 - Making `--partition-kv-scoped` the default. First validate parity with the non-scoped path.
 - Cross-file accumulation (for true "1 step per super-epoch across all files"). Separate change, easier.
 - Measuring performance impact of the re-scatter overhead. Likely dominated by the partition's own compute, but worth profiling.
+
+## Phase 1 (done, commit 48ee729)
+
+- `--partition-kv-scoped` flag added.
+- Per-partition char_pos ranges computed + peak-KV reduction reported.
+- Measured on d=16 Shakespeare bigram: 8× reduction on the largest file.
+- Projected global-d=16 single-step peak: ~162 MB (fits in 9.2 GB RAM).
+
+## Phase 2 implementation steps (ordered)
+
+**Step A: restructure (mechanical, ~40 lines moved)**
+Move the KV allocation block (`agpt_train.cu:2807-2828`) from its current location to after the partition setup (after line ~3306). Partition setup has no dependency on KV allocation; KV allocation has no dependency on buffers allocated between the two. Verify with compile + existing tests.
+
+**Step B: conditional KV sizing (~10 lines)**
+In the moved KV allocation, when `partition_kv_scoped && partition_depth > 1`, size KV for `max_partition_chars * D * sizeof(float) * 2 * L_layers`. The `max_partition_chars` value is already computed in the Phase 1 stats block — hoist that to a variable available at allocation time.
+
+**Step C: global_to_local mapping (~30 lines, CPU-side only)**
+Allocate `int global_to_local[file_total_chars]` once. Before each partition group's processing, populate it: iterate the group's nodes, for each touched char_pos, assign the next local slot. Clear to -1 after the group.
+
+**Step D: mini-forward for ancestor K/V (~200 lines, the real work)**
+For each partition group, walk the path from root to the partition-ancestor radix node. This gives an ordered list of ancestor chars (usually 1-2 chars for partition_depth 2 or 3). For each layer l in 0..L-1:
+- Embed each ancestor char.
+- LayerNorm → Q/K/V projection.
+- RoPE on Q, K using ancestor's semantic depth (char_depth in the trie).
+- Scatter K, V to local cache at `global_to_local[char_pos]`.
+- Self-attention among the ancestors (causal within the chain).
+- FFN + residual.
+- Hand off (layer l+1's input is the output of layer l attention+FFN).
+- **Skip**: final-layer logits, loss, backward.
+
+This is a cut-down version of the main chunk forward. Cleanest structure: factor existing per-chunk forward into a helper that takes `(token_ids[], char_pos_global[], rope_positions[], query_offsets, kv_offsets, ...)` and returns per-layer K/V, optionally loss+backward. Then call it twice per group: once for ancestors (K/V-only mode), once for group's own nodes (full loss+backward).
+
+**Step E: remap indices in main chunk forward (~20 lines)**
+In the chunk loop, when `partition_kv_scoped`, rewrite `h_char_pos[]` and `h_prefix_char_ids[]` through `global_to_local[]` before uploading to GPU. Kernels unchanged.
+
+**Step F: smoke test correctness**
+Run `--partition-depth 2 --partition-kv-scoped` vs `--partition-depth 2` (no scoping) vs `--single-subtree` (no partition) on d=16 per-subtree, 1 SE from random-init. All three should give PPL within noise (~0.3) of each other. If scoped diverges significantly, the remap is wrong.
+
+**Step G: global d=16 single-step (the prize)**
+Build global-radix d=16 manifest (if not already): `/tmp/agpt_input_d16_radix`. Run `bin/agpt_train --trie-dir /tmp/agpt_input_d16_radix --single-subtree --partition-depth 2 --partition-kv-scoped`. Memory should fit (~162 MB peak KV vs 9.5 GB previously). Measure PPL vs per-subtree baseline.
+
+## Estimated effort
+
+Step A+B+C+E: ~1h. Step D (the mini-forward): ~2-3h of careful work. Step F validation: ~30min. Step G experiment: ~30min. Total ~4-5h for a dedicated session.
