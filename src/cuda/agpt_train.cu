@@ -2686,6 +2686,7 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                         float* h_weights, RadixTrieData& trie,
                         int epochs, float entropy_lambda, MassWeightMode mass_weight,
                         int subtree_splits, int partition_depth, bool accumulate,
+                        bool partition_kv_scoped,
                         bool single_subtree, float intermediate_weight,
                         OptimizerKind optimizer, float momentum_beta, float rmsprop_beta,
                         LRSchedule lr_schedule, int warmup_epochs,
@@ -3228,6 +3229,80 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
             printf("  partition-depth=%d: %d groups, 1 Adam step per group per super-epoch\n",
                    partition_depth, n_groups);
         }
+    }
+
+    // Partition-KV-scoping stats (Phase 1: report only; Phase 2 will allocate smaller KV
+    // and remap indices). Computes per-group char_pos ranges so we can see how much
+    // peak memory would drop if we scoped the KV cache to each partition group rather
+    // than allocating for the whole file's total_edge_chars. Prints even under quiet
+    // (per-file-called) so the stats propagate from per-subtree-format invocations.
+    if (partition_kv_scoped && partition_depth > 1) {
+        // For each partition group, the chars it touches = union of each node's:
+        //   (a) ancestor_char_ids[ancestor_char_offsets[r] .. ancestor_char_offsets[r+1])
+        //   (b) edge_starts[r] .. edge_starts[r] + edge_lens[r]
+        // We compute |chars[g]| per group and report max/median.
+        int max_partition_chars = 0;
+        int min_partition_chars = INT_MAX;
+        long long total_partition_chars = 0;
+        // Reusable char-presence bitmap over [0, total_edge_chars). Allocated once.
+        int file_total_chars = (int)trie.total_edge_chars;
+        char* seen_chars = (char*)calloc(file_total_chars, 1);
+        for (int g = 0; g < n_root_children; g++) {
+            int n_chars_g = 0;
+            int* nodes_g = subtree_nodes[g];
+            int sz_g = subtree_sizes[g];
+            for (int k = 0; k < sz_g; k++) {
+                int r = nodes_g[k];
+                // Ancestor chars
+                int anc_off = trie.ancestor_char_offsets[r];
+                int anc_end = trie.ancestor_char_offsets[r + 1];
+                for (int a = anc_off; a < anc_end; a++) {
+                    int c = trie.ancestor_char_ids[a];
+                    if (c >= 0 && c < file_total_chars && !seen_chars[c]) {
+                        seen_chars[c] = 1;
+                        n_chars_g++;
+                    }
+                }
+                // Own edge chars
+                int es = trie.edge_starts[r];
+                int el = trie.edge_lens[r];
+                for (int e = 0; e < el; e++) {
+                    int c = es + e;
+                    if (c >= 0 && c < file_total_chars && !seen_chars[c]) {
+                        seen_chars[c] = 1;
+                        n_chars_g++;
+                    }
+                }
+            }
+            if (n_chars_g > max_partition_chars) max_partition_chars = n_chars_g;
+            if (n_chars_g < min_partition_chars) min_partition_chars = n_chars_g;
+            total_partition_chars += n_chars_g;
+            // Reset bitmap for next group. Walk the same node list to clear the bits we set.
+            for (int k = 0; k < sz_g; k++) {
+                int r = nodes_g[k];
+                int anc_off = trie.ancestor_char_offsets[r];
+                int anc_end = trie.ancestor_char_offsets[r + 1];
+                for (int a = anc_off; a < anc_end; a++) {
+                    int c = trie.ancestor_char_ids[a];
+                    if (c >= 0 && c < file_total_chars) seen_chars[c] = 0;
+                }
+                int es = trie.edge_starts[r];
+                int el = trie.edge_lens[r];
+                for (int e = 0; e < el; e++) {
+                    int c = es + e;
+                    if (c >= 0 && c < file_total_chars) seen_chars[c] = 0;
+                }
+            }
+        }
+        free(seen_chars);
+        long long file_kv_bytes = (long long)file_total_chars * cfg.d_model * sizeof(float) * 2 * cfg.n_layers;
+        long long scoped_kv_bytes = (long long)max_partition_chars * cfg.d_model * sizeof(float) * 2 * cfg.n_layers;
+        double savings_x = (scoped_kv_bytes > 0) ? (double)file_kv_bytes / (double)scoped_kv_bytes : 0.0;
+        printf("  [kv-scoped stats] partition chars per group: max=%d  min=%d  mean=%.0f\n",
+               max_partition_chars, min_partition_chars,
+               (double)total_partition_chars / (double)n_root_children);
+        printf("  [kv-scoped stats] peak KV: file=%.1f MB  scoped=%.1f MB  ratio=%.1fx (Phase 1 reports only, no alloc change yet)\n",
+               file_kv_bytes / 1e6, scoped_kv_bytes / 1e6, savings_x);
     }
 
     // For progressive curriculum: per-subtree cumulative "how many nodes are
@@ -3991,6 +4066,7 @@ int run_per_subtree_training(const Config& cfg_in, const WeightOffsets& wo,
                               const SubtreeManifest& manifest,
                               int super_epochs, float entropy_lambda, MassWeightMode mass_weight,
                               int subtree_splits, int partition_depth, bool accumulate,
+                              bool partition_kv_scoped,
                               bool single_subtree, float intermediate_weight,
                               OptimizerKind optimizer, float momentum_beta, float rmsprop_beta,
                               LRSchedule lr_schedule, int warmup_super_epochs,
@@ -4095,6 +4171,7 @@ int run_per_subtree_training(const Config& cfg_in, const WeightOffsets& wo,
             // Save path is deferred to the super-epoch level below.
             run_radix_training(cfg, wo, h_weights, view.t,
                                /*epochs=*/1, entropy_lambda, mass_weight, subtree_splits, partition_depth, accumulate,
+                               partition_kv_scoped,
                                /*single_subtree=*/true, intermediate_weight,
                                optimizer, momentum_beta, rmsprop_beta,
                                lr_schedule, warmup_super_epochs,
@@ -4151,6 +4228,11 @@ int main(int argc, char** argv) {
     // AGPT invariant and avoids K/V staleness that comes from firing the
     // optimizer mid-subtree. Override with --no-accumulate for the old behavior.
     bool accumulate = true;
+    // Per-partition KV scoping: when combined with --partition-depth > 1, allocate KV cache
+    // sized for the largest partition group's char range instead of the whole file.
+    // Phase 1 (this branch): stats-only — reports achievable memory savings without changing
+    // behavior. Phase 2 will add the actual CPU-side index remap + smaller allocation.
+    bool partition_kv_scoped = false;
     int chunk_queries  = 0;   // 0 → default 50000 inside trainer
     bool single_subtree = false;  // treat entire trie as one subtree (1 Adam/epoch)
     float intermediate_weight = 1.0f;  // loss scale at unary-intermediate positions; 1.0 = unchanged
@@ -4195,6 +4277,7 @@ int main(int argc, char** argv) {
         else if (strcmp(argv[i], "--partition-depth") == 0 && i + 1 < argc) partition_depth = atoi(argv[++i]);
         else if (strcmp(argv[i], "--accumulate") == 0) accumulate = true;         // default; no-op, kept for explicitness
         else if (strcmp(argv[i], "--no-accumulate") == 0) accumulate = false;     // opt in to legacy fire-per-group behavior
+        else if (strcmp(argv[i], "--partition-kv-scoped") == 0) partition_kv_scoped = true;
         else if (strcmp(argv[i], "--chunk-queries") == 0 && i + 1 < argc) chunk_queries = atoi(argv[++i]);
         else if (strcmp(argv[i], "--single-subtree") == 0) single_subtree = true;
         else if (strcmp(argv[i], "--lr-scale-by-steps") == 0) lr_scale_by_steps = true;
@@ -4256,6 +4339,10 @@ int main(int argc, char** argv) {
                         "  [--no-accumulate]           — opt in to legacy per-group optimizer firing\n"
                         "                                (reintroduces K/V staleness; for reproducing old\n"
                         "                                experiments only).\n"
+                        "  [--partition-kv-scoped]     — with --partition-depth > 1: shrink peak KV\n"
+                        "                                footprint to the largest partition group's\n"
+                        "                                char range (vs whole-file). Phase 1: reports\n"
+                        "                                stats only (no behavior change).\n"
                         "  [--chunk-queries N]         — GPU-memory chunk size (default 50000). No effect on\n"
                         "                                gradient semantics: chunks within a split accumulate.\n"
                         "  [--single-subtree]          — merge all root-child subtrees into one → 1 Adam/epoch\n"
@@ -4302,6 +4389,7 @@ int main(int argc, char** argv) {
         int rc = run_per_subtree_training(cfg, wo, h_weights, manifest,
                                            /*super_epochs=*/epochs,
                                            entropy_lambda, mass_weight, subtree_splits, partition_depth, accumulate,
+                                           partition_kv_scoped,
                                            single_subtree, intermediate_weight,
                                            optimizer, momentum_beta, rmsprop_beta,
                                            lr_schedule, warmup_epochs,
@@ -4315,7 +4403,7 @@ int main(int argc, char** argv) {
         printf("Loading radix trie from %s...\n", trie_dir);
         RadixTrieData radix_trie = load_radix_trie(trie_dir);
 
-        return run_radix_training(cfg, wo, h_weights, radix_trie, epochs, entropy_lambda, mass_weight, subtree_splits, partition_depth, accumulate, single_subtree, intermediate_weight, optimizer, momentum_beta, rmsprop_beta, lr_schedule, warmup_epochs, weight_decay, grad_clip_norm, save_every, curriculum, save_path);
+        return run_radix_training(cfg, wo, h_weights, radix_trie, epochs, entropy_lambda, mass_weight, subtree_splits, partition_depth, accumulate, partition_kv_scoped, single_subtree, intermediate_weight, optimizer, momentum_beta, rmsprop_beta, lr_schedule, warmup_epochs, weight_decay, grad_clip_norm, save_every, curriculum, save_path);
     }
 
     // Load leveled trie
