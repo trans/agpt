@@ -140,6 +140,34 @@ enum class MassWeightMode { Off, Log, Sqrt, Linear };
 // aggressive early steps followed by near-zero late steps.
 enum class LRSchedule { Constant, Cosine, WarmupCosine };
 
+// Lightning Training — stochastic subtree sampling.
+// Each super-epoch issues `steps` stochastic samples instead of the deterministic
+// 65-root-child sweep. Each sampled subtree is a bounded training unit: its own
+// d_grads zero, accumulated across chunks, one optimizer step. See
+// notes/agpt/lightning-training.md for design rationale.
+enum class LightningSampler { L1_Uniform, L2_RcDepth, L3_MassWalk };
+struct LightningConfig {
+    int               steps      = 0;          // 0 = disabled (deterministic sweep)
+    LightningSampler  sampler    = LightningSampler::L3_MassWalk;
+    float             p_stop     = 0.3f;       // L3 stopping probability at each level
+    unsigned          seed       = 0x5c115e1u; // sampler RNG seed
+};
+
+// 32-bit xorshift. Same output across platforms; reproducible from a seed.
+static inline unsigned xorshift32(unsigned* state) {
+    unsigned x = *state;
+    x ^= x << 13;
+    x ^= x >> 17;
+    x ^= x << 5;
+    *state = x ? x : 0x1u;
+    return *state;
+}
+
+static inline float xorshift_float01(unsigned* state) {
+    // uniform in [0, 1)
+    return (float)xorshift32(state) / (float)4294967296.0;
+}
+
 static float compute_lr(float base_lr, int step, int total_steps,
                          int warmup_steps, LRSchedule sched) {
     if (total_steps <= 1) return base_lr;
@@ -2691,6 +2719,7 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                         LRSchedule lr_schedule, int warmup_epochs,
                         float weight_decay, float grad_clip_norm, int save_every,
                         CurriculumMode curriculum, const char* save_path,
+                        LightningConfig lightning = LightningConfig{},
                         TrainPersistence* persist = nullptr)
 {
     const bool quiet = persist && persist->quiet;
@@ -2730,6 +2759,14 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
     }
     if (single_subtree) {
         printf("  single-subtree: all radix nodes form ONE subtree → 1 Adam step per subtree pass\n");
+    }
+    if (lightning.steps > 0) {
+        const char* sname = (lightning.sampler == LightningSampler::L1_Uniform) ? "l1-uniform"
+                          : (lightning.sampler == LightningSampler::L2_RcDepth) ? "l2-rc-depth"
+                          :                                                        "l3-mass-walk";
+        printf("  lightning: %s, %d samples/super-epoch, p_stop=%.2f, seed=0x%x\n",
+               sname, lightning.steps, lightning.p_stop, lightning.seed);
+        printf("           (stochastic per-sample optimizer steps; accumulate forced off)\n");
     }
     if (intermediate_weight != 1.0f) {
         printf("  intermediate-weight: %.3f (scale loss at unary-intermediate positions)\n", intermediate_weight);
@@ -3230,6 +3267,62 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
         }
     }
 
+    // ------------------------------------------------------------
+    // Lightning Training adjacency precompute.
+    // We build an inverted parents[] → children adjacency table once, plus
+    // cumulative child weights used by L3's mass-weighted descent.
+    // Per-epoch resampling (inside the training loop) frees the current
+    // subtree_nodes[] / subtree_sizes[] and replaces them with N new samples.
+    // ------------------------------------------------------------
+    int* lightning_children_offsets = NULL;
+    int* lightning_children_flat    = NULL;
+    int lightning_active = (lightning.steps > 0);
+    unsigned lightning_rng = lightning.seed;
+
+    if (lightning_active && curriculum == CurriculumMode::Progressive) {
+        fprintf(stderr, "Lightning Training is not compatible with --curriculum progressive "
+                        "(needs depth_limit rebuild per sample, not implemented).\n");
+        exit(1);
+    }
+    if (lightning_active && single_subtree) {
+        fprintf(stderr, "Lightning Training subsumes --single-subtree; do not combine them.\n");
+        exit(1);
+    }
+    if (lightning_active && partition_depth > 1) {
+        fprintf(stderr, "Lightning Training replaces --partition-depth; do not combine them.\n");
+        exit(1);
+    }
+
+    if (lightning_active) {
+        // Build adjacency from parents[]. Each non-root r has parents[r] as its parent.
+        int* cnt = (int*)calloc(trie.radix_count, sizeof(int));
+        for (int r = 1; r < trie.radix_count; r++) cnt[trie.parents[r]]++;
+        lightning_children_offsets = (int*)calloc(trie.radix_count + 1, sizeof(int));
+        for (int r = 0; r < trie.radix_count; r++) {
+            lightning_children_offsets[r + 1] = lightning_children_offsets[r] + cnt[r];
+        }
+        long long total_child_edges = lightning_children_offsets[trie.radix_count];
+        lightning_children_flat = (int*)malloc((total_child_edges > 0 ? total_child_edges : 1) * sizeof(int));
+        int* cur = (int*)calloc(trie.radix_count, sizeof(int));
+        for (int r = 1; r < trie.radix_count; r++) {
+            int p = trie.parents[r];
+            lightning_children_flat[lightning_children_offsets[p] + cur[p]++] = r;
+        }
+        free(cur);
+        free(cnt);
+
+        // Force accumulate=false: each Lightning sample is its own bounded
+        // training unit with one optimizer step. Without this override the
+        // whole super-epoch of N samples would collapse into one step, which
+        // is not what Lightning is supposed to do.
+        accumulate = false;
+
+        if (!quiet) {
+            printf("  lightning: built adjacency (%lld child edges total; root has %d children)\n",
+                   total_child_edges, lightning_children_offsets[1] - lightning_children_offsets[0]);
+        }
+    }
+
     // For progressive curriculum: per-subtree cumulative "how many nodes are
     // within endpoint_depth ≤ d?" — because subtree_nodes[i] is sorted by
     // endpoint depth, this is a simple prefix scan.
@@ -3269,6 +3362,133 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
         for (int l = 0; l < L_layers; l++) {
             CUDA_CHECK(cudaMemset(d_kv_keys[l],   0, kv_bytes));
             CUDA_CHECK(cudaMemset(d_kv_values[l], 0, kv_bytes));
+        }
+
+        // ------------------------------------------------------------
+        // Lightning resampling: generate N stochastic samples for this
+        // super-epoch and replace subtree_nodes[] / subtree_sizes[].
+        // ------------------------------------------------------------
+        int lightning_depth_hist[64];
+        long long lightning_nodes_sum = 0;
+        if (lightning_active) {
+            for (int i = 0; i < 64; i++) lightning_depth_hist[i] = 0;
+            // Free previous subtree_nodes / subtree_sizes.
+            for (int i = 0; i < n_root_children; i++) free(subtree_nodes[i]);
+            free(subtree_nodes);
+            free(subtree_sizes);
+            n_root_children = lightning.steps;
+            subtree_nodes = (int**)malloc(n_root_children * sizeof(int*));
+            subtree_sizes = (int*)calloc(n_root_children, sizeof(int));
+
+            // Scratch buffers reused across samples: BFS queue of radix ids.
+            int* bfs_buf = (int*)malloc(trie.radix_count * sizeof(int));
+
+            for (int s = 0; s < n_root_children; s++) {
+                // --- Sample a radix node ---
+                int r_sample = 0;
+                if (lightning.sampler == LightningSampler::L3_MassWalk) {
+                    int cur = 0;
+                    while (1) {
+                        // Stop probability applies at all nodes except the virtual root.
+                        if (cur != 0) {
+                            float u = xorshift_float01(&lightning_rng);
+                            if (u < lightning.p_stop) break;
+                        }
+                        int cs = lightning_children_offsets[cur];
+                        int ce = lightning_children_offsets[cur + 1];
+                        int nc = ce - cs;
+                        if (nc == 0) break;  // leaf — emit it
+                        double total = 0.0;
+                        for (int j = cs; j < ce; j++) {
+                            total += (double)trie.edge_mass[lightning_children_flat[j]];
+                        }
+                        int pick;
+                        if (total <= 0.0) {
+                            pick = cs + (int)(xorshift32(&lightning_rng) % (unsigned)nc);
+                        } else {
+                            double u2 = (double)xorshift_float01(&lightning_rng) * total;
+                            double acc = 0.0;
+                            pick = ce - 1;
+                            for (int j = cs; j < ce; j++) {
+                                acc += (double)trie.edge_mass[lightning_children_flat[j]];
+                                if (u2 <= acc) { pick = j; break; }
+                            }
+                        }
+                        cur = lightning_children_flat[pick];
+                    }
+                    r_sample = cur;
+                } else if (lightning.sampler == LightningSampler::L1_Uniform) {
+                    // Uniform over all non-root radix nodes.
+                    if (trie.radix_count > 1) {
+                        r_sample = 1 + (int)(xorshift32(&lightning_rng) % (unsigned)(trie.radix_count - 1));
+                    }
+                } else {
+                    // L2_RcDepth: pick random depth-1 root-child and random depth.
+                    // First-pass: just pick a random root-child (= depth-1 node).
+                    // Depth-stratified L2 would need a per-rc-and-depth index; defer.
+                    int root_cs = lightning_children_offsets[0];
+                    int root_ce = lightning_children_offsets[1];
+                    int nc = root_ce - root_cs;
+                    if (nc > 0) {
+                        r_sample = lightning_children_flat[root_cs + (int)(xorshift32(&lightning_rng) % (unsigned)nc)];
+                    }
+                }
+                if (r_sample == 0) {
+                    // Degenerate: sampler emitted the virtual root (e.g., p_stop fires,
+                    // but walk is at root). Shouldn't happen per guard above, but fall
+                    // back to picking a random root-child for correctness.
+                    int root_cs = lightning_children_offsets[0];
+                    int root_ce = lightning_children_offsets[1];
+                    int nc = root_ce - root_cs;
+                    if (nc > 0) {
+                        r_sample = lightning_children_flat[root_cs + (int)(xorshift32(&lightning_rng) % (unsigned)nc)];
+                    }
+                }
+
+                // --- BFS: {r_sample} ∪ descendants(r_sample) ---
+                int fill = 0;
+                int head = 0;
+                bfs_buf[fill++] = r_sample;
+                while (head < fill) {
+                    int cur = bfs_buf[head++];
+                    int cs = lightning_children_offsets[cur];
+                    int ce = lightning_children_offsets[cur + 1];
+                    for (int j = cs; j < ce; j++) {
+                        bfs_buf[fill++] = lightning_children_flat[j];
+                    }
+                }
+
+                // --- Endpoint-depth sort (bucket) ---
+                int sz = fill;
+                int max_ep = 0;
+                for (int a = 0; a < sz; a++) {
+                    int ep = trie.edge_first_char_depths[bfs_buf[a]] + trie.edge_lens[bfs_buf[a]] - 1;
+                    if (ep > max_ep) max_ep = ep;
+                }
+                int* node_arr = (int*)malloc(sz * sizeof(int));
+                int* bucket_counts = (int*)calloc(max_ep + 2, sizeof(int));
+                for (int a = 0; a < sz; a++) {
+                    int ep = trie.edge_first_char_depths[bfs_buf[a]] + trie.edge_lens[bfs_buf[a]] - 1;
+                    bucket_counts[ep + 1]++;
+                }
+                for (int e = 0; e < max_ep + 1; e++) bucket_counts[e + 1] += bucket_counts[e];
+                int* cursors = (int*)calloc(max_ep + 2, sizeof(int));
+                for (int a = 0; a < sz; a++) {
+                    int ep = trie.edge_first_char_depths[bfs_buf[a]] + trie.edge_lens[bfs_buf[a]] - 1;
+                    node_arr[bucket_counts[ep] + cursors[ep]++] = bfs_buf[a];
+                }
+                free(bucket_counts); free(cursors);
+                subtree_nodes[s] = node_arr;
+                subtree_sizes[s] = sz;
+                lightning_nodes_sum += sz;
+
+                // Log sampled-node start depth (endpoint_depth of r_sample) into histogram.
+                int sample_ep = trie.edge_first_char_depths[r_sample] + trie.edge_lens[r_sample] - 1;
+                if (sample_ep < 0) sample_ep = 0;
+                if (sample_ep >= 64) sample_ep = 63;
+                lightning_depth_hist[sample_ep]++;
+            }
+            free(bfs_buf);
         }
 
         double total_loss = 0.0;
@@ -3904,6 +4124,16 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
         if (!quiet) {
             printf("Epoch %d: loss=%.6f  (%.2f sec, %d subtrees, %d chunks, %d nodes)\n",
                    epoch + 1, mean_loss, elapsed, subtrees_trained, chunks_processed, nodes_trained);
+            if (lightning_active) {
+                double mean_size = (n_root_children > 0) ? (double)lightning_nodes_sum / n_root_children : 0.0;
+                printf("  lightning depth histogram (sample endpoint depth):");
+                int max_seen = 0;
+                for (int d = 0; d < 64; d++) if (lightning_depth_hist[d] > 0 && d > max_seen) max_seen = d;
+                for (int d = 0; d <= max_seen; d++) {
+                    if (lightning_depth_hist[d] > 0) printf(" d%d:%d", d, lightning_depth_hist[d]);
+                }
+                printf("  mean_subtree_size=%.0f\n", mean_size);
+            }
         }
 
         // Intermediate checkpoint every save_every epochs. External tooling
@@ -3962,6 +4192,8 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
     free(root_child_of); free(root_children);
     for (int i = 0; i < n_root_children; i++) free(subtree_nodes[i]);
     free(subtree_nodes); free(subtree_sizes);
+    if (lightning_children_offsets) free(lightning_children_offsets);
+    if (lightning_children_flat)    free(lightning_children_flat);
     if (depth_limit) {
         for (int i = 0; i < n_root_children; i++) free(depth_limit[i]);
         free(depth_limit);
@@ -4100,6 +4332,7 @@ int run_per_subtree_training(const Config& cfg_in, const WeightOffsets& wo,
                                lr_schedule, warmup_super_epochs,
                                weight_decay, grad_clip_norm, /*save_every=*/0,
                                curriculum, /*save_path=*/NULL,
+                               /*lightning=*/LightningConfig{},
                                &persist);
 
             super_nodes_trained += s.n_nodes;
@@ -4166,6 +4399,7 @@ int main(int argc, char** argv) {
     bool lr_scale_by_steps = false;  // per-subtree: auto-rescale lr to keep the same
                                       // effective "gradient budget per pass" as the
                                       // unigram-d=16 reference recipe (65 steps/pass).
+    LightningConfig lightning;  // defaults: steps=0 (off), sampler=L3, p_stop=0.3, seed=0x5c115e1
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--model") == 0 && i + 1 < argc) model_path = argv[++i];
@@ -4226,6 +4460,16 @@ int main(int argc, char** argv) {
             else if (strcmp(c, "progressive") == 0) curriculum = CurriculumMode::Progressive;
             else { fprintf(stderr, "Unknown curriculum '%s' (expected: flat, progressive)\n", c); return 1; }
         }
+        else if (strcmp(argv[i], "--lightning-steps") == 0 && i + 1 < argc) lightning.steps = atoi(argv[++i]);
+        else if (strcmp(argv[i], "--lightning-sampler") == 0 && i + 1 < argc) {
+            const char* s = argv[++i];
+            if      (strcmp(s, "l1") == 0 || strcmp(s, "uniform") == 0)   lightning.sampler = LightningSampler::L1_Uniform;
+            else if (strcmp(s, "l2") == 0 || strcmp(s, "rc-depth") == 0)  lightning.sampler = LightningSampler::L2_RcDepth;
+            else if (strcmp(s, "l3") == 0 || strcmp(s, "mass-walk") == 0) lightning.sampler = LightningSampler::L3_MassWalk;
+            else { fprintf(stderr, "Unknown --lightning-sampler '%s' (l1|l2|l3)\n", s); return 1; }
+        }
+        else if (strcmp(argv[i], "--lightning-p-stop") == 0 && i + 1 < argc) lightning.p_stop = atof(argv[++i]);
+        else if (strcmp(argv[i], "--lightning-seed") == 0 && i + 1 < argc) lightning.seed = (unsigned)strtoul(argv[++i], NULL, 0);
     }
     if (subtree_splits < 1) subtree_splits = 1;
     if (partition_depth < 1) partition_depth = 1;
@@ -4273,6 +4517,18 @@ int main(int argc, char** argv) {
                         "                                Needed for stable SGD/momentum training at non-tiny lr.\n"
                         "  [--save-every N]            — checkpoint as <save>.epN every N epochs for external\n"
                         "                                best-PPL selection.\n"
+                        "  [--lightning-steps N]       — Lightning Training: N stochastic subtree samples\n"
+                        "                                per super-epoch; one optimizer step per sample.\n"
+                        "                                0 = off (default deterministic sweep).\n"
+                        "                                Implies --no-accumulate; mutually exclusive with\n"
+                        "                                --single-subtree, --partition-depth N>1, and\n"
+                        "                                --curriculum progressive.\n"
+                        "  [--lightning-sampler l1|l2|l3] — sampler variant. Default l3 (mass-walk).\n"
+                        "                                l1 = uniform over all radix nodes.\n"
+                        "                                l2 = uniform over depth-1 root-children.\n"
+                        "                                l3 = mass-weighted top-down walk with p_stop.\n"
+                        "  [--lightning-p-stop F]      — L3 stop probability at each level (default 0.3).\n"
+                        "  [--lightning-seed N]        — sampler RNG seed (default 0x5c115e1).\n"
                         "  [--save <path>]\n");
         return 1;
     }
@@ -4315,7 +4571,7 @@ int main(int argc, char** argv) {
         printf("Loading radix trie from %s...\n", trie_dir);
         RadixTrieData radix_trie = load_radix_trie(trie_dir);
 
-        return run_radix_training(cfg, wo, h_weights, radix_trie, epochs, entropy_lambda, mass_weight, subtree_splits, partition_depth, accumulate, single_subtree, intermediate_weight, optimizer, momentum_beta, rmsprop_beta, lr_schedule, warmup_epochs, weight_decay, grad_clip_norm, save_every, curriculum, save_path);
+        return run_radix_training(cfg, wo, h_weights, radix_trie, epochs, entropy_lambda, mass_weight, subtree_splits, partition_depth, accumulate, single_subtree, intermediate_weight, optimizer, momentum_beta, rmsprop_beta, lr_schedule, warmup_epochs, weight_decay, grad_clip_norm, save_every, curriculum, save_path, lightning);
     }
 
     // Load leveled trie
