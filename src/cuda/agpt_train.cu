@@ -2685,7 +2685,7 @@ struct TrainPersistence {
 int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                         float* h_weights, RadixTrieData& trie,
                         int epochs, float entropy_lambda, MassWeightMode mass_weight,
-                        int subtree_splits,
+                        int subtree_splits, int partition_depth,
                         bool single_subtree, float intermediate_weight,
                         OptimizerKind optimizer, float momentum_beta, float rmsprop_beta,
                         LRSchedule lr_schedule, int warmup_epochs,
@@ -3136,6 +3136,98 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
         }
         n_root_children = 1;
         if (!quiet) printf("  single-subtree mode: one subtree of %d radix nodes (BFS-sorted)\n", fill);
+    }
+
+    // ------------------------------------------------------------
+    // N-gram partition (--partition-depth N, N>1).
+    // Re-groups whatever subtree buckets we currently have into finer
+    // buckets keyed by depth-N radix ancestor. N=1 is a no-op (keeps
+    // current per-root-child or single-subtree layout). N=2 = bigram
+    // (~1139 groups on d=16 Shakespeare). Each group still gets ONE
+    // Adam step per super-epoch, so this multiplies optimizer steps.
+    // BFS-sort within each group is preserved because we bucket from
+    // the already-BFS-sorted input list in order.
+    // ------------------------------------------------------------
+    if (partition_depth > 1 && n_root_children > 0) {
+        int total = 0;
+        for (int i = 0; i < n_root_children; i++) total += subtree_sizes[i];
+        int* all_nodes = (int*)malloc((total > 0 ? total : 1) * sizeof(int));
+        int fill2 = 0;
+        for (int i = 0; i < n_root_children; i++) {
+            for (int j = 0; j < subtree_sizes[i]; j++) all_nodes[fill2++] = subtree_nodes[i][j];
+            free(subtree_nodes[i]);
+        }
+        free(subtree_nodes);
+        free(subtree_sizes);
+
+        // Depth-N ancestor of each touched radix node: walk parents until
+        // the edge covers depth N (first_char_depth <= N <= endpoint_depth).
+        // Returns 0 if the node's path is shallower than N (whole root-to-r
+        // path has length < N); those nodes all clump into group keyed by 0.
+        int* partition_ancestor = (int*)malloc(trie.radix_count * sizeof(int));
+        for (int r = 0; r < trie.radix_count; r++) partition_ancestor[r] = -1;
+        for (int k = 0; k < fill2; k++) {
+            int r = all_nodes[k];
+            if (partition_ancestor[r] != -1) continue;
+            int cur = r;
+            while (cur > 0) {
+                int fcd = trie.edge_first_char_depths[cur];
+                int ed  = fcd + trie.edge_lens[cur] - 1;
+                if (fcd <= partition_depth && ed >= partition_depth) break;
+                cur = trie.parents[cur];
+            }
+            partition_ancestor[r] = cur;  // 0 = no ancestor covers depth N
+        }
+
+        // Collect unique partition keys (group ids), preserving first-seen order.
+        char* seen = (char*)calloc(trie.radix_count, 1);
+        int* key_to_group = (int*)malloc(trie.radix_count * sizeof(int));
+        for (int r = 0; r < trie.radix_count; r++) key_to_group[r] = -1;
+        int n_groups = 0;
+        int* group_keys = (int*)malloc((fill2 > 0 ? fill2 : 1) * sizeof(int));
+        for (int k = 0; k < fill2; k++) {
+            int key = partition_ancestor[all_nodes[k]];
+            if (key < 0) key = 0;
+            if (!seen[key]) {
+                seen[key] = 1;
+                key_to_group[key] = n_groups;
+                group_keys[n_groups++] = key;
+            }
+        }
+
+        int* group_sizes = (int*)calloc(n_groups, sizeof(int));
+        for (int k = 0; k < fill2; k++) {
+            int key = partition_ancestor[all_nodes[k]];
+            if (key < 0) key = 0;
+            group_sizes[key_to_group[key]]++;
+        }
+        int** group_nodes = (int**)malloc(n_groups * sizeof(int*));
+        for (int g = 0; g < n_groups; g++) {
+            group_nodes[g] = (int*)malloc((group_sizes[g] > 0 ? group_sizes[g] : 1) * sizeof(int));
+        }
+        int* fills_arr = (int*)calloc(n_groups, sizeof(int));
+        for (int k = 0; k < fill2; k++) {
+            int key = partition_ancestor[all_nodes[k]];
+            if (key < 0) key = 0;
+            int g = key_to_group[key];
+            group_nodes[g][fills_arr[g]++] = all_nodes[k];
+        }
+
+        free(fills_arr);
+        free(all_nodes);
+        free(partition_ancestor);
+        free(key_to_group);
+        free(group_keys);
+        free(seen);
+
+        subtree_nodes = group_nodes;
+        subtree_sizes = group_sizes;
+        n_root_children = n_groups;   // semantics: now "partition groups"
+
+        if (!quiet) {
+            printf("  partition-depth=%d: %d groups, 1 Adam step per group per super-epoch\n",
+                   partition_depth, n_groups);
+        }
     }
 
     // For progressive curriculum: per-subtree cumulative "how many nodes are
@@ -3837,7 +3929,7 @@ int run_per_subtree_training(const Config& cfg_in, const WeightOffsets& wo,
                               float* h_weights,
                               const SubtreeManifest& manifest,
                               int super_epochs, float entropy_lambda, MassWeightMode mass_weight,
-                              int subtree_splits,
+                              int subtree_splits, int partition_depth,
                               bool single_subtree, float intermediate_weight,
                               OptimizerKind optimizer, float momentum_beta, float rmsprop_beta,
                               LRSchedule lr_schedule, int warmup_super_epochs,
@@ -3941,7 +4033,7 @@ int run_per_subtree_training(const Config& cfg_in, const WeightOffsets& wo,
             // One subtree, one Adam/RMSProp step (single_subtree semantics per file).
             // Save path is deferred to the super-epoch level below.
             run_radix_training(cfg, wo, h_weights, view.t,
-                               /*epochs=*/1, entropy_lambda, mass_weight, subtree_splits,
+                               /*epochs=*/1, entropy_lambda, mass_weight, subtree_splits, partition_depth,
                                /*single_subtree=*/true, intermediate_weight,
                                optimizer, momentum_beta, rmsprop_beta,
                                lr_schedule, warmup_super_epochs,
@@ -3992,6 +4084,7 @@ int main(int argc, char** argv) {
     float entropy_lambda = 0.0f;
     MassWeightMode mass_weight = MassWeightMode::Off;
     int subtree_splits = 1;   // 1 = one Adam step per root-child subtree (invariant)
+    int partition_depth = 1;  // 1 = per-root-child (65 groups); 2 = bigram (~1139); 3 = trigram; etc.
     int chunk_queries  = 0;   // 0 → default 50000 inside trainer
     bool single_subtree = false;  // treat entire trie as one subtree (1 Adam/epoch)
     float intermediate_weight = 1.0f;  // loss scale at unary-intermediate positions; 1.0 = unchanged
@@ -4033,6 +4126,7 @@ int main(int argc, char** argv) {
             }
         }
         else if (strcmp(argv[i], "--subtree-splits") == 0 && i + 1 < argc) subtree_splits = atoi(argv[++i]);
+        else if (strcmp(argv[i], "--partition-depth") == 0 && i + 1 < argc) partition_depth = atoi(argv[++i]);
         else if (strcmp(argv[i], "--chunk-queries") == 0 && i + 1 < argc) chunk_queries = atoi(argv[++i]);
         else if (strcmp(argv[i], "--single-subtree") == 0) single_subtree = true;
         else if (strcmp(argv[i], "--lr-scale-by-steps") == 0) lr_scale_by_steps = true;
@@ -4066,6 +4160,7 @@ int main(int argc, char** argv) {
         }
     }
     if (subtree_splits < 1) subtree_splits = 1;
+    if (partition_depth < 1) partition_depth = 1;
 
     if (!model_path || !trie_dir) {
         fprintf(stderr, "Usage: agpt_train --model <path> --trie-dir <path>\n"
@@ -4082,6 +4177,12 @@ int main(int argc, char** argv) {
                         "  [--subtree-splits N]        — split subtree into N sub-batches, N\n"
                         "                                Adam steps per subtree (1 = strict invariant;\n"
                         "                                >1 reintroduces within-subtree K/V staleness).\n"
+                        "  [--partition-depth N]       — n-gram partition: group radix nodes by their\n"
+                        "                                depth-N ancestor, one Adam step per group.\n"
+                        "                                1 (default) = per-root-child (65 groups).\n"
+                        "                                2 = per-bigram (~1139 groups at d=16 Shakespeare).\n"
+                        "                                3 = per-trigram; etc. More groups = more Adam\n"
+                        "                                steps per super-epoch; smaller effective batch.\n"
                         "  [--chunk-queries N]         — GPU-memory chunk size (default 50000). No effect on\n"
                         "                                gradient semantics: chunks within a split accumulate.\n"
                         "  [--single-subtree]          — merge all root-child subtrees into one → 1 Adam/epoch\n"
@@ -4127,7 +4228,7 @@ int main(int argc, char** argv) {
 
         int rc = run_per_subtree_training(cfg, wo, h_weights, manifest,
                                            /*super_epochs=*/epochs,
-                                           entropy_lambda, mass_weight, subtree_splits,
+                                           entropy_lambda, mass_weight, subtree_splits, partition_depth,
                                            single_subtree, intermediate_weight,
                                            optimizer, momentum_beta, rmsprop_beta,
                                            lr_schedule, warmup_epochs,
@@ -4141,7 +4242,7 @@ int main(int argc, char** argv) {
         printf("Loading radix trie from %s...\n", trie_dir);
         RadixTrieData radix_trie = load_radix_trie(trie_dir);
 
-        return run_radix_training(cfg, wo, h_weights, radix_trie, epochs, entropy_lambda, mass_weight, subtree_splits, single_subtree, intermediate_weight, optimizer, momentum_beta, rmsprop_beta, lr_schedule, warmup_epochs, weight_decay, grad_clip_norm, save_every, curriculum, save_path);
+        return run_radix_training(cfg, wo, h_weights, radix_trie, epochs, entropy_lambda, mass_weight, subtree_splits, partition_depth, single_subtree, intermediate_weight, optimizer, momentum_beta, rmsprop_beta, lr_schedule, warmup_epochs, weight_decay, grad_clip_norm, save_every, curriculum, save_path);
     }
 
     // Load leveled trie
