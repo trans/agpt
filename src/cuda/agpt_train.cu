@@ -151,6 +151,17 @@ struct LightningConfig {
     LightningSampler  sampler    = LightningSampler::L3_MassWalk;
     float             p_stop     = 0.3f;       // L3 stopping probability at each level
     unsigned          seed       = 0x5c115e1u; // sampler RNG seed
+    // Per-sample LR scaling by subtree mass (adaptive form of #4 from the
+    // design discussion — LR scaling beats gradient scaling under RMSProp/Adam
+    // because gradient scaling cancels in the adaptive divisor).
+    //   Off    — no LR scaling
+    //   Log    — w = log(1+mass) / mean(log(1+mass))   (gentlest, ~4× range)
+    //   Sqrt   — w = sqrt(mass)  / mean(sqrt(mass))    (~100× range)
+    //   Linear — w = mass        / mean(mass)          (can be 10000×+; unstable)
+    // The linear mode reproduces the exact #4 proposal but empirically blows up
+    // RMSProp when a single high-mass sample dominates. Log is the recommended
+    // starting point.
+    MassWeightMode    mass_lr    = MassWeightMode::Off;
 };
 
 // 32-bit xorshift. Same output across platforms; reproducible from a seed.
@@ -2764,8 +2775,12 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
         const char* sname = (lightning.sampler == LightningSampler::L1_Uniform) ? "l1-uniform"
                           : (lightning.sampler == LightningSampler::L2_RcDepth) ? "l2-rc-depth"
                           :                                                        "l3-mass-walk";
-        printf("  lightning: %s, %d samples/super-epoch, p_stop=%.2f, seed=0x%x\n",
-               sname, lightning.steps, lightning.p_stop, lightning.seed);
+        const char* mlr = (lightning.mass_lr == MassWeightMode::Log)    ? ", mass-lr=log"
+                        : (lightning.mass_lr == MassWeightMode::Sqrt)   ? ", mass-lr=sqrt"
+                        : (lightning.mass_lr == MassWeightMode::Linear) ? ", mass-lr=linear"
+                        :                                                  "";
+        printf("  lightning: %s, %d samples/super-epoch, p_stop=%.2f, seed=0x%x%s\n",
+               sname, lightning.steps, lightning.p_stop, lightning.seed, mlr);
         printf("           (stochastic per-sample optimizer steps; accumulate forced off)\n");
     }
     if (intermediate_weight != 1.0f) {
@@ -3380,6 +3395,10 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
         // ------------------------------------------------------------
         int lightning_depth_hist[64];
         long long lightning_nodes_sum = 0;
+        double* lightning_subtree_mass = NULL;
+        double lightning_mean_mass = 1.0;
+        double lightning_mass_min = 0.0, lightning_mass_max = 0.0;
+        double lightning_w_min = 1.0, lightning_w_max = 1.0;
         if (lightning_active) {
             for (int i = 0; i < 64; i++) lightning_depth_hist[i] = 0;
             // Free previous subtree_nodes / subtree_sizes.
@@ -3389,6 +3408,7 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
             n_root_children = lightning.steps;
             subtree_nodes = (int**)malloc(n_root_children * sizeof(int*));
             subtree_sizes = (int*)calloc(n_root_children, sizeof(int));
+            lightning_subtree_mass = (double*)calloc(n_root_children, sizeof(double));
 
             // Scratch buffers reused across samples: BFS queue of radix ids.
             int* bfs_buf = (int*)malloc(trie.radix_count * sizeof(int));
@@ -3459,14 +3479,18 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                 int fill = 0;
                 int head = 0;
                 bfs_buf[fill++] = r_sample;
+                double mass_accum = (double)trie.edge_mass[r_sample];
                 while (head < fill) {
                     int cur = bfs_buf[head++];
                     int cs = lightning_children_offsets[cur];
                     int ce = lightning_children_offsets[cur + 1];
                     for (int j = cs; j < ce; j++) {
-                        bfs_buf[fill++] = lightning_children_flat[j];
+                        int child = lightning_children_flat[j];
+                        bfs_buf[fill++] = child;
+                        mass_accum += (double)trie.edge_mass[child];
                     }
                 }
+                lightning_subtree_mass[s] = mass_accum;
 
                 // --- Endpoint-depth sort (bucket) ---
                 int sz = fill;
@@ -3499,6 +3523,50 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                 lightning_depth_hist[sample_ep]++;
             }
             free(bfs_buf);
+
+            // Compute raw mass stats (for logging), then compress + normalize
+            // the per-sample weights so the step-LR multiplier at optimizer
+            // time is w[s] = compress(mass[s]) / mean(compress(mass)).
+            // Mean-normalization preserves overall training budget: average
+            // weight across an epoch = 1.0.
+            double total_raw = 0.0;
+            lightning_mass_min = (n_root_children > 0) ? lightning_subtree_mass[0] : 0.0;
+            lightning_mass_max = lightning_mass_min;
+            for (int s = 0; s < n_root_children; s++) {
+                double m = lightning_subtree_mass[s];
+                total_raw += m;
+                if (m < lightning_mass_min) lightning_mass_min = m;
+                if (m > lightning_mass_max) lightning_mass_max = m;
+            }
+            lightning_mean_mass = (n_root_children > 0 && total_raw > 0.0)
+                                  ? total_raw / n_root_children : 1.0;
+
+            if (lightning.mass_lr != MassWeightMode::Off) {
+                // In-place: replace subtree_mass[s] with the normalized weight
+                // used at optimizer time. compress(m) then divide by its mean.
+                double total_compressed = 0.0;
+                for (int s = 0; s < n_root_children; s++) {
+                    double m = lightning_subtree_mass[s];
+                    double c;
+                    switch (lightning.mass_lr) {
+                        case MassWeightMode::Log:    c = log(1.0 + m);             break;
+                        case MassWeightMode::Sqrt:   c = (m > 0.0) ? sqrt(m) : 0.0; break;
+                        case MassWeightMode::Linear: c = m;                         break;
+                        default:                     c = 1.0;                       break;
+                    }
+                    lightning_subtree_mass[s] = c;  // will be divided by mean below
+                    total_compressed += c;
+                }
+                double mean_c = (n_root_children > 0 && total_compressed > 0.0)
+                                ? total_compressed / n_root_children : 1.0;
+                lightning_w_min = (n_root_children > 0) ? lightning_subtree_mass[0] / mean_c : 1.0;
+                lightning_w_max = lightning_w_min;
+                for (int s = 0; s < n_root_children; s++) {
+                    lightning_subtree_mass[s] /= mean_c;
+                    if (lightning_subtree_mass[s] < lightning_w_min) lightning_w_min = lightning_subtree_mass[s];
+                    if (lightning_subtree_mass[s] > lightning_w_max) lightning_w_max = lightning_subtree_mass[s];
+                }
+            }
         }
 
         double total_loss = 0.0;
@@ -4043,6 +4111,15 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
             float step_lr = compute_lr(cfg.lr, adam_t - 1, total_opt_steps_estimate,
                                        warmup_steps, lr_schedule);
 
+            // Lightning --mass-lr: each sample's step_lr is multiplied by its
+            // precomputed normalized weight (compressed mass / compressed-mean).
+            // High-mass samples move weights proportionally more; average weight
+            // across the epoch is 1.0, so the LR schedule still controls nominal
+            // magnitude. Weight was computed after resampling above.
+            if (lightning_active && lightning.mass_lr != MassWeightMode::Off && lightning_subtree_mass) {
+                step_lr *= (float)lightning_subtree_mass[rc_idx];
+            }
+
             // Grad clipping (applies to the accumulated chunk-gradient sum for this
             // subtree-split before the optimizer uses it).
             if (grad_clip_norm > 0.0f) {
@@ -4142,7 +4219,12 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                 for (int d = 0; d <= max_seen; d++) {
                     if (lightning_depth_hist[d] > 0) printf(" d%d:%d", d, lightning_depth_hist[d]);
                 }
-                printf("  mean_subtree_size=%.0f\n", mean_size);
+                printf("  mean_size=%.0f  mass[min=%.0f mean=%.0f max=%.0f]",
+                       mean_size, lightning_mass_min, lightning_mean_mass, lightning_mass_max);
+                if (lightning.mass_lr != MassWeightMode::Off) {
+                    printf("  lr_scale[min=%.3f max=%.3f]", lightning_w_min, lightning_w_max);
+                }
+                printf("\n");
             }
         }
 
@@ -4154,6 +4236,8 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
             CUDA_CHECK(cudaMemcpy(h_weights, d_weights, wo.total_floats * sizeof(float), cudaMemcpyDeviceToHost));
             save_model_weights(ck_path, cfg, h_weights, wo);
         }
+
+        if (lightning_subtree_mass) { free(lightning_subtree_mass); lightning_subtree_mass = NULL; }
     }
 
     // Save weights back to host.
@@ -4480,6 +4564,20 @@ int main(int argc, char** argv) {
         }
         else if (strcmp(argv[i], "--lightning-p-stop") == 0 && i + 1 < argc) lightning.p_stop = atof(argv[++i]);
         else if (strcmp(argv[i], "--lightning-seed") == 0 && i + 1 < argc) lightning.seed = (unsigned)strtoul(argv[++i], NULL, 0);
+        else if (strcmp(argv[i], "--lightning-mass-lr") == 0) {
+            // Two-form: bare --lightning-mass-lr → log (safest), or followed by
+            // off|log|sqrt|linear for explicit mode.
+            if (i + 1 < argc) {
+                const char* m = argv[i + 1];
+                if      (strcmp(m, "off")    == 0) { lightning.mass_lr = MassWeightMode::Off;    i++; }
+                else if (strcmp(m, "log")    == 0) { lightning.mass_lr = MassWeightMode::Log;    i++; }
+                else if (strcmp(m, "sqrt")   == 0) { lightning.mass_lr = MassWeightMode::Sqrt;   i++; }
+                else if (strcmp(m, "linear") == 0) { lightning.mass_lr = MassWeightMode::Linear; i++; }
+                else                               { lightning.mass_lr = MassWeightMode::Log; }
+            } else {
+                lightning.mass_lr = MassWeightMode::Log;
+            }
+        }
     }
     if (subtree_splits < 1) subtree_splits = 1;
     if (partition_depth < 1) partition_depth = 1;
@@ -4541,6 +4639,14 @@ int main(int argc, char** argv) {
                         "                                l3 = mass-weighted top-down walk with p_stop.\n"
                         "  [--lightning-p-stop F]      — L3 stop probability at each level (default 0.3).\n"
                         "  [--lightning-seed N]        — sampler RNG seed (default 0x5c115e1).\n"
+                        "  [--lightning-mass-lr [off|log|sqrt|linear]] — per-sample LR scaling by\n"
+                        "                                subtree mass. Bare flag = log (safest).\n"
+                        "                                Each sample's step_lr is multiplied by\n"
+                        "                                compress(subtree_mass[s]) / mean(compress).\n"
+                        "                                Mean-normalized so average weight = 1.0.\n"
+                        "                                linear can blow up RMSProp with a single\n"
+                        "                                high-mass sample dominating; log is the\n"
+                        "                                stable default. off = no scaling.\n"
                         "  [--save <path>]\n");
         return 1;
     }

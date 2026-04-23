@@ -77,6 +77,37 @@ lr≈3e-4..1e-3 at 260 steps/SE. If L3 can't close the gap even with tuned
 LR, the claim "mass-weighted stochastic sampling beats deterministic
 uniform-over-root-children" is probably wrong.
 
+### Result: per-sample mass-lr scaling (new --lightning-mass-lr flag)
+
+Scales each Lightning sample's step_lr by compress(subtree_mass)/mean so
+high-mass samples move weights proportionally more. This is a LR scale, not
+a gradient scale — necessary because under RMSProp/Adam the weight cancels
+out in the adaptive divisor, so gradient scaling would be a no-op at
+steady state.
+
+L3 p_stop=0.3, 65×3 matched budget:
+
+| config | mean PPL | min | max |
+|---|---|---|---|
+| **baseline deterministic** | **17.99** | — | — |
+| **L3 p_stop=0.3 mass-off** | **18.71** | 17.69 | 20.69 |
+| L3 p_stop=0.3 mass-log | 19.75 | 18.89 | 21.02 |
+| L3 p_stop=0.5 mass-log | 23.35 | 20.22 | 27.65 |
+| L3 p_stop=0.3 mass-sqrt | 27.04 | 22.84 | 31.85 |
+| L3 p_stop=0.3 mass-linear | 35.43 | 25.80 | 54.08 |
+
+**Key finding**: mass-off wins; two runs hit 17.69 / 17.74 — matching
+baseline within GPU-reduction noise. Mass-lr scaling, even with log
+compression, **hurts**. Read: RMSProp's second-moment accumulator already
+handles the "low-mass = noisy gradient" problem; an external LR multiplier
+just perturbs the running averages without adding signal. Linear and sqrt
+blow up as predicted (one huge-mass sample dominates with ratio ≥ 100×).
+
+So #4 from the design discussion (mass-weighted step) is theoretically
+sound but empirically unhelpful on top of RMSProp. Flag is kept — may
+matter for SGD where gradient scaling and LR scaling ARE equivalent and
+there's no adaptive divisor to absorb the imbalance.
+
 ## Run
 
 ```sh

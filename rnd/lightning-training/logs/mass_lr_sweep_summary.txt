@@ -1,0 +1,22 @@
+==============================================================
+Lightning L3 mass-lr sweep at d=8
+  init: data/input.random.model  trie: /tmp/agpt_input_d8_radix  git: 0c799e9
+  baseline det 65×3: 17.99  |  L3 p_stop=0.3 no-mass-lr: 20.12
+==============================================================
+l3-0.3-mass-off  run 1  PPL = 20.6930  time = 4s  (rc=0)
+l3-0.3-mass-off  run 2  PPL = 17.7423  time = 4s  (rc=0)
+l3-0.3-mass-off  run 3  PPL = 17.6919  time = 4s  (rc=0)
+l3-0.3-mass-log  run 1  PPL = 18.8895  time = 4s  (rc=0)
+l3-0.3-mass-log  run 2  PPL = 19.3472  time = 4s  (rc=0)
+l3-0.3-mass-log  run 3  PPL = 21.0191  time = 5s  (rc=0)
+l3-0.3-mass-sqrt  run 1  PPL = 26.4475  time = 3s  (rc=0)
+l3-0.3-mass-sqrt  run 2  PPL = 31.8477  time = 4s  (rc=0)
+l3-0.3-mass-sqrt  run 3  PPL = 22.8369  time = 4s  (rc=0)
+l3-0.3-mass-linear  run 1  PPL = 26.4086  time = 3s  (rc=0)
+l3-0.3-mass-linear  run 2  PPL = 54.0848  time = 4s  (rc=0)
+l3-0.3-mass-linear  run 3  PPL = 25.7951  time = 4s  (rc=0)
+l3-0.5-mass-log  run 1  PPL = 27.6532  time = 5s  (rc=0)
+l3-0.5-mass-log  run 2  PPL = 20.2244  time = 6s  (rc=0)
+l3-0.5-mass-log  run 3  PPL = 22.1670  time = 6s  (rc=0)
+
+Done.
