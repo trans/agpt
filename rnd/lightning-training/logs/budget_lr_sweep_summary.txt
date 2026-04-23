@@ -1,0 +1,22 @@
+==============================================================
+Lightning L3 step-budget × LR sweep at d=8
+  init: data/input.random.model  trie: /tmp/agpt_input_d8_radix  git: 5cf3dcf
+  baseline det 65×3 lr=3e-3: 17.99  |  L3 p_stop=0.3 mass-off s65: 18.71
+==============================================================
+l3-s260-lr1e-3  run 1  PPL = 21.7134  time = 13s  (rc=0)
+l3-s260-lr1e-3  run 2  PPL = 23.4499  time = 14s  (rc=0)
+l3-s260-lr1e-3  run 3  PPL = 20.4809  time = 12s  (rc=0)
+l3-s260-lr3e-4  run 1  PPL = 18.5621  time = 12s  (rc=0)
+l3-s260-lr3e-4  run 2  PPL = 18.6897  time = 14s  (rc=0)
+l3-s260-lr3e-4  run 3  PPL = 18.4205  time = 13s  (rc=0)
+l3-s260-lr1e-4  run 1  PPL = 19.4627  time = 11s  (rc=0)
+l3-s260-lr1e-4  run 2  PPL = 19.3185  time = 14s  (rc=0)
+l3-s260-lr1e-4  run 3  PPL = 18.8754  time = 13s  (rc=0)
+l3-s650-lr3e-4  run 1  PPL = 24.2096  time = 31s  (rc=0)
+l3-s650-lr3e-4  run 2  PPL = 21.9605  time = 32s  (rc=0)
+l3-s650-lr3e-4  run 3  PPL = 20.5369  time = 30s  (rc=0)
+l3-s650-lr1e-4  run 1  PPL = 17.9392  time = 30s  (rc=0)
+l3-s650-lr1e-4  run 2  PPL = 19.2183  time = 31s  (rc=0)
+l3-s650-lr1e-4  run 3  PPL = 18.5392  time = 29s  (rc=0)
+
+Done.

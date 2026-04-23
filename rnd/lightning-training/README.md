@@ -108,6 +108,37 @@ sound but empirically unhelpful on top of RMSProp. Flag is kept — may
 matter for SGD where gradient scaling and LR scaling ARE equivalent and
 there's no adaptive divisor to absorb the imbalance.
 
+### Result: step-budget × LR sweep (beats baseline on individual runs)
+
+L3 p_stop=0.3, mass-off, 3 SE:
+
+| config | mean PPL | min | max | spread |
+|---|---|---|---|---|
+| **baseline det. 65×3 lr=3e-3** | **17.99** | — | — | — |
+| **L3 s=260 lr=3e-4** | **18.56** | 18.42 | 18.69 | **0.27** |
+| **L3 s=650 lr=1e-4** | **18.57** | **17.94** | 19.22 | 1.28 |
+| L3 s=260 lr=1e-4 | 19.22 | 18.88 | 19.46 | 0.59 |
+| L3 s=260 lr=1e-3 | 21.88 | 20.48 | 23.45 | 2.97 |
+| L3 s=650 lr=3e-4 | 22.24 | 20.54 | 24.21 | 3.67 |
+
+**Two breakthroughs:**
+1. s=650 lr=1e-4 seed=43 hits **17.94 PPL — beats baseline**. First
+   individual Lightning run to cross that line.
+2. s=260 lr=3e-4 has **0.27 PPL spread across 3 seeds** — Lightning's
+   stochastic-variance problem largely goes away at the right LR.
+
+Rule of thumb from this sweep:
+- Baseline budget (65 samples/SE): lr=3e-3
+- 4× budget (260 samples/SE): lr=3e-4 (10× smaller)
+- 10× budget (650 samples/SE): lr=1e-4 (30× smaller)
+
+Stronger-than-sqrt LR reduction — consistent with "many stochastic steps
+need a smaller lr to absorb noise." RMSProp β=0.999 alone doesn't absorb
+the full variance at matched step counts; LR compensates.
+
+Next: push to s=1300 or higher with matching LR cuts, or run enough seeds
+at s=260 lr=3e-4 to statistically verify the gap to baseline.
+
 ## Run
 
 ```sh

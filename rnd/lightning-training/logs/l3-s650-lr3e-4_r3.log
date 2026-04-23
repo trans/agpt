@@ -1,0 +1,25 @@
+AGPT CUDA Training Engine
+  Model: d=64 heads=4 layers=2 ff=256 vocab=65 seq=128 head_dim=16
+  Loaded 108481 weight floats (423.8 KB)
+Loading radix trie from /tmp/agpt_input_d8_radix...
+  Radix trie: 845540 nodes, 1545081 total edge chars, 9 endpoint depths
+  Radix loaded: 1595943 counts entries, 4696687 ancestor char entries
+  optimizer: rmsprop (lr=0.0003)
+  entropy lambda: 1.000 (branching-endpoint icing enabled)
+  mass weighting: linear (head-of-edge count restores corpus-frequency exposure)
+  lightning: l3-mass-walk, 650 samples/super-epoch, p_stop=0.30, seed=0x2d
+           (stochastic per-sample optimizer steps; accumulate forced off)
+  curriculum: flat (d=max each epoch)
+  max edge_len: 8, max ancestor chars: 7, max KV per node: 15, max endpoint depth: 8
+  KV cache: 1582.2 MB unified memory
+  GPU memory: 1796.1 MB used, 6390.7 MB free, 8186.8 MB total
+  65 root-child subtrees: sizes min=1 max=89208 avg=13008.3 (total=845539 radix nodes)
+  lightning: built adjacency (845539 child edges total; root has 65 children)
+Epoch 1: loss=3.334408  (9.37 sec, 650 subtrees, 826 chunks, 14853313 nodes)
+  lightning depth histogram (sample endpoint depth): d1:177 d2:160 d3:101 d4:56 d5:31 d6:21 d7:16 d8:88  mean_size=13080  mass[min=1 mean=123078 max=1212167]
+Epoch 2: loss=3.069121  (9.35 sec, 650 subtrees, 830 chunks, 14852931 nodes)
+  lightning depth histogram (sample endpoint depth): d1:187 d2:133 d3:91 d4:62 d5:35 d6:27 d7:15 d8:100  mean_size=13283  mass[min=1 mean=134000 max=1212167]
+Epoch 3: loss=3.004616  (9.97 sec, 650 subtrees, 834 chunks, 15661186 nodes)
+  lightning depth histogram (sample endpoint depth): d1:213 d2:136 d3:80 d4:47 d5:28 d6:27 d7:16 d8:103  mean_size=13823  mass[min=1 mean=134714 max=1212167]
+Saved to /tmp/lightning_l3-s650-lr3e-4_r3.model
+Done.

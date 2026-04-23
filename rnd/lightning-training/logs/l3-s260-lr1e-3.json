@@ -1,0 +1,23 @@
+{
+  "label": "l3-s260-lr1e-3",
+  "tool": "bin/agpt_train",
+  "trie_dir": "/tmp/agpt_input_d8_radix",
+  "trie_format": "global-radix",
+  "init_checkpoint": "data/input.random.model",
+  "epochs": 3,
+  "lr": 1e-3,
+  "optimizer": "rmsprop",
+  "rmsprop_beta": 0.999,
+  "lr_schedule": "constant",
+  "entropy_lambda": 1.0,
+  "mass_weight": "linear",
+  "eval_positions": 16384,
+  "eval_backend": "cublas",
+  "n_runs": 3,
+  "lightning_steps": 260,
+  "lightning_sampler": "l3",
+  "lightning_p_stop": 0.3,
+  "lightning_mass_lr": "off",
+  "git_hash": "5cf3dcf",
+  "timestamp": "2026-04-22T20:15:57-04:00"
+}
