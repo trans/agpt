@@ -12,10 +12,10 @@ Loading radix trie from /tmp/agpt_input_d32_radix...
   mass=1 compaction: 25933966 / 27046236 chars are mass=1 (95.9%); cache holds 1112270 positions
   loop points: 985 (mass>1 leaves; 0.2% of 552869 mass>1 nodes)
   KV cache: 569.5 MB unified memory (bf16 compact)
-  GPU memory: 4596.0 MB used, 3590.8 MB free, 8186.8 MB total
+  GPU memory: 4595.8 MB used, 3591.0 MB free, 8186.8 MB total
   65 root-child subtrees: sizes min=1 max=254737 avg=25634.1 (total=1666214 radix nodes)
-Epoch 1: loss=3.694434  (19.75 sec, 65 subtrees, 576 chunks, 27046236 nodes)
-Epoch 2: loss=2.721776  (19.50 sec, 65 subtrees, 576 chunks, 27046236 nodes)
-Epoch 3: loss=2.624794  (19.54 sec, 65 subtrees, 576 chunks, 27046236 nodes)
-Saved to /tmp/pf_d32_d32-det-const-lr3e-3_r1.model
+Epoch 1: loss=3.666034  (19.89 sec, 65 subtrees, 576 chunks, 27046236 nodes)
+Epoch 2: loss=2.736720  (19.68 sec, 65 subtrees, 576 chunks, 27046236 nodes)
+Epoch 3: loss=2.640069  (19.75 sec, 65 subtrees, 576 chunks, 27046236 nodes)
+Saved to /tmp/pf_d32_d32-det-const-lr3e-3_r2.model
 Done.

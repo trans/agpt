@@ -3,3 +3,23 @@ Phase 2: post-fix d=32 deterministic baseline (3 SE × 65 steps)
   init: data/input.random.model  trie: /tmp/agpt_input_d32_radix  git: 1c858c0
   pre-fix paper reference: 13.17  |  pre-fix linear-mass: 13.36
 ==============================================================
+d32-det-const-lr3e-3  run 1  PPL = 14.1711  time = 61s  (rc=0)
+d32-det-const-lr3e-3  run 2  PPL = 13.4829  time = 61s  (rc=0)
+d32-det-const-lr3e-3  run 3  PPL = 14.6474  time = 62s  (rc=0)
+d32-det-const-lr1e-3  run 1  PPL = 13.6402  time = 61s  (rc=0)
+d32-det-const-lr1e-3  run 2  PPL = 13.6226  time = 58s  (rc=0)
+d32-det-const-lr1e-3  run 3  PPL = 13.7814  time = 58s  (rc=0)
+d32-det-wc-lr3e-3  run 1  PPL = 13.2154  time = 64s  (rc=0)
+d32-det-wc-lr3e-3  run 2  PPL = 12.6833  time = 65s  (rc=0)
+d32-det-wc-lr3e-3  run 3  PPL = 12.4779  time = 66s  (rc=0)
+d32-det-wc-lr1e-3  run 1  PPL = 13.2601  time = 65s  (rc=0)
+d32-det-wc-lr1e-3  run 2  PPL = 13.3205  time = 65s  (rc=0)
+d32-det-wc-lr1e-3  run 3  PPL = 13.2278  time = 66s  (rc=0)
+d32-det-wc-lr3e-4-wd0.01  run 1  PPL = 15.4370  time = 60s  (rc=0)
+d32-det-wc-lr3e-4-wd0.01  run 2  PPL = 15.4363  time = 60s  (rc=0)
+d32-det-wc-lr3e-4-wd0.01  run 3  PPL = 15.4361  time = 59s  (rc=0)
+d32-det-wc-lr1e-3-wd0.01  run 1  PPL = 13.3194  time = 60s  (rc=0)
+d32-det-wc-lr1e-3-wd0.01  run 2  PPL = 13.2935  time = 61s  (rc=0)
+d32-det-wc-lr1e-3-wd0.01  run 3  PPL = 13.3040  time = 62s  (rc=0)
+
+Done.

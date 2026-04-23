@@ -1,0 +1,22 @@
+AGPT CUDA Training Engine
+  Model: d=64 heads=4 layers=2 ff=256 vocab=65 seq=128 head_dim=16
+  Loaded 108481 weight floats (423.8 KB)
+Loading radix trie from /tmp/agpt_input_d16_radix...
+  Radix trie: 1607928 nodes, 9313896 total edge chars, 17 endpoint depths
+  Radix loaded: 2697118 counts entries, 12276596 ancestor char entries
+  lr-schedule: warmup-cosine (peak=0.01, warmup_epochs=0)
+  optimizer: rmsprop (lr=0.01)
+  entropy lambda: 1.000 (branching-endpoint icing enabled)
+  mass weighting: linear (head-of-edge count restores corpus-frequency exposure)
+  curriculum: flat (d=max each epoch)
+  max edge_len: 16, max ancestor chars: 15, max KV per node: 31, max endpoint depth: 16
+  mass=1 compaction: 8275793 / 9313896 chars are mass=1 (88.9%); cache holds 1038103 positions
+  loop points: 18683 (mass>1 leaves; 3.4% of 545549 mass>1 nodes)
+  KV cache: 531.5 MB unified memory (bf16 compact)
+  GPU memory: 3005.5 MB used, 5181.3 MB free, 8186.8 MB total
+  65 root-child subtrees: sizes min=1 max=246583 avg=24737.3 (total=1607927 radix nodes)
+Epoch 1: loss=4.255539  (6.79 sec, 65 subtrees, 225 chunks, 9313896 nodes)
+Epoch 2: loss=3.359749  (6.47 sec, 65 subtrees, 225 chunks, 9313896 nodes)
+Epoch 3: loss=3.254602  (6.48 sec, 65 subtrees, 225 chunks, 9313896 nodes)
+Saved to /tmp/pf_d16-det-warmup-cosine-lr1e-2_r1.model
+Done.

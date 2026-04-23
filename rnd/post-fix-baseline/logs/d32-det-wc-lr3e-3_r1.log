@@ -4,6 +4,7 @@ AGPT CUDA Training Engine
 Loading radix trie from /tmp/agpt_input_d32_radix...
   Radix trie: 1666215 nodes, 27046236 total edge chars, 33 endpoint depths
   Radix loaded: 2780616 counts entries, 13382283 ancestor char entries
+  lr-schedule: warmup-cosine (peak=0.003, warmup_epochs=1)
   optimizer: rmsprop (lr=0.003)
   entropy lambda: 1.000 (branching-endpoint icing enabled)
   mass weighting: linear (head-of-edge count restores corpus-frequency exposure)
@@ -12,10 +13,10 @@ Loading radix trie from /tmp/agpt_input_d32_radix...
   mass=1 compaction: 25933966 / 27046236 chars are mass=1 (95.9%); cache holds 1112270 positions
   loop points: 985 (mass>1 leaves; 0.2% of 552869 mass>1 nodes)
   KV cache: 569.5 MB unified memory (bf16 compact)
-  GPU memory: 4596.0 MB used, 3590.8 MB free, 8186.8 MB total
+  GPU memory: 4930.7 MB used, 3256.2 MB free, 8186.8 MB total
   65 root-child subtrees: sizes min=1 max=254737 avg=25634.1 (total=1666214 radix nodes)
-Epoch 1: loss=3.694434  (19.75 sec, 65 subtrees, 576 chunks, 27046236 nodes)
-Epoch 2: loss=2.721776  (19.50 sec, 65 subtrees, 576 chunks, 27046236 nodes)
-Epoch 3: loss=2.624794  (19.54 sec, 65 subtrees, 576 chunks, 27046236 nodes)
-Saved to /tmp/pf_d32_d32-det-const-lr3e-3_r1.model
+Epoch 1: loss=3.619308  (21.04 sec, 65 subtrees, 576 chunks, 27046236 nodes)
+Epoch 2: loss=2.600032  (20.62 sec, 65 subtrees, 576 chunks, 27046236 nodes)
+Epoch 3: loss=2.435259  (20.71 sec, 65 subtrees, 576 chunks, 27046236 nodes)
+Saved to /tmp/pf_d32_d32-det-wc-lr3e-3_r1.model
 Done.
