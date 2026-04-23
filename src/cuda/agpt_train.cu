@@ -1511,6 +1511,127 @@ void launch_kv_gather_bf16(const __nv_bfloat16* global_kv,
                                                 N, n_heads, head_dim);
 }
 
+// --- Compact-cache scatter: write K/V to bf16 cache indexed by compact_slot ---
+// char_pos[row] is the GLOBAL character position of query row. compact_slot[cp]
+// remaps to a compact-cache index or -1 for mass=1 positions (which we skip).
+__global__ void kv_scatter_compact_bf16(const float* src, const int* char_pos,
+                                         const int* compact_slot,
+                                         __nv_bfloat16* dst, int N, int d_model) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    int total = N * d_model;
+    if (idx >= total) return;
+    int row = idx / d_model;
+    int col = idx % d_model;
+    int cp = char_pos[row];
+    int slot = compact_slot[cp];
+    if (slot < 0) return;  // mass=1 char: skip
+    dst[(long long)slot * d_model + col] = __float2bfloat16(src[row * d_model + col]);
+}
+
+void launch_kv_scatter_compact_bf16(const float* src, const int* char_pos,
+                                     const int* compact_slot,
+                                     __nv_bfloat16* dst, int N, int d_model) {
+    int total = N * d_model;
+    int threads = 256;
+    int blocks = (total + threads - 1) / threads;
+    kv_scatter_compact_bf16<<<blocks, threads>>>(src, char_pos, compact_slot, dst, N, d_model);
+}
+
+// --- Compact-cache gather for ANCESTORS only ---
+// Ancestors are always mass>1 so they always have a compact_slot >= 0.
+// Writes the first anc_lengths[i] rows of each query's packed prefix.
+__global__ void kv_gather_anc_compact_bf16(const __nv_bfloat16* global_kv,
+                                            const int* ancestor_ids,
+                                            const int* ancestor_offsets, // per-node offset into ancestor_ids
+                                            const int* kv_offsets,       // per-node offset into packed output
+                                            const int* anc_lengths,      // per-node ANCESTOR-only length
+                                            const int* compact_slot,
+                                            float* packed_kv,
+                                            int N, int n_heads, int head_dim) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    int d_model = n_heads * head_dim;
+    int nidx = idx / d_model;
+    int col = idx % d_model;
+    if (nidx >= N) return;
+
+    int anc_off = ancestor_offsets[nidx];
+    int kv_off  = kv_offsets[nidx];
+    int len     = anc_lengths[nidx];
+    int head = col / head_dim;
+    int hcol = col % head_dim;
+
+    for (int p = 0; p < len; p++) {
+        int char_pos = ancestor_ids[anc_off + p];
+        int slot = compact_slot[char_pos];
+        // slot < 0 should not happen for ancestors (always mass>1); guard anyway.
+        float val = (slot >= 0) ? __bfloat162float(global_kv[(long long)slot * d_model + col]) : 0.0f;
+        packed_kv[((kv_off + p) * n_heads + head) * head_dim + hcol] = val;
+    }
+}
+
+void launch_kv_gather_anc_compact_bf16(const __nv_bfloat16* global_kv,
+                                        const int* ancestor_ids,
+                                        const int* ancestor_offsets,
+                                        const int* kv_offsets,
+                                        const int* anc_lengths,
+                                        const int* compact_slot,
+                                        float* packed_kv,
+                                        int N, int n_heads, int head_dim) {
+    int d_model = n_heads * head_dim;
+    int total = N * d_model;
+    int threads = 256;
+    int blocks = (total + threads - 1) / threads;
+    kv_gather_anc_compact_bf16<<<blocks, threads>>>(global_kv, ancestor_ids, ancestor_offsets,
+                                                     kv_offsets, anc_lengths, compact_slot, packed_kv,
+                                                     N, n_heads, head_dim);
+}
+
+// --- Copy own-edge K/V from fresh d_k[T_q, D] into the packed prefix buffer ---
+// For query i, own_len[i] positions starting at query_offsets[i] in d_k_fresh
+// are appended after the query's anc_length[i] ancestor slots in packed_kv.
+__global__ void kv_copy_own_edge(const float* d_k_fresh,
+                                  const int* query_offsets,    // per-node offset into d_k_fresh (== q_off)
+                                  const int* kv_offsets,       // per-node start in packed_kv
+                                  const int* anc_lengths,      // ancestor count (own-edge starts after)
+                                  const int* own_lengths,      // own-edge count per query
+                                  float* packed_kv,
+                                  int N, int n_heads, int head_dim) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    int d_model = n_heads * head_dim;
+    int nidx = idx / d_model;
+    int col = idx % d_model;
+    if (nidx >= N) return;
+
+    int q_off  = query_offsets[nidx];
+    int kv_off = kv_offsets[nidx];
+    int anc_len = anc_lengths[nidx];
+    int own_len = own_lengths[nidx];
+    int head = col / head_dim;
+    int hcol = col % head_dim;
+
+    for (int j = 0; j < own_len; j++) {
+        float val = d_k_fresh[(long long)(q_off + j) * d_model + col];
+        int p = anc_len + j;
+        packed_kv[((kv_off + p) * n_heads + head) * head_dim + hcol] = val;
+    }
+}
+
+void launch_kv_copy_own_edge(const float* d_k_fresh,
+                              const int* query_offsets,
+                              const int* kv_offsets,
+                              const int* anc_lengths,
+                              const int* own_lengths,
+                              float* packed_kv,
+                              int N, int n_heads, int head_dim) {
+    int d_model = n_heads * head_dim;
+    int total = N * d_model;
+    int threads = 256;
+    int blocks = (total + threads - 1) / threads;
+    kv_copy_own_edge<<<blocks, threads>>>(d_k_fresh, query_offsets, kv_offsets,
+                                           anc_lengths, own_lengths, packed_kv,
+                                           N, n_heads, head_dim);
+}
+
 // --- KV scatter-add backward: accumulate dK/dV from packed gradients back to global ---
 // Reverse of kv_gather: for each position in each node's prefix,
 // add the packed gradient back to the global kv gradient buffer.
@@ -2925,7 +3046,46 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
     // conversion done on the scatter/gather kernels. BF16 mantissa loss (8 bits)
     // is fine for stored K/V since attention softmax already flattens small
     // differences; verified empirically at d=8 within GPU reduction noise.
-    long long kv_bytes = trie.total_edge_chars * (long long)D * (long long)sizeof(__nv_bfloat16);
+    //
+    // Mass=1 compaction: radix nodes with edge_mass == 1 are leaves (a single
+    // corpus position reached there); no other query ever attends to their K/V
+    // as an ancestor. We skip caching their char positions entirely. At
+    // attention time, current-query own-edge K/V is read directly from the
+    // fresh d_k/d_v forward buffer (no round-trip through cache), so the
+    // compact cache only needs to hold mass>1 char positions.
+    //
+    // Build compact_slot[char_pos] -> compact index, or -1 for mass=1.
+    int* compact_slot = (int*)malloc((long long)trie.total_edge_chars * sizeof(int));
+    long long n_compact_chars = 0;
+    long long n_mass1_chars   = 0;
+    for (int r = 0; r < trie.radix_count; r++) {
+        int start = trie.edge_starts[r];
+        int len   = trie.edge_lens[r];
+        bool is_mass1 = (trie.edge_mass[r] == 1);
+        for (int j = 0; j < len; j++) {
+            int cp = start + j;
+            if (is_mass1) {
+                compact_slot[cp] = -1;
+                n_mass1_chars++;
+            } else {
+                compact_slot[cp] = (int)n_compact_chars++;
+            }
+        }
+    }
+    if (!quiet) {
+        double skip_pct = (trie.total_edge_chars > 0)
+            ? 100.0 * (double)n_mass1_chars / (double)trie.total_edge_chars : 0.0;
+        printf("  mass=1 compaction: %lld / %lld chars are mass=1 (%.1f%%); cache holds %lld positions\n",
+               n_mass1_chars, trie.total_edge_chars, skip_pct, n_compact_chars);
+    }
+    if (n_compact_chars == 0) n_compact_chars = 1;  // avoid zero-size allocation
+
+    int* d_compact_slot;
+    CUDA_CHECK(cudaMalloc(&d_compact_slot, (long long)trie.total_edge_chars * sizeof(int)));
+    CUDA_CHECK(cudaMemcpy(d_compact_slot, compact_slot,
+                          (long long)trie.total_edge_chars * sizeof(int), cudaMemcpyHostToDevice));
+
+    long long kv_bytes = n_compact_chars * (long long)D * (long long)sizeof(__nv_bfloat16);
     long long total_kv_bytes = kv_bytes * 2 * L_layers;
     {
         struct sysinfo si;
@@ -2945,7 +3105,7 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
         CUDA_CHECK(cudaMallocManaged(&d_kv_keys[l],   kv_bytes));
         CUDA_CHECK(cudaMallocManaged(&d_kv_values[l], kv_bytes));
     }
-    if (!quiet) printf("  KV cache: %.1f MB unified memory (bf16)\n", total_kv_bytes / 1e6);
+    if (!quiet) printf("  KV cache: %.1f MB unified memory (bf16 compact)\n", total_kv_bytes / 1e6);
 
     // RoPE cache
     float* d_rope_cos; float* d_rope_sin;
@@ -3762,6 +3922,65 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                 int max_kv_len = 0;
                 for (int i = 0; i < N; i++) if (h_kv_lengths[i] > max_kv_len) max_kv_len = h_kv_lengths[i];
 
+                // --- Ancestor + own-edge split for compact-cache gather ---
+                // Build flat ancestor ids (cache side) + per-query anc/own lengths.
+                // Own-edge K/V is copied from the fresh d_k/d_v buffer; ancestors
+                // come from the compact cache (mass=1 positions skipped).
+                int T_anc = 0;
+                for (int i = 0; i < N; i++) {
+                    int r = h_radix_ids[i];
+                    T_anc += trie.ancestor_char_offsets[r + 1] - trie.ancestor_char_offsets[r];
+                }
+                int* h_anc_ids      = (int*)malloc((T_anc > 0 ? T_anc : 1) * sizeof(int));
+                int* h_anc_offsets  = (int*)malloc((N + 1) * sizeof(int));
+                int* h_anc_lengths  = (int*)malloc(N * sizeof(int));
+                int* h_own_lengths  = (int*)malloc(N * sizeof(int));
+                {
+                    int fill = 0;
+                    for (int i = 0; i < N; i++) {
+                        h_anc_offsets[i] = fill;
+                        int r = h_radix_ids[i];
+                        int anc_off = trie.ancestor_char_offsets[r];
+                        int anc_len = trie.ancestor_char_offsets[r + 1] - anc_off;
+                        for (int a = 0; a < anc_len; a++)
+                            h_anc_ids[fill++] = trie.ancestor_char_ids[anc_off + a];
+                        h_anc_lengths[i] = anc_len;
+                        h_own_lengths[i] = trie.edge_lens[r];
+                    }
+                    h_anc_offsets[N] = fill;
+                }
+                static int* d_anc_ids_cache      = NULL; static int d_anc_ids_cap      = 0;
+                static int* d_anc_offsets_cache  = NULL; static int d_anc_offsets_cap  = 0;
+                static int* d_anc_lengths_cache  = NULL; static int d_anc_lengths_cap  = 0;
+                static int* d_own_lengths_cache  = NULL; static int d_own_lengths_cap  = 0;
+                if (T_anc > d_anc_ids_cap) {
+                    if (d_anc_ids_cache) cudaFree(d_anc_ids_cache);
+                    CUDA_CHECK(cudaMalloc(&d_anc_ids_cache, (T_anc > 0 ? T_anc : 1) * sizeof(int)));
+                    d_anc_ids_cap = T_anc;
+                }
+                if (N + 1 > d_anc_offsets_cap) {
+                    if (d_anc_offsets_cache) cudaFree(d_anc_offsets_cache);
+                    CUDA_CHECK(cudaMalloc(&d_anc_offsets_cache, (N + 1) * sizeof(int)));
+                    d_anc_offsets_cap = N + 1;
+                }
+                if (N > d_anc_lengths_cap) {
+                    if (d_anc_lengths_cache) cudaFree(d_anc_lengths_cache);
+                    CUDA_CHECK(cudaMalloc(&d_anc_lengths_cache, N * sizeof(int)));
+                    d_anc_lengths_cap = N;
+                }
+                if (N > d_own_lengths_cap) {
+                    if (d_own_lengths_cache) cudaFree(d_own_lengths_cache);
+                    CUDA_CHECK(cudaMalloc(&d_own_lengths_cache, N * sizeof(int)));
+                    d_own_lengths_cap = N;
+                }
+                if (T_anc > 0) {
+                    CUDA_CHECK(cudaMemcpy(d_anc_ids_cache, h_anc_ids, T_anc * sizeof(int), cudaMemcpyHostToDevice));
+                }
+                CUDA_CHECK(cudaMemcpy(d_anc_offsets_cache, h_anc_offsets, (N + 1) * sizeof(int), cudaMemcpyHostToDevice));
+                CUDA_CHECK(cudaMemcpy(d_anc_lengths_cache, h_anc_lengths, N * sizeof(int), cudaMemcpyHostToDevice));
+                CUDA_CHECK(cudaMemcpy(d_own_lengths_cache, h_own_lengths, N * sizeof(int), cudaMemcpyHostToDevice));
+                free(h_anc_ids); free(h_anc_offsets); free(h_anc_lengths); free(h_own_lengths);
+
                 // Upload
                 CUDA_CHECK(cudaMemcpy(d_radix_ids,      h_radix_ids,      N * sizeof(int), cudaMemcpyHostToDevice));
                 CUDA_CHECK(cudaMemcpy(d_query_offsets,  h_query_offsets,  (N + 1) * sizeof(int), cudaMemcpyHostToDevice));
@@ -3861,49 +4080,26 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                     launch_rope_batched(d_q, d_rope_positions, d_rope_cos, d_rope_sin, T_q * H, HD);
                     launch_rope_batched(d_k, d_rope_positions, d_rope_cos, d_rope_sin, T_q * H, HD);
 
-                    // Scatter K/V into global KV cache at char positions
-                    launch_kv_scatter_bf16(d_k, d_char_pos, d_kv_keys[l],   T_q, D);
-                    launch_kv_scatter_bf16(d_v, d_char_pos, d_kv_values[l], T_q, D);
+                    // Scatter K/V into compact cache (mass=1 char positions are
+                    // skipped — they're never queried as ancestors).
+                    launch_kv_scatter_compact_bf16(d_k, d_char_pos, d_compact_slot, d_kv_keys[l],   T_q, D);
+                    launch_kv_scatter_compact_bf16(d_v, d_char_pos, d_compact_slot, d_kv_values[l], T_q, D);
 
-                    // Build ancestor_char_ids flat for this chunk
-                    // Actually we need the FULL prefix (ancestors + own edge chars) packed per node.
-                    // Build h_prefix_char_ids[T_kv] on CPU.
-                    int* h_prefix_char_ids = (int*)malloc(T_kv * sizeof(int));
-                    {
-                        int fill = 0;
-                        for (int i = 0; i < N; i++) {
-                            int r = h_radix_ids[i];
-                            int anc_off = trie.ancestor_char_offsets[r];
-                            int anc_len = trie.ancestor_char_offsets[r + 1] - anc_off;
-                            for (int a = 0; a < anc_len; a++)
-                                h_prefix_char_ids[fill++] = trie.ancestor_char_ids[anc_off + a];
-                            int edge_start = trie.edge_starts[r];
-                            int L = trie.edge_lens[r];
-                            for (int e = 0; e < L; e++)
-                                h_prefix_char_ids[fill++] = edge_start + e;
-                        }
-                    }
-                    // Upload as temp per-layer (we could upload once per chunk, same for all layers)
-                    static int* d_prefix_char_ids_cache = NULL;
-                    static int d_prefix_char_ids_cache_size = 0;
-                    if (T_kv > d_prefix_char_ids_cache_size) {
-                        if (d_prefix_char_ids_cache) cudaFree(d_prefix_char_ids_cache);
-                        CUDA_CHECK(cudaMalloc(&d_prefix_char_ids_cache, T_kv * sizeof(int)));
-                        d_prefix_char_ids_cache_size = T_kv;
-                    }
-                    if (l == 0) {
-                        CUDA_CHECK(cudaMemcpy(d_prefix_char_ids_cache, h_prefix_char_ids, T_kv * sizeof(int), cudaMemcpyHostToDevice));
-                    }
-                    free(h_prefix_char_ids);
-
-                    // Gather KV from global cache into packed buffer using kv_gather
-                    // kv_gather expects: ancestor_ids flat, ancestor_offsets per node, kv_offsets, kv_lengths.
-                    // Here: ancestor_ids = d_prefix_char_ids_cache (flat), ancestor_offsets per node = d_kv_offsets (start of each node's prefix).
-                    // We pass d_kv_offsets AS the ancestor_offsets, which is equivalent.
-                    launch_kv_gather_bf16(d_kv_keys[l], d_prefix_char_ids_cache, d_kv_offsets,
-                                      d_kv_offsets, d_kv_lengths, d_kv_pack_k, N, H, HD);
-                    launch_kv_gather_bf16(d_kv_values[l], d_prefix_char_ids_cache, d_kv_offsets,
-                                      d_kv_offsets, d_kv_lengths, d_kv_pack_v, N, H, HD);
+                    // Build packed prefix: [ancestors from cache | own-edge from fresh d_k/d_v]
+                    // Ancestors: gather from compact cache (all ancestors are mass>1 → slot>=0).
+                    // Own-edge: copy directly from this chunk's freshly-computed post-RoPE d_k / d_v.
+                    launch_kv_gather_anc_compact_bf16(d_kv_keys[l], d_anc_ids_cache, d_anc_offsets_cache,
+                                                      d_kv_offsets, d_anc_lengths_cache, d_compact_slot,
+                                                      d_kv_pack_k, N, H, HD);
+                    launch_kv_gather_anc_compact_bf16(d_kv_values[l], d_anc_ids_cache, d_anc_offsets_cache,
+                                                      d_kv_offsets, d_anc_lengths_cache, d_compact_slot,
+                                                      d_kv_pack_v, N, H, HD);
+                    launch_kv_copy_own_edge(d_k, d_query_offsets, d_kv_offsets,
+                                             d_anc_lengths_cache, d_own_lengths_cache,
+                                             d_kv_pack_k, N, H, HD);
+                    launch_kv_copy_own_edge(d_v, d_query_offsets, d_kv_offsets,
+                                             d_anc_lengths_cache, d_own_lengths_cache,
+                                             d_kv_pack_v, N, H, HD);
 
                     // L-query varlen attention
                     float scale = 1.0f / sqrtf((float)HD);
@@ -4064,47 +4260,51 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                                               &grad_scale, d_dx, D, sv_attn_out[l], D, &alpha, dW_ow, D));
 
                     // Attention backward (L-queries)
-                    // Re-gather K/V for this layer (same ancestor indexing)
-                    // (d_prefix_char_ids_cache was populated in the forward pass — static, still valid)
-                    // Actually it's invalidated if size changed — but we sized it max during forward.
-                    // Safe to re-gather.
-                    extern int* d_prefix_char_ids_cache;  // static in forward scope — can't access here.
-                    // Just reupload: build h_prefix_char_ids again
-                    int* h_prefix_char_ids2 = (int*)malloc(T_kv * sizeof(int));
-                    {
-                        int fill = 0;
-                        for (int i = 0; i < N; i++) {
-                            int r = h_radix_ids[i];
-                            int anc_off = trie.ancestor_char_offsets[r];
-                            int anc_len = trie.ancestor_char_offsets[r + 1] - anc_off;
-                            for (int a = 0; a < anc_len; a++)
-                                h_prefix_char_ids2[fill++] = trie.ancestor_char_ids[anc_off + a];
-                            int edge_start = trie.edge_starts[r];
-                            int L = trie.edge_lens[r];
-                            for (int e = 0; e < L; e++)
-                                h_prefix_char_ids2[fill++] = edge_start + e;
-                        }
-                    }
-                    int* d_tmp_ids;
-                    CUDA_CHECK(cudaMalloc(&d_tmp_ids, T_kv * sizeof(int)));
-                    CUDA_CHECK(cudaMemcpy(d_tmp_ids, h_prefix_char_ids2, T_kv * sizeof(int), cudaMemcpyHostToDevice));
-                    free(h_prefix_char_ids2);
+                    // Re-compute post-RoPE Q/K and V from saved ln1_out. We need
+                    // fresh fp32 K/V values for:
+                    //   - the own-edge portion of each query's prefix (mass=1
+                    //     positions aren't in the cache)
+                    //   - the attention-backward kernel's own K/V input
+                    // Ancestor K/V still comes from the compact cache.
 
-                    launch_kv_gather_bf16(d_kv_keys[l], d_tmp_ids, d_kv_offsets,
-                                      d_kv_offsets, d_kv_lengths, d_kv_pack_k, N, H, HD);
-                    launch_kv_gather_bf16(d_kv_values[l], d_tmp_ids, d_kv_offsets,
-                                      d_kv_offsets, d_kv_lengths, d_kv_pack_v, N, H, HD);
-
-                    // Zero dK/dV packed buffers
-                    CUDA_CHECK(cudaMemset(d_dk_pack, 0, (long long)T_kv * H * HD * sizeof(float)));
-                    CUDA_CHECK(cudaMemset(d_dv_pack, 0, (long long)T_kv * H * HD * sizeof(float)));
-
-                    // Recompute post-RoPE Q (from saved ln1_out)
+                    // Recompute Q (for attention backward)
                     CUBLAS_CHECK(cublasSgemm(cublas, CUBLAS_OP_N, CUBLAS_OP_N, D, T_q, D,
                                               &alpha, d_weights + wo.wq_w[l], D,
                                               sv_ln1_out[l], D, &beta_zero, d_q, D));
                     cuda_bias_add(d_q, d_weights + wo.wq_b[l], T_q, D);
                     launch_rope_batched(d_q, d_rope_positions, d_rope_cos, d_rope_sin, T_q * H, HD);
+
+                    // Recompute K (post-RoPE) — overwrites d_k with fresh values
+                    CUBLAS_CHECK(cublasSgemm(cublas, CUBLAS_OP_N, CUBLAS_OP_N, D, T_q, D,
+                                              &alpha, d_weights + wo.wk_w[l], D,
+                                              sv_ln1_out[l], D, &beta_zero, d_k, D));
+                    cuda_bias_add(d_k, d_weights + wo.wk_b[l], T_q, D);
+                    launch_rope_batched(d_k, d_rope_positions, d_rope_cos, d_rope_sin, T_q * H, HD);
+
+                    // Recompute V (no RoPE) — overwrites d_v
+                    CUBLAS_CHECK(cublasSgemm(cublas, CUBLAS_OP_N, CUBLAS_OP_N, D, T_q, D,
+                                              &alpha, d_weights + wo.wv_w[l], D,
+                                              sv_ln1_out[l], D, &beta_zero, d_v, D));
+                    cuda_bias_add(d_v, d_weights + wo.wv_b[l], T_q, D);
+
+                    // Gather packed K/V for backward: ancestors from compact cache,
+                    // own-edge from freshly-recomputed d_k/d_v.
+                    launch_kv_gather_anc_compact_bf16(d_kv_keys[l], d_anc_ids_cache, d_anc_offsets_cache,
+                                                      d_kv_offsets, d_anc_lengths_cache, d_compact_slot,
+                                                      d_kv_pack_k, N, H, HD);
+                    launch_kv_gather_anc_compact_bf16(d_kv_values[l], d_anc_ids_cache, d_anc_offsets_cache,
+                                                      d_kv_offsets, d_anc_lengths_cache, d_compact_slot,
+                                                      d_kv_pack_v, N, H, HD);
+                    launch_kv_copy_own_edge(d_k, d_query_offsets, d_kv_offsets,
+                                             d_anc_lengths_cache, d_own_lengths_cache,
+                                             d_kv_pack_k, N, H, HD);
+                    launch_kv_copy_own_edge(d_v, d_query_offsets, d_kv_offsets,
+                                             d_anc_lengths_cache, d_own_lengths_cache,
+                                             d_kv_pack_v, N, H, HD);
+
+                    // Zero dK/dV packed buffers
+                    CUDA_CHECK(cudaMemset(d_dk_pack, 0, (long long)T_kv * H * HD * sizeof(float)));
+                    CUDA_CHECK(cudaMemset(d_dv_pack, 0, (long long)T_kv * H * HD * sizeof(float)));
 
                     float scale = 1.0f / sqrtf((float)HD);
                     cuda_batched_varlen_attention_L_queries_backward(
@@ -4128,8 +4328,6 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                     cuda_layer_norm_backward(d_d_ln_out, sv_ln1_norm[l], sv_ln1_std_inv[l],
                                               G1, d_d_ln_out, dG1, dB1, T_q, D);
                     launch_elem_add(d_dx, d_d_ln_out, T_q * D);  // residual 1 skip
-
-                    cudaFree(d_tmp_ids);
                 }
 
                 // Embedding backward: scatter_add d_x into token_emb grad
@@ -4357,6 +4555,8 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
     free(subtree_nodes); free(subtree_sizes);
     if (lightning_children_offsets) free(lightning_children_offsets);
     if (lightning_children_flat)    free(lightning_children_flat);
+    if (compact_slot)    free(compact_slot);
+    if (d_compact_slot)  cudaFree(d_compact_slot);
     if (depth_limit) {
         for (int i = 0; i < n_root_children; i++) free(depth_limit[i]);
         free(depth_limit);
