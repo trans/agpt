@@ -1344,6 +1344,72 @@ void launch_rope_batched(float* x, const int* positions,
     rope_batched_kernel<<<blocks, threads>>>(x, positions, cos_cache, sin_cache, N, dim);
 }
 
+// --- Scalar-position RoPE: rotate every row by the same angle ---
+// Used for virtual-tree cycle shifts where all queries in a chunk share the
+// same shift. Composes multiplicatively with an already-rotated buffer:
+//   x_before = Rot(θ(real_pos)) · x_raw   (from prior launch_rope_batched)
+//   x_after  = Rot(θ(shift))    · x_before = Rot(θ(real_pos + shift)) · x_raw
+__global__ void rope_batched_scalar_kernel(float* x, int scalar_pos,
+                                            const float* cos_cache, const float* sin_cache,
+                                            int N, int dim) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    int total = N * (dim / 2);
+    if (idx >= total) return;
+    int row = idx / (dim / 2);
+    int half_i = idx % (dim / 2);
+
+    int j0 = 2 * half_i;
+    int j1 = j0 + 1;
+    float x0 = x[row * dim + j0];
+    float x1 = x[row * dim + j1];
+
+    float c = cos_cache[scalar_pos * dim + j0];
+    float s = sin_cache[scalar_pos * dim + j0];
+
+    x[row * dim + j0] = x0 * c - x1 * s;
+    x[row * dim + j1] = x0 * s + x1 * c;
+}
+
+void launch_rope_batched_scalar(float* x, int scalar_pos,
+                                 const float* cos_cache, const float* sin_cache,
+                                 int N, int dim) {
+    int total = N * (dim / 2);
+    int threads = 256;
+    int blocks = (total + threads - 1) / threads;
+    rope_batched_scalar_kernel<<<blocks, threads>>>(x, scalar_pos, cos_cache, sin_cache, N, dim);
+}
+
+// Inverse scalar-position RoPE (for backward dQ).
+__global__ void rope_batched_scalar_inverse_kernel(float* x, int scalar_pos,
+                                                    const float* cos_cache, const float* sin_cache,
+                                                    int N, int dim) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    int total = N * (dim / 2);
+    if (idx >= total) return;
+    int row = idx / (dim / 2);
+    int half_i = idx % (dim / 2);
+
+    int j0 = 2 * half_i;
+    int j1 = j0 + 1;
+    float x0 = x[row * dim + j0];
+    float x1 = x[row * dim + j1];
+
+    float c = cos_cache[scalar_pos * dim + j0];
+    float s = sin_cache[scalar_pos * dim + j0];
+
+    x[row * dim + j0] =  x0 * c + x1 * s;
+    x[row * dim + j1] = -x0 * s + x1 * c;
+}
+
+void launch_rope_batched_scalar_inverse(float* x, int scalar_pos,
+                                         const float* cos_cache, const float* sin_cache,
+                                         int N, int dim) {
+    int total = N * (dim / 2);
+    int threads = 256;
+    int blocks = (total + threads - 1) / threads;
+    rope_batched_scalar_inverse_kernel<<<blocks, threads>>>(x, scalar_pos, cos_cache, sin_cache, N, dim);
+}
+
 void launch_rope_batched_inverse(float* x, const int* positions,
                                   const float* cos_cache, const float* sin_cache,
                                   int N, int dim) {
@@ -3790,6 +3856,13 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
         double lightning_mean_mass = 1.0;
         double lightning_mass_min = 0.0, lightning_mass_max = 0.0;
         double lightning_w_min = 1.0, lightning_w_max = 1.0;
+        // Per-sample virtual-tree cycle shift: shift = k_sample * D_max applied
+        // to RoPE angle of Q and K (both own-edge fresh buffer and ancestor
+        // delta-rotation). Relative (Q-K) positions within a sample are
+        // preserved; absolute angle is shifted to teach the model to handle
+        // virtual position D..K*D at inference.
+        int* lightning_cycle_shift = NULL;
+        int D_max = trie.depth_file_count - 1;
         if (lightning_active) {
             for (int i = 0; i < 64; i++) lightning_depth_hist[i] = 0;
             // Free previous subtree_nodes / subtree_sizes.
@@ -3800,6 +3873,18 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
             subtree_nodes = (int**)malloc(n_root_children * sizeof(int*));
             subtree_sizes = (int*)calloc(n_root_children, sizeof(int));
             lightning_subtree_mass = (double*)calloc(n_root_children, sizeof(double));
+            lightning_cycle_shift = (int*)calloc(n_root_children, sizeof(int));
+            // Pick per-sample cycle shift uniformly from {0, D, 2D, ..., (K-1)D}.
+            if (lightning.virtual_cycles > 1) {
+                for (int s = 0; s < n_root_children; s++) {
+                    int k = (int)(xorshift32(&lightning_rng) % (unsigned)lightning.virtual_cycles);
+                    int shift = k * D_max;
+                    // Clamp so (shift + D_max) stays inside RoPE cache.
+                    if (shift + D_max >= cfg.seq_len) shift = cfg.seq_len - D_max - 1;
+                    if (shift < 0) shift = 0;
+                    lightning_cycle_shift[s] = shift;
+                }
+            }
 
             // Scratch buffers reused across samples: BFS queue of radix ids.
             int* bfs_buf = (int*)malloc(trie.radix_count * sizeof(int));
@@ -4103,6 +4188,12 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                 // populate this with virtual-cycle-shifted positions so the
                 // same cache entries serve K*D effective context.
                 int* h_read_pos_flat = (int*)malloc((T_anc > 0 ? T_anc : 1) * sizeof(int));
+                // Capture current sample's cycle shift for this chunk. All queries
+                // in the chunk share the shift (they belong to the same sample).
+                int chunk_cycle_shift = 0;
+                if (lightning_active && lightning_cycle_shift && lightning.virtual_cycles > 1) {
+                    chunk_cycle_shift = lightning_cycle_shift[rc_idx];
+                }
                 {
                     int fill = 0;
                     for (int i = 0; i < N; i++) {
@@ -4113,7 +4204,9 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                         for (int a = 0; a < anc_len; a++) {
                             int char_pos = trie.ancestor_char_ids[anc_off + a];
                             h_anc_ids[fill] = char_pos;
-                            h_read_pos_flat[fill] = real_pos_of_char[char_pos];
+                            int vr = real_pos_of_char[char_pos] + chunk_cycle_shift;
+                            if (vr >= cfg.seq_len) vr = cfg.seq_len - 1;
+                            h_read_pos_flat[fill] = vr;
                             fill++;
                         }
                         h_anc_lengths[i] = anc_len;
@@ -4263,6 +4356,19 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                     // skipped — they're never queried as ancestors).
                     launch_kv_scatter_compact_bf16(d_k, d_char_pos, d_compact_slot, d_kv_keys[l],   T_q, D);
                     launch_kv_scatter_compact_bf16(d_v, d_char_pos, d_compact_slot, d_kv_values[l], T_q, D);
+
+                    // Virtual-tree shift: if this sample's cycle shift > 0, rotate
+                    // Q and own-edge K by θ(shift) on top of real-position rotation.
+                    // Cache is already scattered at real rotation; delta-RoPE gather
+                    // handles ancestors. V has no RoPE; no change.
+                    int current_shift = 0;
+                    if (lightning_active && lightning_cycle_shift && lightning.virtual_cycles > 1) {
+                        current_shift = lightning_cycle_shift[rc_idx];
+                    }
+                    if (current_shift > 0) {
+                        launch_rope_batched_scalar(d_q, current_shift, d_rope_cos, d_rope_sin, T_q * H, HD);
+                        launch_rope_batched_scalar(d_k, current_shift, d_rope_cos, d_rope_sin, T_q * H, HD);
+                    }
 
                     // Build packed prefix: [ancestors from cache | own-edge from fresh d_k/d_v]
                     // Ancestors: gather from compact cache (all ancestors are mass>1 → slot>=0).
@@ -4462,6 +4568,9 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                                               sv_ln1_out[l], D, &beta_zero, d_q, D));
                     cuda_bias_add(d_q, d_weights + wo.wq_b[l], T_q, D);
                     launch_rope_batched(d_q, d_rope_positions, d_rope_cos, d_rope_sin, T_q * H, HD);
+                    if (chunk_cycle_shift > 0) {
+                        launch_rope_batched_scalar(d_q, chunk_cycle_shift, d_rope_cos, d_rope_sin, T_q * H, HD);
+                    }
 
                     // Recompute K (post-RoPE) — overwrites d_k with fresh values
                     CUBLAS_CHECK(cublasSgemm(cublas, CUBLAS_OP_N, CUBLAS_OP_N, D, T_q, D,
@@ -4469,6 +4578,9 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                                               sv_ln1_out[l], D, &beta_zero, d_k, D));
                     cuda_bias_add(d_k, d_weights + wo.wk_b[l], T_q, D);
                     launch_rope_batched(d_k, d_rope_positions, d_rope_cos, d_rope_sin, T_q * H, HD);
+                    if (chunk_cycle_shift > 0) {
+                        launch_rope_batched_scalar(d_k, chunk_cycle_shift, d_rope_cos, d_rope_sin, T_q * H, HD);
+                    }
 
                     // Recompute V (no RoPE) — overwrites d_v
                     CUBLAS_CHECK(cublasSgemm(cublas, CUBLAS_OP_N, CUBLAS_OP_N, D, T_q, D,
@@ -4511,7 +4623,12 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                         d_dq_pack, d_dk_pack, d_dv_pack,
                         T_q, H, HD, max_kv_len, scale);
 
-                    // Inverse RoPE on dQ
+                    // Inverse RoPE on dQ. Reverse order of forward composition:
+                    // Q was rotated first by real position, then by scalar shift.
+                    // Undo shift first, then real-position rotation.
+                    if (chunk_cycle_shift > 0) {
+                        launch_rope_batched_scalar_inverse(d_dq_pack, chunk_cycle_shift, d_rope_cos, d_rope_sin, T_q * H, HD);
+                    }
                     launch_rope_batched_inverse(d_dq_pack, d_rope_positions, d_rope_cos, d_rope_sin, T_q * H, HD);
 
                     // dQ → d_ln1_out via Wq^T; dWq += ln1_out^T × dQ
@@ -4703,6 +4820,7 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
         }
 
         if (lightning_subtree_mass) { free(lightning_subtree_mass); lightning_subtree_mass = NULL; }
+        if (lightning_cycle_shift) { free(lightning_cycle_shift); lightning_cycle_shift = NULL; }
     }
 
     // Save weights back to host.
