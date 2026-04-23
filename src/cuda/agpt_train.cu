@@ -3186,6 +3186,45 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
     CUDA_CHECK(cudaMemcpy(d_compact_slot, compact_slot,
                           (long long)trie.total_edge_chars * sizeof(int), cudaMemcpyHostToDevice));
 
+    // Loop-point catalog (Phase 1 of virtual-tree): a radix node r is
+    // "loop-eligible" for virtual-tree attachment iff it has edge_mass > 1
+    // (so K/V is in the compact cache) AND is a leaf in the radix trie (no
+    // children). These are the depth-D truncation points where multiple
+    // corpus paths converged and got cut off — the natural places to attach
+    // a cycle-2+ root walk. Mass=1 leaves are single-corpus-suffix dead ends;
+    // extending a virtual cycle there adds no branching signal and their K/V
+    // isn't even cached, so they're excluded.
+    unsigned char* is_loop_point = (unsigned char*)calloc(trie.radix_count, sizeof(unsigned char));
+    {
+        // First pass: count children per node to identify leaves.
+        int* child_count = (int*)calloc(trie.radix_count, sizeof(int));
+        for (int r = 1; r < trie.radix_count; r++) child_count[trie.parents[r]]++;
+        long long n_loop = 0;
+        long long n_mass_gt1_leaves = 0;
+        long long n_mass_gt1_total = 0;
+        for (int r = 1; r < trie.radix_count; r++) {
+            bool is_leaf = (child_count[r] == 0);
+            bool has_mass = (trie.edge_mass[r] > 1);
+            if (has_mass) n_mass_gt1_total++;
+            if (is_leaf && has_mass) {
+                is_loop_point[r] = 1;
+                n_loop++;
+                n_mass_gt1_leaves++;
+            }
+        }
+        if (!quiet) {
+            double pct_of_mass_gt1 = (n_mass_gt1_total > 0)
+                ? 100.0 * (double)n_loop / (double)n_mass_gt1_total : 0.0;
+            printf("  loop points: %lld (mass>1 leaves; %.1f%% of %lld mass>1 nodes)\n",
+                   n_loop, pct_of_mass_gt1, n_mass_gt1_total);
+        }
+        free(child_count);
+    }
+    unsigned char* d_is_loop_point;
+    CUDA_CHECK(cudaMalloc(&d_is_loop_point, (long long)trie.radix_count * sizeof(unsigned char)));
+    CUDA_CHECK(cudaMemcpy(d_is_loop_point, is_loop_point,
+                          (long long)trie.radix_count * sizeof(unsigned char), cudaMemcpyHostToDevice));
+
     // Precompute real RoPE position per char_pos. Matches the forward's scatter
     // convention: pos = first_char_depth + j - 1, clamped to [0, seq_len-1].
     // Used by the delta-RoPE K gather so it can reconstruct the real rotation
@@ -4718,6 +4757,8 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
     if (d_compact_slot)     cudaFree(d_compact_slot);
     if (real_pos_of_char)   free(real_pos_of_char);
     if (d_real_pos_of_char) cudaFree(d_real_pos_of_char);
+    if (is_loop_point)      free(is_loop_point);
+    if (d_is_loop_point)    cudaFree(d_is_loop_point);
     if (depth_limit) {
         for (int i = 0; i < n_root_children; i++) free(depth_limit[i]);
         free(depth_limit);
