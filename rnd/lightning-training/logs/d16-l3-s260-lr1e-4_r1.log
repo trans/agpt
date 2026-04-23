@@ -1,0 +1,22 @@
+AGPT CUDA Training Engine
+  Model: d=64 heads=4 layers=2 ff=256 vocab=65 seq=128 head_dim=16
+  Loaded 108481 weight floats (423.8 KB)
+Per-subtree radix format detected at /tmp/agpt_input_d16_radix_pst
+  Manifest: 65 subtree files
+  Total: 1607927 radix nodes, 9313896 edge chars
+Per-subtree training: 65 subtrees, 3 super-epochs (Lightning stochastic sampling)
+  lightning: l3-mass-walk, 260 samples/SE total, p_stop=0.30, seed=0x2b
+  optimizer: rmsprop (lr=0.0001)
+  lr-schedule: constant (warmup 0 super-epochs = 0 steps)
+  entropy lambda: 1.000
+  mass weighting: linear
+  total optimizer steps: 780 (260 per super-epoch)
+  largest subtree: rc=2, 1265315 chars (peak per-subtree KV ≈ 1295.7 MB)
+  SE 1 lightning buckets: 34 root-children touched, max 31 samples/rc
+Super-epoch 1: 34 subtrees, 1495408 radix nodes  (27.7 sec, adam_t=260)
+  SE 2 lightning buckets: 42 root-children touched, max 30 samples/rc
+Super-epoch 2: 42 subtrees, 1557047 radix nodes  (25.0 sec, adam_t=520)
+  SE 3 lightning buckets: 37 root-children touched, max 28 samples/rc
+Super-epoch 3: 37 subtrees, 1516807 radix nodes  (24.1 sec, adam_t=780)
+Saved to /tmp/lightning_d16_d16-l3-s260-lr1e-4_r1.model
+Done.

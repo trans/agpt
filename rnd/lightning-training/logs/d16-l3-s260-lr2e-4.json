@@ -1,0 +1,6 @@
+{"label":"d16-l3-s260-lr2e-4","trie_dir":"/tmp/agpt_input_d16_radix_pst","init_checkpoint":"data/input.random.model",
+ "epochs":3,"lr":2e-4,"optimizer":"rmsprop","rmsprop_beta":0.999,
+ "lr_schedule":"constant","entropy_lambda":1.0,"mass_weight":"linear",
+ "n_runs":3,"lightning_steps":260,"lightning_sampler":"l3",
+ "lightning_p_stop":0.3,"lightning_mass_lr":"off",
+ "git_hash":"de0909c","timestamp":"2026-04-22T23:51:43-04:00"}

@@ -163,6 +163,35 @@ again has tightest variance (0.64). s=650 lr=1e-4 has best mean AND
 highest ceiling individual run. The step-budget×LR trade mirrors d=8 —
 further LR sweeping at d=16 s=260 might close more of the gap.
 
+### Result: finer LR sweep at d=16 s=260
+
+| config | mean PPL | min | max | spread |
+|---|---|---|---|---|
+| **baseline det 65×3** | **14.59** | — | — | — |
+| L3 s=260 lr=5e-4 | 18.28 | 17.23 | 19.02 | 1.78 |
+| L3 s=260 lr=3e-4 | 16.06 | 15.80 | 16.44 | 0.64 |
+| **L3 s=260 lr=2e-4** | **15.31** | **14.78** | 15.69 | 0.91 |
+| L3 s=260 lr=1e-4 | 15.47 | 15.22 | 15.79 | 0.57 |
+| L3 s=260 lr=5e-5 | 17.75 | 17.12 | 18.43 | 1.31 |
+
+**lr=2e-4 is the d=16 sweet spot**: gap to baseline narrows from ~1.5
+(at lr=3e-4) down to ~0.7. Classic U-shape — lr=5e-4 too aggressive
+(noise overwhelms signal), lr=5e-5 too slow (hasn't converged). Best run
+14.78 is within 0.2 of baseline.
+
+### Result: BF16 K/V cache (halves memory)
+
+KV cache stored as bf16 instead of fp32, with conversion at scatter/gather
+boundaries. Packed attention buffers remain fp32.
+
+- d=8 Lightning: 791 MB (was 1582 MB). PPL 16.97 on smoke test — within
+  noise of prior fp32 runs (mean 18.71, min 17.69).
+- **d=16 GLOBAL radix: 4.77 GB (was 9.5 GB, was REFUSED before)**. First
+  time global-radix d=16 Lightning runs. Eliminates the per-subtree-file
+  workaround — can go either way now.
+- Next: d=32 global radix becomes borderline-feasible at 19 GB bf16 via
+  unified memory paging (was 38 GB fp32).
+
 ## Run
 
 ```sh

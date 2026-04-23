@@ -1,0 +1,19 @@
+==============================================================
+d=16 Lightning fine LR sweep at s=260 (per-subtree format)
+  baseline det 3 SE × 65 lr=3e-3: 14.59
+  prior s=260 lr=3e-4: 16.06 mean, spread 0.64
+==============================================================
+d16-l3-s260-lr5e-4  run 1  PPL = 17.2327  time = 75s  (rc=0)
+d16-l3-s260-lr5e-4  run 2  PPL = 18.5950  time = 88s  (rc=0)
+d16-l3-s260-lr5e-4  run 3  PPL = 19.0158  time = 83s  (rc=0)
+d16-l3-s260-lr2e-4  run 1  PPL = 15.4389  time = 78s  (rc=0)
+d16-l3-s260-lr2e-4  run 2  PPL = 14.7848  time = 88s  (rc=0)
+d16-l3-s260-lr2e-4  run 3  PPL = 15.6944  time = 85s  (rc=0)
+d16-l3-s260-lr1e-4  run 1  PPL = 15.7949  time = 77s  (rc=0)
+d16-l3-s260-lr1e-4  run 2  PPL = 15.2236  time = 90s  (rc=0)
+d16-l3-s260-lr1e-4  run 3  PPL = 15.3885  time = 86s  (rc=0)
+d16-l3-s260-lr5e-5  run 1  PPL = 18.4277  time = 76s  (rc=0)
+d16-l3-s260-lr5e-5  run 2  PPL = 17.1216  time = 88s  (rc=0)
+d16-l3-s260-lr5e-5  run 3  PPL = 17.6912  time = 87s  (rc=0)
+
+Done.

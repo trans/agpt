@@ -17,6 +17,7 @@
 #include <sys/sysinfo.h>
 #include <cublas_v2.h>
 #include <cuda_runtime.h>
+#include <cuda_bf16.h>
 
 // ============================================================================
 // Error checking
@@ -1446,6 +1447,70 @@ void launch_kv_gather(const float* global_kv,
                                            N, n_heads, head_dim);
 }
 
+// --- BF16 variants: KV cache storage is bf16, packed buffers + attention stay fp32 ---
+// Scatter: convert fp32 → bf16 on write into the global cache.
+__global__ void kv_scatter_kernel_bf16(const float* src, const int* node_ids,
+                                        __nv_bfloat16* dst, int N, int d_model) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    int total = N * d_model;
+    if (idx >= total) return;
+    int row = idx / d_model;
+    int col = idx % d_model;
+    int nid = node_ids[row];
+    dst[nid * d_model + col] = __float2bfloat16(src[row * d_model + col]);
+}
+
+void launch_kv_scatter_bf16(const float* src, const int* node_ids,
+                             __nv_bfloat16* dst, int N, int d_model) {
+    int total = N * d_model;
+    int threads = 256;
+    int blocks = (total + threads - 1) / threads;
+    kv_scatter_kernel_bf16<<<blocks, threads>>>(src, node_ids, dst, N, d_model);
+}
+
+// Gather: read bf16, convert to fp32 on write into the packed buffer.
+__global__ void kv_gather_kernel_bf16(const __nv_bfloat16* global_kv,
+                                       const int* ancestor_ids,
+                                       const int* ancestor_offsets,
+                                       const int* kv_offsets,
+                                       const int* kv_lengths,
+                                       float* packed_kv,
+                                       int N, int n_heads, int head_dim) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    int d_model = n_heads * head_dim;
+    int nidx = idx / d_model;
+    int col = idx % d_model;
+    if (nidx >= N) return;
+
+    int anc_off = ancestor_offsets[nidx];
+    int kv_off = kv_offsets[nidx];
+    int len = kv_lengths[nidx];
+    int head = col / head_dim;
+    int hcol = col % head_dim;
+
+    for (int p = 0; p < len; p++) {
+        int ancestor = ancestor_ids[anc_off + p];
+        float val = __bfloat162float(global_kv[ancestor * d_model + col]);
+        packed_kv[((kv_off + p) * n_heads + head) * head_dim + hcol] = val;
+    }
+}
+
+void launch_kv_gather_bf16(const __nv_bfloat16* global_kv,
+                            const int* ancestor_ids,
+                            const int* ancestor_offsets,
+                            const int* kv_offsets,
+                            const int* kv_lengths,
+                            float* packed_kv,
+                            int N, int n_heads, int head_dim) {
+    int d_model = n_heads * head_dim;
+    int total = N * d_model;
+    int threads = 256;
+    int blocks = (total + threads - 1) / threads;
+    kv_gather_kernel_bf16<<<blocks, threads>>>(global_kv, ancestor_ids, ancestor_offsets,
+                                                kv_offsets, kv_lengths, packed_kv,
+                                                N, n_heads, head_dim);
+}
+
 // --- KV scatter-add backward: accumulate dK/dV from packed gradients back to global ---
 // Reverse of kv_gather: for each position in each node's prefix,
 // add the packed gradient back to the global kv gradient buffer.
@@ -2855,8 +2920,12 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
         CUDA_CHECK(cudaMalloc(&d_clip_norm, sizeof(float)));
     }
 
-    // KV cache (unified memory, per character position)
-    long long kv_bytes = trie.total_edge_chars * (long long)D * sizeof(float);
+    // KV cache (unified memory, per character position). Stored as bf16 — half
+    // the memory of fp32. Packed buffers used for attention remain fp32, with
+    // conversion done on the scatter/gather kernels. BF16 mantissa loss (8 bits)
+    // is fine for stored K/V since attention softmax already flattens small
+    // differences; verified empirically at d=8 within GPU reduction noise.
+    long long kv_bytes = trie.total_edge_chars * (long long)D * (long long)sizeof(__nv_bfloat16);
     long long total_kv_bytes = kv_bytes * 2 * L_layers;
     {
         struct sysinfo si;
@@ -2870,13 +2939,13 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
             }
         }
     }
-    float** d_kv_keys = (float**)malloc(L_layers * sizeof(float*));
-    float** d_kv_values = (float**)malloc(L_layers * sizeof(float*));
+    __nv_bfloat16** d_kv_keys = (__nv_bfloat16**)malloc(L_layers * sizeof(__nv_bfloat16*));
+    __nv_bfloat16** d_kv_values = (__nv_bfloat16**)malloc(L_layers * sizeof(__nv_bfloat16*));
     for (int l = 0; l < L_layers; l++) {
         CUDA_CHECK(cudaMallocManaged(&d_kv_keys[l],   kv_bytes));
         CUDA_CHECK(cudaMallocManaged(&d_kv_values[l], kv_bytes));
     }
-    if (!quiet) printf("  KV cache: %.1f MB unified memory\n", total_kv_bytes / 1e6);
+    if (!quiet) printf("  KV cache: %.1f MB unified memory (bf16)\n", total_kv_bytes / 1e6);
 
     // RoPE cache
     float* d_rope_cos; float* d_rope_sin;
@@ -3793,8 +3862,8 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                     launch_rope_batched(d_k, d_rope_positions, d_rope_cos, d_rope_sin, T_q * H, HD);
 
                     // Scatter K/V into global KV cache at char positions
-                    launch_kv_scatter(d_k, d_char_pos, d_kv_keys[l],   T_q, D);
-                    launch_kv_scatter(d_v, d_char_pos, d_kv_values[l], T_q, D);
+                    launch_kv_scatter_bf16(d_k, d_char_pos, d_kv_keys[l],   T_q, D);
+                    launch_kv_scatter_bf16(d_v, d_char_pos, d_kv_values[l], T_q, D);
 
                     // Build ancestor_char_ids flat for this chunk
                     // Actually we need the FULL prefix (ancestors + own edge chars) packed per node.
@@ -3831,9 +3900,9 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                     // kv_gather expects: ancestor_ids flat, ancestor_offsets per node, kv_offsets, kv_lengths.
                     // Here: ancestor_ids = d_prefix_char_ids_cache (flat), ancestor_offsets per node = d_kv_offsets (start of each node's prefix).
                     // We pass d_kv_offsets AS the ancestor_offsets, which is equivalent.
-                    launch_kv_gather(d_kv_keys[l], d_prefix_char_ids_cache, d_kv_offsets,
+                    launch_kv_gather_bf16(d_kv_keys[l], d_prefix_char_ids_cache, d_kv_offsets,
                                       d_kv_offsets, d_kv_lengths, d_kv_pack_k, N, H, HD);
-                    launch_kv_gather(d_kv_values[l], d_prefix_char_ids_cache, d_kv_offsets,
+                    launch_kv_gather_bf16(d_kv_values[l], d_prefix_char_ids_cache, d_kv_offsets,
                                       d_kv_offsets, d_kv_lengths, d_kv_pack_v, N, H, HD);
 
                     // L-query varlen attention
@@ -4021,9 +4090,9 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                     CUDA_CHECK(cudaMemcpy(d_tmp_ids, h_prefix_char_ids2, T_kv * sizeof(int), cudaMemcpyHostToDevice));
                     free(h_prefix_char_ids2);
 
-                    launch_kv_gather(d_kv_keys[l], d_tmp_ids, d_kv_offsets,
+                    launch_kv_gather_bf16(d_kv_keys[l], d_tmp_ids, d_kv_offsets,
                                       d_kv_offsets, d_kv_lengths, d_kv_pack_k, N, H, HD);
-                    launch_kv_gather(d_kv_values[l], d_tmp_ids, d_kv_offsets,
+                    launch_kv_gather_bf16(d_kv_values[l], d_tmp_ids, d_kv_offsets,
                                       d_kv_offsets, d_kv_lengths, d_kv_pack_v, N, H, HD);
 
                     // Zero dK/dV packed buffers
