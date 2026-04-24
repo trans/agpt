@@ -74,14 +74,43 @@ module MicroGPT
       )
       end
 
+      # DepthStream: open output file for a given endpoint depth, track
+      # record count, fix header at close. We write records as they come
+      # (streaming) instead of buffering in memory — critical for d≥64 where
+      # the in-memory buffer would exceed available RAM.
+      private class DepthStream
+        property io : File
+        property count : Int32
+        def initialize(@io : File)
+          @count = 0
+        end
+      end
+
+      # SubtreeStream: per-subtree output file. Tracks record_count,
+      # total_edge_chars, max_endpoint_depth for fix-up at close.
+      private class SubtreeStream
+        property io : File
+        property count : Int32
+        property total_edge_chars : Int64
+        property max_ep : Int32
+        def initialize(@io : File)
+          @count = 0
+          @total_edge_chars = 0_i64
+          @max_ep = 0
+        end
+      end
+
       def build : NamedTuple(radix_count: Int32, total_edge_chars: Int64, max_endpoint_depth: Int32)
         Dir.mkdir_p(@out_dir)
+        Dir.mkdir_p(File.join(@out_dir, "subtrees")) if @per_subtree
 
         build_started = Time.instant
 
-        # Build per-depth children indexes on demand: depth d+1 → parent_id → [records]
-        # We lazily populate and keep only the currently-needed ones (small footprint).
+        # parent-id → children index, one hash per depth. At d=64 the full
+        # set of 64 per-depth indexes doesn't fit in RAM on a 16 GB machine.
+        # Cap to an LRU of MAX_CACHED_INDEX depths.
         children_by_depth = {} of Int32 => Hash(Int32, Array(LeveledTrieReader::LoadedRecord))
+        idx_lru = Deque(Int32).new
 
         # Frontier: edge-start points to explore.
         # Each entry: (parent_radix_id, starting_original_id, starting_char_depth)
@@ -90,9 +119,13 @@ module MicroGPT
         frontier = Deque({Int32, Int32, Int32}).new
         frontier << {0, 0, 1}   # from virtual root, children at depth 1
 
-        # Record tuple: {radix_id, parent_radix_id, first_char_depth, edge_tokens, edge_mass, endpoint_counts}
-        radix_records_by_endpoint = {} of Int32 => Array({Int32, Int32, Int32, Array(Int32), Int32, Array({Int32, Int32})})
-        radix_records_by_subtree  = {} of Int32 => Array({Int32, Int32, Int32, Array(Int32), Int32, Array({Int32, Int32})})
+        # Streaming writers: one open File per endpoint depth (and per subtree
+        # when --per-subtree is on). Opened lazily when the first record for
+        # that depth/subtree arrives. Headers have placeholder counts that get
+        # patched at close time.
+        depth_streams   = {} of Int32 => DepthStream
+        subtree_streams = {} of Int32 => SubtreeStream
+
         # subtree_of[radix_id] = integer key identifying the subtree this node belongs to.
         #   subtree_level = 1 (unigram): key = the depth-1 radix ancestor's radix_id.
         #   subtree_level = 2 (bigram):  key = first_char * 256 + second_char, where 255 is
@@ -108,7 +141,7 @@ module MicroGPT
           parent_radix_id, start_original_id, start_char_depth = frontier.shift
           next if start_char_depth >= @reader.depth_file_count
 
-          children_idx = children_index_for(children_by_depth, start_char_depth)
+          children_idx = children_index_for(children_by_depth, idx_lru, start_char_depth)
           children = children_idx[start_original_id]?
           next if children.nil?
 
@@ -128,7 +161,7 @@ module MicroGPT
               cnts = @reader.counts_of(current.id)
               if cnts.size == 1 && current_depth + 1 < @reader.depth_file_count
                 # Unary: find the single child
-                next_children_idx = children_index_for(children_by_depth, current_depth + 1)
+                next_children_idx = children_index_for(children_by_depth, idx_lru, current_depth + 1)
                 next_children = next_children_idx[current.id]?
                 break if next_children.nil? || next_children.size != 1
                 current = next_children[0]
@@ -206,22 +239,41 @@ module MicroGPT
             end
             subtree_of[radix_id] = subtree_key
 
-            record = {radix_id, parent_radix_id, start_char_depth, edge, edge_mass, endpoint_counts}
-
-            list = radix_records_by_endpoint[endpoint_depth]?
-            if list.nil?
-              list = [] of {Int32, Int32, Int32, Array(Int32), Int32, Array({Int32, Int32})}
-              radix_records_by_endpoint[endpoint_depth] = list
+            # Stream this record straight to disk instead of buffering.
+            # Opens the per-depth (and per-subtree) file lazily on first write,
+            # with a placeholder record_count that we patch at close time.
+            dstream = depth_streams[endpoint_depth]?
+            if dstream.nil?
+              path = File.join(@out_dir, "radix_depth_#{"%03d" % endpoint_depth}.bin")
+              io = File.open(path, "wb")
+              io.write_bytes(RADIX_MAGIC, IO::ByteFormat::LittleEndian)
+              io.write_bytes(endpoint_depth.to_i32, IO::ByteFormat::LittleEndian)
+              io.write_bytes(0_i32, IO::ByteFormat::LittleEndian)  # placeholder for record_count
+              dstream = DepthStream.new(io)
+              depth_streams[endpoint_depth] = dstream
             end
-            list << record
+            write_record(dstream.io, radix_id, parent_radix_id, start_char_depth, edge, edge_mass, endpoint_counts)
+            dstream.count += 1
 
             if @per_subtree
-              slist = radix_records_by_subtree[subtree_key]?
-              if slist.nil?
-                slist = [] of {Int32, Int32, Int32, Array(Int32), Int32, Array({Int32, Int32})}
-                radix_records_by_subtree[subtree_key] = slist
+              sstream = subtree_streams[subtree_key]?
+              if sstream.nil?
+                dir = File.join(@out_dir, "subtrees")
+                spath = File.join(dir, "radix_subtree_#{"%06d" % subtree_key}.bin")
+                sio = File.open(spath, "wb")
+                sio.write_bytes(RADIX_MAGIC, IO::ByteFormat::LittleEndian)
+                sio.write_bytes(RADIX_VERSION, IO::ByteFormat::LittleEndian)
+                sio.write_bytes(subtree_key.to_i32, IO::ByteFormat::LittleEndian)
+                sio.write_bytes(0_i32, IO::ByteFormat::LittleEndian)   # placeholder record_count
+                sio.write_bytes(0_i64, IO::ByteFormat::LittleEndian)   # placeholder total_edge_chars
+                sio.write_bytes(0_i32, IO::ByteFormat::LittleEndian)   # placeholder max_endpoint_depth
+                sstream = SubtreeStream.new(sio)
+                subtree_streams[subtree_key] = sstream
               end
-              slist << record
+              write_record(sstream.io, radix_id, parent_radix_id, start_char_depth, edge, edge_mass, endpoint_counts)
+              sstream.count += 1
+              sstream.total_edge_chars += edge.size.to_i64
+              sstream.max_ep = endpoint_depth if endpoint_depth > sstream.max_ep
             end
 
             # Descend: queue each branching child as a new edge-start
@@ -230,43 +282,45 @@ module MicroGPT
             end
           end
 
-          # Keep children indexes resident for the full build — they are small
-          # (~40 bytes/record) and eviction thrashes with the reader's own LRU.
-
           if @progress && radix_count % 10_000 == 0
             elapsed = (Time.instant - build_started).total_seconds
-            STDERR.puts "[radix] #{radix_count} radix nodes, frontier=#{frontier.size}, max_ep_depth=#{max_endpoint_depth}  (#{elapsed.round(1)}s)"
+            STDERR.puts "[radix] #{radix_count} radix nodes, frontier=#{frontier.size}, max_ep_depth=#{max_endpoint_depth}, cached_idx=#{children_by_depth.size}  (#{elapsed.round(1)}s)"
           end
         end
 
-        # Write per-endpoint-depth files
+        # Close per-depth streams, patching record_count header in each.
+        depth_streams.each do |_, stream|
+          stream.io.seek(8)    # after magic(4) + depth(4)
+          stream.io.write_bytes(stream.count.to_i32, IO::ByteFormat::LittleEndian)
+          stream.io.close
+        end
+        # Parity with non-streaming builder: the original code wrote one file
+        # per depth in 0..max_endpoint_depth, even if the depth had no records
+        # (e.g. depth 0 where only the virtual root lives). Write empty files
+        # for any depth that didn't open a stream.
         (0..max_endpoint_depth).each do |d|
-          records = radix_records_by_endpoint[d]? || ([] of {Int32, Int32, Int32, Array(Int32), Int32, Array({Int32, Int32})})
-          write_depth_file(d, records)
+          next if depth_streams.has_key?(d)
+          path = File.join(@out_dir, "radix_depth_#{"%03d" % d}.bin")
+          File.open(path, "wb") do |io|
+            io.write_bytes(RADIX_MAGIC, IO::ByteFormat::LittleEndian)
+            io.write_bytes(d.to_i32, IO::ByteFormat::LittleEndian)
+            io.write_bytes(0_i32, IO::ByteFormat::LittleEndian)  # record_count = 0
+          end
         end
 
-        # Per-subtree output mode: one file per root-child, plus a manifest. This
-        # is for scalable training at large depths — the trainer can load ONE
-        # subtree at a time and scope its KV cache to just that subtree's
-        # character positions, instead of needing a global KV cache that grows
-        # with total corpus positions.
+        # Close per-subtree streams and build manifest from their stats.
         if @per_subtree
-          Dir.mkdir_p(File.join(@out_dir, "subtrees"))
-          manifest = [] of {Int32, Int32, Int64, Int32}   # {root_child_id, n_nodes, total_edge_chars, max_endpoint_depth}
-          radix_records_by_subtree.each do |rc, recs|
-            # Sort by endpoint depth for BFS-order loading.
-            recs.sort_by! { |r| r[2] + r[3].size - 1 }
-            st_edge_chars = 0_i64
-            st_max_ep = 0
-            recs.each do |r|
-              st_edge_chars += r[3].size.to_i64
-              ep = r[2] + r[3].size - 1
-              st_max_ep = ep if ep > st_max_ep
-            end
-            write_subtree_file(rc, recs, st_max_ep)
-            manifest << {rc, recs.size, st_edge_chars, st_max_ep}
+          manifest = [] of {Int32, Int32, Int64, Int32}
+          subtree_streams.each do |rc, stream|
+            # Header: magic(4) + version(4) + root_child(4) = offset 12
+            # Then record_count(4) + total_edge_chars(8) + max_endpoint_depth(4).
+            stream.io.seek(12)
+            stream.io.write_bytes(stream.count.to_i32, IO::ByteFormat::LittleEndian)
+            stream.io.write_bytes(stream.total_edge_chars, IO::ByteFormat::LittleEndian)
+            stream.io.write_bytes(stream.max_ep.to_i32, IO::ByteFormat::LittleEndian)
+            stream.io.close
+            manifest << {rc, stream.count, stream.total_edge_chars, stream.max_ep}
           end
-          # Sort manifest by root_child id for deterministic order
           manifest.sort_by! { |m| m[0] }
           write_manifest(manifest)
           STDERR.puts "[radix] per-subtree: #{manifest.size} subtree files written"
@@ -288,11 +342,24 @@ module MicroGPT
         {radix_count: radix_count, total_edge_chars: total_edge_chars, max_endpoint_depth: max_endpoint_depth}
       end
 
+      # Max depths to keep in children_by_depth simultaneously. The builder's
+      # BFS walks the same depth sequence for each root-child's unary chain
+      # extension (depths 1..N), so the cache needs to be big enough to hold
+      # a root-child's working set without thrashing. Anything ≥ the
+      # characteristic extension length works. At d=8 extensions go 1..8;
+      # at d=64 they go 1..~32 typical. 64 covers both cases while capping
+      # RAM at roughly 64 × (per-depth index size).
+      MAX_CACHED_INDEX = 64
+
       private def children_index_for(
         cache : Hash(Int32, Hash(Int32, Array(LeveledTrieReader::LoadedRecord))),
+        lru : Deque(Int32),
         depth : Int32
       ) : Hash(Int32, Array(LeveledTrieReader::LoadedRecord))
         if existing = cache[depth]?
+          # Move to MRU position
+          lru.delete(depth)
+          lru << depth
           return existing
         end
         # Build the index
@@ -306,72 +373,37 @@ module MicroGPT
           end
         end
         cache[depth] = idx
+        lru << depth
+        # Evict oldest while over capacity
+        while lru.size > MAX_CACHED_INDEX
+          evict = lru.shift
+          cache.delete(evict)
+        end
         idx
       end
 
-      private def write_depth_file(
-        d : Int32,
-        records : Array({Int32, Int32, Int32, Array(Int32), Int32, Array({Int32, Int32})})
+      # Emit one record (same wire format for per-depth and per-subtree files).
+      # Called while streaming; the file's header record_count is patched at
+      # close time by the builder.
+      private def write_record(
+        io : IO,
+        radix_id : Int32,
+        parent_radix_id : Int32,
+        first_char_depth : Int32,
+        edge : Array(Int32),
+        edge_mass : Int32,
+        entries : Array({Int32, Int32})
       )
-        path = File.join(@out_dir, "radix_depth_#{"%03d" % d}.bin")
-        File.open(path, "wb") do |io|
-          io.write_bytes(RADIX_MAGIC, IO::ByteFormat::LittleEndian)
-          io.write_bytes(d.to_i32, IO::ByteFormat::LittleEndian)
-          io.write_bytes(records.size.to_i32, IO::ByteFormat::LittleEndian)
-          records.each do |(radix_id, parent_radix_id, first_char_depth, edge, edge_mass, entries)|
-            io.write_bytes(radix_id.to_i32, IO::ByteFormat::LittleEndian)
-            io.write_bytes(parent_radix_id.to_i32, IO::ByteFormat::LittleEndian)
-            io.write_bytes(first_char_depth.to_i32, IO::ByteFormat::LittleEndian)
-            io.write_bytes(edge.size.to_i32, IO::ByteFormat::LittleEndian)
-            edge.each { |tok| io.write_bytes(tok.to_i32, IO::ByteFormat::LittleEndian) }
-            io.write_bytes(edge_mass.to_i32, IO::ByteFormat::LittleEndian) # v2: prefix mass
-            io.write_bytes(entries.size.to_i32, IO::ByteFormat::LittleEndian)
-            entries.each do |(token_id, count)|
-              io.write_bytes(token_id.to_i32, IO::ByteFormat::LittleEndian)
-              io.write_bytes(count.to_i32, IO::ByteFormat::LittleEndian)
-            end
-          end
-        end
-      end
-
-      # Per-subtree file: one self-contained file per root-child subtree.
-      # Header:
-      #   magic (u32 RADIX_MAGIC)
-      #   version (i32) — matches radix format version
-      #   root_child_id (i32)
-      #   record_count (i32)
-      #   total_edge_chars (i64)
-      #   max_endpoint_depth (i32)
-      # Records: same layout as per-endpoint-depth files (radix_id, parent, fcd, edge_len, edge_tokens[], edge_mass, entry_count, entries[]).
-      private def write_subtree_file(
-        root_child_id : Int32,
-        records : Array({Int32, Int32, Int32, Array(Int32), Int32, Array({Int32, Int32})}),
-        max_endpoint_depth : Int32
-      )
-        dir = File.join(@out_dir, "subtrees")
-        path = File.join(dir, "radix_subtree_#{"%06d" % root_child_id}.bin")
-        total_edge_chars = 0_i64
-        records.each { |r| total_edge_chars += r[3].size.to_i64 }
-        File.open(path, "wb") do |io|
-          io.write_bytes(RADIX_MAGIC, IO::ByteFormat::LittleEndian)
-          io.write_bytes(RADIX_VERSION, IO::ByteFormat::LittleEndian)
-          io.write_bytes(root_child_id.to_i32, IO::ByteFormat::LittleEndian)
-          io.write_bytes(records.size.to_i32, IO::ByteFormat::LittleEndian)
-          io.write_bytes(total_edge_chars.to_i64, IO::ByteFormat::LittleEndian)
-          io.write_bytes(max_endpoint_depth.to_i32, IO::ByteFormat::LittleEndian)
-          records.each do |(radix_id, parent_radix_id, first_char_depth, edge, edge_mass, entries)|
-            io.write_bytes(radix_id.to_i32, IO::ByteFormat::LittleEndian)
-            io.write_bytes(parent_radix_id.to_i32, IO::ByteFormat::LittleEndian)
-            io.write_bytes(first_char_depth.to_i32, IO::ByteFormat::LittleEndian)
-            io.write_bytes(edge.size.to_i32, IO::ByteFormat::LittleEndian)
-            edge.each { |tok| io.write_bytes(tok.to_i32, IO::ByteFormat::LittleEndian) }
-            io.write_bytes(edge_mass.to_i32, IO::ByteFormat::LittleEndian)
-            io.write_bytes(entries.size.to_i32, IO::ByteFormat::LittleEndian)
-            entries.each do |(token_id, count)|
-              io.write_bytes(token_id.to_i32, IO::ByteFormat::LittleEndian)
-              io.write_bytes(count.to_i32, IO::ByteFormat::LittleEndian)
-            end
-          end
+        io.write_bytes(radix_id.to_i32, IO::ByteFormat::LittleEndian)
+        io.write_bytes(parent_radix_id.to_i32, IO::ByteFormat::LittleEndian)
+        io.write_bytes(first_char_depth.to_i32, IO::ByteFormat::LittleEndian)
+        io.write_bytes(edge.size.to_i32, IO::ByteFormat::LittleEndian)
+        edge.each { |tok| io.write_bytes(tok.to_i32, IO::ByteFormat::LittleEndian) }
+        io.write_bytes(edge_mass.to_i32, IO::ByteFormat::LittleEndian)
+        io.write_bytes(entries.size.to_i32, IO::ByteFormat::LittleEndian)
+        entries.each do |(token_id, count)|
+          io.write_bytes(token_id.to_i32, IO::ByteFormat::LittleEndian)
+          io.write_bytes(count.to_i32, IO::ByteFormat::LittleEndian)
         end
       end
 

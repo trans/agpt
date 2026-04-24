@@ -373,9 +373,12 @@ module MicroGPT
           exit 1
         end
         puts "Building radix trie from #{radix_src} → #{radix_out}#{per_subtree ? " (with per-subtree files, level=#{subtree_level})" : ""}"
-        # Keep all depths cached during radix build — avoids thrashing with
-        # BFS frontier jumping across depths.
-        reader = AGPT::LeveledTrieReader.new(radix_src, max_cached: 256)
+        # Keep the reader's own cache generous (it holds raw LoadedDepth;
+        # the StreamingRadixBuilder rebuilds its parent→children index
+        # from these on demand, which is fast as long as the source
+        # records are already resident). The builder has its own LRU on
+        # top (MAX_CACHED_INDEX) — that's what keeps total memory bounded.
+        reader = AGPT::LeveledTrieReader.new(radix_src, max_cached: 128)
         prune_min_mass = result["agpt-prune-min-mass"]?.try(&.as_i) || 1
         prune_min_depth = result["agpt-prune-min-depth"]?.try(&.as_i) || 4
         if prune_min_mass > 1
