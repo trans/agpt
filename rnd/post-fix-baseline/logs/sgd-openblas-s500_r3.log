@@ -1,0 +1,81 @@
+Loaded checkpoint: /tmp/sgd-openblas-s500_r3.model
+MiniGPT ready.
+  Vocab: 65 chars
+  Params: 108481
+  Config: d_model=64 n_layers=2 d_ff=256 seq_len=32 lr=0.0003
+  Backend: openblas
+  Model: /tmp/sgd-openblas-s500_r3.model
+
+Step 0/500 (epoch 0): loss = 5.0129 avg = 5.0129
+  seed: First Citizen:
+B
+  gen:  First Citizen:
+BYiqgFK
+stG!YMey:yMNfiGYYYbABMycke
+Ai$sneRdYbFDvoG!IzcdNzBSsRegetCY;bP;YYMnizeCiDA!jddb
+AavejAvbbIrbv
+
+Step 50/500 (epoch 0): loss = 3.2335 avg = 4.5461
+  seed: till the altitud
+  gen:  till the altitudr a  Jei ett  s n yy  iletrran ,n H 
+ee po e h , n ner3evtontn rthee  o apt tmm
+nik ,h awtp eBhe r h
+
+Step 100/500 (epoch 0): loss = 3.1389 avg = 4.0668
+  seed: u, and you sland
+  gen:  u, and you slandlnng ln
+pst laaz  nl eheolo Ynoioey!nseaecerrasoinh rcnccwtha tuinwb:n t o naitptu
+ a h  a ers n ats
+
+Step 150/500 (epoch 0): loss = 3.0236 avg = 3.7298
+  seed:  envied his rece
+  gen:   envied his receee ateeem d e b lateeddn tn iitn
+oyhlttln  aCyaytrl
+nibfltaLsiwz ututi M
+k ndais u
+ y thfe noao te l
+
+Step 200/500 (epoch 0): loss = 3.0047 avg = 3.5201
+  seed: up, that all
+Fro
+  gen:  up, that all
+Fro od ryc tte n Shee r h u t, uiiI aeeh  letheh b ceditosalrloas r aon  t, tuaato dntWh lflmasgit ho a
+
+Step 250/500 (epoch 0): loss = 3.2480 avg = 3.3448
+  seed: 
+A sick man's ap
+  gen:  
+A sick man's ap rrn t nee mged itoo lcainrnehe ns d  re fee  soo no a ne r aie :  ras cr uN $iarorsreoiws iyrhe d,e
+
+Step 300/500 (epoch 0): loss = 2.9680 avg = 3.2405
+  seed: e heart of gener
+  gen:  e heart of generooim grrni?rhathat we, c  che l t l rt dins dhade, 
+ohere ?h,, mhe,eoian
+rnikb
+ereeuehm sn n tSomles
+
+Step 350/500 (epoch 0): loss = 3.7648 avg = 3.2315
+  seed: MENENIUS:
+O, tru
+  gen:  MENENIUS:
+O, trued atal
+i
+d td:whesat p he t nu
+it csoysor' pe theMs iithen tI ar rIweiithCs lltmlr t tha uNE uthos 
+
+Step 400/500 (epoch 0): loss = 2.8710 avg = 3.1953
+  seed:  goes
+Upon this 
+  gen:   goes
+Upon this t lvit thip c poucowo;olnboolTUinair he serrhe f lidis
+latho, 'Ian d t I raohes, hifhe:Cim  s b s
+lo
+
+Step 450/500 (epoch 0): loss = 2.9969 avg = 3.1097
+  seed: between us we sh
+  gen:  between us we shiWAd; imht t it tes at e,t d lohe, IooC
+he aose  uvehermon the l t n odcehe'wah t wo tcin tustheiy d
+
+Final avg loss: 3.0580
+Model saved: /tmp/sgd-openblas-s500_r3.model
+Result logged: data/results.tsv

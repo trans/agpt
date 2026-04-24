@@ -1,4 +1,40 @@
-# [FIXED 2026-04-19] `bin/microgpt` cublas backend produced broken window-trained models
+# [REGRESSED 2026-04-24] `bin/microgpt --backend cublas` window training produces NaN
+
+**Status:** The 2026-04-19 fix (commit `6aab624`, sync CPU mirror before save)
+resolved the symptom from that era but a different bug has since surfaced.
+Reproduction on 2026-04-24:
+
+```
+cp data/input.random.model /tmp/sgd_cublas.model
+bin/microgpt data/input.txt --model /tmp/sgd_cublas.model \
+    --seq-len 32 --steps 500 --lr 3e-4 --d-model 64 --n-layers 2 \
+    --backend cublas --seed 42
+# → Step 0: loss = 23.0259  (should be ~log(65) ≈ 4.17)
+# → Step 50: loss = 23.0259  avg = nan
+# → Final avg loss: nan
+# → Saved checkpoint is unchanged from init; PPL = 164.28 (random baseline)
+```
+
+The initial loss of 23.03 nats (perplexity ~10¹⁰) is itself a red flag — the
+forward pass must be producing degenerate logits before any training step.
+Does not depend on LR; same behavior at 3e-4, 1e-4, 3e-5, 1e-5.
+
+**Workaround (still works):** `--backend openblas` produces correct training.
+500 steps → PPL 19.00; 2000 steps → PPL 14.72 (seq=32, lr=3e-4, from random
+init). These are the numbers to cite as the SGD window-training baseline.
+
+**Impact on AGPT comparisons:** the SGD-window comparator in the paper should
+use the openblas numbers. The trie-based `L4_Path` sampler in bin/agpt_train
+is statistically equivalent to SGD by construction but empirically lags the
+real openblas SGD by ~2.5 PPL at matched steps (17.39 vs 14.72 at 2000
+steps, seq=32). Root cause of the gap not yet understood — likely
+loss-function differences (L4 uses AGPT's KL at endpoints, SGD uses pure
+next-token CE at every position) and/or optimizer differences (RMSProp vs
+SGD-variant in bin/microgpt).
+
+---
+
+## Original resolution (2026-04-19) — superseded by regression above
 
 **Resolution:** `MiniGPT#save` was reading `mat.raw_data` directly, which under the
 cublas backend is the stale CPU mirror — GPU-side training updates were never
