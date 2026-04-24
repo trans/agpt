@@ -104,6 +104,11 @@ struct Config {
     bool ce_only = false;   // force single-target CE at endpoints (SGD-semantic; disables KL aggregation)
     float hotspot_coverage = 0.0f;  // adaptive split: between epochs, split subtrees covering top X% of excess-loss
                                      //   0.0 (default) disables splitting; 0.8 splits top subtrees covering 80% of excess
+    int lr_rule = 0;  // per-subtree LR multiplier rule:
+                      //   0=none (baseline), 1=inv-depth (1/depth),
+                      //   2=inv-sqrt-depth (1/sqrt(depth)),
+                      //   3=sqrt-batch (sqrt(tokens/mean_tokens)),
+                      //   4=residual (prev-epoch score/mean_score)
 };
 
 // Curriculum modes: how subtrees are scheduled across an epoch.
@@ -3930,6 +3935,11 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
 
     int adam_t = (persist && persist->adam_t_io) ? *persist->adam_t_io : 0;
 
+    // Persistent state for LR rules that depend on previous epoch's residual.
+    // Populated at end of each epoch; used at start of the next.
+    double* prev_epoch_score = NULL;
+    int     prev_epoch_n = 0;
+
     // ------------------------------------------------------------
     // Training loop
     // ------------------------------------------------------------
@@ -4202,6 +4212,61 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
             int sz = subtree_sizes[rc];
             for (int a = 0; a < sz; a++) m += (long long)trie.edge_mass[arr[a]];
             subtree_mass[rc] = m;
+        }
+
+        // --- Per-subtree LR multipliers (cfg.lr_rule) ---
+        // Computed once at epoch start. Applied at per-subtree optimizer step.
+        // Mean-normalized so the average multiplier is 1.0 (preserves overall
+        // LR schedule magnitude).
+        double* subtree_lr_mult = (double*)malloc((n_root_children > 0 ? n_root_children : 1) * sizeof(double));
+        if (cfg.lr_rule == 0) {
+            // none: all 1.0
+            for (int rc = 0; rc < n_root_children; rc++) subtree_lr_mult[rc] = 1.0;
+        } else {
+            double* raw = (double*)calloc(n_root_children, sizeof(double));
+            long long tokens_sum = 0;
+            for (int rc = 0; rc < n_root_children; rc++) tokens_sum += subtree_mass[rc];
+            double mean_tokens = (n_root_children > 0) ? (double)tokens_sum / (double)n_root_children : 1.0;
+            for (int rc = 0; rc < n_root_children; rc++) {
+                int shallowest = INT_MAX;
+                int sz = subtree_sizes[rc];
+                for (int a = 0; a < sz; a++) {
+                    int r = subtree_nodes[rc][a];
+                    int d = trie.edge_first_char_depths[r];
+                    if (d < shallowest) shallowest = d;
+                }
+                if (shallowest == INT_MAX) shallowest = 1;
+                double m = (double)subtree_mass[rc];
+                double v = 1.0;
+                switch (cfg.lr_rule) {
+                    case 1: // inv-depth
+                        v = 1.0 / (double)shallowest;
+                        break;
+                    case 2: // inv-sqrt-depth
+                        v = 1.0 / sqrt((double)shallowest);
+                        break;
+                    case 3: // sqrt-batch (sqrt(tokens / mean_tokens))
+                        v = (mean_tokens > 0.0) ? sqrt(m / mean_tokens) : 1.0;
+                        break;
+                    case 4: // residual (prev epoch score / mean score). Falls back to 1 on first epoch or if mismatch.
+                        v = 1.0;
+                        if (prev_epoch_score && prev_epoch_n == n_root_children) {
+                            double sum = 0.0;
+                            for (int q = 0; q < prev_epoch_n; q++) sum += prev_epoch_score[q];
+                            double mean_score = (prev_epoch_n > 0 && sum > 0.0) ? sum / (double)prev_epoch_n : 1.0;
+                            v = (mean_score > 0.0) ? (prev_epoch_score[rc] / mean_score) : 1.0;
+                            if (v <= 0.0) v = 1e-3;  // floor: a fully-converged subtree still gets tiny nonzero LR
+                        }
+                        break;
+                }
+                raw[rc] = v;
+            }
+            // Normalize to mean 1.0
+            double sum = 0.0;
+            for (int rc = 0; rc < n_root_children; rc++) sum += raw[rc];
+            double mean = (n_root_children > 0 && sum > 0.0) ? sum / (double)n_root_children : 1.0;
+            for (int rc = 0; rc < n_root_children; rc++) subtree_lr_mult[rc] = raw[rc] / mean;
+            free(raw);
         }
 
         for (int curriculum_d = curriculum_d_start; curriculum_d <= curriculum_d_end; curriculum_d++) {
@@ -4924,6 +4989,11 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                 step_lr *= (float)lightning_subtree_mass[rc_idx];
             }
 
+            // --lr-rule: per-subtree LR multiplier (mean-normalized so average is 1.0).
+            if (cfg.lr_rule != 0 && subtree_lr_mult) {
+                step_lr *= (float)subtree_lr_mult[rc_idx];
+            }
+
             // Grad clipping (applies to the accumulated chunk-gradient sum for this
             // subtree-split before the optimizer uses it).
             if (grad_clip_norm > 0.0f) {
@@ -5265,7 +5335,14 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
             }
         }
 
+        // Stash this epoch's score for the next epoch's residual LR rule.
+        if (prev_epoch_score) free(prev_epoch_score);
+        prev_epoch_score = (double*)malloc((n_root_children > 0 ? n_root_children : 1) * sizeof(double));
+        memcpy(prev_epoch_score, score, (n_root_children > 0 ? n_root_children : 1) * sizeof(double));
+        prev_epoch_n = n_root_children;
+
         free(score); free(avgloss); free(order);
+        if (subtree_lr_mult) { free(subtree_lr_mult); subtree_lr_mult = NULL; }
 
         // Intermediate checkpoint every save_every epochs. External tooling
         // (bin/perplexity) can score these to find the best-held-out stopping point.
@@ -5331,6 +5408,7 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
     free(root_child_of); free(root_children);
     for (int i = 0; i < n_root_children; i++) free(subtree_nodes[i]);
     free(subtree_nodes); free(subtree_sizes);
+    if (prev_epoch_score) free(prev_epoch_score);
     if (lightning_children_offsets) free(lightning_children_offsets);
     if (lightning_children_flat)    free(lightning_children_flat);
     if (compact_slot)       free(compact_slot);
@@ -5627,6 +5705,7 @@ int main(int argc, char** argv) {
     float intermediate_weight = 1.0f;  // loss scale at unary-intermediate positions; 1.0 = unchanged
     bool ce_only = false;  // force single-target CE at endpoints too (SGD-semantic, disables KL aggregation)
     float hotspot_coverage = 0.0f;  // 0 disables; X>0 splits top subtrees covering top X of excess-loss between epochs
+    int   lr_rule = 0;  // per-subtree LR multiplier rule (0=none, 1=inv-depth, 2=inv-sqrt-depth, 3=sqrt-batch, 4=residual)
     OptimizerKind optimizer = OptimizerKind::Adam;
     float momentum_beta = 0.9f;   // used by momentum + (via β₁) adam
     float rmsprop_beta = 0.999f;  // used by rmsprop + (via β₂) adam
@@ -5675,6 +5754,15 @@ int main(int argc, char** argv) {
         else if (strcmp(argv[i], "--intermediate-weight") == 0 && i + 1 < argc) intermediate_weight = atof(argv[++i]);
         else if (strcmp(argv[i], "--ce-only") == 0) ce_only = true;
         else if (strcmp(argv[i], "--hotspot-coverage") == 0 && i + 1 < argc) hotspot_coverage = atof(argv[++i]);
+        else if (strcmp(argv[i], "--lr-rule") == 0 && i + 1 < argc) {
+            const char* m = argv[++i];
+            if      (strcmp(m, "none")          == 0) lr_rule = 0;
+            else if (strcmp(m, "inv-depth")     == 0) lr_rule = 1;
+            else if (strcmp(m, "inv-sqrt-depth")== 0) lr_rule = 2;
+            else if (strcmp(m, "sqrt-batch")    == 0) lr_rule = 3;
+            else if (strcmp(m, "residual")      == 0) lr_rule = 4;
+            else { fprintf(stderr, "Unknown --lr-rule '%s' (none|inv-depth|inv-sqrt-depth|sqrt-batch|residual)\n", m); return 1; }
+        }
         else if (strcmp(argv[i], "--optimizer") == 0 && i + 1 < argc) {
             const char* o = argv[++i];
             if      (strcmp(o, "adam")     == 0) optimizer = OptimizerKind::Adam;
@@ -5824,6 +5912,7 @@ int main(int argc, char** argv) {
     cfg.chunk_queries = chunk_queries;
     cfg.ce_only = ce_only;
     cfg.hotspot_coverage = hotspot_coverage;
+    cfg.lr_rule = lr_rule;
     float* h_weights = load_model_weights(model_path, &cfg);
     WeightOffsets wo = compute_offsets(cfg);
 

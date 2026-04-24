@@ -1,0 +1,63 @@
+AGPT CUDA Training Engine
+  Model: d=64 heads=4 layers=2 ff=256 vocab=65 seq=128 head_dim=16
+  Loaded 108481 weight floats (423.8 KB)
+Loading radix trie from /tmp/agpt_input_d16_radix...
+  Radix trie: 1607928 nodes, 9313896 total edge chars, 17 endpoint depths
+  Radix loaded: 2697118 counts entries, 12276596 ancestor char entries
+  lr-schedule: warmup-cosine (peak=0.003, warmup_epochs=1)
+  optimizer: rmsprop (lr=0.003)
+  entropy lambda: 1.000 (branching-endpoint icing enabled)
+  mass weighting: linear (head-of-edge count restores corpus-frequency exposure)
+  curriculum: flat (d=max each epoch)
+  max edge_len: 16, max ancestor chars: 15, max KV per node: 31, max endpoint depth: 16
+  mass=1 compaction: 8275793 / 9313896 chars are mass=1 (88.9%); cache holds 1038103 positions
+  loop points: 18683 (mass>1 leaves; 3.4% of 545549 mass>1 nodes)
+  KV cache: 531.5 MB unified memory (bf16 compact)
+  GPU memory: 2763.1 MB used, 5423.7 MB free, 8186.8 MB total
+  65 root-child subtrees: sizes min=1 max=246583 avg=24737.3 (total=1607927 radix nodes)
+Epoch 1: loss=3.617741  (5.86 sec, 65 subtrees, 225 chunks, 9313896 nodes)
+  residual top-10 (subtree_mass × max(avg_loss − 3.618, 0)):
+    rc   rootID   mass      avg_loss     score 
+    1    2        1479765   4.5788       1422082.4
+    0    1        297532    5.2547       487057.1
+    43   44       735168    3.9354       233558.0
+    41   42       114034    5.0556       163965.2
+    42   43       234101    4.2975       159142.2
+    40   41       82726     5.1727       128634.2
+    44   45       118584    4.4499       98676.1
+    8    9        57484     4.7030       62386.7
+    6    7        167551    3.9516       55945.4
+    10   11       84126     4.0098       32980.4
+    top-10: 39.2% of mass, 92.9% of excess-loss
+  hotspot-split: 65 → 172 subtrees (split 2 hotspots covering 62.3% of excess)
+Epoch 2: loss=8.063595  (5.72 sec, 172 subtrees, 315 chunks, 9313895 nodes)
+  residual top-10 (subtree_mass × max(avg_loss − 8.064, 0)):
+    rc   rootID   mass      avg_loss     score 
+    43   44       735168    22.7176      10773163.2
+    42   43       234101    14.2300      1443561.7
+    44   45       118584    13.0786      594700.4
+    5    6        44208     14.9094      302637.9
+    65   66       42141     12.8834      203111.4
+    2    3        13758     19.2712      154193.8
+    8    9        57484     10.1403      119377.8
+    7    8        10559     15.5201      78733.1
+    6    7        167551    8.3391       46160.7
+    45   46       94569     8.3453       26636.2
+    top-10: 17.7% of mass, 99.4% of excess-loss
+  hotspot-split: 172 → 208 subtrees (split 1 hotspots covering 77.9% of excess)
+Epoch 3: loss=14.885918  (5.69 sec, 208 subtrees, 344 chunks, 9313896 nodes)
+  residual top-10 (subtree_mass × max(avg_loss − 14.886, 0)):
+    rc   rootID   mass      avg_loss     score 
+    53   54       504725    17.3306      1233903.8
+    47   48       343839    17.4634      886249.7
+    58   59       543420    16.3941      819567.2
+    46   47       415269    16.8380      810627.4
+    50   51       244544    17.7180      692568.2
+    202  167      206427    17.6011      560488.5
+    59   60       192300    17.7578      552268.2
+    52   53       367798    16.3809      549847.4
+    57   58       377747    16.3076      537025.2
+    44   45       118584    19.4063      536042.5
+    top-10: 38.6% of mass, 42.4% of excess-loss
+Saved to /tmp/pf_d16-hs0.5-lr-residual_r1.model
+Done.
