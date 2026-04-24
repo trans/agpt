@@ -1,0 +1,61 @@
+AGPT CUDA Training Engine
+  Model: d=64 heads=4 layers=2 ff=256 vocab=65 seq=128 head_dim=16
+  Loaded 108481 weight floats (423.8 KB)
+Loading radix trie from /tmp/agpt_input_d16_radix...
+  Radix trie: 1607928 nodes, 9313896 total edge chars, 17 endpoint depths
+  Radix loaded: 2697118 counts entries, 12276596 ancestor char entries
+  lr-schedule: warmup-cosine (peak=0.003, warmup_epochs=1)
+  optimizer: rmsprop (lr=0.003)
+  entropy lambda: 1.000 (branching-endpoint icing enabled)
+  mass weighting: linear (head-of-edge count restores corpus-frequency exposure)
+  curriculum: flat (d=max each epoch)
+  max edge_len: 16, max ancestor chars: 15, max KV per node: 31, max endpoint depth: 16
+  mass=1 compaction: 8275793 / 9313896 chars are mass=1 (88.9%); cache holds 1038103 positions
+  loop points: 18683 (mass>1 leaves; 3.4% of 545549 mass>1 nodes)
+  KV cache: 531.5 MB unified memory (bf16 compact)
+  GPU memory: 2763.1 MB used, 5423.7 MB free, 8186.8 MB total
+  65 root-child subtrees: sizes min=1 max=246583 avg=24737.3 (total=1607927 radix nodes)
+Epoch 1: loss=3.615860  (6.63 sec, 65 subtrees, 225 chunks, 9313896 nodes)
+  residual top-10 (subtree_mass × max(avg_loss − 3.616, 0)):
+    rc   rootID   mass      avg_loss     score 
+    1    2        1479765   4.5788       1424952.4
+    0    1        297532    5.2551       487738.7
+    43   44       735168    3.9332       233327.7
+    41   42       114034    5.0744       166317.9
+    42   43       234101    4.2797       155411.1
+    40   41       82726     5.1750       128982.5
+    44   45       118584    4.4465       98505.7
+    8    9        57484     4.7002       62335.0
+    6    7        167551    3.9520       56327.7
+    10   11       84126     4.0099       33151.5
+    top-10: 39.2% of mass, 92.3% of excess-loss
+Epoch 2: loss=2.585087  (6.42 sec, 65 subtrees, 225 chunks, 9313896 nodes)
+  residual top-10 (subtree_mass × max(avg_loss − 2.585, 0)):
+    rc   rootID   mass      avg_loss     score 
+    1    2        1479765   2.6527       100074.1
+    0    1        297532    2.7790       57699.1
+    6    7        167551    2.7744       31721.5
+    13   14       55068     3.1372       30404.8
+    10   11       84126     2.9130       27587.4
+    8    9        57484     3.0323       25705.0
+    5    6        44208     3.0472       20428.0
+    2    3        13758     3.7765       16391.0
+    21   22       87608     2.7576       15117.5
+    40   41       82726     2.7563       14161.7
+    top-10: 27.6% of mass, 64.3% of excess-loss
+Epoch 3: loss=2.453332  (6.19 sec, 65 subtrees, 225 chunks, 9313896 nodes)
+  residual top-10 (subtree_mass × max(avg_loss − 2.453, 0)):
+    rc   rootID   mass      avg_loss     score 
+    0    1        297532    2.5214       20259.2
+    45   46       94569     2.6131       15107.8
+    13   14       55068     2.7171       14527.3
+    41   42       114034    2.5694       13239.5
+    54   55       76537     2.6175       12565.9
+    40   41       82726     2.6022       12316.4
+    44   45       118584    2.5431       10647.6
+    8    9        57484     2.6373       10577.4
+    5    6        44208     2.6858       10275.7
+    31   32       29454     2.7716       9373.4
+    top-10: 11.3% of mass, 47.5% of excess-loss
+Saved to /tmp/pf_d16-base-3SE_r2.model
+Done.

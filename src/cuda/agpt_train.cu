@@ -102,6 +102,8 @@ struct Config {
     int head_dim;       // derived: d_model / n_heads
     int chunk_queries;  // CLI --chunk-queries; 0 → default 50000
     bool ce_only = false;   // force single-target CE at endpoints (SGD-semantic; disables KL aggregation)
+    float hotspot_coverage = 0.0f;  // adaptive split: between epochs, split subtrees covering top X% of excess-loss
+                                     //   0.0 (default) disables splitting; 0.8 splits top subtrees covering 80% of excess
 };
 
 // Curriculum modes: how subtrees are scheduled across an epoch.
@@ -3868,8 +3870,9 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
         exit(1);
     }
 
-    if (lightning_active) {
-        // Build adjacency from parents[]. Each non-root r has parents[r] as its parent.
+    // Build radix-tree child adjacency unconditionally — needed by Lightning
+    // and by the hotspot-curriculum splitter.
+    {
         int* cnt = (int*)calloc(trie.radix_count, sizeof(int));
         for (int r = 1; r < trie.radix_count; r++) cnt[trie.parents[r]]++;
         lightning_children_offsets = (int*)calloc(trie.radix_count + 1, sizeof(int));
@@ -3878,24 +3881,25 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
         }
         long long total_child_edges = lightning_children_offsets[trie.radix_count];
         lightning_children_flat = (int*)malloc((total_child_edges > 0 ? total_child_edges : 1) * sizeof(int));
-        int* cur = (int*)calloc(trie.radix_count, sizeof(int));
+        int* cur_idx = (int*)calloc(trie.radix_count, sizeof(int));
         for (int r = 1; r < trie.radix_count; r++) {
             int p = trie.parents[r];
-            lightning_children_flat[lightning_children_offsets[p] + cur[p]++] = r;
+            lightning_children_flat[lightning_children_offsets[p] + cur_idx[p]++] = r;
         }
-        free(cur);
+        free(cur_idx);
         free(cnt);
+        if (!quiet && lightning_active) {
+            printf("  lightning: built adjacency (%lld child edges total; root has %d children)\n",
+                   total_child_edges, lightning_children_offsets[1] - lightning_children_offsets[0]);
+        }
+    }
 
+    if (lightning_active) {
         // Force accumulate=false: each Lightning sample is its own bounded
         // training unit with one optimizer step. Without this override the
         // whole super-epoch of N samples would collapse into one step, which
         // is not what Lightning is supposed to do.
         accumulate = false;
-
-        if (!quiet) {
-            printf("  lightning: built adjacency (%lld child edges total; root has %d children)\n",
-                   total_child_edges, lightning_children_offsets[1] - lightning_children_offsets[0]);
-        }
     }
 
     // For progressive curriculum: per-subtree cumulative "how many nodes are
@@ -5008,36 +5012,39 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
         clock_gettime(CLOCK_MONOTONIC, &t1);
         double elapsed = (t1.tv_sec - t0.tv_sec) + (t1.tv_nsec - t0.tv_nsec) / 1e9;
         float mean_loss = nodes_trained > 0 ? (float)(total_loss / nodes_trained) : 0.0f;
+        // --- Compute residual score per subtree (in-training measurement) ---
+        // score[rc] = subtree_mass[rc] * max(avg_loss[rc] - mean_loss, 0)
+        // Computed always (needed both for diagnostic printing and for the
+        // --hotspot-coverage splitter).
+        double* score   = (double*)calloc(n_root_children > 0 ? n_root_children : 1, sizeof(double));
+        double* avgloss = (double*)calloc(n_root_children > 0 ? n_root_children : 1, sizeof(double));
+        int*    order   = (int*)malloc((n_root_children > 0 ? n_root_children : 1) * sizeof(int));
+        double  total_excess = 0.0;
+        for (int rc = 0; rc < n_root_children; rc++) {
+            avgloss[rc] = (subtree_tokens[rc] > 0)
+                ? subtree_loss_sum[rc] / (double)subtree_tokens[rc] : 0.0;
+            double excess = avgloss[rc] - (double)mean_loss;
+            if (excess < 0.0) excess = 0.0;
+            score[rc] = (double)subtree_mass[rc] * excess;
+            total_excess += score[rc];
+            order[rc] = rc;
+        }
+        // Full sort (simple) — we need it for split coverage selection.
+        for (int i = 0; i < n_root_children; i++) {
+            int best = i;
+            for (int j = i + 1; j < n_root_children; j++) {
+                if (score[order[j]] > score[order[best]]) best = j;
+            }
+            if (best != i) { int tmp = order[i]; order[i] = order[best]; order[best] = tmp; }
+        }
+
         if (!quiet) {
             printf("Epoch %d: loss=%.6f  (%.2f sec, %d subtrees, %d chunks, %d nodes)\n",
                    epoch + 1, mean_loss, elapsed, subtrees_trained, chunks_processed, nodes_trained);
 
-            // --- Residual hotspot ranking (in-training measurement) ---
-            // score[rc] = subtree_mass[rc] * max(avg_loss[rc] - mean_loss, 0)
-            // "How much excess loss lives under this subtree." Print top-10 to
-            // surface hotspots for adaptive-curriculum scheduling.
             if (n_root_children > 0) {
                 int top_k = 10;
                 if (top_k > n_root_children) top_k = n_root_children;
-                double* score   = (double*)calloc(n_root_children, sizeof(double));
-                double* avgloss = (double*)calloc(n_root_children, sizeof(double));
-                for (int rc = 0; rc < n_root_children; rc++) {
-                    avgloss[rc] = (subtree_tokens[rc] > 0)
-                        ? subtree_loss_sum[rc] / (double)subtree_tokens[rc] : 0.0;
-                    double excess = avgloss[rc] - (double)mean_loss;
-                    if (excess < 0.0) excess = 0.0;
-                    score[rc] = (double)subtree_mass[rc] * excess;
-                }
-                int* order = (int*)malloc(n_root_children * sizeof(int));
-                for (int rc = 0; rc < n_root_children; rc++) order[rc] = rc;
-                // Partial sort: top_k by score descending.
-                for (int i = 0; i < top_k; i++) {
-                    int best = i;
-                    for (int j = i + 1; j < n_root_children; j++) {
-                        if (score[order[j]] > score[order[best]]) best = j;
-                    }
-                    int tmp = order[i]; order[i] = order[best]; order[best] = tmp;
-                }
                 printf("  residual top-%d (subtree_mass × max(avg_loss − %.3f, 0)):\n", top_k, (double)mean_loss);
                 printf("    %-4s %-8s %-9s %-12s %-6s\n", "rc", "rootID", "mass", "avg_loss", "score");
                 for (int i = 0; i < top_k; i++) {
@@ -5046,12 +5053,8 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                     printf("    %-4d %-8d %-9lld %-12.4f %-6.1f\n",
                            rc, root_r, subtree_mass[rc], avgloss[rc], score[rc]);
                 }
-                // Coverage: how much of total mass sits in top-K's hotspots?
-                double total_mass = 0.0, top_mass = 0.0, total_excess = 0.0, top_excess = 0.0;
-                for (int rc = 0; rc < n_root_children; rc++) {
-                    total_mass += (double)subtree_mass[rc];
-                    total_excess += score[rc];
-                }
+                double total_mass = 0.0, top_mass = 0.0, top_excess = 0.0;
+                for (int rc = 0; rc < n_root_children; rc++) total_mass += (double)subtree_mass[rc];
                 for (int i = 0; i < top_k; i++) {
                     top_mass += (double)subtree_mass[order[i]];
                     top_excess += score[order[i]];
@@ -5059,7 +5062,6 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                 printf("    top-%d: %.1f%% of mass, %.1f%% of excess-loss\n",
                        top_k, 100.0 * top_mass / (total_mass > 0 ? total_mass : 1.0),
                        100.0 * top_excess / (total_excess > 0 ? total_excess : 1.0));
-                free(score); free(avgloss); free(order);
             }
 
             if (lightning_active) {
@@ -5078,6 +5080,192 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                 printf("\n");
             }
         }
+
+        // --- Adaptive hotspot split between epochs ---
+        // When cfg.hotspot_coverage > 0 and we're not on the last epoch, select
+        // subtrees covering that fraction of total excess loss (by score) and
+        // split each one level: replace {R, descendants} with {R} +
+        // {child_i, child_i descendants} for each child C_i of R. Rebuilds
+        // subtree_nodes[] / subtree_sizes[], then re-sorts by shallowest
+        // radix-node depth so parent-only entries are processed first next epoch
+        // (required for the K/V cache ordering invariant).
+        if (cfg.hotspot_coverage > 0.0f && epoch + 1 < epochs && n_root_children > 0 && total_excess > 0.0) {
+            if (lightning_active) {
+                if (!quiet) printf("  hotspot-coverage: skipped (Lightning resamples each epoch)\n");
+            } else {
+                double target = cfg.hotspot_coverage * total_excess;
+                double acc = 0.0;
+                int n_split = 0;
+                while (n_split < n_root_children && acc < target) {
+                    acc += score[order[n_split]];
+                    n_split++;
+                }
+                // Mark which subtrees get split.
+                char* split_mark = (char*)calloc(n_root_children, 1);
+                for (int i = 0; i < n_split; i++) split_mark[order[i]] = 1;
+
+                // Build new arrays. For each non-split subtree, copy as-is.
+                // For each split subtree rooted at R = subtree_nodes[rc][0]:
+                //   emit one entry [R] (parent only)
+                //   emit one entry per child C_i of R: [C_i ∪ descendants of C_i]
+                int new_cap = n_root_children * 2;  // grows as we split
+                int** new_nodes = (int**)malloc(new_cap * sizeof(int*));
+                int*  new_sizes = (int*)malloc(new_cap * sizeof(int));
+                int   new_n = 0;
+
+                // Scratch BFS buffer for descendant collection.
+                int* bfs_buf = (int*)malloc(trie.radix_count * sizeof(int));
+
+                int actual_split = 0;
+                for (int rc = 0; rc < n_root_children; rc++) {
+                    if (!split_mark[rc]) {
+                        // Copy subtree as-is.
+                        if (new_n >= new_cap) {
+                            new_cap *= 2;
+                            new_nodes = (int**)realloc(new_nodes, new_cap * sizeof(int*));
+                            new_sizes = (int*)realloc(new_sizes, new_cap * sizeof(int));
+                        }
+                        int sz = subtree_sizes[rc];
+                        int* copy = (int*)malloc((sz > 0 ? sz : 1) * sizeof(int));
+                        memcpy(copy, subtree_nodes[rc], sz * sizeof(int));
+                        new_nodes[new_n] = copy;
+                        new_sizes[new_n] = sz;
+                        new_n++;
+                        continue;
+                    }
+                    // Split this subtree. Root is shallowest node (BFS index 0).
+                    int R = subtree_nodes[rc][0];
+                    int cs = lightning_children_offsets[R];
+                    int ce = lightning_children_offsets[R + 1];
+                    int nc = ce - cs;
+                    if (nc == 0) {
+                        // Cannot split a leaf. Keep as-is.
+                        if (new_n >= new_cap) {
+                            new_cap *= 2;
+                            new_nodes = (int**)realloc(new_nodes, new_cap * sizeof(int*));
+                            new_sizes = (int*)realloc(new_sizes, new_cap * sizeof(int));
+                        }
+                        int sz = subtree_sizes[rc];
+                        int* copy = (int*)malloc((sz > 0 ? sz : 1) * sizeof(int));
+                        memcpy(copy, subtree_nodes[rc], sz * sizeof(int));
+                        new_nodes[new_n] = copy;
+                        new_sizes[new_n] = sz;
+                        new_n++;
+                        continue;
+                    }
+                    // Emit parent-only entry first.
+                    if (new_n >= new_cap) {
+                        new_cap *= 2;
+                        new_nodes = (int**)realloc(new_nodes, new_cap * sizeof(int*));
+                        new_sizes = (int*)realloc(new_sizes, new_cap * sizeof(int));
+                    }
+                    int* parent_only = (int*)malloc(sizeof(int));
+                    parent_only[0] = R;
+                    new_nodes[new_n] = parent_only;
+                    new_sizes[new_n] = 1;
+                    new_n++;
+
+                    // Emit one entry per child.
+                    for (int j = cs; j < ce; j++) {
+                        int C = lightning_children_flat[j];
+                        // BFS from C to collect {C} ∪ descendants(C).
+                        int fill = 0, head = 0;
+                        bfs_buf[fill++] = C;
+                        while (head < fill) {
+                            int cur = bfs_buf[head++];
+                            int ccs = lightning_children_offsets[cur];
+                            int cce = lightning_children_offsets[cur + 1];
+                            for (int k = ccs; k < cce; k++) {
+                                bfs_buf[fill++] = lightning_children_flat[k];
+                            }
+                        }
+                        // Endpoint-depth sort within child subtree.
+                        int sz = fill;
+                        int max_ep = 0;
+                        for (int a = 0; a < sz; a++) {
+                            int ep = trie.edge_first_char_depths[bfs_buf[a]] + trie.edge_lens[bfs_buf[a]] - 1;
+                            if (ep > max_ep) max_ep = ep;
+                        }
+                        int* node_arr = (int*)malloc((sz > 0 ? sz : 1) * sizeof(int));
+                        int* bucket_counts = (int*)calloc(max_ep + 2, sizeof(int));
+                        for (int a = 0; a < sz; a++) {
+                            int ep = trie.edge_first_char_depths[bfs_buf[a]] + trie.edge_lens[bfs_buf[a]] - 1;
+                            bucket_counts[ep + 1]++;
+                        }
+                        for (int e = 0; e < max_ep + 1; e++) bucket_counts[e + 1] += bucket_counts[e];
+                        int* cursors = (int*)calloc(max_ep + 2, sizeof(int));
+                        for (int a = 0; a < sz; a++) {
+                            int ep = trie.edge_first_char_depths[bfs_buf[a]] + trie.edge_lens[bfs_buf[a]] - 1;
+                            node_arr[bucket_counts[ep] + cursors[ep]++] = bfs_buf[a];
+                        }
+                        free(bucket_counts); free(cursors);
+
+                        if (new_n >= new_cap) {
+                            new_cap *= 2;
+                            new_nodes = (int**)realloc(new_nodes, new_cap * sizeof(int*));
+                            new_sizes = (int*)realloc(new_sizes, new_cap * sizeof(int));
+                        }
+                        new_nodes[new_n] = node_arr;
+                        new_sizes[new_n] = sz;
+                        new_n++;
+                    }
+                    actual_split++;
+                }
+                free(bfs_buf);
+                free(split_mark);
+
+                // Re-sort the new subtree list by shallowest-node-depth
+                // ascending. This preserves the K/V cache ordering invariant
+                // (shallow subtrees scatter ancestor K/V before deeper subtrees
+                // that would read it).
+                int* sort_key = (int*)malloc(new_n * sizeof(int));
+                int* sort_idx = (int*)malloc(new_n * sizeof(int));
+                for (int i = 0; i < new_n; i++) {
+                    int shallowest = INT_MAX;
+                    for (int a = 0; a < new_sizes[i]; a++) {
+                        int r = new_nodes[i][a];
+                        int start_depth = trie.edge_first_char_depths[r];
+                        if (start_depth < shallowest) shallowest = start_depth;
+                    }
+                    sort_key[i] = shallowest;
+                    sort_idx[i] = i;
+                }
+                // Insertion sort (stable enough for 100s of entries).
+                for (int i = 1; i < new_n; i++) {
+                    int k = sort_key[sort_idx[i]];
+                    int v = sort_idx[i];
+                    int j = i - 1;
+                    while (j >= 0 && sort_key[sort_idx[j]] > k) {
+                        sort_idx[j + 1] = sort_idx[j]; j--;
+                    }
+                    sort_idx[j + 1] = v;
+                }
+                int** sorted_nodes = (int**)malloc(new_n * sizeof(int*));
+                int*  sorted_sizes = (int*)malloc(new_n * sizeof(int));
+                for (int i = 0; i < new_n; i++) {
+                    sorted_nodes[i] = new_nodes[sort_idx[i]];
+                    sorted_sizes[i] = new_sizes[sort_idx[i]];
+                }
+                free(sort_key); free(sort_idx);
+                free(new_nodes); free(new_sizes);
+
+                // Free the old subtree_nodes[] and install the new one.
+                for (int i = 0; i < n_root_children; i++) free(subtree_nodes[i]);
+                free(subtree_nodes);
+                free(subtree_sizes);
+                subtree_nodes = sorted_nodes;
+                subtree_sizes = sorted_sizes;
+                int old_n = n_root_children;
+                n_root_children = new_n;
+
+                if (!quiet) {
+                    printf("  hotspot-split: %d → %d subtrees (split %d hotspots covering %.1f%% of excess)\n",
+                           old_n, new_n, actual_split, 100.0 * acc / total_excess);
+                }
+            }
+        }
+
+        free(score); free(avgloss); free(order);
 
         // Intermediate checkpoint every save_every epochs. External tooling
         // (bin/perplexity) can score these to find the best-held-out stopping point.
@@ -5438,6 +5626,7 @@ int main(int argc, char** argv) {
     bool single_subtree = false;  // treat entire trie as one subtree (1 Adam/epoch)
     float intermediate_weight = 1.0f;  // loss scale at unary-intermediate positions; 1.0 = unchanged
     bool ce_only = false;  // force single-target CE at endpoints too (SGD-semantic, disables KL aggregation)
+    float hotspot_coverage = 0.0f;  // 0 disables; X>0 splits top subtrees covering top X of excess-loss between epochs
     OptimizerKind optimizer = OptimizerKind::Adam;
     float momentum_beta = 0.9f;   // used by momentum + (via β₁) adam
     float rmsprop_beta = 0.999f;  // used by rmsprop + (via β₂) adam
@@ -5485,6 +5674,7 @@ int main(int argc, char** argv) {
         else if (strcmp(argv[i], "--lr-scale-by-steps") == 0) lr_scale_by_steps = true;
         else if (strcmp(argv[i], "--intermediate-weight") == 0 && i + 1 < argc) intermediate_weight = atof(argv[++i]);
         else if (strcmp(argv[i], "--ce-only") == 0) ce_only = true;
+        else if (strcmp(argv[i], "--hotspot-coverage") == 0 && i + 1 < argc) hotspot_coverage = atof(argv[++i]);
         else if (strcmp(argv[i], "--optimizer") == 0 && i + 1 < argc) {
             const char* o = argv[++i];
             if      (strcmp(o, "adam")     == 0) optimizer = OptimizerKind::Adam;
@@ -5603,6 +5793,13 @@ int main(int argc, char** argv) {
                         "                                l3 = mass-weighted top-down walk with p_stop.\n"
                         "  [--lightning-p-stop F]      — L3 stop probability at each level (default 0.3).\n"
                         "  [--lightning-seed N]        — sampler RNG seed (default 0x5c115e1).\n"
+                        "  [--hotspot-coverage F]      — Adaptive split between epochs. 0.0 (default)\n"
+                        "                                disables. 0.8 splits the top subtrees covering\n"
+                        "                                80%% of total excess-loss (residual = mass ×\n"
+                        "                                max(avg_loss − mean_loss, 0)). Splits each into\n"
+                        "                                parent-only + one entry per child + descendants.\n"
+                        "                                Incompatible with --lightning-steps (Lightning\n"
+                        "                                resamples each epoch).\n"
                         "  [--virtual-cycles K]        — K>1 extends effective context to K·D* via\n"
                         "                                root-loop at mass>1 leaves; reuses compact\n"
                         "                                cache via delta-RoPE at gather time. K=1\n"
@@ -5626,6 +5823,7 @@ int main(int argc, char** argv) {
     cfg.lr = lr;
     cfg.chunk_queries = chunk_queries;
     cfg.ce_only = ce_only;
+    cfg.hotspot_coverage = hotspot_coverage;
     float* h_weights = load_model_weights(model_path, &cfg);
     WeightOffsets wo = compute_offsets(cfg);
 
