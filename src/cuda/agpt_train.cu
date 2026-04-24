@@ -4185,6 +4185,21 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
             CUDA_CHECK(cudaMemset(d_grads, 0, wo.total_floats * sizeof(float)));
         }
 
+        // --- Per-subtree residual measurement (notes/agpt/measure-loss-during-training.md) ---
+        // During training, aggregate per-query loss into per-subtree sums.
+        // At epoch end we print a "residual" ranking = count * max(avg_loss - global_avg, 0)
+        // to identify hotspot subtrees that still need refinement.
+        double* subtree_loss_sum = (double*)calloc(n_root_children, sizeof(double));
+        long long* subtree_tokens = (long long*)calloc(n_root_children, sizeof(long long));
+        long long* subtree_mass   = (long long*)calloc(n_root_children, sizeof(long long));
+        for (int rc = 0; rc < n_root_children; rc++) {
+            long long m = 0;
+            int* arr = subtree_nodes[rc];
+            int sz = subtree_sizes[rc];
+            for (int a = 0; a < sz; a++) m += (long long)trie.edge_mass[arr[a]];
+            subtree_mass[rc] = m;
+        }
+
         for (int curriculum_d = curriculum_d_start; curriculum_d <= curriculum_d_end; curriculum_d++) {
         // Iterate over root-child subtrees. Each subtree is one training unit:
         // weights fixed throughout forward+backward+grad-aggregation, one Adam step.
@@ -4601,7 +4616,14 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                 float* h_loss = (float*)malloc(T_q * sizeof(float));
                 CUDA_CHECK(cudaMemcpy(h_loss, d_loss, T_q * sizeof(float), cudaMemcpyDeviceToHost));
                 int chunk_trained = 0;
-                for (int i = 0; i < T_q; i++) if (h_loss[i] > 0.0f) { total_loss += h_loss[i]; chunk_trained++; }
+                double chunk_loss_sum = 0.0;
+                for (int i = 0; i < T_q; i++) if (h_loss[i] > 0.0f) {
+                    total_loss += h_loss[i];
+                    chunk_loss_sum += h_loss[i];
+                    chunk_trained++;
+                }
+                subtree_loss_sum[rc_idx] += chunk_loss_sum;
+                subtree_tokens[rc_idx]   += chunk_trained;
                 nodes_trained += chunk_trained;
                 free(h_loss);
 
@@ -4989,6 +5011,57 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
         if (!quiet) {
             printf("Epoch %d: loss=%.6f  (%.2f sec, %d subtrees, %d chunks, %d nodes)\n",
                    epoch + 1, mean_loss, elapsed, subtrees_trained, chunks_processed, nodes_trained);
+
+            // --- Residual hotspot ranking (in-training measurement) ---
+            // score[rc] = subtree_mass[rc] * max(avg_loss[rc] - mean_loss, 0)
+            // "How much excess loss lives under this subtree." Print top-10 to
+            // surface hotspots for adaptive-curriculum scheduling.
+            if (n_root_children > 0) {
+                int top_k = 10;
+                if (top_k > n_root_children) top_k = n_root_children;
+                double* score   = (double*)calloc(n_root_children, sizeof(double));
+                double* avgloss = (double*)calloc(n_root_children, sizeof(double));
+                for (int rc = 0; rc < n_root_children; rc++) {
+                    avgloss[rc] = (subtree_tokens[rc] > 0)
+                        ? subtree_loss_sum[rc] / (double)subtree_tokens[rc] : 0.0;
+                    double excess = avgloss[rc] - (double)mean_loss;
+                    if (excess < 0.0) excess = 0.0;
+                    score[rc] = (double)subtree_mass[rc] * excess;
+                }
+                int* order = (int*)malloc(n_root_children * sizeof(int));
+                for (int rc = 0; rc < n_root_children; rc++) order[rc] = rc;
+                // Partial sort: top_k by score descending.
+                for (int i = 0; i < top_k; i++) {
+                    int best = i;
+                    for (int j = i + 1; j < n_root_children; j++) {
+                        if (score[order[j]] > score[order[best]]) best = j;
+                    }
+                    int tmp = order[i]; order[i] = order[best]; order[best] = tmp;
+                }
+                printf("  residual top-%d (subtree_mass × max(avg_loss − %.3f, 0)):\n", top_k, (double)mean_loss);
+                printf("    %-4s %-8s %-9s %-12s %-6s\n", "rc", "rootID", "mass", "avg_loss", "score");
+                for (int i = 0; i < top_k; i++) {
+                    int rc = order[i];
+                    int root_r = (subtree_sizes[rc] > 0) ? subtree_nodes[rc][0] : -1;
+                    printf("    %-4d %-8d %-9lld %-12.4f %-6.1f\n",
+                           rc, root_r, subtree_mass[rc], avgloss[rc], score[rc]);
+                }
+                // Coverage: how much of total mass sits in top-K's hotspots?
+                double total_mass = 0.0, top_mass = 0.0, total_excess = 0.0, top_excess = 0.0;
+                for (int rc = 0; rc < n_root_children; rc++) {
+                    total_mass += (double)subtree_mass[rc];
+                    total_excess += score[rc];
+                }
+                for (int i = 0; i < top_k; i++) {
+                    top_mass += (double)subtree_mass[order[i]];
+                    top_excess += score[order[i]];
+                }
+                printf("    top-%d: %.1f%% of mass, %.1f%% of excess-loss\n",
+                       top_k, 100.0 * top_mass / (total_mass > 0 ? total_mass : 1.0),
+                       100.0 * top_excess / (total_excess > 0 ? total_excess : 1.0));
+                free(score); free(avgloss); free(order);
+            }
+
             if (lightning_active) {
                 double mean_size = (n_root_children > 0) ? (double)lightning_nodes_sum / n_root_children : 0.0;
                 printf("  lightning depth histogram (sample endpoint depth):");
@@ -5017,6 +5090,9 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
 
         if (lightning_subtree_mass) { free(lightning_subtree_mass); lightning_subtree_mass = NULL; }
         if (lightning_cycle_shift) { free(lightning_cycle_shift); lightning_cycle_shift = NULL; }
+        free(subtree_loss_sum);
+        free(subtree_tokens);
+        free(subtree_mass);
     }
 
     // Save weights back to host.
