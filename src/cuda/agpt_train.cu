@@ -101,6 +101,7 @@ struct Config {
     float lr;
     int head_dim;       // derived: d_model / n_heads
     int chunk_queries;  // CLI --chunk-queries; 0 → default 50000
+    bool ce_only = false;   // force single-target CE at endpoints (SGD-semantic; disables KL aggregation)
 };
 
 // Curriculum modes: how subtrees are scheduled across an epoch.
@@ -2065,7 +2066,8 @@ __global__ void agpt_loss_per_query_kernel(
     float* loss_out,              // [T_q]
     int T_q, int V,
     float entropy_lambda,         // 0 disables icing
-    float intermediate_weight)    // scale applied at unary-intermediate positions (endpoints unchanged)
+    float intermediate_weight,    // scale applied at unary-intermediate positions (endpoints unchanged)
+    int    ce_only)               // 1 = force single-target CE at endpoints too (SGD semantic); 0 = KL default
 {
     int q = blockIdx.x;
     if (q >= T_q) return;
@@ -2107,8 +2109,16 @@ __global__ void agpt_loss_per_query_kernel(
         int node_end_q = query_offsets[n_idx + 1];
         bool is_endpoint = (q + 1) == node_end_q;
 
-        if (is_endpoint) {
-            // Endpoint: use stored counts (may be branching)
+        // ce_only=1 + endpoint-has-next-token: route through single-target CE
+        // (same code path as intermediate). Target = token_ids[q+1] which, for a
+        // non-final radix endpoint, is the first character of the next radix
+        // node's edge — i.e. the character we sampled as this branch's
+        // continuation. This is SGD-semantic. For the FINAL endpoint in the
+        // chunk (no q+1), fall through to the KL path below.
+        bool ce_as_intermediate = (ce_only && is_endpoint && (q + 1 < T_q));
+
+        if (is_endpoint && !ce_as_intermediate) {
+            // Endpoint: use stored counts (may be branching). AGPT KL semantic.
             int radix_id = radix_ids[n_idx];
             int start = counts_offset[radix_id];
             int end = counts_offset[radix_id + 1];
@@ -2180,7 +2190,7 @@ void launch_agpt_loss_per_query(const float* logits, const int* query_to_node,
                                  const float* mass_weights,
                                  float* d_logits, float* loss_out,
                                  int T_q, int V, float entropy_lambda,
-                                 float intermediate_weight) {
+                                 float intermediate_weight, int ce_only) {
     int threads = (V < 256) ? V : 256;
     int t = 1; while (t < threads) t <<= 1;
     threads = (t < 32) ? 32 : t;
@@ -2188,7 +2198,7 @@ void launch_agpt_loss_per_query(const float* logits, const int* query_to_node,
     agpt_loss_per_query_kernel<<<T_q, threads, smem>>>(
         logits, query_to_node, query_offsets, radix_ids, token_ids,
         counts_offset, counts_tok, counts_val, mass_weights,
-        d_logits, loss_out, T_q, V, entropy_lambda, intermediate_weight);
+        d_logits, loss_out, T_q, V, entropy_lambda, intermediate_weight, ce_only);
 }
 
 // --- Element-wise add: a += b ---
@@ -4579,13 +4589,14 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                 cuda_bias_add(d_logits, B_out, T_q, V);
 
                 // Per-query loss: intermediate positions = single-target CE, endpoints
-                // = distribution CE. d_d_logits (per-query grad) written in place.
+                // = distribution CE (KL). d_d_logits (per-query grad) written in place.
+                // --ce-only forces endpoints to single-target CE too (SGD-semantic).
                 launch_agpt_loss_per_query(d_logits, d_query_to_node, d_query_offsets,
                                             d_radix_ids, d_token_ids,
                                             d_radix_counts_offset, d_radix_counts_tok, d_radix_counts_val,
                                             (mass_weight != MassWeightMode::Off) ? d_mass_weights : NULL,
                                             d_d_logits, d_loss, T_q, V, entropy_lambda,
-                                            intermediate_weight);
+                                            intermediate_weight, cfg.ce_only ? 1 : 0);
 
                 float* h_loss = (float*)malloc(T_q * sizeof(float));
                 CUDA_CHECK(cudaMemcpy(h_loss, d_loss, T_q * sizeof(float), cudaMemcpyDeviceToHost));
@@ -5350,6 +5361,7 @@ int main(int argc, char** argv) {
     int chunk_queries  = 0;   // 0 → default 50000 inside trainer
     bool single_subtree = false;  // treat entire trie as one subtree (1 Adam/epoch)
     float intermediate_weight = 1.0f;  // loss scale at unary-intermediate positions; 1.0 = unchanged
+    bool ce_only = false;  // force single-target CE at endpoints too (SGD-semantic, disables KL aggregation)
     OptimizerKind optimizer = OptimizerKind::Adam;
     float momentum_beta = 0.9f;   // used by momentum + (via β₁) adam
     float rmsprop_beta = 0.999f;  // used by rmsprop + (via β₂) adam
@@ -5396,6 +5408,7 @@ int main(int argc, char** argv) {
         else if (strcmp(argv[i], "--single-subtree") == 0) single_subtree = true;
         else if (strcmp(argv[i], "--lr-scale-by-steps") == 0) lr_scale_by_steps = true;
         else if (strcmp(argv[i], "--intermediate-weight") == 0 && i + 1 < argc) intermediate_weight = atof(argv[++i]);
+        else if (strcmp(argv[i], "--ce-only") == 0) ce_only = true;
         else if (strcmp(argv[i], "--optimizer") == 0 && i + 1 < argc) {
             const char* o = argv[++i];
             if      (strcmp(o, "adam")     == 0) optimizer = OptimizerKind::Adam;
@@ -5536,6 +5549,7 @@ int main(int argc, char** argv) {
     Config cfg;
     cfg.lr = lr;
     cfg.chunk_queries = chunk_queries;
+    cfg.ce_only = ce_only;
     float* h_weights = load_model_weights(model_path, &cfg);
     WeightOffsets wo = compute_offsets(cfg);
 
