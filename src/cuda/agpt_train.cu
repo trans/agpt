@@ -146,7 +146,7 @@ enum class LRSchedule { Constant, Cosine, WarmupCosine };
 // 65-root-child sweep. Each sampled subtree is a bounded training unit: its own
 // d_grads zero, accumulated across chunks, one optimizer step. See
 // notes/agpt/lightning-training.md for design rationale.
-enum class LightningSampler { L1_Uniform, L2_RcDepth, L3_MassWalk };
+enum class LightningSampler { L1_Uniform, L2_RcDepth, L3_MassWalk, L4_Path };
 struct LightningConfig {
     int               steps      = 0;          // 0 = disabled (deterministic sweep)
     LightningSampler  sampler    = LightningSampler::L3_MassWalk;
@@ -3203,6 +3203,7 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
     if (lightning.steps > 0) {
         const char* sname = (lightning.sampler == LightningSampler::L1_Uniform) ? "l1-uniform"
                           : (lightning.sampler == LightningSampler::L2_RcDepth) ? "l2-rc-depth"
+                          : (lightning.sampler == LightningSampler::L4_Path)    ? "l4-path (SGD-equivalent)"
                           :                                                        "l3-mass-walk";
         const char* mlr = (lightning.mass_lr == MassWeightMode::Log)    ? ", mass-lr=log"
                         : (lightning.mass_lr == MassWeightMode::Sqrt)   ? ", mass-lr=sqrt"
@@ -3974,13 +3975,21 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
             for (int s = 0; s < n_root_children; s++) {
                 // --- Sample a radix node ---
                 int r_sample = 0;
-                if (lightning.sampler == LightningSampler::L3_MassWalk) {
+                if (lightning.sampler == LightningSampler::L3_MassWalk ||
+                    lightning.sampler == LightningSampler::L4_Path) {
+                    // L3: descend with p_stop probability, emit wherever we stop.
+                    // L4: always descend to a leaf (p_stop forced to 0). This yields
+                    //     a root-to-leaf path weighted by mass — statistically
+                    //     equivalent to uniform-corpus-position window sampling
+                    //     (SGD baseline comparator).
+                    float p_stop_eff = (lightning.sampler == LightningSampler::L4_Path)
+                                       ? 0.0f : lightning.p_stop;
                     int cur = 0;
                     while (1) {
                         // Stop probability applies at all nodes except the virtual root.
-                        if (cur != 0) {
+                        if (cur != 0 && p_stop_eff > 0.0f) {
                             float u = xorshift_float01(&lightning_rng);
-                            if (u < lightning.p_stop) break;
+                            if (u < p_stop_eff) break;
                         }
                         int cs = lightning_children_offsets[cur];
                         int ce = lightning_children_offsets[cur + 1];
@@ -4033,19 +4042,42 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                     }
                 }
 
-                // --- BFS: {r_sample} ∪ descendants(r_sample) ---
+                // --- Collect training set for this sample ---
+                // L1/L2/L3: training set is the sampled radix node + its descendants
+                //   (a subtree rooted at r_sample). Existing behavior.
+                // L4: training set is r_sample + its ancestors (the full root-to-leaf
+                //   path through the sampled radix node). Every node in the path has
+                //   its ancestors already in the path, so each node's attention sees
+                //   the proper path prefix. This makes L4 statistically equivalent
+                //   to SGD window training.
                 int fill = 0;
-                int head = 0;
-                bfs_buf[fill++] = r_sample;
-                double mass_accum = (double)trie.edge_mass[r_sample];
-                while (head < fill) {
-                    int cur = bfs_buf[head++];
-                    int cs = lightning_children_offsets[cur];
-                    int ce = lightning_children_offsets[cur + 1];
-                    for (int j = cs; j < ce; j++) {
-                        int child = lightning_children_flat[j];
-                        bfs_buf[fill++] = child;
-                        mass_accum += (double)trie.edge_mass[child];
+                double mass_accum = 0.0;
+                if (lightning.sampler == LightningSampler::L4_Path) {
+                    // Walk r_sample → root, recording each non-root ancestor.
+                    int cur = r_sample;
+                    while (cur > 0) {
+                        bfs_buf[fill++] = cur;
+                        mass_accum += (double)trie.edge_mass[cur];
+                        cur = trie.parents[cur];
+                    }
+                    // Reverse so path is root-child first (depth-ascending).
+                    for (int a = 0, b = fill - 1; a < b; a++, b--) {
+                        int t = bfs_buf[a]; bfs_buf[a] = bfs_buf[b]; bfs_buf[b] = t;
+                    }
+                } else {
+                    // BFS: {r_sample} ∪ descendants(r_sample)
+                    int head = 0;
+                    bfs_buf[fill++] = r_sample;
+                    mass_accum = (double)trie.edge_mass[r_sample];
+                    while (head < fill) {
+                        int cur_i = bfs_buf[head++];
+                        int cs = lightning_children_offsets[cur_i];
+                        int ce = lightning_children_offsets[cur_i + 1];
+                        for (int j = cs; j < ce; j++) {
+                            int child = lightning_children_flat[j];
+                            bfs_buf[fill++] = child;
+                            mass_accum += (double)trie.edge_mass[child];
+                        }
                     }
                 }
                 lightning_subtree_mass[s] = mass_accum;
@@ -5097,6 +5129,7 @@ int run_per_subtree_training(const Config& cfg_in, const WeightOffsets& wo,
     if (lightning_active) {
         const char* sname = (lightning.sampler == LightningSampler::L1_Uniform) ? "l1-uniform"
                           : (lightning.sampler == LightningSampler::L2_RcDepth) ? "l2-rc-depth"
+                          : (lightning.sampler == LightningSampler::L4_Path)    ? "l4-path (SGD-equivalent)"
                           :                                                        "l3-mass-walk";
         printf("  lightning: %s, %d samples/SE total, p_stop=%.2f, seed=0x%x\n",
                sname, lightning.steps, lightning.p_stop, lightning.seed);
@@ -5396,6 +5429,7 @@ int main(int argc, char** argv) {
             if      (strcmp(s, "l1") == 0 || strcmp(s, "uniform") == 0)   lightning.sampler = LightningSampler::L1_Uniform;
             else if (strcmp(s, "l2") == 0 || strcmp(s, "rc-depth") == 0)  lightning.sampler = LightningSampler::L2_RcDepth;
             else if (strcmp(s, "l3") == 0 || strcmp(s, "mass-walk") == 0) lightning.sampler = LightningSampler::L3_MassWalk;
+            else if (strcmp(s, "l4") == 0 || strcmp(s, "path") == 0) lightning.sampler = LightningSampler::L4_Path;
             else { fprintf(stderr, "Unknown --lightning-sampler '%s' (l1|l2|l3)\n", s); return 1; }
         }
         else if (strcmp(argv[i], "--lightning-p-stop") == 0 && i + 1 < argc) lightning.p_stop = atof(argv[++i]);
@@ -5470,7 +5504,11 @@ int main(int argc, char** argv) {
                         "                                Lightning overwrites their pre-built partition every\n"
                         "                                epoch. Also mutex with --curriculum progressive\n"
                         "                                (use p_stop as the stochastic depth-control analogue).\n"
-                        "  [--lightning-sampler l1|l2|l3] — sampler variant. Default l3 (mass-walk).\n"
+                        "  [--lightning-sampler l1|l2|l3|l4] — sampler variant. Default l3 (mass-walk).\n"
+                        "                                l4 = path (SGD-equivalent): walks root→leaf via\n"
+                        "                                mass-weighted picks, trains every radix node on\n"
+                        "                                the sampled path. Sample distribution matches\n"
+                        "                                uniform-corpus-position window training.\n"
                         "                                l1 = uniform over all radix nodes.\n"
                         "                                l2 = uniform over depth-1 root-children.\n"
                         "                                l3 = mass-weighted top-down walk with p_stop.\n"
