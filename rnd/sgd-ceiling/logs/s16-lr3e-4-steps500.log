@@ -1,0 +1,87 @@
+Loaded checkpoint: /tmp/sgd_s16-lr3e-4-steps500.model
+MiniGPT ready.
+  Vocab: 65 chars
+  Params: 108481
+  Config: d_model=64 n_layers=2 d_ff=256 seq_len=16 lr=0.0003
+  Backend: openblas
+  Model: /tmp/sgd_s16-lr3e-4-steps500.model
+
+Step 0/500 (epoch 0): loss = 4.2744 avg = 4.2744
+  seed: First Citizen:
+B
+  gen:  First Citizen:
+BYYq;
+dndR!PMbiMOddgnA$PRbRkRddACdgDt,DRdddvdYed3BYvXb;XDEnbk ica;kC3RJIBLGbb!eej!jCe,eayUi&PGeN
+mqee
+
+Step 50/500 (epoch 0): loss = 3.1433 avg = 4.1722
+  seed: articularise the
+  gen:  articularise thelCie snweysebi aoceei sieeeasHl eria .etee
+LlHiteniyHt
+
+e   tylniyd
+wisoeiaebNiae?eNezeene nint eBi 
+
+Step 100/500 (epoch 0): loss = 3.0289 avg = 3.8456
+  seed: till the altitud
+  gen:  till the altitudsae ypo yo pta
+ hdmzaE rpsi hnct 
+t CtctI h teocho t 
+ o toaptl t ,aoe wschetet  so 
+a r a nBn iQirs
+
+Step 150/500 (epoch 0): loss = 3.0192 avg = 3.6176
+  seed: nd to do,
+which 
+  gen:  nd to do,
+which niaa s ny n   soddsslorott aeettos 
+e aahmne Gh t o nee  p h,h aov-e
+o? nnt r lirstoefth igtggitsgii
+
+Step 200/500 (epoch 0): loss = 2.8500 avg = 3.4495
+  seed: u, and you sland
+  gen:  u, and you sland, adtso  ae s in
+ hso 
+eof y p, rCn   eenl c i ptndnnrtes da s ttr n taaet z 
+gnestahrtn,iN  r 
+ Der
+
+Step 250/500 (epoch 0): loss = 3.0660 avg = 3.3031
+  seed:  our disgrace wi
+  gen:   our disgrace wines st,ioeytt y letucair i th swet d  wit f r lyeecayneee ttee uc? aetiaatseL r t s  s vsl anviilol;
+
+Step 300/500 (epoch 0): loss = 3.0184 avg = 3.2473
+  seed:  envied his rece
+  gen:   envied his recedrsa erane k mgan e noisto s,I
+ tesas acwinfi
+ d feiref ma' n
+mnp n preeeee, t thethectuAeNeae a  ro
+
+Step 350/500 (epoch 0): loss = 3.1351 avg = 3.2198
+  seed: US:
+Note me this
+  gen:  US:
+Note me this he n cteNt s s tlloolse nitasdrfe tTe seFl, he 
+is enthe rte s we
+ tihehinlse litnto ao p
+tolaelr:u
+
+Step 400/500 (epoch 0): loss = 2.8218 avg = 3.1344
+  seed: up, that all
+Fro
+  gen:  up, that all
+Frolokuhebool, t rue sgt elo nrtotheturhe diro
+e   thee f arr th h cwlllll rmane adoItl se 
+ - sre eocr
+
+Step 450/500 (epoch 0): loss = 3.3367 avg = 3.0641
+  seed: lubs:
+Rome and h
+  gen:  lubs:
+Rome and hmE s to,lhe
+ r  tho'e o theraboui ret r t sitosFzn ftimt bir n tatastIeoatwe niooatstsmit
+ey t fheoi
+
+Final avg loss: 3.0409
+Model saved: /tmp/sgd_s16-lr3e-4-steps500.model
+Result logged: data/results.tsv

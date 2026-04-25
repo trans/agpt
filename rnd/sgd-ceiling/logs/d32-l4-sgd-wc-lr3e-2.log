@@ -1,0 +1,65 @@
+AGPT CUDA Training Engine
+  Model: d=64 heads=4 layers=2 ff=256 vocab=65 seq=128 head_dim=16
+  Loaded 108481 weight floats (423.8 KB)
+Loading radix trie from /tmp/agpt_input_d32_radix...
+  Radix trie: 1666215 nodes, 27046236 total edge chars, 33 endpoint depths
+  Radix loaded: 2780616 counts entries, 13382283 ancestor char entries
+  lr-schedule: warmup-cosine (peak=0.03, warmup_epochs=1)
+  optimizer: sgd (lr=0.03)
+  lightning: l4-path (SGD-equivalent), 260 samples/super-epoch, p_stop=0.30, seed=0x2b
+           (stochastic per-sample optimizer steps; accumulate forced off)
+  curriculum: flat (d=max each epoch)
+  max edge_len: 32, max ancestor chars: 31, max KV per node: 63, max endpoint depth: 32
+  mass=1 compaction: 25933966 / 27046236 chars are mass=1 (95.9%); cache holds 1112270 positions
+  loop points: 985 (mass>1 leaves; 0.2% of 552869 mass>1 nodes)
+  KV cache: 569.5 MB unified memory (bf16 compact)
+  GPU memory: 4596.0 MB used, 3590.8 MB free, 8186.8 MB total
+  65 root-child subtrees: sizes min=1 max=254737 avg=25634.1 (total=1666214 radix nodes)
+  lightning: built adjacency (1666214 child edges total; root has 65 children)
+Epoch 1: loss=3.372368  (0.41 sec, 260 subtrees, 260 chunks, 8320 nodes)
+  residual top-10 (subtree_mass × max(avg_loss − 3.372, 0)):
+    rc   rootID   mass      avg_loss     score 
+    2    2        202580    5.0482       339492.4
+    17   2        176217    5.1624       315433.1
+    5    2        186064    4.8082       267165.9
+    16   2        171058    4.6901       225412.1
+    189  2        175674    4.3812       177229.7
+    10   44       104014    4.9967       168953.8
+    25   2        178029    4.2244       151695.0
+    79   2        174882    4.2036       145360.3
+    6    44       100565    4.7735       140905.9
+    11   44       98731     4.4413       105540.9
+    top-10: 8.9% of mass, 49.5% of excess-loss
+  lightning depth histogram (sample endpoint depth): d32:260  mean_size=8  mass[min=380 mean=67922 max=215984]
+Epoch 2: loss=2.836481  (0.20 sec, 260 subtrees, 260 chunks, 8320 nodes)
+  residual top-10 (subtree_mass × max(avg_loss − 2.836, 0)):
+    rc   rootID   mass      avg_loss     score 
+    66   44       123257    3.8740       127878.2
+    53   59       69003     4.2694       98876.9
+    13   2        195094    3.2910       88669.1
+    142  2        184886    3.2925       84307.2
+    100  2        180812    3.2707       78506.8
+    218  2        195104    3.2039       71675.9
+    70   44       103578    3.4334       61824.1
+    5    2        178238    3.1631       58215.0
+    84   2        170689    3.1392       51674.4
+    133  2        170745    3.0976       44584.9
+    top-10: 9.0% of mass, 42.9% of excess-loss
+  lightning depth histogram (sample endpoint depth): d32:260  mean_size=8  mass[min=991 mean=67215 max=224254]
+Epoch 3: loss=2.677497  (0.20 sec, 260 subtrees, 260 chunks, 8320 nodes)
+  residual top-10 (subtree_mass × max(avg_loss − 2.677, 0)):
+    rc   rootID   mass      avg_loss     score 
+    175  2        177352    3.3131       112728.8
+    154  44       122340    3.4076       89315.1
+    217  2        183062    3.1260       82097.4
+    43   2        177531    3.0850       72342.8
+    176  2        175478    3.0447       64437.5
+    80   2        182444    3.0239       63203.7
+    42   2        177193    2.9934       55983.3
+    230  2        183342    2.9793       55336.4
+    84   44       95856     3.2477       54660.6
+    132  2        177185    2.9428       47006.2
+    top-10: 8.8% of mass, 39.4% of excess-loss
+  lightning depth histogram (sample endpoint depth): d32:260  mean_size=8  mass[min=913 mean=71982 max=224197]
+Saved to /tmp/d32-l4-sgd-wc-lr3e-2.model
+Done.

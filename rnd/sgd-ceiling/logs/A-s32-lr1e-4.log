@@ -1,0 +1,325 @@
+Loaded checkpoint: /tmp/sgd_A-s32-lr1e-4.model
+MiniGPT ready.
+  Vocab: 65 chars
+  Params: 108481
+  Config: d_model=64 n_layers=2 d_ff=256 seq_len=32 lr=0.0001
+  Backend: openblas
+  Model: /tmp/sgd_A-s32-lr1e-4.model
+
+Step 0/2000 (epoch 0): loss = 5.0129 avg = 5.0129
+  seed: First Citizen:
+B
+  gen:  First Citizen:
+BYGNI-eslY:KNjXGbcSYj3,SMeGo;be$3ebRqRCRdHFteRkbACYqdi,BM;wij3eFCHjM3e
+LCaJPj!edn xDR!jbyQdMNCMO!ovbj
+
+Step 50/2000 (epoch 0): loss = 3.8959 avg = 4.7510
+  seed: till the altitud
+  gen:  till the altitudk h ;vbpNznHAh aoZ,hN,keP 3Ct n hp H ! tdA  I dreNeuap ,bC$$tyesdwc!tberDaKe,$p C$e;hz ;hbIcaeeCd,e 
+
+Step 100/2000 (epoch 0): loss = 3.4666 avg = 4.3436
+  seed: u, and you sland
+  gen:  u, and you slandneh wno ze?nta
+ eioyI Cnkn 'ercp  y DtatCHn,siteeoNi  $n!tnYsth t, bee
+tthohtet  th  M oac h h h eis
+
+Step 150/2000 (epoch 0): loss = 3.0579 avg = 4.0091
+  seed:  envied his rece
+  gen:   envied his receit,  t ny h  !stPdothkittt!EeettttE h$ $ItqiaHiey.laeeq  o?e?iaHey h s ;eos r heefmiimsl eereeepteee
+
+Step 200/2000 (epoch 0): loss = 3.1965 avg = 3.7930
+  seed: up, that all
+Fro
+  gen:  up, that all
+Fro    trt  :, s dd ,asr 
+hee y lhbnai   heth   a
+otoeKittbn aH n stq h tab tCz, eebst,attn n   i 
+  ao
+
+Step 250/2000 (epoch 0): loss = 3.3619 avg = 3.6037
+  seed: 
+A sick man's ap
+  gen:  
+A sick man's apglodrtasihtttDyIletteaeo e th ow3s
+a ,thi a n iyiih uoeeihothent, Mabto  rsie m t pH oCtoo ;bteceih 
+
+Step 300/2000 (epoch 0): loss = 3.0825 avg = 3.4828
+  seed: e heart of gener
+  gen:  e heart of generbsra coehe e in n bannefrr ral
+ tethlaabuin n
+ac daloea n? Gf
+nhmai nlbbanle s rn,tnNetu kdhelca  rs
+
+Step 350/2000 (epoch 0): loss = 4.0963 avg = 3.4801
+  seed: MENENIUS:
+O, tru
+  gen:  MENENIUS:
+O, trueRa
+h Rocco,linNnohenhrmegisaoitfa t3h iieb ' n,
+ee ansee gth ndui Ssh retheth fAtrsr  l l
+tri ;ns t
+
+Step 400/2000 (epoch 0): loss = 3.1733 avg = 3.4478
+  seed:  goes
+Upon this 
+  gen:   goes
+Upon this srltheesol  r nue slt dso hgtttlatusgeC nmr
+i, 
+onChe;  nt se c aulooon sn:id
+ as to-inH
+ 
+ ore bs s
+
+Step 450/2000 (epoch 0): loss = 3.1914 avg = 3.3654
+  seed: between us we sh
+  gen:  between us we shn  iatoamef ee 
+tot i e skes :ste
+ees:g
+o ilntrazi UtoIv Gre c rdeThoeeoCswe ee o itttfef
+ey o, ieie
+
+Step 500/2000 (epoch 0): loss = 3.0514 avg = 3.2996
+  seed: I hear hither yo
+  gen:  I hear hither yof  r n lneaaz oehe ledroee r rmalitn   he k r  rroh eeeher o ne l i he delbeusdil ihs Worseewetaarn 
+
+Step 550/2000 (epoch 0): loss = 2.5800 avg = 3.3067
+  seed: , he did so set 
+  gen:  , he did so set or ag On q tsoon s Rat3mlh ceonde  yr r rc dind d Soora nitntuerdnetttheoain nar - ton ds le uin;wah
+
+Step 600/2000 (epoch 0): loss = 3.1188 avg = 3.3218
+  seed: ity Corioli; the
+  gen:  ity Corioli; thelahe
+i anetosed aarnemt nheroe patu I
+td ; s-rhin ofsn NIhe nln s H  fl
+onf hoasieun t ai t.n nnIyae
+
+Step 650/2000 (epoch 0): loss = 3.2014 avg = 3.2977
+  seed: fidius; list, wh
+  gen:  fidius; list, whalwddt t l b  s Il a,:hdIae e wrnlef dnee
+emon nwe reucas d
+d owplehedAo ne
+Rn
+taoi
+o  tsis o irhmlm
+
+Step 700/2000 (epoch 0): loss = 3.8127 avg = 3.2410
+  seed: y.
+
+LARTIUS:
+O n
+  gen:  y.
+
+LARTIUS:
+O n ;oaithmn Sfee  b y, me  I s ilemetan
+oaslan mlhe es l  o:ut tI s mt
+ rn s nml
+nererlola rKhlohe bre
+
+Step 750/2000 (epoch 0): loss = 3.0339 avg = 3.2118
+  seed: :
+Thy friend no 
+  gen:  :
+Thy friend no s r re heheiwinfe
+ uthest Gk twan ot hrr nacli;r, iuolr it,.s othe theeeth isoitI Eo?l'r d ; Rin eer
+
+Step 800/2000 (epoch 0): loss = 3.5996 avg = 3.2062
+  seed: our own.
+
+MARCIU
+  gen:  our own.
+
+MARCIUrfa
+ t   llasr  d sk tt t  ta ms sy 
+Ioaiat shdelr i thedqawtNC:re o  t fe  ds rhl, hef toufy  N nly
+
+Step 850/2000 (epoch 0): loss = 3.3753 avg = 3.1737
+  seed: INIUS:
+Though I 
+  gen:  INIUS:
+Though I h
+: be u nsose e f e thA  t tawdeveeedthr:eTum,he
+o, sehiis n:uhhe t nA y Iroat onmdede ne d ft heiw
+
+Step 900/2000 (epoch 0): loss = 3.6366 avg = 3.1447
+  seed: ame and envy. Fi
+  gen:  ame and envy. Fio nsayher thro lic n wyrs Coate  s tounihes  k otIasdltsee as tuuce uof, thd
+t het d ols nJdeyor wto
+
+Step 950/2000 (epoch 0): loss = 2.9643 avg = 3.1079
+  seed: ur doings; and t
+  gen:  ur doings; and t lay
+y yleee;eey ltohinle thoqrf nfmlhat th irnuhe qEin' be W thethedm?ue
+ia,Nehe
+ n  ndch n her tIn
+
+Step 1000/2000 (epoch 0): loss = 2.9967 avg = 3.0735
+  seed: ore, be it known
+  gen:  ore, be it knownose ndoareIs ise w
+ey ote  lthe e b r
+yg luhIu fathloue nesaoreoIinreIneakat el ye shed s nsiw r d t
+
+Step 1050/2000 (epoch 0): loss = 3.1209 avg = 3.1183
+  seed: US:
+The town is 
+  gen:  US:
+The town is aop oHirewlro sAuNa re,srithe 
+
+uanininrowaeI  ne ose notethen d nan s mithit daro, thenee n-cndAhee
+
+Step 1100/2000 (epoch 0): loss = 2.8753 avg = 3.1056
+  seed: 
+Not according t
+  gen:  
+Not according tC'latnou, ty t Me t orIIow n f dct ita'thehistg InonoCusashee thange s r wes aoae cg-Anceeihir nh Ms
+
+Step 1150/2000 (epoch 0): loss = 3.3950 avg = 3.0833
+  seed: n, sir?
+
+MENENIU
+  gen:  n, sir?
+
+MENENIUt n:
+ lw, the s Mpyo rea Stonh y an ne ayroni'Uon theyr Se 
+sat to I nHimJ cg the o n te ton mUroeoo
+
+Step 1200/2000 (epoch 0): loss = 2.6766 avg = 3.0249
+  seed: hed with the col
+  gen:  hed with the colathiheuey tou -e c r g me the s f t uiesgolaaoayr mhyh a me nolm t tuaaan ao ianan arng srS,gv lceth
+
+Step 1250/2000 (epoch 0): loss = 2.5659 avg = 3.0310
+  seed: think, there's o
+  gen:  think, there's oing
+ nl danalitr n sioand.aangSw!tcnah
+us nnonohsan nne enlee f 
+unot ge ths  t d ainibaee aOHfthe I
+
+Step 1300/2000 (epoch 0): loss = 2.7245 avg = 3.0279
+  seed: ore cause to be 
+  gen:  ore cause to be sheras w ot s Mhitden ut thwe heouboomsr k ee  rs thid rIinateuofomtee
+s lndoat niI sousrm.the.u he 
+
+Step 1350/2000 (epoch 0): loss = 3.0844 avg = 3.0650
+  seed: NIA:
+I know not 
+  gen:  NIA:
+I know not ctUs mam:
+:
+UIhaiused
+
+
+;.e as triLc.Coia'e
+I
+as geaill
+
+clge !olrnou rlulld:d n, wlln.
+
+
+A sean ath
+
+Step 1400/2000 (epoch 0): loss = 2.9334 avg = 3.0306
+  seed: t into his human
+  gen:  t into his human,thRe s,
+
+ut the ' seat feoIlor; lesed yt o c-? ls the me vhils nps t oe thobe win dc e ne s thy th 
+
+Step 1450/2000 (epoch 0): loss = 2.6792 avg = 2.9577
+  seed: ested
+At some ti
+  gen:  ested
+At some tine t
+
+
+
+
+Ik n
+
+:X reheraogNe t ndIIwIw e tothom s utheaawe sereis.iyitSe gine tm lrisr
+Vtheir ho:uno
+
+Step 1500/2000 (epoch 0): loss = 2.6464 avg = 2.8993
+  seed: ixt doing them n
+  gen:  ixt doing them nether theame m st cthigamaus, sreaon r rs nonisere west
+Ar de.
+
+
+the R at pitat ler rdhe the
+Iheliha
+
+Step 1550/2000 (epoch 0): loss = 3.0605 avg = 2.8588
+  seed: eople,
+We do req
+  gen:  eople,
+We do req r tos fee trorindd serr honore noy t aitc he ofealm thanit Ge-ethesedone e
+thass s cp ath tn ic as.
+
+Step 1600/2000 (epoch 0): loss = 3.0820 avg = 2.8684
+  seed: iefest virtue, a
+  gen:  iefest virtue, aponde thetherr uaol ret u h
+Ftahis canbr ninleuth therdIr tf ame le ane wib t
+
+
+A nofetd t th heee h
+
+Step 1650/2000 (epoch 0): loss = 2.6385 avg = 2.8609
+  seed: he never stood
+T
+  gen:  he never stood
+Thet be ppit leudhe t t peonth he t whes e seurwe thaaUhal ar,
+Ant l lone le re ch.
+
+no thamelipob t 
+
+Step 1700/2000 (epoch 0): loss = 3.0735 avg = 2.8524
+  seed: onour!
+
+BRUTUS:
+  gen:  onour!
+
+BRUTUS:
+I toItr ou twou t d lvbe th that le s
+ICce athe cofa th sh the me ter tf,
+
+Aho tond ure m is
+INorane
+
+Step 1750/2000 (epoch 0): loss = 2.8885 avg = 2.8287
+  seed:  in a block-head
+  gen:   in a block-headouscthe ther loocaole iove we susel nlvbedwon ndee an iod, thass n soW
+ ces s boid th firet iselise 
+
+Step 1800/2000 (epoch 0): loss = 2.5955 avg = 2.8461
+  seed: eep their teeth 
+  gen:  eep their teeth aouret ir thout pen teoyuhe cr
+ s Morse sl b n t te t t oubem y le tossk t thain, k lof n tolwr ar w
+
+Step 1850/2000 (epoch 0): loss = 2.2444 avg = 2.8378
+  seed: e is
+rather to h
+  gen:  e is
+rather to haf w d, nis gil gelllwe ianere
+
+IO tcersNr anore d ous t ousty s he veco t
+rly, lyor heur hiou t is 
+
+Step 1900/2000 (epoch 0): loss = 2.5428 avg = 2.8003
+  seed: nd make him good
+  gen:  nd make him good he hme h tN
+ cors g, ousrod,iiythehitSenolherorords o ogahile calom c s.
+
+
+
+Crther cs, thethe thhe 
+
+Step 1950/2000 (epoch 0): loss = 2.6894 avg = 2.8054
+  seed: ivate;
+And with 
+  gen:  ivate;
+And with ve h nse 'oathet youmCthe am de Lee ir s th pefs E and allAve
+
+We , hor t, he iv:
+
+ASnd wouthe ind k
+
+Final avg loss: 2.7781
+Model saved: /tmp/sgd_A-s32-lr1e-4.model
+Result logged: data/results.tsv
