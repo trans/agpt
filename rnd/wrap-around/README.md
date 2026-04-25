@@ -45,30 +45,42 @@ shifted RNG trajectory.
 98.7% of leaves have a space somewhere in their 23-char edge, so
 emitting only up to the last space and wrapping there produces a
 visibly cleaner synth (reads like broken Shakespeare instead of
-glue-soup). But:
+glue-soup).
+
+PPL on real corpus (multi-seed):
 
 | config       | seeds        | PPL mean | range       |
 |--------------|--------------|---------:|-------------|
 | baseline     | 42,44,46,48  | **7.04** | 6.93–7.13   |
 | `--space-cut`| 42,44,46     |     7.16 | 7.00–7.37   |
 
-space-cut is 0.13 PPL **worse** on average, with wider variance.
-Train loss is consistently lower (~1.91 vs 2.00) — the cleaner synth
-is easier to fit, but generalizes worse to real text.
+space-cut is 0.13 PPL worse on average — but **PPL and generation
+quality measure different things here**. Side-by-side generation from
+matched-PPL models (baseline seed=42 PPL=7.13 vs space-cut seed=42
+PPL=7.12) shows a clear quality difference:
 
-Mechanism (most likely):
+  baseline gen:  "...Sextlevemes a meave his, I sholds brithat the
+                  look Parest to do dell worldent..."
+                  → JULIZAPENTHELA, plowferse, theugh, heartental:
+                  glued chunks of disparate prefixes
 
-1. space-cut discards the post-last-space tail of each leaf
-   (~5 chars/wrap × ~360k wraps/10M tokens = ~1.7M chars of real
-   corpus content lost per 10M synth).
-2. Always-space-then-non-space-after-wrap teaches a synth-specific
-   transition pattern that doesn't match real text.
-3. Wrap-glue noise was already being absorbed by the model — gluings
-   looked ugly to humans but didn't hurt real-corpus prediction.
+  space-cut gen: "...What next of our the mast book not the day pull
+                  beese to sones here..."
+                  → fise, welll, eveped, Misknourst, graccom:
+                  invented but word-shaped, respect morphology
 
-Both flags preserved in `bin/synth_wrap_corpus` for future probes but
-are off by default. See `logs/multi-seed-sweep.txt`,
-`logs/synth-d32-10M-space*.log`, `logs/synth-d32-10M-FIXED-*.log`.
+Trade-off:
+- baseline learns "predict whatever comes next, even nonsense fragments"
+  → better PPL (real text doesn't have those fragments to predict)
+  but generation reproduces the wrap noise
+- space-cut learns "wraps happen at word boundaries → generate
+  word-like things" → cleaner generation, slightly worse PPL because
+  the model under-models the cross-word transitions present in baseline
+
+So: use `--space-cut` when generation quality matters, leave it off
+when minimizing held-out PPL on clean text. Both flags preserved.
+See `logs/multi-seed-sweep.txt`, `logs/synth-d32-10M-space*.log`,
+`logs/synth-d32-10M-FIXED-*.log`.
 
 ## Artifacts (not in git — regenerate as needed)
 
