@@ -1,0 +1,27 @@
+Multi-seed PPL sweep — baseline vs --space-cut at d=32, 10M synth, 10k steps seq=128
+
+| Config     | Synth seed | Train loss | PPL    |
+|------------|-----------:|-----------:|-------:|
+| baseline   |         42 |     1.9863 | 7.1297 |
+| baseline   |         44 |     1.9831 | 6.9731 |
+| baseline   |         46 |     2.0008 | 7.1125 |
+| baseline   |         48 |     1.9788 | 6.9345 |
+| space-cut  |         42 |     1.9044 | 7.1205 |
+| space-cut  |         44 |     1.9263 | 7.3691 |
+| space-cut  |         46 |     1.9120 | 7.0047 |
+
+Baseline (n=4):  mean=7.0375, range=6.93–7.13 (spread 0.20)
+Space-cut (n=3): mean=7.1648, range=7.00–7.37 (spread 0.36)
+
+space-cut is 0.13 PPL WORSE on average than baseline. Note that space-cut's
+train loss is consistently lower (~1.91 vs 2.00) — the cleaner synth is
+easier to fit, but overfits and generalizes worse to real text.
+
+Mechanism (most likely):
+  1. space-cut discards the post-last-space tail of each leaf (~5 chars
+     per wrap = ~1.7M chars across 10M synth tokens), losing real
+     corpus content.
+  2. Always-space-then-non-space-after-wrap teaches a synth-specific
+     transition pattern that doesn't match real text.
+  3. Wrap-glue noise was already absorbed by the model — gluings looked
+     ugly to humans but didn't hurt real-corpus prediction.

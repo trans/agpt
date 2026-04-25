@@ -1,0 +1,1546 @@
+Loaded checkpoint: /tmp/multi_baseline-seed46.model
+MiniGPT ready.
+  Vocab: 65 chars
+  Params: 108481
+  Config: d_model=64 n_layers=2 d_ff=256 seq_len=128 lr=0.0003
+  Backend: openblas
+  Model: /tmp/multi_baseline-seed46.model
+
+Step 0/10000 (epoch 0): loss = 5.1452 avg = 5.1452
+  seed: is face is the w
+  gen:  is face is the wSDbI&cjkC;OMbeCeDSRvC
+D3FCjCej ,Hb:vC;Jb;YvYFieC&Dtbc ;KDtdn kOC3eF?;FHCbMbd!Cgb!j,Y!hizbmJYGdY,sech
+
+Step 50/10000 (epoch 0): loss = 3.7338 avg = 4.5701
+  seed: ity.
+
+ANGELO:
+Pl
+  gen:  ity.
+
+ANGELO:
+Pln!md,rhsHutaEo drabee qnN D-r s
+lse   ataK $e hodYet t
+ e   tweliwa
+tdhiha aaar h b mwaaoe,eDnn e i 
+
+Step 100/10000 (epoch 0): loss = 3.3396 avg = 4.0620
+  seed: Twenty-three yea
+  gen:  Twenty-three yeapIe vip ye pla
+
+hemy , ople ioat  w ,o?tA heoemaio r
+
+
+iLtoMstl t Weee wtdeKuer  tib iRrdB o,e l nns
+
+Step 150/10000 (epoch 0): loss = 3.1670 avg = 3.7321
+  seed:  Edward at the l
+  gen:   Edward at the lek aLtCny lO EorHerrisirss featorr  oI bathe bhet s ras !m har? mu n
+s anou t reistmchrl mathenrrfea
+
+Step 200/10000 (epoch 0): loss = 3.2267 avg = 3.4739
+  seed: olks?
+
+GREMIO:
+B
+  gen:  olks?
+
+GREMIO:
+B  P uto' miIrNd,
+Nero 
+dan y pais n E jdelRa,  sotherss t haPoatot oIunNit y  nnflugitrmAr a'p 
+
+
+ s
+
+Step 250/10000 (epoch 0): loss = 3.1695 avg = 3.3070
+  seed: overeign.
+
+KING 
+  gen:  overeign.
+
+KING nas tofinLwroMwandethe:
+
+
+
+k, ntat
+
+
+
+uhe m t nunamLwind itonenoMag fot Voulg r w te s the bdin keb 
+
+Step 300/10000 (epoch 0): loss = 3.2134 avg = 3.1814
+  seed: First Murderer:
+  gen:  First Murderer:
+ sof de r, harife hehe out s m
+
+t thil iy reh
+
+
+
+
+ sane r RUo
+NouLo sileareaat thave lrt nd meah Zro
+
+Step 350/10000 (epoch 0): loss = 2.8299 avg = 3.0572
+  seed: y,
+Men are but g
+  gen:  y,
+Men are but ge f
+ aed lhAne'deneeanorI is rerd Ss n, med anga!ed d.
+Mhanthaonth bor s there mesitid s o wir cml t
+
+Step 400/10000 (epoch 0): loss = 2.8513 avg = 2.9851
+  seed: 
+
+Third Gentlema
+  gen:  
+
+Third Gentlemashes, my r as my cost, th mivithatoure engi m I
+Rmand acit th hS,orenir thand all,as s;  aD, th fnde
+
+Step 450/10000 (epoch 0): loss = 2.8476 avg = 2.9216
+  seed: Their transforma
+  gen:  Their transformas anatofe, ENe Gtouce l thes blon livee t onntonye boudr binde theanre.
+Aty beinkelstopeo st t,
+Pere
+
+Step 500/10000 (epoch 0): loss = 2.6908 avg = 2.8693
+  seed:  she says nothin
+  gen:   she says nothine To ofas, bz s re medoume t thandse aean k t Eroul hedinr t re, an he dendivored mave toureurs hit 
+
+Step 550/10000 (epoch 0): loss = 3.0401 avg = 2.8294
+  seed:  impatient humou
+  gen:   impatient humousoile de t thlll t ces the gerinde yo t th irme halloul sithowhonlestorer: r thig,
+Wis himelethe y i
+
+Step 600/10000 (epoch 0): loss = 2.9056 avg = 2.7868
+  seed: eece. By Jove hi
+  gen:  eece. By Jove hire r o ginsouor beredoueis the t to c thaldinpere thoucededenoter cd he the hinougth u he uer rintCe
+
+Step 650/10000 (epoch 0): loss = 2.6486 avg = 2.7583
+  seed:  by action digni
+  gen:   by action dignimeunds t m haOrall g, me hand wour.
+AMhef isou owf scs gold
+Fartlleoneeo ng gk uene s authide lllmap
+
+Step 700/10000 (epoch 0): loss = 2.7690 avg = 2.7387
+  seed:  thy treacherous
+  gen:   thy treacherous arelotoun.
+Heace y areaaf s ineors n t tharellis-
+TOK I couiun t, t bis tengh orserise arernind esa
+
+Step 750/10000 (epoch 0): loss = 2.6766 avg = 2.7140
+  seed:  lieu o' the pre
+  gen:   lieu o' the prer s sale ritunden avlllove s ty n ouPest me'se t anther lt gs sthe, mendor hithoh bndh, Ye, aghe her
+
+Step 800/10000 (epoch 0): loss = 2.6361 avg = 2.6784
+  seed: en to him and th
+  gen:  en to him and thlin co b nd, t be th wu:al th nonnu Geond w? tghendacother wukd se s Ibcer I waserapeng woumy al osu
+
+Step 850/10000 (epoch 0): loss = 2.3949 avg = 2.6568
+  seed: od time, here th
+  gen:  od time, here the se t wentlot ind here h t-mawasthe myes nive that gorerende this tangay bougt sllede,
+I hands inky
+
+Step 900/10000 (epoch 0): loss = 2.8530 avg = 2.6372
+  seed: bour to attain i
+  gen:  bour to attain is nory, thmeth
+Gil s: you ckere Gonotire, ve ichke smothel ereryor, wope won
+UENIn illlome piy, hove
+
+Step 950/10000 (epoch 0): loss = 2.3697 avg = 2.6021
+  seed: prove it. You fo
+  gen:  prove it. You fo liy yiy, nipist itininge thiste sous at thangrthe seng ber batenthe thre se nore die mere needocr t
+
+Step 1000/10000 (epoch 0): loss = 2.3376 avg = 2.5793
+  seed: ntons with our w
+  gen:  ntons with our with ong ondilee, want pon I the fal s youls, weanseses ands pllndeat mis ler hidy asine sYesow of as
+
+Step 1050/10000 (epoch 0): loss = 2.4360 avg = 2.5534
+  seed: hile we were int
+  gen:  hile we were int no las: witide, be sherses;
+
+
+
+W mingeret de and poranit wear, ape;
+RAngores eden moras.
+An?
+I dind
+
+Step 1100/10000 (epoch 0): loss = 2.4029 avg = 2.5326
+  seed: aint,
+Were testi
+  gen:  aint,
+Were testin rerots boy wean, chind,.
+Fhe fit is ath sorte arser wosend ate meoll.
+Buns bim ale nond, ere meafl
+
+Step 1150/10000 (epoch 0): loss = 2.5950 avg = 2.5121
+  seed: Is't possible yo
+  gen:  Is't possible you he les hot as,
+My,
+IAf ath say anch,
+
+Whing hincriry, and
+Whid's RENEO:
+
+
+D thine now doun lerh th
+
+Step 1200/10000 (epoch 0): loss = 2.4221 avg = 2.4951
+  seed: d be put to deat
+  gen:  d be put to deat thingtevatis and aran is the samat wimuspe ar,-theey aid nghind thow aind o har o blot sthart ildsa
+
+Step 1250/10000 (epoch 0): loss = 2.2909 avg = 2.4745
+  seed: it instantly.
+An
+  gen:  it instantly.
+An ll kor fon hers nishe men are wat she won, shins od thameld hea
+Wher heat we tam and an! gacciung a
+
+Step 1300/10000 (epoch 0): loss = 2.3560 avg = 2.4639
+  seed: ay, you dare not
+  gen:  ay, you dare notelbugh wans tad the sest thy alf, grorst id o Llonnes booulat wint, in thee ver me blourst theds gom
+
+Step 1350/10000 (epoch 0): loss = 2.4514 avg = 2.4656
+  seed: ws,
+Our strength
+  gen:  ws,
+Our strengthat the male the ithan af nocen, wo case car pass kind maeXond Yore.
+S:
+KWUNENPINCUmord CD ighe nokp-
+
+Step 1400/10000 (epoch 0): loss = 2.5087 avg = 2.4607
+  seed: ELLO:
+You saw my
+  gen:  ELLO:
+You saw my won.
+HE
+Ast sincCAbld deou sor de window o can hollf gindd thor to tee fors save,
+:
+
+ANSe ser yhin 
+
+Step 1450/10000 (epoch 0): loss = 2.4869 avg = 2.4555
+  seed: vereign, my most
+  gen:  vereign, my most, as
+An dor?
+
+Hend, his on ing mis wave hish yourdss fods ishinghefy the, sheatindelll pthell ft uri
+
+Step 1500/10000 (epoch 0): loss = 2.4817 avg = 2.4502
+  seed: 
+Draw near, ye p
+  gen:  
+Draw near, ye pet cofe son:
+D nt burs chet masthe.
+
+HARY freeemeaawers
+Lhalled it sacad.
+GIRETENIS:
+CoLAnd ARIERIA:
+
+Step 1550/10000 (epoch 0): loss = 2.3937 avg = 2.4499
+  seed: oble Pompey! Wha
+  gen:  oble Pompey! Whach ton deodithen gond, tantelle ouw thant I bed on s!ed mit The where the daus to that ave than ache
+
+Step 1600/10000 (epoch 0): loss = 2.4014 avg = 2.4390
+  seed: ivine, are inter
+  gen:  ivine, are interes hilne us, tho om
+Nes wal
+Lom the heat hear wor thit sonl band in and wie tand berart, thin hene h
+
+Step 1650/10000 (epoch 0): loss = 2.3137 avg = 2.4454
+  seed: RK:
+After, Aumer
+  gen:  RK:
+After, Aumere,.
+
+S:
+TUTENMy ou thie! thor borocrens derevey my be gead shalls lange, le, que al tlere ingef-N tc
+
+Step 1700/10000 (epoch 0): loss = 2.5849 avg = 2.4351
+  seed: t;
+Words, life a
+  gen:  t;
+Words, life an to to hid you than, os ticke whe co noke,
+Whie thiLh.
+BUARKINGNAUKOLOLI hist wor ite deand this ir
+
+Step 1750/10000 (epoch 0): loss = 2.4196 avg = 2.4167
+  seed: -seed.
+
+SEBASTIA
+  gen:  -seed.
+
+SEBASTIAThe's perist from noind yout mowede mow lowle lisom mand ferd to ners Jeant pies besh dours hitheeig
+
+Step 1800/10000 (epoch 0): loss = 2.3055 avg = 2.4023
+  seed:  bidding.
+
+CLEOM
+  gen:   bidding.
+
+CLEOMARY:
+WARO:
+Sath ore thiut om tand at, reou can the it ulen nontan.
+Busthat ure lence thancouctik saw
+
+Step 1850/10000 (epoch 0): loss = 2.5887 avg = 2.4031
+  seed: 
+Senators:
+To Co
+  gen:  
+Senators:
+To Cof grane mis fon fingct,
+A onnd
+
+LE:
+DLat tharee am stler spruy thel wenn
+T
+Toy bith lemy opr thof sh
+
+Step 1900/10000 (epoch 0): loss = 2.4189 avg = 2.4029
+  seed: right
+To let me 
+  gen:  right
+To let me der,
+Whan that sit balesest spext erouf sonchellle whe pealld ake thag, nom bert.
+
+
+AUO:
+Ant par.
+
+D
+
+Step 1950/10000 (epoch 0): loss = 2.7113 avg = 2.4057
+  seed: herein?
+
+DUKE OF
+  gen:  herein?
+
+DUKE OFle
+G my a:
+
+Sont you, thin lalif fom nis thar st Shar ach aw I tim flring I ther lalind wothe and me
+
+Step 2000/10000 (epoch 0): loss = 2.4066 avg = 2.3905
+  seed: ish. Next, it im
+  gen:  ish. Next, it imond.
+
+But din den your, ol is nonth you hal momor he ithe hoth ay thart low ofotinspire ille ike ant
+
+Step 2050/10000 (epoch 0): loss = 2.2350 avg = 2.3924
+  seed: parable, shall w
+  gen:  parable, shall wiors to uced.
+
+ANCIOLA:
+
+I thouf soret hor owte wime ber wort bis thoro rer hef vear thord hay sit c
+
+Step 2100/10000 (epoch 0): loss = 2.4304 avg = 2.3784
+  seed: far forth.
+By ac
+  gen:  far forth.
+By aciN ingilld bengeand:
+
+A for bir.
+
+BARY Low was hert.
+
+ANS:
+That so bout bey to astevakld nofer, bett
+
+Step 2150/10000 (epoch 0): loss = 2.3786 avg = 2.3900
+  seed: 
+For the benefit
+  gen:  
+For the benefit ther on bon sol mereses,. In OLTRwpunous my the mangad whe such win tharek hanl thares.
+
+CHhoth wil
+
+Step 2200/10000 (epoch 0): loss = 2.1787 avg = 2.3838
+  seed: lease you to mar
+  gen:  lease you to mare thek bisp!
+An bere sobr? wid hen shen wean be; chel, are rotelf.
+Wak wis dom blove he thee at fil 
+
+Step 2250/10000 (epoch 0): loss = 2.2063 avg = 2.3767
+  seed: oth, both mine, 
+  gen:  oth, both mine, she loouullim linow hegrat dedme ly.
+
+MARO:
+Foo yourellld my cors knghes's quate watoouced sencherge
+
+Step 2300/10000 (epoch 0): loss = 2.1612 avg = 2.3651
+  seed: e, he'll take in
+  gen:  e, he'll take ing pof he yous de we wisting cord cearimatht thee than st thak; youw ingne or reagal deay courllis ay
+
+Step 2350/10000 (epoch 0): loss = 2.5794 avg = 2.3619
+  seed:  beasts?
+
+KING R
+  gen:   beasts?
+
+KING RAUNE:
+ALHI a more theantistheach arou prar wy
+Ose her you had to tou dandard fol the yos wis ay for 
+
+Step 2400/10000 (epoch 0): loss = 2.2704 avg = 2.3560
+  seed: ther
+We shall be
+  gen:  ther
+We shall be!
+Whe to fait.
+
+No tres ays;
+LOw soust thy thit monding thake liing by grongrigh, thiir, and o heret
+
+Step 2450/10000 (epoch 0): loss = 2.2144 avg = 2.3473
+  seed: ade thee faint a
+  gen:  ade thee faint aunt bore pence the vel folle.
+
+
+Q
+Whe I Futhepe seis thart noing mousthe sinct weme your wisthe fors
+
+Step 2500/10000 (epoch 0): loss = 2.5570 avg = 2.3411
+  seed: sirrah!
+
+HORTENS
+  gen:  sirrah!
+
+HORTENS:
+SBAl fhat'd harto hat it hit were's pares thich I
+Sit hears, hut soust lore bert deat I my dart an
+
+Step 2550/10000 (epoch 0): loss = 2.1550 avg = 2.3375
+  seed: n,
+To whom we al
+  gen:  n,
+To whom we al:
+I are thel ste wen
+Towd hat you irst ate orouyse we non wert sand pow ther the weendno crath sar t
+
+Step 2600/10000 (epoch 0): loss = 2.2682 avg = 2.3212
+  seed: ous hand,
+Thou d
+  gen:  ous hand,
+Thou dide me ke unds hou ha huure?
+
+ARARUSEN temry Hisese mery spoul trould om to melle way fur ire wis hi
+
+Step 2650/10000 (epoch 0): loss = 2.4438 avg = 2.3136
+  seed:  unto you, what 
+  gen:   unto you, what weatlle do otscow ater to and.
+thong sorod.
+
+Frow Bof mumne reaghth mull sons sour, nellinec ad avet
+
+Step 2700/10000 (epoch 0): loss = 2.2860 avg = 2.3173
+  seed: 
+Shalt with him 
+  gen:  
+Shalt with him bendars ith your wous youst ceald hety lor you wing cath ut and.
+
+R:
+Kir deafeler wheren fureswarifu
+
+Step 2750/10000 (epoch 0): loss = 2.3691 avg = 2.3100
+  seed: t is a
+power tha
+  gen:  t is a
+power thald to crre hat iis my meand o doth to prolope.
+
+Opy,
+Ton o'd than hor edr.
+TANLAR:
+I hike hen, to o 
+
+Step 2800/10000 (epoch 0): loss = 2.3079 avg = 2.3006
+  seed: ch you.
+
+CORIOLA
+  gen:  ch you.
+
+CORIOLAY ut ylour epens mace sour ton
+I heveand,
+Whak therpis mow alin by kistr.
+
+ARDIIUSRO:
+Ke If kir cain
+
+Step 2850/10000 (epoch 0): loss = 2.2342 avg = 2.2917
+  seed: e entreaties of 
+  gen:  e entreaties of ird fond in meavinge,
+Whe wath I cond I luttree.
+
+BORDIO:
+I tre her loven's, forble hit, he youve ad
+
+Step 2900/10000 (epoch 0): loss = 2.1638 avg = 2.2974
+  seed: 
+The purity and 
+  gen:  
+The purity and the oth sore?
+
+GRTETEY:
+Ced bict I cot rinthe war antely sidetend buth.
+But thot and hat gom doch wa
+
+Step 2950/10000 (epoch 0): loss = 2.2487 avg = 2.2920
+  seed: ese fellows ran 
+  gen:  ese fellows ran dat'd card ki; thevise cadst,
+Path thes a'd ild -ackf wit bane sis for you stricht
+And thak hse lor 
+
+Step 3000/10000 (epoch 0): loss = 2.3089 avg = 2.2931
+  seed: un, did make beh
+  gen:  un, did make behs we len with wol in my the
+Foot
+I adave other an, whe angrind, we core thel.
+
+Hers I mere, the atho
+
+Step 3050/10000 (epoch 0): loss = 2.3612 avg = 2.2939
+  seed: agate-stone
+On t
+  gen:  agate-stone
+On to thou whing, han you nos derthine; thert?
+BRO AME:
+Fowind hat the thou wee that tre; hat thin o hug
+
+Step 3100/10000 (epoch 0): loss = 2.4147 avg = 2.2987
+  seed:  if I wear pearl
+  gen:   if I wear pearlothe withe nort to mavitlertingh.
+
+IS: my hor wor prich tha'd pumerne ad same. The:
+Thent the's ben 
+
+Step 3150/10000 (epoch 0): loss = 2.1297 avg = 2.2895
+  seed: w:
+Now, good my 
+  gen:  w:
+Now, good my ime dee ood stir sll the dere onges; id haree und wed, wiownes reme aic od lamis peme;
+Thin abe  my 
+
+Step 3200/10000 (epoch 0): loss = 2.3161 avg = 2.2884
+  seed: me from your bed
+  gen:  me from your bedee.
+I heise len.
+
+LANINCETROY:
+Whom word insteay we lenet por ow il mith devel.
+of wem.
+
+MENIY:
+O yo
+
+Step 3250/10000 (epoch 0): loss = 2.1998 avg = 2.2880
+  seed: you hit the whit
+  gen:  you hit the whiterow andetive ga ut word?
+
+Heand I IOSid, ard ins thill wantcored?
+
+Vre, dar neathy, onk thie a davi
+
+Step 3300/10000 (epoch 0): loss = 2.3003 avg = 2.2722
+  seed: .
+Our guider, co
+  gen:  .
+Our guider, coofut ein swit the lert inish to wor his shal purdin wiuth mand cat till gakent cour pampis seand bat
+
+Step 3350/10000 (epoch 0): loss = 2.3391 avg = 2.2550
+  seed: tress, profit yo
+  gen:  tress, profit your buut swe arich sharaves allond on cerey me aved cave
+We the,' monse?
+
+Rull marde tone be thir by 
+
+Step 3400/10000 (epoch 0): loss = 2.2308 avg = 2.2570
+  seed: possess'd.
+
+DUKE
+  gen:  possess'd.
+
+DUKES:
+
+IYor heristh
+Wha uot to fay hean the the feme hey thall that won
+M
+LUCELUT:
+Not brenthe noust so
+
+Step 3450/10000 (epoch 0): loss = 2.2779 avg = 2.2662
+  seed: any woman wrong'
+  gen:  any woman wrong'd wirdy Iu sow darfentakisid this haly miand I I 'dis; fim Ciove sif fome of the we der bat ieist yo
+
+Step 3500/10000 (epoch 0): loss = 2.3417 avg = 2.2563
+  seed: -
+With all good 
+  gen:  -
+With all good gath hat mape thath them as Butir the the, kill tist inime cuiped it is the ishall thappis drod that
+
+Step 3550/10000 (epoch 0): loss = 2.4663 avg = 2.2620
+  seed: itch Sycorax,
+Fo
+  gen:  itch Sycorax,
+Fole,
+What bere is mentat aray fo povelis by fore;
+I por sowith blor wathe in thy:
+Hadn ther end the f
+
+Step 3600/10000 (epoch 0): loss = 2.0725 avg = 2.2718
+  seed: hy
+sword, and th
+  gen:  hy
+sword, and thin; fifalp is mune as wours and is with mor what lome biver withprur'd haper's quournof saibe whis h
+
+Step 3650/10000 (epoch 0): loss = 2.2731 avg = 2.2582
+  seed:  challenge law: 
+  gen:   challenge law: wad me ing ment the tholf dore ad the lin bude mrugh wowle to thiseay.
+
+Pin monit ar we dothe aaker,
+
+Step 3700/10000 (epoch 0): loss = 2.4104 avg = 2.2325
+  seed: ING RICHARD III:
+  gen:  ING RICHARD III:
+Shey we shis ty wavet at wimn wome mall thith se ore ode hiof as heath the ath's henZat not you dic
+
+Step 3750/10000 (epoch 0): loss = 2.0699 avg = 2.2247
+  seed:  though thou art
+  gen:   though thou artolins nould, ot'l thou o with odill win of ardnoust path Erense fall cightis soulscren's alo that no
+
+Step 3800/10000 (epoch 0): loss = 2.1225 avg = 2.2299
+  seed: thee! Hark you, 
+  gen:  thee! Hark you, pave to purkdr, theous and theranant hauld ve fee pome
+Shes the siken good has wrigh thow galae your
+
+Step 3850/10000 (epoch 0): loss = 2.1569 avg = 2.2272
+  seed:  those flowers. 
+  gen:   those flowers. wabuld fart of my the eard,
+A'sty you and stancef hearved you not ars athe ore;
+illl wor ie,
+Arlos m
+
+Step 3900/10000 (epoch 0): loss = 2.1632 avg = 2.2184
+  seed: som of the earth
+  gen:  som of the earthe eer oned to ar thin the the thoul! cour so had af ar thay ampould he maf'd sour anle hams beowes t
+
+Step 3950/10000 (epoch 0): loss = 2.2335 avg = 2.2067
+  seed: ee:
+And yet salt
+  gen:  ee:
+And yet salt.
+
+GTRIO:
+The, I when you that dallou thein not thruseserm.
+
+BUKIUPINVORIITE:
+I have you thou hee, h
+
+Step 4000/10000 (epoch 0): loss = 2.0959 avg = 2.2039
+  seed: ing to me.
+
+GONZ
+  gen:  ing to me.
+
+GONZINED:
+
+No a no sife, Your houn gleve the sur not falledere onger
+To as bat Seisse an's,
+Gont you hin
+
+Step 4050/10000 (epoch 0): loss = 2.2276 avg = 2.1929
+  seed: y have chose a c
+  gen:  y have chose a cre.
+
+GROWAMESO:
+And grend thou sis fesie e, ir well wecen,
+And hand beded deas heve cent ange wiore,
+
+Step 4100/10000 (epoch 0): loss = 2.2585 avg = 2.1893
+  seed: loose, unfirm, w
+  gen:  loose, unfirm, wise pof, thy, this will call whe poose, my full ghang hon, cell the porise be That so hoves tise thi
+
+Step 4150/10000 (epoch 0): loss = 2.0598 avg = 2.1881
+  seed: e for his father
+  gen:  e for his fathert the we be kattairds?
+there to be to cerll ing salne uns
+all well so denoe-thour dour the gret in h
+
+Step 4200/10000 (epoch 0): loss = 2.1422 avg = 2.1863
+  seed: row too like a c
+  gen:  row too like a cipie is suoly thisungs
+Thins his a me com I hovell arvith woll carline the hin thourtralteis del war
+
+Step 4250/10000 (epoch 0): loss = 2.1263 avg = 2.1892
+  seed: est it should bi
+  gen:  est it should bith
+The, goon the kis the hour the ake lad uf revill inghe grow, bothand thee houbn lath thountef hy 
+
+Step 4300/10000 (epoch 0): loss = 2.3049 avg = 2.1943
+  seed: O:
+Come, come, y
+  gen:  O:
+Come, come, you arnel wen ha den you come ha my in and, you share,
+That coin, ler ching andpoaing,
+Thenosterien s
+
+Step 4350/10000 (epoch 0): loss = 2.5332 avg = 2.1983
+  seed: 
+Hood my unmann'
+  gen:  
+Hood my unmann's me wole,
+Thre high at soe.
+
+BExpies we her der mand soon bvike, boorenop rore in at pearonobroth t
+
+Step 4400/10000 (epoch 0): loss = 2.0871 avg = 2.1815
+  seed: e very windows s
+  gen:  e very windows seain sip dore sowan at miser thee sster on smlunes. I me peand;
+His I to will thigind seay mange of 
+
+Step 4450/10000 (epoch 0): loss = 2.4336 avg = 2.1816
+  seed: SAMPSON:
+Let us 
+  gen:  SAMPSON:
+Let us bubly to me tratell at the frouus sen to and, ritoraece,
+I not id thay sisincencens
+Af theme lourdse
+
+Step 4500/10000 (epoch 0): loss = 2.0783 avg = 2.1713
+  seed: way, that bearin
+  gen:  way, that bearine:
+I I ap dor be poshar your od the you musinss!
+
+The the you noitiray trene what with's thee to men
+
+Step 4550/10000 (epoch 0): loss = 2.2273 avg = 2.1727
+  seed: DUKE VINCENTIO:
+  gen:  DUKE VINCENTIO:
+bothour cot the mane freave har
+How thard not their you with your she ste bloul lake he dere ffales 
+
+Step 4600/10000 (epoch 0): loss = 2.3164 avg = 2.1651
+  seed: priest and book 
+  gen:  priest and book and gean hadd by you ely our suck so dingel wit a a the the or his llown cour fout's dre.
+
+Ad dent a
+
+Step 4650/10000 (epoch 0): loss = 2.3847 avg = 2.1682
+  seed: mpey? by being a
+  gen:  mpey? by being af cor, hane pard.
+
+IUKINTBCENIV:
+Af chom, thall tquat?
+Buthe af ther knereth, lo for to flith's all 
+
+Step 4700/10000 (epoch 0): loss = 1.8981 avg = 2.1734
+  seed: the king, how
+at
+  gen:  the king, how
+at reat heare if frother'sin dather:
+A:
+This all in it bat to youd of dard sour his lloughtert, cen fe
+
+Step 4750/10000 (epoch 0): loss = 2.3782 avg = 2.1662
+  seed: on his kingdom a
+  gen:  on his kingdom antie!
+
+ARSISY:
+It that a ling to it the that you wike eriow now withinman to dre to hear puxgean sup
+
+Step 4800/10000 (epoch 0): loss = 2.0721 avg = 2.1482
+  seed: d him.
+Stop thy 
+  gen:  d him.
+Stop thy frablit, cir you mistest my VINCIT:
+Hs that Hefore senith gurit the the all you sion arde, thy heake
+
+Step 4850/10000 (epoch 0): loss = 1.9504 avg = 2.1437
+  seed: now how you are
+  gen:  now how you are
+
+hasindefer wheinst aw wher the sell cut lork, I ha me is destint; has the the hat sompe and the me 
+
+Step 4900/10000 (epoch 0): loss = 2.3951 avg = 2.1565
+  seed: et end.
+
+MARIANA
+  gen:  et end.
+
+MARIANA:
+Nave,
+Nu neavin lof and me are ray speof thent my fatio, the to fithis my burtiul ris gidess,
+Cice
+
+Step 4950/10000 (epoch 0): loss = 1.9226 avg = 2.1489
+  seed: of your adversar
+  gen:  of your adversar hang deel theere
+Pom do doping mands o; thee she cull, Enkbrone that for, the,
+I gle ass hat were t
+
+Step 5000/10000 (epoch 0): loss = 1.9280 avg = 2.1574
+  seed: a trade.
+Mercy t
+  gen:  a trade.
+Mercy tem
+EYo you his hatted be oms mand the worting a trow do swan as dimer you my love.
+
+BERENESThe your 
+
+Step 5050/10000 (epoch 0): loss = 2.0538 avg = 2.1650
+  seed: stly fight!
+
+KIN
+  gen:  stly fight!
+
+KINCO:
+Buste, Wereveyead'd thou
+say timed us thith.
+
+ONGS:
+De fall our,
+Buth derue
+ther hen mpe ponead 
+
+Step 5100/10000 (epoch 0): loss = 1.8857 avg = 2.1505
+  seed: ut breath into h
+  gen:  ut breath into has of
+hes you, lirde that prown:
+Neard.
+
+The ham you hant the heon, as to genen this not that che, m
+
+Step 5150/10000 (epoch 0): loss = 1.8474 avg = 2.1371
+  seed: n that ere once 
+  gen:  n that ere once to er thinte'd loved-toou poy thou the ching heastur's crehant he now will to wests der hacand in to
+
+Step 5200/10000 (epoch 0): loss = 2.1499 avg = 2.1245
+  seed: vil.
+
+AUFIDIUS:
+  gen:  vil.
+
+AUFIDIUS:
+It lor farst
+Crow Rer thaster him here swan the os Him trord.
+Shou heant drave and thell with heatn 
+
+Step 5250/10000 (epoch 0): loss = 2.0987 avg = 2.1330
+  seed: TIO:
+While you, 
+  gen:  TIO:
+While you, purast most tle till is a the gon you the to minkind. goved hele nat me ase apperoun,
+Youes mord hic
+
+Step 5300/10000 (epoch 0): loss = 2.0177 avg = 2.1230
+  seed: have you not kno
+  gen:  have you not knoll I mendef ford my sake have for ast thuster do have;
+
+Ta,
+And and wich withere, proodle theis cren
+
+Step 5350/10000 (epoch 0): loss = 2.1228 avg = 2.1208
+  seed: 
+ROMEO:
+Wouldst 
+  gen:  
+ROMEO:
+Wouldst rushe seay son ther moft, I now brel to that at be sene themul, have.
+Y INPES:
+Ko dine mout che ampo
+
+Step 5400/10000 (epoch 0): loss = 2.3183 avg = 2.1268
+  seed: shall a buzzard 
+  gen:  shall a buzzard withis and will would;
+Ang:
+He your of thes
+As
+Thicine-pon to a vent well that the she forne whiam n
+
+Step 5450/10000 (epoch 0): loss = 2.2396 avg = 2.1375
+  seed: ourts and kingdo
+  gen:  ourts and kingdod of I haccall me an an sang to him in
+
+Thaur ake cratonot of wilind the with mate a!
+
+My cruateds a
+
+Step 5500/10000 (epoch 0): loss = 2.2403 avg = 2.1374
+  seed: y'd
+And fell bel
+  gen:  y'd
+And fell bel,
+Y
+Lall love thmath ord kathe gather, naties
+And way mang not salikn he Surs thy the to ar with mar
+
+Step 5550/10000 (epoch 0): loss = 2.1421 avg = 2.1341
+  seed: ow mistrust no p
+  gen:  ow mistrust no pordroulalove and sold! the words comen, I thightrame, that mondrered come caconse: in cane shos came
+
+Step 5600/10000 (epoch 0): loss = 2.1788 avg = 2.1160
+  seed: banishment.
+
+HEN
+  gen:  banishment.
+
+HENIO:
+I LING:
+To hat a you slay peirgen he the to heare, and not grear 'take'd sen of the teesse:
+how 
+
+Step 5650/10000 (epoch 0): loss = 2.1436 avg = 2.1090
+  seed: s. Proceed by pr
+  gen:  s. Proceed by pry list
+S Kell wall so detinds:
+Mas peorien; fight;
+Arawil that so neld;
+This ratay, weat dises she u
+
+Step 5700/10000 (epoch 0): loss = 2.0956 avg = 2.1088
+  seed:  we impart:
+Thou
+  gen:   we impart:
+Thous.
+
+ARDUCINCERLCCERES:
+Os sell lord, shee, foy, on it be like shous may maker no wall coows wall bit
+
+Step 5750/10000 (epoch 0): loss = 1.8573 avg = 2.1166
+  seed: t enmity;
+I hate
+  gen:  t enmity;
+I hater.
+
+CRWOMIO:
+Thall pome het an a the pirsongng
+Ot, llove in be that, the the lown ther: honglander, 
+
+Step 5800/10000 (epoch 0): loss = 2.4240 avg = 2.1107
+  seed: BRUTUS:
+Why?
+
+SI
+  gen:  BRUTUS:
+Why?
+
+SINGLANA:
+P wad I you blead dow now arvee now, the as and lone the hate mand fall his in chou to fee, 
+
+Step 5850/10000 (epoch 0): loss = 1.9534 avg = 2.0982
+  seed: as I then to you
+  gen:  as I then to you?
+Buth that drot shill on the ming of or bean st,
+That to thee hon ther?
+
+HENROMIS TUT:
+Duch a becle
+
+Step 5900/10000 (epoch 0): loss = 2.2034 avg = 2.1021
+  seed: hou vouchsafe to
+  gen:  hou vouchsafe to my that thot vit sine bein!
+To that my ame eand dake a he the supe
+And emreshaled
+Caram:
+And spathi
+
+Step 5950/10000 (epoch 0): loss = 2.1444 avg = 2.0983
+  seed: e.
+Thus from my 
+  gen:  e.
+Thus from my with the now and hen noth him now ge yer my to me thou cood buck be with thir thy wit, ange reace.
+
+
+Step 6000/10000 (epoch 0): loss = 2.0914 avg = 2.1028
+  seed: loucester here,
+  gen:  loucester here,
+And the din ying reverand e,
+Mames.
+
+MECUSh KING IOF LUS:
+Hetiou my toul bade mark, as he reall.
+
+AR
+
+Step 6050/10000 (epoch 0): loss = 2.2784 avg = 2.0982
+  seed: ut for my daught
+  gen:  ut for my daught wittios I word a lom gitteere hat tre monsssouldst you fored! Heforen wave my shall too, ans praves
+
+Step 6100/10000 (epoch 0): loss = 2.2175 avg = 2.1008
+  seed: nd full of ire,
+  gen:  nd full of ire,
+Which the the could contancould wer why Vrerin ow greaise him, say wast the not, ren the now shon, o
+
+Step 6150/10000 (epoch 0): loss = 2.1973 avg = 2.0956
+  seed: om me.
+
+LORDS:
+G
+  gen:  om me.
+
+LORDS:
+Ge on would pritignais me to swan the the in of mence cee thou, this tha herserds roth, bed ut iare t
+
+Step 6200/10000 (epoch 0): loss = 2.3306 avg = 2.0986
+  seed: Give me a bowl o
+  gen:  Give me a bowl oumen,
+The tisty all the day,
+That?
+
+That and tould hou would uftl's by dothences,
+And 'lartes tay's 
+
+Step 6250/10000 (epoch 0): loss = 2.1450 avg = 2.1069
+  seed: aughter.
+
+AUTOLY
+  gen:  aughter.
+
+AUTOLY MENEN:
+Nore weart hearenting, fre hee kere theat, ford so word thy he hour agall verce antile or ki
+
+Step 6300/10000 (epoch 0): loss = 2.1255 avg = 2.1035
+  seed: beasts, indeed; 
+  gen:  beasts, indeed; do ther tonens fortrith hather dear of mone beathe liuste Sonking to the im do that thing af to you 
+
+Step 6350/10000 (epoch 0): loss = 2.2980 avg = 2.0939
+  seed: risoner to the p
+  gen:  risoner to the preblind wis land the do she to me fithen ple e kist of shans,
+The see
+Sor lever so have hand be deas
+
+Step 6400/10000 (epoch 0): loss = 2.2217 avg = 2.0806
+  seed: hat thou mayst n
+  gen:  hat thou mayst nosts fore lood!
+Sithee thate a as the for bleme habriencep; I some the raciance charling dets, sie.
+
+Step 6450/10000 (epoch 0): loss = 1.9913 avg = 2.0767
+  seed: 
+The abhorr'd in
+  gen:  
+The abhorr'd in upod if thee pace witt with will sprest aleny he the in the appanots; in foly
+As and of the mang to
+
+Step 6500/10000 (epoch 0): loss = 2.0828 avg = 2.0871
+  seed: this gentleman. 
+  gen:  this gentleman. Baspind, welfe so to the the may con
+For pear and hers for it come do fay our thin to king thou to t
+
+Step 6550/10000 (epoch 0): loss = 1.9844 avg = 2.1043
+  seed:  be unparallel'd
+  gen:   be unparallel'd, withor shoung in cones!s fithather, veold.
+
+HENINIO:
+Tave in then friess all love in shall us, nou
+
+Step 6600/10000 (epoch 0): loss = 2.2556 avg = 2.1086
+  seed: , as
+I take it, 
+  gen:  , as
+I take it, I fe it,
+The basse! I
+Heave ecans
+He anot to to be hour heant my come never he is for of have, last 
+
+Step 6650/10000 (epoch 0): loss = 1.9912 avg = 2.0939
+  seed: HUMBERLAND:
+Plan
+  gen:  HUMBERLAND:
+Plan to the are in sod quice my thnorss frizer fastanter of the fillquaives fors you not sirre, the apet
+
+Step 6700/10000 (epoch 0): loss = 1.9926 avg = 2.0863
+  seed:  God, which this
+  gen:   God, which thist his sais that ther mort
+speam, sppin trucht, you speads thou gave,
+Inown his dea
+And cre gursenf-t
+
+Step 6750/10000 (epoch 0): loss = 1.9580 avg = 2.0959
+  seed: RK:
+I am their f
+  gen:  RK:
+I am their for come The nerverrr that and at herverr at of for now him; sell yall and herry gill of ustrends tre
+
+Step 6800/10000 (epoch 0): loss = 2.1752 avg = 2.0736
+  seed: y,
+Yet he shall 
+  gen:  y,
+Yet he shall sull of for a but Nod wordimmake mand not we canjove hexend srevenced the lexs,
+Ond poy may themly,
+
+Step 6850/10000 (epoch 0): loss = 2.2052 avg = 2.0841
+  seed: s, to break a je
+  gen:  s, to break a jence, and to ho aredy a hancans and shaviur cone appease trok shand sare mertake your herincent herem
+
+Step 6900/10000 (epoch 0): loss = 2.1286 avg = 2.0759
+  seed: ers?
+Tell me, th
+  gen:  ers?
+Tell me, thand plank
+Cove, will sof sondith yill do my Grould but ere gencese beave. Mirdne, Sury plow?
+
+Or boy
+
+Step 6950/10000 (epoch 0): loss = 2.0033 avg = 2.0586
+  seed:  our father, for
+  gen:   our father, for then the to cerems the est not the me way, weeur the dey lance;
+The your you,
+Fare progh all.
+
+INGO
+
+Step 7000/10000 (epoch 0): loss = 2.0893 avg = 2.0674
+  seed: l moved mine.
+
+R
+  gen:  l moved mine.
+
+RMy thonch as he muss.
+
+HERTUS:
+Thing with your swill noblad with I come's and.
+I'll my fe my looss.
+
+Step 7050/10000 (epoch 0): loss = 1.9123 avg = 2.0648
+  seed: blood madest, re
+  gen:  blood madest, relt but is and warly with a thy thad the to grapgemble cen this eane, fome,
+Fre thy
+Too did I he doth
+
+Step 7100/10000 (epoch 0): loss = 1.9521 avg = 2.0746
+  seed: ost are busied w
+  gen:  ost are busied will shom heware!
+Yequing deay ourse, ange then coms be coun the am them a thee a ranou for bead hele
+
+Step 7150/10000 (epoch 0): loss = 1.8998 avg = 2.0611
+  seed: t thy friend nor
+  gen:  t thy friend nord buned wall with wick and at witall on clowen cone.
+
+MINGYO:
+That your Whod but them or of wither.
+
+Step 7200/10000 (epoch 0): loss = 2.2671 avg = 2.0591
+  seed: 
+The quaint musi
+  gen:  
+The quaint musin hire ducient the with bune all to mand saum, that with lever-den come and and whill oward fay too 
+
+Step 7250/10000 (epoch 0): loss = 2.0624 avg = 2.0494
+  seed:  bliss.
+What Tra
+  gen:   bliss.
+What Trapeand the shasterly wo thich bood
+I fallupancle cay, the the the doo the noth thy in haverr-gall goo
+
+Step 7300/10000 (epoch 0): loss = 2.1090 avg = 2.0514
+  seed: eavy load of moa
+  gen:  eavy load of moaty sizer;
+For that wly to deem his trugh a antal goep so is hove to me and the us sper to to the as 
+
+Step 7350/10000 (epoch 0): loss = 2.3971 avg = 2.0524
+  seed: ensure 'scape; b
+  gen:  ensure 'scape; bell prepant hou his have for hall an teoou, hont srife.
+
+Searty gear it be deem besll; slorflaut gra
+
+Step 7400/10000 (epoch 0): loss = 2.0354 avg = 2.0547
+  seed: ll have five hun
+  gen:  ll have five hunker win beping of weres.
+
+PORINGERET:
+Will ambly, king deadi'd'd asce moke.
+
+Sen a dut well I gout f
+
+Step 7450/10000 (epoch 0): loss = 1.8785 avg = 2.0502
+  seed: ive your cause t
+  gen:  ive your cause to thines
+And in greer im and to corne and dintler's and sier,
+Sid trothere he eartUnot boy, os briad
+
+Step 7500/10000 (epoch 0): loss = 1.9541 avg = 2.0463
+  seed: e be mute and wi
+  gen:  e be mute and will for than' and medthou bect the, hast thou by clamas charmisie!
+
+The in shil shion that the liPhan
+
+Step 7550/10000 (epoch 0): loss = 2.3195 avg = 2.0471
+  seed: s thy merit, wel
+  gen:  s thy merit, well teay
+Oke peadle the of that hy ip not me the moun the what nothe-
+ABETHAS SLA:
+Bid but mast pleand
+
+Step 7600/10000 (epoch 0): loss = 1.8009 avg = 2.0408
+  seed: ceptre yields
+To
+  gen:  ceptre yields
+To havis, be this forther'd nobly lord, the deace as.
+
+Sessal suing stered, comeade of ois earred;
+Wha
+
+Step 7650/10000 (epoch 0): loss = 2.0870 avg = 2.0441
+  seed: ou be remembered
+  gen:  ou be remembered this not this sill for prast? forought this book moin by fire with sour I gove shall so:
+I wake ret
+
+Step 7700/10000 (epoch 0): loss = 1.8663 avg = 2.0551
+  seed: d.
+
+PAULINA:
+Tha
+  gen:  d.
+
+PAULINA:
+That here not my greanthe thy ing indent swardery? here him shere be for the compals of utiss, that wor
+
+Step 7750/10000 (epoch 0): loss = 2.0503 avg = 2.0332
+  seed: im in your behal
+  gen:  im in your behall conen he ston dady man ne,
+For no sar.
+
+GROMIZEY:
+But trees finge my sours a all to manglod you we
+
+Step 7800/10000 (epoch 0): loss = 1.9161 avg = 2.0244
+  seed: IO:
+Now, sister,
+  gen:  IO:
+Now, sister, I for my hou trat be thind
+Od hime good ampet in here ams of'l neard ame arino a coclind?
+
+Pame bea
+
+Step 7850/10000 (epoch 0): loss = 1.7139 avg = 2.0190
+  seed: ost that teach.
+  gen:  ost that teach.
+
+PARAT:
+He thich would, I quome If
+Fore I feau ave and a this and liven the his worest a fail bort,
+
+Step 7900/10000 (epoch 0): loss = 2.1391 avg = 2.0184
+  seed: annot come to th
+  gen:  annot come to them voscome.
+
+JOROTHANE:
+Me lover my af o, the to thipine,
+Your dothers
+And ent here bremord in fores
+
+Step 7950/10000 (epoch 0): loss = 2.0834 avg = 2.0217
+  seed: Juliet, I will l
+  gen:  Juliet, I will lover here him.
+
+HUSS:
+Do to mands sthere the wille to herest somely
+God cone ferthervere am serentin
+
+Step 8000/10000 (epoch 0): loss = 2.1046 avg = 2.0291
+  seed: the circumstance
+  gen:  the circumstancen, the here fath day ane part: bers ward, me hee ould to thou not deal,
+Orastencest
+Teret distery, m
+
+Step 8050/10000 (epoch 0): loss = 1.9469 avg = 2.0165
+  seed: 
+
+DUKE VINCENTIO
+  gen:  
+
+DUKE VINCENTIO:
+Shanghe hearters not mathere:
+And bliel thout.
+M RIARINI do e truciff ' the them of shally fly,
+Ha
+
+Step 8100/10000 (epoch 0): loss = 2.1597 avg = 2.0125
+  seed: d deadly pale.
+W
+  gen:  d deadly pale.
+Whit this your lover pleer ering!
+
+Lurdid to this be paine notue, Led fromed is goode bear headiest e
+
+Step 8150/10000 (epoch 0): loss = 1.9978 avg = 2.0071
+  seed: 
+KATHARINA:
+A wi
+  gen:  
+KATHARINA:
+A wifht, cour.
+Go the she e posse ourtcheid dost
+Fould whater intansome in be not a mand'd wish to mast 
+
+Step 8200/10000 (epoch 0): loss = 2.0906 avg = 2.0129
+  seed: em on first in A
+  gen:  em on first in Andaught of With,
+I'll th lever ape and out, the comes fise,
+And the poor than he won use are be nele
+
+Step 8250/10000 (epoch 0): loss = 2.0209 avg = 2.0152
+  seed: s paradise, as t
+  gen:  s paradise, as that not sursenpestis havept that thing:
+A that mantantak so the belt waif you dimpont a brows not:
+N
+
+Step 8300/10000 (epoch 0): loss = 2.0556 avg = 2.0217
+  seed:  by I know how m
+  gen:   by I know how much listyy shupe and that here have ir son, and it stile him the efor ereme, in his for em teath rea
+
+Step 8350/10000 (epoch 0): loss = 1.9395 avg = 2.0307
+  seed:  in this point w
+  gen:   in this point welt of not the wen be cood this you is claue warvee os trament me alpake af the this spouncen,
+And h
+
+Step 8400/10000 (epoch 0): loss = 1.9519 avg = 2.0231
+  seed: gue, come you th
+  gen:  gue, come you their beaing be byst her undrease
+Whell detinces cound!
+And that 's Thave are to you sence,
+Encord,
+An
+
+Step 8450/10000 (epoch 0): loss = 2.1057 avg = 2.0238
+  seed: ice, that she ma
+  gen:  ice, that she mane be ave of eare,
+Well be hove force.
+
+YIO:
+ENoie biregint:
+
+And thou him,
+And the fut is comusepe!
+
+Step 8500/10000 (epoch 0): loss = 1.8573 avg = 2.0172
+  seed: RWICK:
+Henry now
+  gen:  RWICK:
+Henry now me life ble.
+
+PLERY: aight
+Thou buke kis thy bear by pranglown, I to hombll, ble blove pive my'd me
+
+Step 8550/10000 (epoch 0): loss = 1.9282 avg = 2.0112
+  seed: 
+That our beat w
+  gen:  
+That our beat were.
+
+ADHENRY ES:
+Nathe you, and him feep awery hy fishang he liy chis wess incengs sige os their s 
+
+Step 8600/10000 (epoch 0): loss = 2.2909 avg = 2.0270
+  seed: his luckless rea
+  gen:  his luckless reave your not thous alll ther arefal to grien dith, love the prace; your my thou do rnowad now shalled
+
+Step 8650/10000 (epoch 0): loss = 1.9070 avg = 2.0397
+  seed: t heaven and ear
+  gen:  t heaven and earre, fous you thand that kike now I have ree thur, our theme tear wadly made most lick antame mand th
+
+Step 8700/10000 (epoch 0): loss = 1.9747 avg = 2.0435
+  seed: 
+
+CLARENCE:
+In c
+  gen:  
+
+CLARENCE:
+In coorfoubussicks the priandy to hat thou to the ranternirible:
+What that the drost, belfard not a do t
+
+Step 8750/10000 (epoch 0): loss = 1.9848 avg = 2.0334
+  seed: gain. I am not m
+  gen:  gain. I am not mest thy which Ther baiis must spatory the so have took thing End he wath beas is sir
+Thinnous, sho b
+
+Step 8800/10000 (epoch 0): loss = 2.4234 avg = 2.0368
+  seed: thanks?
+Is she n
+  gen:  thanks?
+Is she not she, this we and not his a to spese ond.
+
+SORINA:
+By theerny I see huppire.
+
+MARD:
+AN:
+Whath spra
+
+Step 8850/10000 (epoch 0): loss = 1.9579 avg = 2.0296
+  seed:  does the wolf l
+  gen:   does the wolf ling all his do comans not ass the I dime,
+My crive
+My to me wast boted fight, amen the streather: wh
+
+Step 8900/10000 (epoch 0): loss = 2.0514 avg = 2.0231
+  seed: there.
+
+SEBASTIA
+  gen:  there.
+
+SEBASTIAL:
+Fat O my and the to you, for we your man I stear--s
+And you sacught with and of my rost whes well
+
+Step 8950/10000 (epoch 0): loss = 2.0927 avg = 2.0184
+  seed:  your special pa
+  gen:   your special pall swee tooge shee is I will not?
+
+DUCKENCHE:
+Sad to dood of the cauch's thou dear spes,
+And the for
+
+Step 9000/10000 (epoch 0): loss = 1.9222 avg = 2.0134
+  seed: , the fisher wit
+  gen:  , the fisher with as frost was but wath det of then a spe; oracid;
+prest and: and they post my the we and lien paurs
+
+Step 9050/10000 (epoch 0): loss = 2.0373 avg = 1.9986
+  seed: ,
+When she, poor
+  gen:  ,
+When she, poor'd live bint
+My he with but cond be say with of him
+Osce for dispess batt the for of he fest!
+By for
+
+Step 9100/10000 (epoch 0): loss = 2.0230 avg = 2.0015
+  seed:  thoughts, down 
+  gen:   thoughts, down A chow on mase for comane of leade offor you not leake,
+Care ware,
+And in to not faing are coun the 
+
+Step 9150/10000 (epoch 0): loss = 2.0194 avg = 2.0011
+  seed: 
+This is despera
+  gen:  
+This is desperashouthent.
+Burts I artant. I mor the.
+Who sevet the as the prorshagal ives to shir's with sim: thy c
+
+Step 9200/10000 (epoch 0): loss = 2.0673 avg = 2.0071
+  seed: 
+Behold, behold.
+  gen:  
+Behold, behold.
+
+Go the yough of the melt sipe;
+And thou to the purseinknese froming,
+You them, servent the him thi
+
+Step 9250/10000 (epoch 0): loss = 1.9974 avg = 2.0004
+  seed: 'd-stool.
+
+PETRU
+  gen:  'd-stool.
+
+PETRUS:
+Pay pay ronk
+Wicked I brigonsters, to will on,
+Somen: mes fater the am I be the with part of he l
+
+Step 9300/10000 (epoch 0): loss = 2.0200 avg = 1.9967
+  seed: in the interpret
+  gen:  in the interpret ally
+hereed doun, and bear theire and to doom of is a see.
+
+Mase iff mast do cen
+man, you a bange,
+
+Step 9350/10000 (epoch 0): loss = 2.1119 avg = 1.9940
+  seed: 
+ISABELLA:
+Be re
+  gen:  
+ISABELLA:
+Be reesterests roack I so proses briest.
+What iinter the is parted!
+
+Wis of spraive to when where it me m
+
+Step 9400/10000 (epoch 0): loss = 1.8324 avg = 1.9796
+  seed: hen?
+How shall t
+  gen:  hen?
+How shall to he serdeful to brock, son unds varrience you paiks thee? here have the what,
+The to
+My the marrrit
+
+Step 9450/10000 (epoch 0): loss = 2.1210 avg = 1.9904
+  seed: rioli back: send
+  gen:  rioli back: send for thee the this wis ther dast my to gone flous in stath, shave old, come me I artorick
+them on bl
+
+Step 9500/10000 (epoch 0): loss = 1.7950 avg = 2.0018
+  seed: I had it.
+This i
+  gen:  I had it.
+This in eart geat demen you dake deep his welcon, that he fire the rencent for well, my the you a hish fre
+
+Step 9550/10000 (epoch 0): loss = 2.1985 avg = 1.9927
+  seed: ave cross'd,
+To 
+  gen:  ave cross'd,
+To the perach awith the mast I Boll infly souve do he be the thou a and that of frink sor vay; frigh ha
+
+Step 9600/10000 (epoch 0): loss = 2.2032 avg = 1.9943
+  seed: id shall;
+I'll s
+  gen:  id shall;
+I'll see bus speean gronge as thou wie starest it lell sway that panted but af oldienlechou that would ss 
+
+Step 9650/10000 (epoch 0): loss = 2.1943 avg = 2.0017
+  seed: D II:
+Norfolk, t
+  gen:  D II:
+Norfolk, the sping my will a parth, and from of Hayselen, but of my well the frome?
+
+MENANT:
+Thor brimst the h
+
+Step 9700/10000 (epoch 0): loss = 1.9230 avg = 1.9934
+  seed: 
+Such as the dau
+  gen:  
+Such as the dauks, on that with goods this thou dout hear so,
+And have the sport sing their mur book'd;
+Witys, and 
+
+Step 9750/10000 (epoch 0): loss = 2.1390 avg = 1.9860
+  seed: m. Be she honour
+  gen:  m. Be she honour be until shall ight beand mord, for banty,
+What me toAs mather goid loke itver the staid whild paru
+
+Step 9800/10000 (epoch 0): loss = 2.2145 avg = 1.9910
+  seed: 
+Fetch us in fue
+  gen:  
+Fetch us in fuer bertand thourst that herest they hought ath mugnth,
+Agharth in are with hunce,
+The here friess the
+
+Step 9850/10000 (epoch 0): loss = 2.0557 avg = 1.9979
+  seed: have thus far st
+  gen:  have thus far ste makesson thand ne of this for this the than hurse that dot a of to sot and be in um an thy a
+WARk 
+
+Step 9900/10000 (epoch 0): loss = 1.9490 avg = 2.0014
+  seed: est now, think y
+  gen:  est now, think you rowird haves sure hath him his thout a shum.
+
+KIUSHING HI king! bood ane frien thall thich too de
+
+Step 9950/10000 (epoch 0): loss = 2.1127 avg = 1.9944
+  seed: e we will disper
+  gen:  e we will dispert is showsers, but take the an shipht for of con of to strith,
+But trith ndand to hust mostre heapes
+
+Final avg loss: 2.0008
+Model saved: /tmp/multi_baseline-seed46.model
+Result logged: /tmp/results.tsv

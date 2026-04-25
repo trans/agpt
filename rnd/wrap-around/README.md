@@ -7,34 +7,68 @@ window-mode SGD model on the synthesized corpus to test whether a depth-D
 trie carries the predictive content needed for `seq_len > D` training.
 
 Result: at d=32, the synthesized corpus is sufficient — held-out PPL on the
-real corpus matches the SGD seq=128 ceiling. See `logs/synth-d32-10M-seq128-10k.ppl`.
+real corpus, multi-seed mean PPL = 7.04 (range 6.93–7.13 across 4 seeds),
+matches the SGD seq=128 ceiling. See `logs/multi-seed-sweep.txt`.
 
-## Negative result: --space-align doesn't help
+## Bridge double-emit bug fix
 
-Hypothesis: forcing wraps at word boundaries (preferring a space token when
-it's the dominant continuation at a leaf) would eliminate mid-word glue
-artifacts like "bishhanged" and tighten PPL.
+The original synth printed each wrap's bridge token AND the first token
+of the next root-walk's edge — but `pick_root_child(seed)` already finds
+a root child whose first edge token equals the seed, so the bridge token
+was being emitted twice. Result: every wrap glued a duplicate character
+across the boundary, producing artifacts like "RRWICK" (WARWICK with
+'R' doubled), "allisters", "hereen", "like  volume" (double space).
 
-Tested at 10M / 10k / seq=128:
+Fixed by tracking whether `pick_root_child` matched on the seed and
+skipping the duplicate first-token emit when it did. Effects:
 
-| config                        | PPL    | Δ vs baseline |
-|-------------------------------|--------|---------------|
-| baseline (no flag)            | 7.1737 | —             |
-| baseline (different seed)     | 7.1425 | −0.03 (noise) |
-| `--space-align --space-align-topk 1` | 7.2726 | **+0.10**     |
-| `--space-align --space-align-topk 3` | 7.3558 | **+0.18**     |
+- Double-spaces in 1M synth: 5 (was ~4624 — 1000× drop).
+- Lowercase double-letter rate matches real corpus: 1.68% (real: 1.70%);
+  was 3.6% pre-fix.
+- Avg path length per wrap: 32.0 (was 33.0 — the spurious +1 is the
+  duplicated bridge token).
+- PPL: 7.13 (was 7.17, ~noise floor).
 
-Run-to-run noise (corpus seed change) is ~0.03 PPL. The space-align signal
-is 3–6× the noise floor, in the wrong direction. Both `topk=1` and `topk=3`
-trigger on the same ~15.3% of wraps (space is either a leaf's dominant
-continuation or absent from its top entries).
+## Negative results: --space-align and --space-cut
 
-Interpretation: the natural mass-weighted bridge sampling is the unbiased
-"what comes next" estimate from the trie. Forcing space — even when it
-dominates — biases the synth's space distribution slightly off-real, and
-the bias outweighs the gluing it eliminates. The `--space-align` flag is
-preserved in `bin/synth_wrap_corpus` for future probes but is off by
-default. See `logs/synth-d32-10M-space*.log`.
+Two attempts to further "clean up" wrap boundaries, both shown to not
+help once the double-emit bug was fixed.
+
+**`--space-align`** (top-k filter on the bridge sampling): in this trie,
+99.99% of leaves have exactly 1 entry in their endpoint counts (mass-1
+prefixes). The "distribution" is degenerate, so forcing space when
+present in top-k is identical to the natural mass-weighted pick. The
+flag is a semantic no-op; any apparent PPL difference comes only from
+shifted RNG trajectory.
+
+**`--space-cut`** (back up within the leaf's edge to the last space):
+98.7% of leaves have a space somewhere in their 23-char edge, so
+emitting only up to the last space and wrapping there produces a
+visibly cleaner synth (reads like broken Shakespeare instead of
+glue-soup). But:
+
+| config       | seeds        | PPL mean | range       |
+|--------------|--------------|---------:|-------------|
+| baseline     | 42,44,46,48  | **7.04** | 6.93–7.13   |
+| `--space-cut`| 42,44,46     |     7.16 | 7.00–7.37   |
+
+space-cut is 0.13 PPL **worse** on average, with wider variance.
+Train loss is consistently lower (~1.91 vs 2.00) — the cleaner synth
+is easier to fit, but generalizes worse to real text.
+
+Mechanism (most likely):
+
+1. space-cut discards the post-last-space tail of each leaf
+   (~5 chars/wrap × ~360k wraps/10M tokens = ~1.7M chars of real
+   corpus content lost per 10M synth).
+2. Always-space-then-non-space-after-wrap teaches a synth-specific
+   transition pattern that doesn't match real text.
+3. Wrap-glue noise was already being absorbed by the model — gluings
+   looked ugly to humans but didn't hurt real-corpus prediction.
+
+Both flags preserved in `bin/synth_wrap_corpus` for future probes but
+are off by default. See `logs/multi-seed-sweep.txt`,
+`logs/synth-d32-10M-space*.log`, `logs/synth-d32-10M-FIXED-*.log`.
 
 ## Artifacts (not in git — regenerate as needed)
 

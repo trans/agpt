@@ -26,6 +26,7 @@ output_path = "data/synth_wrap.txt"
 verbose = false
 space_align = false
 space_align_topk = 3
+space_cut = false
 
 OptionParser.parse do |parser|
   parser.banner = "Usage: synth_wrap_corpus --trie-dir DIR --vocab-text PATH ..."
@@ -34,8 +35,9 @@ OptionParser.parse do |parser|
   parser.on("--total-tokens N", "Total tokens to generate") { |v| total_tokens = v.to_i }
   parser.on("--seed N", "RNG seed") { |v| seed = v.to_u64 }
   parser.on("--output PATH", "Output corpus file") { |v| output_path = v }
-  parser.on("--space-align", "Prefer wrapping at a space-token bridge when one is in the leaf's top-k continuations (eliminates mid-word glue artifacts like 'bishhanged')") { space_align = true }
-  parser.on("--space-align-topk N", "How many top-by-count endpoint entries to scan for a space when --space-align is set (default 3)") { |v| space_align_topk = v.to_i }
+  parser.on("--space-align", "(no-op in this trie at d=32 — leaves are 99.99% mass-1 with single-entry counts; kept for compatibility)") { space_align = true }
+  parser.on("--space-align-topk N", "Top-k filter for --space-align (default 3)") { |v| space_align_topk = v.to_i }
+  parser.on("--space-cut", "At a leaf, back up within its compressed edge to the LAST space and wrap there (no bridge). Eliminates mid-word glue artifacts at the wrap boundary by ending each walk on a word boundary whenever the leaf's edge contains a space. Falls through to normal bridge if no space is in the edge.") { space_cut = true }
   parser.on("--verbose", "Verbose progress") { verbose = true }
   parser.on("-h", "--help", "Help") { puts parser; exit 0 }
 end
@@ -142,6 +144,7 @@ out_io = File.open(output_path, "w")
 emitted = 0
 wrap_count = 0
 space_aligned_wraps = 0
+space_cut_wraps = 0
 last_progress = 0
 
 if space_align
@@ -151,21 +154,32 @@ if space_align
     STDERR.puts "Space-align: bridge prefers token id=#{space_token_id} (' ') when in leaf's top-#{space_align_topk} counts"
   end
 end
+if space_cut
+  if space_token_id.nil?
+    STDERR.puts "WARN: --space-cut set but corpus has no space character; flag will be inert"
+  else
+    STDERR.puts "Space-cut: at a leaf, emit only up to the LAST space in its edge and wrap (no bridge); falls through to bridge if leaf's edge has no space"
+  end
+end
 
-# Pick a starting root-child by mass.
+# Pick a starting root-child by mass. Returns {root_child, matched_seed?}
+# where matched_seed? is true if the picked child's first edge token
+# equals the seed (i.e., we matched on the bridge). The caller uses this
+# to avoid double-emitting the bridge token, which was already printed
+# at the previous iteration's wrap.
 pick_root_child = ->(seed_token : Int32?) {
   if seed_token.nil?
     weights = root_children.map { |r| r.edge_mass }
-    root_children[weighted_pick.call(weights)]
+    {root_children[weighted_pick.call(weights)], false}
   else
     candidates = root_by_first_token[seed_token]?
     if candidates.nil? || candidates.empty?
-      # Fall back: pick by mass (no seed match)
+      # Fall back: pick by mass (no seed match) — bridge stays printed.
       weights = root_children.map { |r| r.edge_mass }
-      root_children[weighted_pick.call(weights)]
+      {root_children[weighted_pick.call(weights)], false}
     else
       weights = candidates.map { |r| r.edge_mass }
-      candidates[weighted_pick.call(weights)]
+      {candidates[weighted_pick.call(weights)], true}
     end
   end
 }
@@ -173,31 +187,67 @@ pick_root_child = ->(seed_token : Int32?) {
 current_seed : Int32? = nil
 
 while emitted < total_tokens
-  current = pick_root_child.call(current_seed)
+  current, seed_matched = pick_root_child.call(current_seed)
   current_seed = nil  # consumed
 
-  # Walk down: emit current's edge tokens, then descend into a
-  # mass-weighted child. Stop at a leaf.
+  # Walk down: at each node, decide whether it's a leaf (no children
+  # OR depth-cap) BEFORE emitting, so --space-cut can short-circuit at
+  # the leaf and stop the emit at the last space in its edge.
+  #
+  # Without --space-cut: emit the full edge of every node, then bridge
+  # at the leaf via the leaf's endpoint counts.
+  #
+  # If skip_next is true (the picked root child matched the previously
+  # emitted bridge token), we skip emitting edge_tokens[0] to avoid
+  # duplicating the bridge.
+  skip_next = seed_matched
+  did_space_cut = false
   loop do
+    next_d = current.endpoint_depth + 1
+    children = (next_d >= reader.depth_file_count) ? ([] of MicroGPT::AGPT::RadixTrieReader::LoadedRecord) : children_at.call(current.id)
+    is_leaf = children.empty?
+
+    if is_leaf && space_cut && (sid = space_token_id)
+      edge = current.edge_tokens
+      start_idx = skip_next ? 1 : 0
+      skip_next = false
+      last_space_idx = -1
+      i = edge.size - 1
+      while i >= start_idx
+        if edge[i] == sid
+          last_space_idx = i
+          break
+        end
+        i -= 1
+      end
+      if last_space_idx >= 0
+        (start_idx..last_space_idx).each do |j|
+          out_io.print id_to_char[edge[j]]
+          emitted += 1
+          break if emitted >= total_tokens
+        end
+        space_cut_wraps += 1
+        # Seed the next walk with space so pick_root_child finds a
+        # space-prefixed root child; that walk's first edge token (==
+        # space) will be skipped via seed_matched, avoiding "  " glue.
+        current_seed = sid
+        did_space_cut = true
+        break
+      end
+      # No space in this leaf's edge — fall through to default emit-all + bridge.
+    end
+
     current.edge_tokens.each do |tok|
-      out_io.print id_to_char[tok]
-      emitted += 1
-      break if emitted >= total_tokens
+      if skip_next
+        skip_next = false
+      else
+        out_io.print id_to_char[tok]
+        emitted += 1
+        break if emitted >= total_tokens
+      end
     end
     break if emitted >= total_tokens
-
-    # Find ALL children of current (at any deeper depth — edge length is variable)
-    next_d = current.endpoint_depth + 1
-    if next_d >= reader.depth_file_count
-      # Hit cap. Wrap.
-      break
-    end
-    children = children_at.call(current.id)
-    if children.empty?
-      # Hit a leaf — wrap with bridge token sampled from current's
-      # endpoint counts (real corpus continuation distribution).
-      break
-    end
+    break if is_leaf
 
     # Pick child by edge_mass (matches L4 mass-walk semantics).
     weights = children.map { |c| c.edge_mass }
@@ -206,28 +256,29 @@ while emitted < total_tokens
 
   break if emitted >= total_tokens
 
-  # Sample bridge token from leaf's endpoint counts (the real "what
-  # comes next in corpus" distribution at this 32-gram).
-  if !current.counts.empty?
-    bridge_token = nil.as(Int32?)
-    if space_align && (sid = space_token_id)
-      # Prefer space if it's among the top-k entries by count.
-      top_k = current.counts.to_a.sort_by { |(_t, c)| -c }.first(space_align_topk)
-      if top_k.any? { |(t, _c)| t == sid }
-        bridge_token = sid
-        space_aligned_wraps += 1
+  # Bridge step. Skipped when --space-cut already wrapped at a word boundary.
+  unless did_space_cut
+    if !current.counts.empty?
+      bridge_token = nil.as(Int32?)
+      if space_align && (sid = space_token_id)
+        # Prefer space if it's among the top-k entries by count.
+        top_k = current.counts.to_a.sort_by { |(_t, c)| -c }.first(space_align_topk)
+        if top_k.any? { |(t, _c)| t == sid }
+          bridge_token = sid
+          space_aligned_wraps += 1
+        end
       end
+      if bridge_token.nil?
+        weights = current.counts.map { |c| c[1] }
+        pick = weighted_pick.call(weights)
+        bridge_token = current.counts[pick][0]
+      end
+      out_io.print id_to_char[bridge_token]
+      emitted += 1
+      current_seed = bridge_token
+    else
+      current_seed = nil
     end
-    if bridge_token.nil?
-      weights = current.counts.map { |c| c[1] }
-      pick = weighted_pick.call(weights)
-      bridge_token = current.counts[pick][0]
-    end
-    out_io.print id_to_char[bridge_token]
-    emitted += 1
-    current_seed = bridge_token
-  else
-    current_seed = nil
   end
   wrap_count += 1
 
@@ -244,4 +295,8 @@ STDERR.puts "  Avg path length per wrap: #{(emitted.to_f64 / [wrap_count, 1].max
 if space_align
   pct = wrap_count > 0 ? (100.0 * space_aligned_wraps / wrap_count).round(1) : 0.0
   STDERR.puts "  Space-aligned wraps: #{space_aligned_wraps} / #{wrap_count} (#{pct}%)"
+end
+if space_cut
+  pct = wrap_count > 0 ? (100.0 * space_cut_wraps / wrap_count).round(1) : 0.0
+  STDERR.puts "  Space-cut wraps: #{space_cut_wraps} / #{wrap_count} (#{pct}%)"
 end
