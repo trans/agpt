@@ -15,3 +15,5 @@ data/gutenberg/*.txt
 data/gutenberg_5m.txt
 rnd/convergence/**/*.csv
 data/input.agpt.model
+data/synth_wrap_*.txt
+rnd/wrap-around/*.model
