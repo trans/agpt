@@ -24,6 +24,8 @@ total_tokens = 1_000_000
 seed = 42_u64
 output_path = "data/synth_wrap.txt"
 verbose = false
+space_align = false
+space_align_topk = 3
 
 OptionParser.parse do |parser|
   parser.banner = "Usage: synth_wrap_corpus --trie-dir DIR --vocab-text PATH ..."
@@ -32,6 +34,8 @@ OptionParser.parse do |parser|
   parser.on("--total-tokens N", "Total tokens to generate") { |v| total_tokens = v.to_i }
   parser.on("--seed N", "RNG seed") { |v| seed = v.to_u64 }
   parser.on("--output PATH", "Output corpus file") { |v| output_path = v }
+  parser.on("--space-align", "Prefer wrapping at a space-token bridge when one is in the leaf's top-k continuations (eliminates mid-word glue artifacts like 'bishhanged')") { space_align = true }
+  parser.on("--space-align-topk N", "How many top-by-count endpoint entries to scan for a space when --space-align is set (default 3)") { |v| space_align_topk = v.to_i }
   parser.on("--verbose", "Verbose progress") { verbose = true }
   parser.on("-h", "--help", "Help") { puts parser; exit 0 }
 end
@@ -48,8 +52,13 @@ chars = vocab_text.chars.uniq.sort
 id_to_char = {} of Int32 => Char
 chars.each_with_index { |c, i| id_to_char[i] = c }
 
-# Simple xorshift RNG so seed gives reproducible output.
-state = seed | 1_u64
+# Reverse lookup for the space token id (used by --space-align).
+space_token_id = chars.index(' ')
+
+# Simple xorshift RNG so seed gives reproducible output. Guard against
+# the all-zeros state (xorshift fixed point); using `| 1` would have
+# conflated adjacent seeds (42 and 43 both → 43).
+state = seed == 0 ? 1_u64 : seed
 
 next_u32 = ->{
   s = state
@@ -132,7 +141,16 @@ end
 out_io = File.open(output_path, "w")
 emitted = 0
 wrap_count = 0
+space_aligned_wraps = 0
 last_progress = 0
+
+if space_align
+  if space_token_id.nil?
+    STDERR.puts "WARN: --space-align set but corpus has no space character; flag will be inert"
+  else
+    STDERR.puts "Space-align: bridge prefers token id=#{space_token_id} (' ') when in leaf's top-#{space_align_topk} counts"
+  end
+end
 
 # Pick a starting root-child by mass.
 pick_root_child = ->(seed_token : Int32?) {
@@ -191,9 +209,20 @@ while emitted < total_tokens
   # Sample bridge token from leaf's endpoint counts (the real "what
   # comes next in corpus" distribution at this 32-gram).
   if !current.counts.empty?
-    weights = current.counts.map { |c| c[1] }
-    pick = weighted_pick.call(weights)
-    bridge_token = current.counts[pick][0]
+    bridge_token = nil.as(Int32?)
+    if space_align && (sid = space_token_id)
+      # Prefer space if it's among the top-k entries by count.
+      top_k = current.counts.to_a.sort_by { |(_t, c)| -c }.first(space_align_topk)
+      if top_k.any? { |(t, _c)| t == sid }
+        bridge_token = sid
+        space_aligned_wraps += 1
+      end
+    end
+    if bridge_token.nil?
+      weights = current.counts.map { |c| c[1] }
+      pick = weighted_pick.call(weights)
+      bridge_token = current.counts[pick][0]
+    end
     out_io.print id_to_char[bridge_token]
     emitted += 1
     current_seed = bridge_token
@@ -212,3 +241,7 @@ out_io.close
 
 STDERR.puts "Done: #{emitted} tokens written to #{output_path}, #{wrap_count} wraps"
 STDERR.puts "  Avg path length per wrap: #{(emitted.to_f64 / [wrap_count, 1].max).round(1)} chars"
+if space_align
+  pct = wrap_count > 0 ? (100.0 * space_aligned_wraps / wrap_count).round(1) : 0.0
+  STDERR.puts "  Space-aligned wraps: #{space_aligned_wraps} / #{wrap_count} (#{pct}%)"
+end

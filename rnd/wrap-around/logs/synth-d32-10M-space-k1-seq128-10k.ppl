@@ -1,0 +1,4 @@
+Config: --space-align --space-align-topk 1, synth seed=42
+PPL on data/input.txt: 7.2726 (NLL 1.9841, 2.8625 bpc)
+Final train loss: 2.0695
+Result: +0.10 PPL vs baseline (worse).

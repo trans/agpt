@@ -1,0 +1,4 @@
+Config: noise-floor probe — baseline (no space-align), synth seed=44
+PPL on data/input.txt: 7.1425 (NLL 1.9663, 2.8372 bpc)
+Final train loss: 2.0647
+Run-to-run noise vs seed=42 baseline: -0.031 PPL.

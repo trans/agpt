@@ -9,6 +9,33 @@ trie carries the predictive content needed for `seq_len > D` training.
 Result: at d=32, the synthesized corpus is sufficient — held-out PPL on the
 real corpus matches the SGD seq=128 ceiling. See `logs/synth-d32-10M-seq128-10k.ppl`.
 
+## Negative result: --space-align doesn't help
+
+Hypothesis: forcing wraps at word boundaries (preferring a space token when
+it's the dominant continuation at a leaf) would eliminate mid-word glue
+artifacts like "bishhanged" and tighten PPL.
+
+Tested at 10M / 10k / seq=128:
+
+| config                        | PPL    | Δ vs baseline |
+|-------------------------------|--------|---------------|
+| baseline (no flag)            | 7.1737 | —             |
+| baseline (different seed)     | 7.1425 | −0.03 (noise) |
+| `--space-align --space-align-topk 1` | 7.2726 | **+0.10**     |
+| `--space-align --space-align-topk 3` | 7.3558 | **+0.18**     |
+
+Run-to-run noise (corpus seed change) is ~0.03 PPL. The space-align signal
+is 3–6× the noise floor, in the wrong direction. Both `topk=1` and `topk=3`
+trigger on the same ~15.3% of wraps (space is either a leaf's dominant
+continuation or absent from its top entries).
+
+Interpretation: the natural mass-weighted bridge sampling is the unbiased
+"what comes next" estimate from the trie. Forcing space — even when it
+dominates — biases the synth's space distribution slightly off-real, and
+the bias outweighs the gluing it eliminates. The `--space-align` flag is
+preserved in `bin/synth_wrap_corpus` for future probes but is off by
+default. See `logs/synth-d32-10M-space*.log`.
+
 ## Artifacts (not in git — regenerate as needed)
 
 | File                                    | Size  | Regen                                |
