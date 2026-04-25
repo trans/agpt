@@ -13,6 +13,6 @@ shards:
     version: 0.5.0
 
   microgpt:
-    path: ../microgpt
-    version: 0.2.0
+    git: https://github.com/trans/microgpt.git
+    version: 0.2.0+git.commit.bdd8e82ec55e6bdfed713b5138b6672d32ccfcc7
 

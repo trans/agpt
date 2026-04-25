@@ -22,7 +22,8 @@ targets:
 
 dependencies:
   microgpt:
-    path: ../microgpt
+    github: trans/microgpt
+    branch: main
   jargon:
     github: trans/jargon
   arcana:
