@@ -42,9 +42,11 @@ skip () { printf "${YELLOW}SKIP${RESET}  %s\n    reason: %s\n" "$1" "$2"; }
 
 # ---- Prerequisites ----
 
-if [ ! -x bin/agpt_train ];     then bad "prereq"  "bin/agpt_train missing (just build-agpt-train)"; exit 1; fi
-if [ ! -x bin/perplexity ];     then bad "prereq"  "bin/perplexity missing (just build-perplexity)"; exit 1; fi
-if [ ! -x bin/check_weights ];  then just build-check-weights >/dev/null 2>&1 || { bad "prereq" "cannot build bin/check_weights"; exit 1; }; fi
+if [ ! -x bin/agpt_train ];        then bad "prereq" "bin/agpt_train missing (just build-agpt-train)"; exit 1; fi
+if [ ! -x bin/agpt_build_radix ];  then bad "prereq" "bin/agpt_build_radix missing (just build-agpt-build-radix)"; exit 1; fi
+if [ ! -x bin/microgpt ];          then bad "prereq" "bin/microgpt missing (just build-microgpt-tools)"; exit 1; fi
+if [ ! -x bin/perplexity ];        then bad "prereq" "bin/perplexity missing (just build-microgpt-tools)"; exit 1; fi
+if [ ! -x bin/check_weights ];     then just build-check-weights >/dev/null 2>&1 || { bad "prereq" "cannot build bin/check_weights"; exit 1; }; fi
 if [ ! -f data/input.random.model ]; then bad "prereq" "data/input.random.model missing"; exit 1; fi
 if [ ! -d /tmp/agpt_input_d8_radix ]; then bad "prereq" "/tmp/agpt_input_d8_radix missing (need a built d=8 radix trie)"; exit 1; fi
 
@@ -92,9 +94,8 @@ if [ ! -d /tmp/agpt_input_d8 ]; then
     skip "$TEST" "/tmp/agpt_input_d8 (leveled) missing; skipping build test"
 else
     rm -rf "$WORK/radix_check"
-    bin/microgpt data/input.txt --steps 0 --no-save --backend openblas \
-        --agpt-build-radix /tmp/agpt_input_d8 \
-        --agpt-radix-out "$WORK/radix_check" > "$WORK/t2.log" 2>&1
+    bin/agpt_build_radix --leveled /tmp/agpt_input_d8 \
+        --out "$WORK/radix_check" > "$WORK/t2.log" 2>&1
     rc=$?
     if [ $rc -ne 0 ]; then
         bad "$TEST" "build exited with code $rc"

@@ -1,4 +1,4 @@
-require "./microgpt"
+require "microgpt"
 require "./agpt/trie_node"
 require "./agpt/trie_accessor"
 require "./agpt/trie_corpus"
@@ -21,5 +21,9 @@ require "./agpt/radix_trie_reader"
 module MicroGPT
   module AGPT
     VERSION = "0.1.0-dev"
+
+    # Identifies how a corpus was tokenized when building a trie. Embedded
+    # into trie metadata so a loader can detect tokenizer drift.
+    TOKENIZER_TAG = "char.sorted_unique.v1"
   end
 end

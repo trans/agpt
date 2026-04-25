@@ -1,14 +1,28 @@
-name: microgpt
-version: 0.2.0
+name: agpt
+version: 0.1.0
 
 authors:
   - Thomas Sawyer <transfire@gmail.com>
 
 targets:
-  microgpt:
-    main: src/microgpt.cr
+  agpt_build_radix:
+    main: src/tools/build_radix.cr
+  agpt_build_index:
+    main: src/tools/build_index.cr
+  synth_wrap_corpus:
+    main: src/tools/synth_wrap_corpus.cr
+  radix-verify:
+    main: src/tools/radix_verify.cr
+  trie-profile:
+    main: src/tools/trie_profile.cr
+  bayesian-posterior:
+    main: src/tools/bayesian_posterior.cr
+  convergence:
+    main: src/tools/convergence.cr
 
 dependencies:
+  microgpt:
+    path: ../microgpt
   jargon:
     github: trans/jargon
   arcana:

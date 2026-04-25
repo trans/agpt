@@ -1,187 +1,92 @@
-# MicroGPT / AGPT Research Repository
+# AGPT — Aggregated-Gradient Pretraining
 
-This repository is the home of the **AGPT (Aggregated-Gradient
-Pretraining)** research project and its reference implementation.
-It also contains the underlying Crystal transformer library used as
-the experimental substrate, plus supporting work.
+Research project on aggregated-gradient pretraining for autoregressive
+language models. Trains a transformer on a prefix-trie representation of
+the corpus, factoring the gradient over branching subtrees rather than
+sliding context windows. Built on top of the
+[µGPT](https://github.com/trans/microgpt) Crystal/CUDA components kit.
 
 ## What's here
 
-- **[AGPT paper](notes/agpt/paper.md)** — the primary research
-  artifact: a gradient-factorization theorem for autoregressive
-  training on prefix tries, a memory-scalable implementation, and
-  empirical results on Shakespeare. This is the main thing to read.
-- **[AGPT training engine](src/cuda/agpt_train.cu)** — the CUDA
-  implementation validating the paper: radix-compressed trie
-  training with per-subtree KV-cache scoping, bigram partitioning,
-  auto-LR scaling, and frequency-based pruning.
-- **[MicroGPT](src/microgpt/)** — a minimal Crystal transformer
-  (from-scratch attention, pluggable Crystal/OpenBLAS/cuBLAS
-  backends) used as the substrate for the AGPT experiments and the
-  window-training baseline. Described in detail in the
-  *Design Decisions* section below.
-- **[Path-probability convergence paper](rnd/)** — an earlier
-  preprint on the statistical convergence of path-frequency
-  distributions across independent corpus splits; supporting work
-  that motivated some of AGPT's trie-based formulation. Results in
-  `rnd/results-extended.md`.
-- **Construction kit** (`src/microgpt/construction_kit.cr`,
-  frontend in `frontend/`) — an experimental graphical UI for
-  designing transformer architectures. Partially implemented and
-  not required to run or evaluate AGPT.
-
-For a short summary of the AGPT research claim and context, see
-[`notes/grants/emergent-ventures-pitch.md`](notes/grants/emergent-ventures-pitch.md).
-
-## MicroGPT library — Design Decisions
-
-The following sections describe the Crystal transformer library
-itself, which AGPT uses as its transformer substrate.
-
-### Data Chunking
-
-Sequential walk through the text with configurable stride. Default stride equals
-`seq_len`, giving non-overlapping chunks with full coverage per epoch.
-
-- ~1.1M tokens in tinyshakespeare, vocab size 65 (character-level).
-- At seq_len=32, one epoch = ~34k steps.
-- No random sampling — every token is seen exactly once per epoch.
-- Stride is configurable: set below seq_len for overlapping context at chunk
-  boundaries if desired.
-
-### Embedding / Unembedding Weights
-
-W_e (token embeddings) and W_unembed (output projection) are **independent**.
-`Embedding.token_emb` is (vocab × d_model), `OutputHead.proj` is a separate
-`Linear` with its own (d_model × vocab) weight matrix. No weight tying.
-
-### W_o and Heterogeneous Heads
-
-`MultiHeadAttention` supports heads of different dimensions. Head outputs are
-concatenated column-wise into a (seq_len × d_model) matrix — head dims must sum
-to d_model. W_o is a plain (d_model × d_model) linear projection over the full
-concatenated vector. It has no awareness of head boundaries; it treats the
-concatenation uniformly.
-
-### Feed-Forward Dimension
-
-`d_ff = d_model` (1:1 ratio). The FF block is two linear layers:
-d_model → d_ff → d_model. At d_model=64 this keeps the parameter count low
-(~61k total) and training fast (~116 steps/sec on OpenBLAS).
-
-### Memory Protection
-
-- `Mat` tracks global allocated bytes with a configurable cap (default 3 GiB).
-  Raises with a detailed message before exceeding the limit.
-- `GC.collect` runs every 10 training steps to reclaim intermediate matrices.
-- `just run` wraps execution with `ulimit -v` (default 8 GiB) as an OS-level
-  safety net.
-
-## Usage
-
-The CLI uses a JSON schema for arguments. All flags use `--flag value` syntax.
-
-### Window Training (standard)
-
-```sh
-# Quick training run
-./bin/microgpt data/input.txt --steps 2000 --d-model 64 --n-layers 2 --seq-len 32
-
-# With held-out validation
-./bin/microgpt data/input.txt --steps 5000 --d-model 64 --n-layers 2 --seq-len 32 \
-  --val-tokens 5000 --val-interval 30
-
-# GPU accelerated
-./bin/microgpt data/input.txt --steps 5000 --d-model 64 --n-layers 2 --seq-len 32 \
-  --backend cublas
-
-# Other options
---seed 42              # reproducible init
---lr 0.0003            # learning rate (default 0.0003)
---no-save              # don't save checkpoint
---model path.model     # save/load checkpoint path
-```
-
-### AGPT Training (trie-walk)
-
-Trains on a prefix trie of the corpus. Shared prefixes are computed once.
-
-```sh
-# Basic AGPT run
-./bin/microgpt data/input.txt --steps 10 --d-model 32 --n-layers 1 --seq-len 16 \
-  --agpt --agpt-max-starts 2000
-
-# With held-out validation (for comparison with window training)
-./bin/microgpt data/input.txt --steps 20 --d-model 32 --n-layers 1 --seq-len 16 \
-  --agpt --agpt-max-starts 2000 --val-tokens 5000 --val-interval 10
-
-# AGPT-specific options
---agpt                     # enable AGPT trie-walk mode
---agpt-max-starts 2000     # number of corpus start positions (0 = all)
---agpt-start-offset 0      # deterministic offset for start positions
---agpt-progress 1000       # print trie build progress every N starts
---agpt-save-index path.idx # save built trie index to disk
---agpt-load-index path.idx # load previously saved trie index
---build-only               # build/report trie without training
-```
-
-**AGPT terminology:**
-- **steps** = number of epochs (full trie traversals)
-- **epoch** = one forward pass over all trie nodes + backward + weight updates
-- **starts** = number of corpus positions used to build the trie (more starts = more prefix sharing but slower)
-
-### Comparison Runs
-
-To compare AGPT vs window training fairly, use the same model config, seed, and held-out split:
-
-```sh
-# Window baseline
-./bin/microgpt data/input.txt --steps 5000 --d-model 32 --n-layers 1 --seq-len 16 \
-  --val-tokens 5000 --val-interval 10 --seed 42 --no-save > window.log 2>&1
-
-# AGPT comparison
-./bin/microgpt data/input.txt --steps 20 --d-model 32 --n-layers 1 --seq-len 16 \
-  --val-tokens 5000 --val-interval 10 --seed 42 --no-save \
-  --agpt --agpt-max-starts 2000 > agpt.log 2>&1
-
-# Extract held-out CE curves (plot wall-clock vs held_out_ce)
-grep '\[val\]' window.log
-grep '\[val\]' agpt.log
-```
-
-### Backends
-
-- `crystal` — pure Crystal CPU (default, no dependencies)
-- `openblas` — CPU with OpenBLAS acceleration
-- `cublas` — GPU via cuBLAS + custom CUDA kernels (requires NVIDIA GPU + CUDA toolkit)
+- **[Paper](notes/agpt/paper.md)** — the gradient-factorization theorem,
+  memory-scalable implementation, and empirical results on Shakespeare.
+- **CUDA training engine** (`src/cuda/agpt_train.cu`, `bin/agpt_train`) —
+  the GPU trainer. Radix-compressed trie input, per-subtree KV-cache
+  scoping, bigram partitioning, auto-LR scaling, frequency-based
+  pruning, and several sampler modes (L1 uniform, L2 root-child uniform,
+  L3 mass-weighted, L4 path).
+- **Trie builders** — `bin/agpt_build_index` produces a leveled
+  per-depth trie from a corpus; `bin/agpt_build_radix` compresses unary
+  chains into multi-character edges.
+- **Wrap-around corpus synthesis** (`bin/synth_wrap_corpus`) — sample
+  arbitrary-length token sequences from a depth-D trie via leaf→root
+  wrapping with bridge-token sampling.
+- **Diagnostic tools** — `bin/radix-verify`, `bin/trie-profile`,
+  `bin/bayesian-posterior`, `bin/convergence`, `bin/check_weights`.
 
 ## Building
 
 ```sh
-just build           # debug build (CPU only)
-just build-release   # release build (CPU only)
-just build-cuda      # release build with GPU support
+shards install         # resolves the µGPT shard dependency
+just build-all         # compiles every AGPT binary
+just build-microgpt-tools  # also build bin/microgpt + bin/perplexity from the shard
 ```
 
-## Contributors
+CUDA kernels are sourced from the µGPT shard at `lib/microgpt/`. `nvcc`
+on `PATH` (or at `/opt/cuda/bin/nvcc`) is required for the GPU trainer.
 
-- [Thomas Sawyer](https://github.com/trans) — creator and maintainer
+## Quick start (Shakespeare, depth 32)
+
+```sh
+# 1. Build a depth-32 leveled trie from the corpus.
+bin/agpt_build_index --corpus data/input.txt --max-depth 32
+
+# 2. Compress it to a radix trie.
+bin/agpt_build_radix --leveled /tmp/agpt_input_d32
+
+# 3. Train.
+cp data/input.random.model /tmp/run.model
+bin/agpt_train \
+  --model /tmp/run.model --trie-dir /tmp/agpt_input_d32_radix \
+  --save /tmp/run.model --epochs 3 --lr 3e-3 \
+  --optimizer rmsprop --rmsprop-beta 0.999 \
+  --lr-schedule warmup-cosine --warmup-epochs 1 \
+  --entropy-lambda 1.0 --mass-weight linear --no-accumulate
+
+# 4. Evaluate held-out perplexity.
+bin/perplexity --model /tmp/run.model --file data/input.txt \
+  --max-positions 4096 --backend openblas
+```
+
+## Tests
+
+```sh
+just test          # Crystal specs + foundational CUDA-trainer tests
+just test-crystal  # Crystal specs only
+just test-agpt     # foundational tests (gradient flow, build, NaN, PPL)
+```
+
+Foundational tests require `bin/microgpt` and `bin/perplexity` from the
+µGPT shard — `just build-microgpt-tools` builds them.
+
+## Layout
+
+```
+src/agpt/        Crystal: trie, radix, samplers, KV store, walkers
+src/cuda/        agpt_train.cu (GPU trainer; kernels.cu lives in µGPT)
+src/tools/       Crystal CLIs (builders, synthesis, diagnostics)
+spec/            Crystal specs for AGPT-only modules
+tests/           Foundational shell tests
+notes/agpt/      Design notes, paper drafts, status
+notes/grants/    Grant pitch
+rnd/             Research logs (per-experiment subdirectories)
+```
 
 ## License
 
-This repository is released under the [PolyForm Noncommercial License
-1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0/) —
-see [`LICENSE`](LICENSE).
-
-Academic research, personal study, and use by educational or
-research institutions are permitted and encouraged.
-
-### Commercial licensing available
-
-If you want to use this code in a commercial product, service, or
-for-profit internal workflow, a separate commercial license is
-required. Terms are flexible and sized to the deployment —
-startup-friendly arrangements are welcome.
-
-See [`COMMERCIAL_LICENSE.md`](COMMERCIAL_LICENSE.md) for details, or
-contact **`transfire@gmail.com`** directly.
+Released under the [PolyForm Noncommercial License
+1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0/) — see
+[`LICENSE`](LICENSE). Academic and research use is permitted and
+encouraged. Commercial licensing available — see
+[`COMMERCIAL_LICENSE.md`](COMMERCIAL_LICENSE.md) or contact
+**`transfire@gmail.com`**.
