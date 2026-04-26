@@ -1,5 +1,13 @@
 # Bayesian Bloom: Unlocking Dense Suffix Signal from Sparse Prefix Tries for Unbounded Context
 
+> **Status (2026-04-25):** Documented as a future direction; **not currently
+> needed**. The wrap-around-via-synth-corpus approach (`bin/synth_wrap_corpus`,
+> see `rnd/wrap-around/`) reached the SGD seq=128 ceiling (mean PPL 7.04) at
+> d=32 without requiring Bayesian Bloom or any explicit suffix structure.
+> Revisit when training-context demands push past what wrap-around can
+> provide. The refinement in §8 is the current crystallized form of the
+> idea; §1–§7 below predate that and frame the original formulation.
+
 ## Abstract
 
 We present a novel extension to AGPT (Attention-Gated Prefix Trie) language models that addresses the fundamental context-length limitation imposed by trie sparsity. Rather than extending the trie depth, building a second suffix tree, or learning an alignment between spaces, we observe that a prefix trie implicitly encodes its own suffix view via Bayes' rule. At sparse tips — nodes where branching factor collapses to unity — we invert the path statistics analytically to recover a dense contextual distribution over preceding contexts. This enables inference and training over sequences arbitrarily longer than the trie's optimal depth *D*\*, with **constant memory beyond** *D*\* and **linear compute** in sequence length. The optimal depth *D*\* is shown to be a logarithmic function of corpus size, readable directly from the trie rather than tuned as a hyperparameter. The architecture makes the corpus itself — not arbitrary context window choices — the fundamental determinant of model behavior. No second tree is built, no additional parameters are learned, and no retraining is required: the dense signal is present in the original trie and is unlocked by a simple probabilistic inversion.
@@ -266,9 +274,116 @@ In the end, the corpus is the real input. The architecture is the lens.
 
 ---
 
+## 8. Refinement: Explicit Dual-Tree Loop
+
+The original formulation (§1–§7) claimed *no second tree is required* —
+the prefix trie alone, via Bayesian inversion at sparse tips, supplies
+the suffix view. That framing was a useful simplification but slightly
+misrepresented the cleaner construction now preferred. The refinement
+makes the suffix tree explicit and uses Bayesian inversion as a
+direction-flipping bridge, not as a sparsity workaround.
+
+### 8.1 Two trees, one corpus
+
+Build both:
+
+- a **prefix radix trie** over the corpus (the existing AGPT structure)
+- a **suffix radix trie** over the corpus — the same trie shape but
+  with paths root→leaf representing suffixes of the corpus
+
+Each radix node in either tree corresponds to a substring (a prefix of
+length `k` in the prefix trie, or a suffix of length `k` in the suffix
+trie). For any sequence π that appears as a substring of the corpus,
+there is a node in the prefix trie representing it as a forward path
+and (potentially) a corresponding node in the suffix trie representing
+it as a reverse path. We refer informally to this pair as **dual nodes**.
+
+> *Caveat: it is not yet established that every prefix-trie node has a
+> meaningful dual in the suffix trie — the corpus's prefix structure and
+> suffix structure are not symmetric in general. The dual mapping is
+> well-defined for nodes whose substring is reachable from both sides;
+> a precise statement of conditions is left for follow-up work.*
+
+### 8.2 Connecting the trees
+
+Two granularities of dual-tree connection:
+
+- **Coarse (leaf-to-leaf):** connect prefix-trie leaves directly to
+  suffix-trie leaves. Analogous to the wrap-around's leaf-to-root
+  stitch, but instead of looping back to root, the walk continues
+  *through* the suffix tree from a corresponding leaf.
+
+- **Fine (node dual):** at every prefix-trie node, the dual node in
+  the suffix trie is the natural continuation point. This makes the
+  combined structure feel less like a stitched loop and more like a
+  single object viewed from two directions.
+
+The fine version is conceptually cleaner but requires the dual-mapping
+caveat above to be resolved.
+
+### 8.3 The training loop
+
+A training pass now reads:
+
+1. Walk forward through the prefix trie (root → leaf), accumulating
+   forward-conditional state as in standard AGPT.
+2. Cross over to the suffix trie at the appropriate dual point (leaf
+   in the coarse version; arbitrary node in the fine version).
+3. Continue walking *down* through the suffix trie. Suffix-trie
+   probabilities are oriented "upside down" relative to forward
+   training (the trie was built backwards), so apply Bayesian
+   inversion to flip each step's conditional from `P(prev | suffix)`
+   to `P(next | prefix)`. With the inversion, the suffix-trie walk
+   yields forward-direction predictions exactly as the prefix-trie
+   walk does.
+4. The suffix-trie walk descends to the suffix-trie root.
+5. **Loop closure:** suffix-trie root feeds back into prefix-trie root.
+   The next training step starts a fresh prefix walk from there.
+
+### 8.4 Relationship to wrap-around-via-synth-corpus
+
+The wrap-around-via-synth-corpus approach (`rnd/wrap-around/`) achieves
+a similar end without ever building a suffix trie or doing Bayesian
+inversion: it walks the prefix trie root → leaf, picks a bridge token
+from the leaf's endpoint counts, wraps to root seeded by that bridge,
+and continues. The synthesized corpus is then trained on with standard
+SGD, no architectural changes required.
+
+It is plausible — though not proven — that wrap-around and the
+explicit dual-tree loop are **mathematically equivalent**: both
+implement "walk forward through context, transition to a new
+context, continue forward." The dual-tree loop expresses the
+transition with a Bayesian-inverted suffix-tree path; wrap-around
+expresses it with a single endpoint-count bridge sample.
+
+If the equivalence holds, wrap-around is the cheaper implementation
+(no second trie, no inversion machinery, no architectural change).
+The dual-tree loop has aesthetic appeal — bidirectional, dual-node,
+elegant closure — but the engineering case for it depends on
+identifying a concrete training scenario where wrap-around's coarser
+single-bridge transition is insufficient.
+
+### 8.5 Why this is "the big guns"
+
+The dual-tree loop is what would be brought out if and when the
+synth-corpus approach hits a ceiling we cannot move with seed
+diversity, longer training, or larger models. At that point, the
+question becomes whether the missing capacity is in:
+
+- **the corpus** — no architectural fix can help
+- **the model** — bigger model, more steps
+- **the wrap mechanism** — *here* the dual-tree loop wins, because
+  its per-token transition uses the suffix tree's full local
+  distribution rather than a single bridge token sample
+
+This third case is the one to watch for. Until it arrives, the
+dual-tree loop stays in this document and out of the codebase.
+
+---
+
 ## Acknowledgments
 
-*This work extends the AGPT architecture developed in [prior work, reference to be added]. The Bayesian Bloom formulation emerged in collaborative discussion, benefiting from iterative refinement of an initially symmetric "butterfly" intuition into the asymmetric alternating-cascade formulation presented here.*
+*This work extends the AGPT architecture developed in [prior work, reference to be added]. The Bayesian Bloom formulation emerged in collaborative discussion, benefiting from iterative refinement of an initially symmetric "butterfly" intuition into the asymmetric alternating-cascade formulation presented here. The §8 dual-tree refinement crystallized after the wrap-around-via-synth-corpus approach matched the SGD seq=128 ceiling, prompting a re-examination of what the suffix view actually wanted to be in this architecture.*
 
 ## References
 

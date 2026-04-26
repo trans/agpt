@@ -1,5 +1,14 @@
 # Learned Suffix-Depth Blending for a Depth-Limited Prefix Tree
 
+> **Status (2026-04-25):** Documented as a future direction; **not currently
+> needed**. The wrap-around-via-synth-corpus approach (`bin/synth_wrap_corpus`,
+> see `rnd/wrap-around/`) reached the SGD seq=128 ceiling (mean PPL 7.04) at
+> d=32 without sliding-window state updates. Sliding suffix windows are also
+> expected to introduce more synthetic linkage per chunk than wrap-around
+> (one transition per token vs one transition per ~30 tokens), so the
+> mechanism is unlikely to win unless we hit a regime that rules out
+> wrap-around. Revisit in that case.
+
 ## Goal
 
 We have:
