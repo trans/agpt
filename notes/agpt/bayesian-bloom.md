@@ -287,97 +287,161 @@ direction-flipping bridge, not as a sparsity workaround.
 
 Build both:
 
-- a **prefix radix trie** over the corpus (the existing AGPT structure)
-- a **suffix radix trie** over the corpus — the same trie shape but
-  with paths root→leaf representing suffixes of the corpus
+- a **prefix radix trie** P over the corpus (the existing AGPT structure;
+  root→leaf paths spell forward D-grams)
+- a **suffix radix trie** S over the corpus (root→leaf paths spell
+  *reversed* D-grams; equivalently, suffixes of the corpus indexed
+  backward so that walking root-ward consumes characters in increasing
+  corpus position)
 
-Each radix node in either tree corresponds to a substring (a prefix of
-length `k` in the prefix trie, or a suffix of length `k` in the suffix
-trie). For any sequence π that appears as a substring of the corpus,
-there is a node in the prefix trie representing it as a forward path
-and (potentially) a corresponding node in the suffix trie representing
-it as a reverse path. We refer informally to this pair as **dual nodes**.
+Both trees store the same set of D-grams of the corpus — they differ
+only in how those D-grams are *indexed* (forward-key vs reverse-key).
 
-> *Caveat: it is not yet established that every prefix-trie node has a
-> meaningful dual in the suffix trie — the corpus's prefix structure and
-> suffix structure are not symmetric in general. The dual mapping is
-> well-defined for nodes whose substring is reachable from both sides;
-> a precise statement of conditions is left for follow-up work.*
+### 8.2 The dual relation: next-D-gram, not same-substring-reversed
 
-### 8.2 Connecting the trees
+This is the key correction over an earlier framing. The dual of a
+P-leaf is **not** the S-node that holds its substring read backward
+(that's a trivial substring identity, not a useful training pivot).
+The dual is **the S-leaf representing the next D characters of the
+corpus immediately following this P-leaf's occurrence**.
 
-Two granularities of dual-tree connection:
+Concretely, for a P-leaf representing D-gram π that occurs at corpus
+position `i`:
 
-- **Coarse (leaf-to-leaf):** connect prefix-trie leaves directly to
-  suffix-trie leaves. Analogous to the wrap-around's leaf-to-root
-  stitch, but instead of looping back to root, the walk continues
-  *through* the suffix tree from a corresponding leaf.
+- the **dual S-leaf** represents `corpus[i+D : i+2D]`
+- the juncture is *the literal corpus continuation*
 
-- **Fine (node dual):** at every prefix-trie node, the dual node in
-  the suffix trie is the natural continuation point. This makes the
-  combined structure feel less like a stitched loop and more like a
-  single object viewed from two directions.
+For a mass-1 P-leaf (one occurrence in the corpus), this is a single
+S-leaf — the next D-gram is uniquely determined.
 
-The fine version is conceptually cleaner but requires the dual-mapping
-caveat above to be resolved.
+For a mass-k P-leaf (k occurrences), the dual relation is
+**multi-valued**: there are up to k distinct next-D-grams, each tied
+to one occurrence position. Two occurrences may have the same next
+D-gram (then two of the k duals collapse) or all k may differ.
 
-### 8.3 The training loop
+A worked example on the synthetic corpus
+`ABCDEFABCABCABDEDFBCADFE` at D=3:
 
-A training pass now reads:
+- `ABC` (mass 3, positions 0/6/9) duals → `DEF`, `ABC`, `ABD`
+- `BCA` (mass 3, positions 7/10/18) duals → `BCA`, `BDE`, `DFE`
+- `CAB` (mass 2, positions 8/11) duals → `CAB`, `DED`
+- `ABD` (mass 1, position 12) → single dual `EDF`
+- `ADF` (mass 1, position 20) → truncated (only `E` left in corpus)
 
-1. Walk forward through the prefix trie (root → leaf), accumulating
-   forward-conditional state as in standard AGPT.
-2. Cross over to the suffix trie at the appropriate dual point (leaf
-   in the coarse version; arbitrary node in the fine version).
-3. Continue walking *down* through the suffix trie. Suffix-trie
-   probabilities are oriented "upside down" relative to forward
-   training (the trie was built backwards), so apply Bayesian
-   inversion to flip each step's conditional from `P(prev | suffix)`
-   to `P(next | prefix)`. With the inversion, the suffix-trie walk
-   yields forward-direction predictions exactly as the prefix-trie
-   walk does.
-4. The suffix-trie walk descends to the suffix-trie root.
-5. **Loop closure:** suffix-trie root feeds back into prefix-trie root.
-   The next training step starts a fresh prefix walk from there.
+### 8.3 What S adds that P doesn't already have
 
-### 8.4 Relationship to wrap-around-via-synth-corpus
+The dual mapping requires *positional* information that P, as
+currently stored, throws away.
 
-The wrap-around-via-synth-corpus approach (`rnd/wrap-around/`) achieves
-a similar end without ever building a suffix trie or doing Bayesian
-inversion: it walks the prefix trie root → leaf, picks a bridge token
-from the leaf's endpoint counts, wraps to root seeded by that bridge,
-and continues. The synthesized corpus is then trained on with standard
-SGD, no architectural changes required.
+P stores per-leaf **counts** but not the *positions* of each occurrence.
+Two D-grams with mass 1 each can sit anywhere in the corpus and P
+records only "I saw this once." S, indexed by what came after, captures
+the per-occurrence continuation that count-only P cannot reconstruct.
 
-It is plausible — though not proven — that wrap-around and the
-explicit dual-tree loop are **mathematically equivalent**: both
-implement "walk forward through context, transition to a new
-context, continue forward." The dual-tree loop expresses the
-transition with a Bayesian-inverted suffix-tree path; wrap-around
-expresses it with a single endpoint-count bridge sample.
+So:
 
-If the equivalence holds, wrap-around is the cheaper implementation
-(no second trie, no inversion machinery, no architectural change).
-The dual-tree loop has aesthetic appeal — bidirectional, dual-node,
-elegant closure — but the engineering case for it depends on
-identifying a concrete training scenario where wrap-around's coarser
-single-bridge transition is insufficient.
+- **At the substring level**: S is recoverable from P trivially —
+  both contain the same set of D-grams.
+- **At the positional/continuation level**: S provides genuinely
+  new information that count-only P lacks. The only way to derive
+  S from P alone is to also store occurrence positions in P, at
+  which point you can rebuild S by walking the corpus once.
 
-### 8.5 Why this is "the big guns"
+In other words: **S is positional-continuation index that count-only
+P discards.** If P is augmented to store positions, the two are
+mutually derivable. Without positions, S adds real signal.
 
-The dual-tree loop is what would be brought out if and when the
-synth-corpus approach hits a ceiling we cannot move with seed
-diversity, longer training, or larger models. At that point, the
-question becomes whether the missing capacity is in:
+### 8.4 The training loop
 
-- **the corpus** — no architectural fix can help
-- **the model** — bigger model, more steps
-- **the wrap mechanism** — *here* the dual-tree loop wins, because
-  its per-token transition uses the suffix tree's full local
-  distribution rather than a single bridge token sample
+A training pass:
 
-This third case is the one to watch for. Until it arrives, the
-dual-tree loop stays in this document and out of the codebase.
+1. Walk forward through P (root → leaf), accumulating forward-
+   conditional state as in standard AGPT. Output covers `corpus[i:i+D]`.
+2. At the P-leaf, look up the dual S-leaf (one of the up-to-k
+   continuations available for this leaf, picked by mass weighting,
+   or visited exhaustively across training).
+3. Walk *down* through S from that S-leaf toward S's root. Because
+   S's paths are reverse-indexed, this walk consumes
+   `corpus[i+D : i+2D]` *forward in time*, but each S-step's
+   stored conditional reads `P(prev_char | reversed_suffix)`. We
+   apply **Bayesian inversion** to flip each step's conditional to
+   `P(next_char | prefix)`, so the S-walk produces forward
+   predictions just like the P-walk.
+4. S-walk lands at S's root, having consumed D more characters of
+   real corpus content.
+5. **Loop closure:** S-root → P-root. Next P-walk starts fresh,
+   beginning at corpus position `i+2D`.
+
+One full P→S cycle therefore covers **2D characters of the actual
+corpus walk**, structurally preserving long-range corpus order
+across the boundary.
+
+### 8.5 Comparison with wrap-around-via-synth-corpus
+
+Both approaches solve the same problem (training over sequences
+longer than D). They differ in what they preserve across the
+inter-D-gram boundary:
+
+|                              | wrap-around                                | dual-tree loop                              |
+|------------------------------|--------------------------------------------|---------------------------------------------|
+| Across-boundary kept         | 1 char (bridge token)                      | D chars (full next-D-gram)                  |
+| Next chunk's content         | random D-gram seeded by bridge             | actual corpus continuation                  |
+| Long-range corpus order      | lost — bouncing around corpus             | preserved — sticks to true corpus walk     |
+| Mass-k aggregation           | sample one bridge, sample one root child  | sample one of k actual continuations        |
+| Storage                      | P alone, count-only                        | P + S (or P-with-positions)                 |
+| Architecture cost            | none — pure synth corpus + standard SGD   | needs the loop machinery and inversion      |
+| Training-data fidelity       | distribution-faithful, position-loose     | corpus-faithful per cycle                   |
+
+So they are **not mathematically equivalent per cycle**. Dual-tree
+preserves the actual corpus continuation; wrap-around lossily
+samples from the same statistical distribution.
+
+In the **limit over many training cycles**, the two approaches
+converge on the same distribution of corpus content seen
+(modulo the wrap-around's slight bias from the random
+restart mechanism). For finite training, the two may differ:
+
+- dual-tree could learn long-range corpus structure more faithfully
+- wrap-around's random reshuffling may generalize better and is
+  closer to AGPT's original "aggregate across all occurrences"
+  spirit
+- on PPL of held-out clean text (no wrap noise), the relative
+  performance is empirically open
+
+### 8.6 When to bring this out
+
+The dual-tree loop is the "big guns" — reserve it for when:
+
+- the wrap-around-via-synth-corpus approach has saturated and
+  PPL/quality is still bottlenecked by *transition fidelity* (not
+  corpus capacity, not model capacity, not training budget)
+- training stability or generation coherence over very long
+  sequences is degrading in ways that look like long-range
+  context-loss specifically
+
+Until then: wrap-around is the cheaper, simpler implementation
+that already matches the SGD seq=128 ceiling at d=32 on
+Shakespeare. The dual-tree loop stays in this document.
+
+### 8.7 Open questions for follow-up
+
+1. **Storage cost.** Building S explicitly potentially doubles the
+   trie storage. Whether this is justified depends on (a) the
+   measured PPL gain at training scales where wrap-around saturates,
+   and (b) whether per-occurrence positions in P would be cheaper.
+
+2. **Empirical equivalence.** Implement a synth-corpus generator
+   that emits the dual-tree corpus continuation deterministically
+   instead of wrap-around's random restart, train under matched
+   conditions, and measure the PPL gap. If small, the cheaper
+   wrap-around is sufficient. If large, the dual-tree case is
+   strengthened.
+
+3. **Dual-mapping at the radix node level (vs leaf level).**
+   §8.2 defines duality at leaves. Whether interior radix nodes
+   also have meaningful duals (and how to walk them) is a finer
+   structural question. The leaf-to-leaf framing is sufficient to
+   close the loop and is what should be implemented first.
 
 ---
 
