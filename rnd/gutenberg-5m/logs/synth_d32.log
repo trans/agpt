@@ -1,0 +1,6 @@
+Loaded radix trie: 7539820 nodes, max_endpoint_depth=32, vocab_size=65
+Building parent → children index...
+  built in 6.4s, 2551566 parent nodes have children
+Root children: 65
+Done: 10000000 tokens written to /home/trans/agpt-tries/synth_g5m_d32_10M.txt, 312499 wraps
+  Avg path length per wrap: 32.0 chars

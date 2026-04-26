@@ -1,0 +1,21 @@
+[agpt index] building leveled trie → /home/trans/agpt-tries/gutenberg_5m_d16
+  corpus: data/gutenberg_5m.txt (5000000 tokens, vocab=65)
+  max_depth: 16
+[agpt stream] depth   1:      65 nodes,  4999999 active  (0.2s)
+[agpt stream] depth   2:    1750 nodes,  4999998 active  (0.7s)
+[agpt stream] depth   3:   16970 nodes,  4999997 active  (1.5s)
+[agpt stream] depth   4:   86251 nodes,  4999996 active  (2.3s)
+[agpt stream] depth   5:  273634 nodes,  4999995 active  (3.3s)
+[agpt stream] depth   6:  629393 nodes,  4999994 active  (4.7s)
+[agpt stream] depth   7: 1139167 nodes,  4999993 active  (6.7s)
+[agpt stream] depth   8: 1743981 nodes,  4999992 active  (9.0s)
+[agpt stream] depth   9: 2375122 nodes,  4999991 active  (12.0s)
+[agpt stream] depth  10: 2966593 nodes,  4999990 active  (15.5s)
+[agpt stream] depth  11: 3480306 nodes,  4999989 active  (19.1s)
+[agpt stream] depth  12: 3897104 nodes,  4999988 active  (23.4s)
+[agpt stream] depth  13: 4216381 nodes,  4999987 active  (27.6s)
+[agpt stream] depth  14: 4449840 nodes,  4999986 active  (31.9s)
+[agpt stream] depth  15: 4615700 nodes,  4999985 active  (36.4s)
+[agpt stream] depth  16: 4731134 nodes,  4999984 active  (40.5s)
+[agpt stream] done: 34623392 nodes, 17 depth files, 40.5s total
+[agpt index] saved in 40.5s

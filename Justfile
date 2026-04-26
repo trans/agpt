@@ -30,6 +30,13 @@ build-agpt-build-radix: build-stubs
     mkdir -p bin
     timeout 3m crystal build src/tools/build_radix.cr -o bin/agpt_build_radix --release --link-flags="{{root}}/build/kernels.o -lstdc++"
 
+# Build the corpus → radix builder. Bypasses the leveled-trie intermediate;
+# bounded memory per root-character subtree. Use this for large corpora
+# (5M+ chars at d=32) that OOM the leveled-then-radix pipeline.
+build-agpt-build-radix-corpus: build-stubs
+    mkdir -p bin
+    timeout 3m crystal build src/tools/build_radix_corpus.cr -o bin/agpt_build_radix_corpus --release --link-flags="{{root}}/build/kernels.o -lstdc++"
+
 # Build wrap-around corpus synthesizer.
 build-synth-wrap-corpus: build-stubs
     mkdir -p bin
