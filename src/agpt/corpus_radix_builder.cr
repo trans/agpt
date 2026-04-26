@@ -17,15 +17,76 @@ module MicroGPT
       RADIX_MAGIC   = 0x52445841_u32  # 'RDXA' — same as StreamingRadixBuilder
       RADIX_VERSION = 2_i32
 
-      # CharTrieNode: mutable in-memory node for one subtree's character trie.
-      # Children are keyed by token id. count = total D-gram inserts that pass
-      # through this node (= the prefix's frequency at this depth).
-      private class CharTrieNode
-        property children : Hash(Int32, CharTrieNode)
-        property count : Int32
+      # Compact char-trie for one subtree, struct-of-arrays. Each node is
+      # 4 × Int32 (token, count, first_child id, next_sibling id) = 16 bytes
+      # raw — vs ~150 B for a class+Hash node, a 10× memory reduction. Children
+      # are stored as a singly-linked list per parent: first_child[parent]
+      # points to head, next_sibling[child] chains the rest. Sentinel = -1.
+      #
+      # All operations are O(branching) at the parent. For typical char tries
+      # at deep depths (mostly mass-1 unary), branching is 1, so lookups are
+      # effectively O(1).
+      private class CompactCharTrie
+        getter tokens       : Array(Int32)
+        getter counts       : Array(Int32)
+        getter first_child  : Array(Int32)
+        getter next_sibling : Array(Int32)
+
         def initialize
-          @children = {} of Int32 => CharTrieNode
-          @count = 0
+          @tokens       = [] of Int32
+          @counts       = [] of Int32
+          @first_child  = [] of Int32
+          @next_sibling = [] of Int32
+          # Allocate root at id=0. Token gets set by the caller (it represents
+          # the subtree's depth-1 char).
+          add_node(-1)
+        end
+
+        def size : Int32
+          @tokens.size
+        end
+
+        def add_node(token : Int32) : Int32
+          id = @tokens.size
+          @tokens       << token
+          @counts       << 0
+          @first_child  << -1
+          @next_sibling << -1
+          id
+        end
+
+        # Find an existing child of `parent` matching `token`, or create one.
+        # Returns the child's node id.
+        def get_or_add_child(parent : Int32, token : Int32) : Int32
+          cid = @first_child.unsafe_fetch(parent)
+          while cid != -1
+            if @tokens.unsafe_fetch(cid) == token
+              return cid
+            end
+            cid = @next_sibling.unsafe_fetch(cid)
+          end
+          new_id = add_node(token)
+          @next_sibling[new_id] = @first_child.unsafe_fetch(parent)
+          @first_child[parent] = new_id
+          new_id
+        end
+
+        # Returns the single child's id if `parent` has exactly one child,
+        # otherwise -1. Cheap O(1) test (walks at most two list nodes).
+        def single_child(parent : Int32) : Int32
+          cid = @first_child.unsafe_fetch(parent)
+          return -1 if cid == -1
+          return -1 if @next_sibling.unsafe_fetch(cid) != -1
+          cid
+        end
+
+        # Yield (token, child_id, count) for every child of `parent`.
+        def each_child(parent : Int32, & : Int32, Int32, Int32 -> _) : Nil
+          cid = @first_child.unsafe_fetch(parent)
+          while cid != -1
+            yield @tokens.unsafe_fetch(cid), cid, @counts.unsafe_fetch(cid)
+            cid = @next_sibling.unsafe_fetch(cid)
+          end
         end
       end
 
@@ -110,6 +171,7 @@ module MicroGPT
 
           rc = emit_subtree(
             char_root,
+            root_node: 0,
             head_token: root_char,
             parent_radix_id: 0,
             first_char_depth: 1,
@@ -130,9 +192,9 @@ module MicroGPT
             STDERR.puts "[radix-corpus] subtree char=#{root_char} (#{starts.size} positions): emitted #{rc[:emitted]} radix nodes  (cum total #{radix_count}, max_ep_depth=#{max_endpoint_depth}, #{elapsed.round(1)}s)"
           end
 
-          # Drop the char trie. Crystal GC will collect it before the next
-          # subtree's working set is allocated.
-          char_root = nil
+          # The char_root reference goes out of scope at the next loop
+          # iteration when it's rebound. Crystal GC reclaims the previous
+          # subtree's compact trie before the next one's allocations grow.
         end
 
         # Patch per-depth file headers and close.
@@ -188,44 +250,43 @@ module MicroGPT
       # Build a character-level trie of the D-grams whose first char is
       # root_char, by inserting each D-gram one position at a time. The root
       # of the returned trie represents the depth-1 character (root_char).
-      private def build_char_trie(starts : Array(Int32), root_char : Int32) : CharTrieNode
-        root = CharTrieNode.new
+      private def build_char_trie(starts : Array(Int32), root_char : Int32) : CompactCharTrie
+        trie = CompactCharTrie.new
+        # Root node id 0 = the subtree's depth-1 node (representing root_char).
+        # Set its token explicitly (the constructor stub'd it as -1).
+        trie.tokens[0] = root_char
         starts.each do |i|
-          current = root
-          current.count += 1
-          # Insert chars at depths 2..max_depth+1 (i.e. corpus positions
-          # i+1..i+max_depth). The depth-(max_depth+1) layer exists only to
-          # populate endpoint_counts at the depth-max_depth radix nodes —
-          # we never emit a radix record at depth > max_depth. This matches
-          # the leveled builder's behavior of recording the (d+1)th char
-          # distribution at every depth-d node, including d = max_depth.
+          current_id = 0
+          trie.counts[current_id] += 1
+          # Insert chars at depths 2..max_depth+1 (positions i+1..i+max_depth).
+          # See the StreamingRadixBuilder-equivalence note: the depth-
+          # (max_depth+1) layer exists only to populate endpoint_counts at
+          # the depth-max_depth radix nodes; no radix record is emitted at
+          # depth > max_depth.
           last = i + @max_depth + 1
           last = @corpus_tokens.size if last > @corpus_tokens.size
           j = i + 1
           while j < last
-            tok = @corpus_tokens[j]
-            child = current.children[tok]?
-            if child.nil?
-              child = CharTrieNode.new
-              current.children[tok] = child
-            end
-            current = child
-            current.count += 1
+            tok = @corpus_tokens.unsafe_fetch(j)
+            current_id = trie.get_or_add_child(current_id, tok)
+            trie.counts[current_id] += 1
             j += 1
           end
         end
-        root
+        trie
       end
 
-      # Walk the char trie and emit radix records. `node` is the head of an
-      # incoming edge — the unary chain extends from `node` until we hit a
-      # branching point or the depth cap. `head_token` is the token at the
-      # node's position (the key in the parent's children map that pointed
-      # to it; for the subtree root, it's the subtree's root_char).
+      # Walk the compact char trie and emit radix records. `root_node` is
+      # the trie's node id for the head of an incoming edge. The unary chain
+      # extends from `root_node` until we hit a branching point or the depth
+      # cap. `head_token` is the token at the node's position (for the
+      # subtree root it's the subtree's root_char; for descendants it's the
+      # parent's children-link token).
       #
       # Returns updated counters in a NamedTuple.
       private def emit_subtree(
-        node : CharTrieNode,
+        trie : CompactCharTrie,
+        root_node : Int32,
         head_token : Int32,
         parent_radix_id : Int32,
         first_char_depth : Int32,
@@ -237,41 +298,41 @@ module MicroGPT
         max_endpoint_depth : Int32,
       )
         emitted = 0
-        # Iterative work-list to avoid deep recursion (paths can be ~max_depth long).
-        # Each entry: (node, head_token, parent_radix_id, first_char_depth)
-        work = Deque({CharTrieNode, Int32, Int32, Int32}).new
-        work << {node, head_token, parent_radix_id, first_char_depth}
+        # Iterative work-list. Each entry: (node_id, head_token, parent_radix_id, first_char_depth).
+        work = Deque({Int32, Int32, Int32, Int32}).new
+        work << {root_node, head_token, parent_radix_id, first_char_depth}
 
         while !work.empty?
-          n, head_tok, p_id, fcd = work.shift
+          n_id, head_tok, p_id, fcd = work.shift
 
-          # Walk the unary chain from n down through children-of-size-1.
-          current = n
+          current_id = n_id
           current_depth = fcd
           edge_tokens = [head_tok]
 
-          # mass at the head of the edge = count at this node
-          edge_mass = current.count
+          edge_mass = trie.counts.unsafe_fetch(current_id)
 
           # Extend through unary chain
-          while current.children.size == 1 && current_depth < @max_depth
-            tok, child = current.children.first
-            current = child
+          while current_depth < @max_depth
+            sc = trie.single_child(current_id)
+            break if sc == -1
+            current_id = sc
             current_depth += 1
-            edge_tokens << tok
+            edge_tokens << trie.tokens.unsafe_fetch(current_id)
           end
 
-          # `current` is the endpoint. Build endpoint_counts from its children.
-          endpoint_counts = current.children.map { |tok, child| {tok, child.count} }
+          # Build endpoint_counts from this node's children.
+          endpoint_counts = [] of {Int32, Int32}
+          trie.each_child(current_id) do |tok, _cid, count|
+            endpoint_counts << {tok, count}
+          end
 
-          # End-of-corpus tail: empty endpoint counts means there's no next-
-          # token observation at this prefix (we hit the corpus end). No
-          # training signal — drop. Matches StreamingRadixBuilder semantics.
+          # End-of-corpus tail: empty endpoint counts means we hit corpus end
+          # at this prefix. No training signal. Drop.
           if endpoint_counts.empty?
             next
           end
 
-          # Frequency pruning (matches StreamingRadixBuilder semantics).
+          # Frequency pruning.
           if edge_mass < @prune_min_mass && fcd >= @prune_min_depth
             next
           end
@@ -319,12 +380,9 @@ module MicroGPT
           end
 
           # Queue each branching child of the endpoint as a new edge head.
-          # We only get here with ≥2 children OR depth-cap reached. The
-          # depth-cap case has no children to queue. Each queued child
-          # carries its head token (the key it sits under in current.children).
           if endpoint_counts.size >= 2
-            current.children.each do |child_tok, child|
-              work << {child, child_tok, radix_id, current_depth + 1}
+            trie.each_child(current_id) do |child_tok, child_id, _count|
+              work << {child_id, child_tok, radix_id, current_depth + 1}
             end
           end
         end

@@ -43,6 +43,39 @@ For reference, Shakespeare 1M at d=32 with the same recipe got mean PPL
 but the scaling shows wrap-around remains effective at 5× the corpus,
 and the new builder makes it tractable.
 
+## Depth sweep
+
+| d  | Train loss | PPL    | radix_count | total_edge_chars | Build time |
+|----|-----------:|-------:|------------:|-----------------:|-----------:|
+| 32 |     1.9869 | **6.7807** |   7,539,820 |      113,838,759 |     32.7 s |
+| 48 |     2.0085 |     7.3899 |   7,549,407 |      193,704,450 |     22.7 s |
+
+Past d=32, the trie adds essentially **no new branching content**
+(+9,587 radix nodes = +0.13%) — but **+70% edge chars** of pure mass-1
+unary tails that the synth pipeline emits without proportional
+structural signal. At a 10k-step training budget the model can't
+absorb the extra synthetic material productively, and PPL on real text
+actually rises by 0.61.
+
+Consistent with the bayesian-bloom paper's *D\** concept (`§5`): past
+the corpus's optimal branching depth, additional layers are mostly
+noise. For Gutenberg 5M with this training recipe, **optimal d ≤ 32**.
+
+## Compact char-trie (added 2026-04-26)
+
+The d=48 build wouldn't have fit on a 16 GB box with the original
+Hash-of-class char-trie node (~150 B/node) — it OOMed at the
+high-frequency letter subtrees. Replacing the per-subtree char trie
+with a struct-of-arrays representation (4 × Int32 per node = 16 B raw)
+cut memory by ~10× and let d=48 build in 22.7 s. The same change made
+d=32 about **2.4× faster** on Shakespeare (5.7 s → 2.4 s) thanks to
+better cache behavior.
+
+The compact-trie code is in `src/agpt/corpus_radix_builder.cr` (class
+`CompactCharTrie`). It uses first-child + next-sibling linked lists
+keyed by token, with O(branching) lookup at each level — fast in
+practice because deep-trie branching is mostly 1.
+
 ## Generation sample (seed=42, temperature 0.8)
 
 ```
