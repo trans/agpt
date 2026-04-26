@@ -17,7 +17,12 @@ of the next root-walk's edge — but `pick_root_child(seed)` already finds
 a root child whose first edge token equals the seed, so the bridge token
 was being emitted twice. Result: every wrap glued a duplicate character
 across the boundary, producing artifacts like "RRWICK" (WARWICK with
-'R' doubled), "allisters", "hereen", "like  volume" (double space).
+'R' doubled), "allisters", "hereen", "like  volume" (double space), and
+the canonical example **JULIZAPENTHELA** (a particularly memorable
+two-character glue mashing one Shakespearean character name onto another
+across a wrap boundary). The bug had been masquerading as "the synth
+just generates weird names" since the start of the wrap-around
+experiment.
 
 Fixed by tracking whether `pick_root_child` matched on the seed and
 skipping the duplicate first-token emit when it did. Effects:
