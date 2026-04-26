@@ -27,6 +27,8 @@ verbose = false
 space_align = false
 space_align_topk = 3
 space_cut = false
+prune_mass1_head = false
+prune_mass1_space = false
 
 OptionParser.parse do |parser|
   parser.banner = "Usage: synth_wrap_corpus --trie-dir DIR --vocab-text PATH ..."
@@ -38,6 +40,8 @@ OptionParser.parse do |parser|
   parser.on("--space-align", "(no-op in this trie at d=32 — leaves are 99.99% mass-1 with single-entry counts; kept for compatibility)") { space_align = true }
   parser.on("--space-align-topk N", "Top-k filter for --space-align (default 3)") { |v| space_align_topk = v.to_i }
   parser.on("--space-cut", "At a leaf, back up within its compressed edge to the LAST space and wrap there (no bridge). Eliminates mid-word glue artifacts at the wrap boundary by ending each walk on a word boundary whenever the leaf's edge contains a space. Falls through to normal bridge if no space is in the edge.") { space_cut = true }
+  parser.on("--prune-mass1-space", "At a mass-1 leaf (~99.99% of leaves at d=32), emit the edge only up to and including the FIRST whitespace (space or newline) and wrap there. Drops the long unary tail past the first word boundary inside each one-shot path. Falls through if the edge has no whitespace.") { prune_mass1_space = true }
+  parser.on("--prune-mass1-head", "At a mass-1 leaf, emit only the FIRST token of its edge and wrap. Drops the entire unary tail. Most aggressive pruning — tests whether mass-1 chains carry useful training signal at all.") { prune_mass1_head = true }
   parser.on("--verbose", "Verbose progress") { verbose = true }
   parser.on("-h", "--help", "Help") { puts parser; exit 0 }
 end
@@ -145,7 +149,10 @@ emitted = 0
 wrap_count = 0
 space_aligned_wraps = 0
 space_cut_wraps = 0
+prune_head_wraps = 0
+prune_space_wraps = 0
 last_progress = 0
+newline_token_id = chars.index('\n')
 
 if space_align
   if space_token_id.nil?
@@ -160,6 +167,12 @@ if space_cut
   else
     STDERR.puts "Space-cut: at a leaf, emit only up to the LAST space in its edge and wrap (no bridge); falls through to bridge if leaf's edge has no space"
   end
+end
+if prune_mass1_head
+  STDERR.puts "Prune mass-1 head: at mass-1 leaves, emit only the head token and wrap"
+end
+if prune_mass1_space
+  STDERR.puts "Prune mass-1 space: at mass-1 leaves, emit up to the FIRST whitespace and wrap (falls through if edge has no whitespace)"
 end
 
 # Pick a starting root-child by mass. Returns {root_child, matched_seed?}
@@ -207,34 +220,72 @@ while emitted < total_tokens
     children = (next_d >= reader.depth_file_count) ? ([] of MicroGPT::AGPT::RadixTrieReader::LoadedRecord) : children_at.call(current.id)
     is_leaf = children.empty?
 
-    if is_leaf && space_cut && (sid = space_token_id)
+    if is_leaf
       edge = current.edge_tokens
       start_idx = skip_next ? 1 : 0
-      skip_next = false
-      last_space_idx = -1
-      i = edge.size - 1
-      while i >= start_idx
-        if edge[i] == sid
-          last_space_idx = i
-          break
-        end
-        i -= 1
+      is_mass1 = current.edge_mass == 1
+
+      # Try pruning policies in order of aggressiveness:
+      #   1. --prune-mass1-head (most aggressive)
+      #   2. --prune-mass1-space (cut at FIRST whitespace)
+      #   3. --space-cut (cut at LAST whitespace)
+      cut_idx = -1  # last index to emit (inclusive); -1 means no cut found
+
+      if is_mass1 && prune_mass1_head && start_idx < edge.size
+        cut_idx = start_idx  # emit just the head token
+        prune_head_wraps += 1
       end
-      if last_space_idx >= 0
-        (start_idx..last_space_idx).each do |j|
+
+      if cut_idx < 0 && is_mass1 && prune_mass1_space
+        sid = space_token_id
+        nid = newline_token_id
+        first_ws_idx = -1
+        j = start_idx
+        while j < edge.size
+          tok = edge[j]
+          if tok == sid || tok == nid
+            first_ws_idx = j
+            break
+          end
+          j += 1
+        end
+        if first_ws_idx >= 0
+          cut_idx = first_ws_idx
+          prune_space_wraps += 1
+        end
+      end
+
+      if cut_idx < 0 && space_cut && (sid = space_token_id)
+        last_space_idx = -1
+        i = edge.size - 1
+        while i >= start_idx
+          if edge[i] == sid
+            last_space_idx = i
+            break
+          end
+          i -= 1
+        end
+        if last_space_idx >= 0
+          cut_idx = last_space_idx
+          space_cut_wraps += 1
+        end
+      end
+
+      if cut_idx >= 0
+        skip_next = false
+        (start_idx..cut_idx).each do |j|
           out_io.print id_to_char[edge[j]]
           emitted += 1
           break if emitted >= total_tokens
         end
-        space_cut_wraps += 1
-        # Seed the next walk with space so pick_root_child finds a
-        # space-prefixed root child; that walk's first edge token (==
-        # space) will be skipped via seed_matched, avoiding "  " glue.
-        current_seed = sid
+        # Seed the next walk with the last emitted token so pick_root_child
+        # finds a matching root child; its matching first edge token will be
+        # skipped via seed_matched, avoiding boundary duplication.
+        current_seed = edge[cut_idx]
         did_space_cut = true
         break
       end
-      # No space in this leaf's edge — fall through to default emit-all + bridge.
+      # No applicable cut — fall through to default emit-all + bridge.
     end
 
     current.edge_tokens.each do |tok|
@@ -299,4 +350,12 @@ end
 if space_cut
   pct = wrap_count > 0 ? (100.0 * space_cut_wraps / wrap_count).round(1) : 0.0
   STDERR.puts "  Space-cut wraps: #{space_cut_wraps} / #{wrap_count} (#{pct}%)"
+end
+if prune_mass1_head
+  pct = wrap_count > 0 ? (100.0 * prune_head_wraps / wrap_count).round(1) : 0.0
+  STDERR.puts "  Mass-1 head-pruned wraps: #{prune_head_wraps} / #{wrap_count} (#{pct}%)"
+end
+if prune_mass1_space
+  pct = wrap_count > 0 ? (100.0 * prune_space_wraps / wrap_count).round(1) : 0.0
+  STDERR.puts "  Mass-1 space-pruned wraps: #{prune_space_wraps} / #{wrap_count} (#{pct}%)"
 end

@@ -1,0 +1,28 @@
+Unary-pruning sweep — d=32, 10M synth, 10k SGD steps seq=128 lr=3e-4
+
+| Config              | Synth seed | Train loss | PPL    |
+|---------------------|-----------:|-----------:|-------:|
+| baseline            |         42 |     1.9863 | 7.1297 |
+| baseline            |         44 |     1.9831 | 6.9731 |
+| baseline            |         46 |     2.0008 | 7.1125 |
+| baseline            |         48 |     1.9788 | 6.9345 |
+| --space-cut         |         42 |     1.9044 | 7.1205 |
+| --space-cut         |         44 |     1.9263 | 7.3691 |
+| --space-cut         |         46 |     1.9120 | 7.0047 |
+| --prune-mass1-space |         42 |     1.9344 | 6.7728 |
+| --prune-mass1-space |         44 |     1.9280 | 6.8602 |
+| --prune-mass1-space |         46 |     1.9372 | 6.9957 |
+| --prune-mass1-space |         48 |     1.9395 | 7.1694 |
+| --prune-mass1-head  |         42 |     2.0355 | 7.5582 |
+| --prune-mass1-head  |         44 |     2.0472 | 7.5029 |
+
+Means:
+  --prune-mass1-space  6.95  (range 6.77–7.17)  ← matches/slight beats baseline
+  baseline             7.04  (range 6.93–7.13)
+  --space-cut          7.16  (range 7.00–7.37)
+  --prune-mass1-head   7.53  (range 7.50–7.56)  ← clearly worse, +0.49 vs baseline
+
+Headline: head-only pruning is confidently bad (mass-1 tails carry signal),
+but cutting at first-whitespace is essentially baseline-equivalent.
+The useful signal in a mass-1 unary chain is roughly the first word past
+the head; the rest is noise the model can drop without PPL cost.

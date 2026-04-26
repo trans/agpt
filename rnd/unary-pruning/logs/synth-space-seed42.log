@@ -1,0 +1,8 @@
+Loaded radix trie: 1666215 nodes, max_endpoint_depth=32, vocab_size=65
+Building parent → children index...
+  built in 1.7s, 551885 parent nodes have children
+Root children: 65
+Prune mass-1 space: at mass-1 leaves, emit up to the FIRST whitespace and wrap (falls through if edge has no whitespace)
+Done: 10000000 tokens written to /tmp/prune_space-seed42.txt, 736077 wraps
+  Avg path length per wrap: 13.6 chars
+  Mass-1 space-pruned wraps: 732629 / 736077 (99.5%)
