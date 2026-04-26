@@ -1,0 +1,30 @@
+Vocab source: data/input.txt → 65 unique chars
+Test file: data/input.txt (1115394 bytes)
+Model loaded: /home/trans/agpt-tries/sh_old-3se-linear.model (d_model=64, n_layers=2, vocab=65, seq_len=128)
+Tokens: 1115394
+  204/4096 (146.2/s, ETA 27s)
+  408/4096 (146.6/s, ETA 25s)
+  612/4096 (141.0/s, ETA 25s)
+  816/4096 (143.2/s, ETA 23s)
+  1020/4096 (142.7/s, ETA 22s)
+  1224/4096 (140.8/s, ETA 20s)
+  1428/4096 (141.2/s, ETA 19s)
+  1632/4096 (140.2/s, ETA 18s)
+  1836/4096 (140.2/s, ETA 16s)
+  2040/4096 (141.0/s, ETA 15s)
+  2244/4096 (140.1/s, ETA 13s)
+  2448/4096 (139.6/s, ETA 12s)
+  2652/4096 (140.1/s, ETA 10s)
+  2856/4096 (138.7/s, ETA 9s)
+  3060/4096 (138.3/s, ETA 7s)
+  3264/4096 (138.6/s, ETA 6s)
+  3468/4096 (138.7/s, ETA 5s)
+  3672/4096 (138.1/s, ETA 3s)
+  3876/4096 (137.6/s, ETA 2s)
+  4080/4096 (137.1/s, ETA 0s)
+
+Positions scored:  4096
+Mean per-token NLL: 2.553158 nats
+Perplexity:         12.8476
+Bits per character: 3.6834 bpc
+Elapsed:            29.9s (137.1 pos/sec)

@@ -1,0 +1,67 @@
+AGPT recipe + builder-equivalence validation (2026-04-26)
+
+The Gutenberg-5M direct-AGPT result of PPL ~25 (vs wrap-around's 6.78)
+prompted a check: is the new corpus-radix builder training-equivalent
+to the old StreamingRadixBuilder, and is the recipe still healthy?
+
+## Shakespeare baseline matrix
+
+All runs: --epochs N --lr 3e-3 --optimizer rmsprop --rmsprop-beta 0.999
+         --lr-schedule warmup-cosine --warmup-epochs 1
+         --entropy-lambda 1.0 --no-accumulate
+
+| Builder | Mass-weight | Epochs | PPL on data/input.txt |
+|---------|-------------|-------:|----------------------:|
+| OLD     | linear      |      3 |                12.85 ✓ |
+| NEW     | linear      |      3 |                13.81  |
+| OLD     | linear      |      5 |                15.66  |
+| NEW     | linear      |      5 |                14.95  |
+| OLD     | off         |      5 |                13.78  |
+| NEW     | off         |      5 |                13.72  |
+
+Memory's documented post-fix recipe baseline: d=32 → 12.79 (3SE, linear).
+Old-builder + 3SE + linear → 12.85: matches within noise → recipe healthy.
+
+## Builder equivalence
+
+The new corpus-radix builder produces bit-equivalent record COUNTS
+(verified earlier: 1,666,215 nodes; 27,046,236 edge chars on Shakespeare
+d=32) but different within-depth record ORDERING (per-root-char grouping
+vs interleaved BFS).
+
+The training-time PPL difference between builders:
+- 3SE linear: ~1 PPL (new worse)
+- 5SE linear: ~0.7 PPL (new better)
+- 5SE off: ~0.06 PPL (essentially identical)
+
+Different ordering → different convergence trajectory but same general
+regime. Within the noise band of the recipe overall (~1-3 PPL run-to-run
+variation in past sweeps). Conclusion: new builder is not broken.
+
+## 5SE > 3SE for linear-mass-weight Shakespeare → overtraining
+
+| Epochs | Old linear | New linear |
+|--------|-----------:|-----------:|
+| 3      |      12.85 |      13.81 |
+| 5      |      15.66 |      14.95 |
+
+Bumping epochs at this recipe HURTS PPL on Shakespeare. So the implicit
+plan of "scale recipe by adding epochs" doesn't transfer cleanly.
+
+## Implication for Gutenberg 5M result
+
+| Setup                                | Wall-clock | PPL    |
+|--------------------------------------|-----------:|-------:|
+| Wrap-around-via-synth (10k SGD)      |      ~5min |   6.78 |
+| AGPT-direct 3SE linear (this builder)|       4min |  25.81 |
+| AGPT-direct 5SE linear               |       7min |  24.89 |
+| AGPT-direct 5SE off                  |       7min |  19.76 |
+
+Even with mass-weight off (the better config on Shakespeare 5SE), the
+gap to wrap-around stays ~3x. AGPT-direct on 5M corpus needs more than
+just "5SE instead of 3" to compete — likely a meaningful recipe rework
+(new lr schedule, possibly different optimizer or sampler).
+
+The wrap-around-via-synth approach scales naturally because it reuses
+the well-tuned SGD-window recipe over a richer (synth) corpus, getting
+10k optimizer steps vs AGPT-direct's ~325 (5SE × 65 subtrees).

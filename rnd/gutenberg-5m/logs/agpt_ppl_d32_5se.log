@@ -1,0 +1,30 @@
+Vocab source: data/gutenberg_5m.txt → 65 unique chars
+Test file: data/gutenberg_5m.txt (5000000 bytes)
+Model loaded: /home/trans/agpt-tries/g5m_d32_agpt_5se.model (d_model=64, n_layers=2, vocab=65, seq_len=128)
+Tokens: 5000000
+  204/4096 (136.9/s, ETA 28s)
+  408/4096 (145.6/s, ETA 25s)
+  612/4096 (143.4/s, ETA 24s)
+  816/4096 (143.3/s, ETA 23s)
+  1020/4096 (142.6/s, ETA 22s)
+  1224/4096 (143.1/s, ETA 20s)
+  1428/4096 (141.8/s, ETA 19s)
+  1632/4096 (141.6/s, ETA 17s)
+  1836/4096 (140.1/s, ETA 16s)
+  2040/4096 (139.2/s, ETA 15s)
+  2244/4096 (137.4/s, ETA 13s)
+  2448/4096 (136.1/s, ETA 12s)
+  2652/4096 (134.6/s, ETA 11s)
+  2856/4096 (130.6/s, ETA 9s)
+  3060/4096 (128.5/s, ETA 8s)
+  3264/4096 (127.7/s, ETA 7s)
+  3468/4096 (127.7/s, ETA 5s)
+  3672/4096 (126.9/s, ETA 3s)
+  3876/4096 (127.3/s, ETA 2s)
+  4080/4096 (128.0/s, ETA 0s)
+
+Positions scored:  4096
+Mean per-token NLL: 3.214339 nats
+Perplexity:         24.8868
+Bits per character: 4.6373 bpc
+Elapsed:            32.0s (128.0 pos/sec)
