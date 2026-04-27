@@ -29,6 +29,7 @@ from p2s_train import (
 
 TAG = os.environ.get("P2S_TAG", "default")
 CKPT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), f"p2s_model_d{D}_{TAG}.pt")
+ROOT_LOO  = os.environ.get("P2S_ROOT_LOO", "0") == "1"
 N_EVAL    = 4096
 MAX_K     = 8
 SEED      = 7
@@ -181,11 +182,6 @@ def main():
 
     batch = []
     for p_idx, p in enumerate(eval_positions):
-        # window is corpus_tokens[p-D+1 .. p], next char is corpus_tokens[p+1]
-        # We use the LEAF of the D-window walk to find the match set, but the
-        # encoder input for the prefix is the longer eval_max_len tail of the
-        # corpus (so a wrap-trained model gets the longer context it was
-        # trained on, instead of being evaluated on short prefix only).
         win = corpus_tokens[max(0, p - D + 1) : p + 1]
         if len(win) < D:
             continue
@@ -200,27 +196,39 @@ def main():
         if not sigmas:
             skipped_no_match += 1
             continue
-        # build candidate forward paths
+
+        # Build candidate forward paths; for ROOT_LOO mode mask σ's last char.
         sigmas_fwd = []
         for sid in sigmas[:MAX_K]:
             sp_path = path_tokens(sid, sp, se)
             if not sp_path:
                 continue
-            sf = list(reversed(sp_path))   # reversed-corpus → forward
-            if max_k >= len(sf):
-                continue
-            sigmas_fwd.append(sf)
+            sf = list(reversed(sp_path))
+            if ROOT_LOO:
+                if len(sf) < 2:
+                    continue
+                sigmas_fwd.append(sf[:-1])
+            else:
+                if max_k >= len(sf):
+                    continue
+                sigmas_fwd.append(sf)
         if not sigmas_fwd:
             skipped_no_match += 1
             continue
 
-        # Use longer-context corpus chars as the prefix encoder input
-        # (matches training distribution when wrap_cycles > 1)
         long_win = corpus_tokens[max(0, p - eval_max_len + 1) : p + 1]
         pi_path = long_win
 
-        true_next = corpus_tokens[p + 1]
-        batch.append((pi_path, sigmas_fwd, true_next))
+        if ROOT_LOO:
+            target_pos = p + D - max_k
+            if target_pos >= len(corpus_tokens):
+                skipped_no_match += 1
+                continue
+            true_target = corpus_tokens[target_pos]
+        else:
+            true_target = corpus_tokens[p + 1]
+
+        batch.append((pi_path, sigmas_fwd, true_target))
 
         if len(batch) >= BATCH:
             run_batch(batch)

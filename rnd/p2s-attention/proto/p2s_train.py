@@ -200,21 +200,30 @@ def find_leaf(tokens, children_index):
 def build_examples_position_based(corpus_tokens, match_lookup,
                                    suffix_parent, suffix_edge,
                                    children_index, n_examples,
-                                   max_candidates=8, context_len=32, D=32, seed=42):
+                                   max_candidates=8, context_len=32, D=32, seed=42,
+                                   root_loo=False):
     """
     Position-based training-example builder. Each example:
       - Sample corpus position p (uniformly)
       - Find prefix-tree leaf for the D-window ending at p
-      - Look up the leaf's match record
+      - Look up the leaf's match record (max_k, sigmas)
       - Encode corpus[p-context_len+1..p] as prefix input (extended history)
-      - Target = corpus[p+1] (true next char)
+      - σ candidate tokens fed to the model
+
+    Two modes:
+      Default (next-char): σ tokens = full σ.fwd; target = corpus[p+1]
+      root_loo:            σ tokens = σ.fwd[:-1] (mask last); target =
+                           corpus[p + D - max_k] (the masked root-junction char).
+                           Removes the leak — the answer is no longer in σ's input.
     """
     rng = random.Random(seed)
     examples = []
     n_skipped_no_leaf = 0
     n_skipped_no_match = 0
+    n_skipped_loo_oob = 0
     L = len(corpus_tokens)
-    eligible = list(range(D, L - 1))   # need D chars before, 1 after
+    # For root_loo, target position p + D - max_k can be up to ~p+D, need that in range
+    eligible = list(range(D, L - D - 1)) if root_loo else list(range(D, L - 1))
     rng.shuffle(eligible)
 
     for p in eligible:
@@ -232,34 +241,55 @@ def build_examples_position_based(corpus_tokens, match_lookup,
         if not sigmas:
             n_skipped_no_match += 1
             continue
+
+        if root_loo:
+            target_pos = p + D - max_k
+            if target_pos >= L:
+                n_skipped_loo_oob += 1
+                continue
+            true_target = corpus_tokens[target_pos]
+        else:
+            true_target = corpus_tokens[p + 1]
+
         sigma_specs = []
         for sid in sigmas[:max_candidates]:
             sp_path = path_tokens(sid, suffix_parent, suffix_edge)
             sf = list(reversed(sp_path))
-            if max_k >= len(sf):
-                continue
+            if root_loo:
+                # σ tokens = σ.fwd[:-1] (mask the last position so the model's
+                # input doesn't contain σ.fwd[-1] = the target char)
+                if len(sf) < 2:
+                    continue
+                tokens_for_model = sf[:-1]
+                pred_char = sf[-1]   # candidate's predicted last char
+            else:
+                if max_k >= len(sf):
+                    continue
+                tokens_for_model = sf
+                pred_char = sf[max_k]
+
             sigma_specs.append({
-                'tokens': sf,
+                'tokens': tokens_for_model,
                 'overlap_k': max_k,
-                'pred_char': sf[max_k],
+                'pred_char': pred_char,
             })
         if not sigma_specs:
             n_skipped_no_match += 1
             continue
 
         history = corpus_tokens[max(0, p - context_len + 1): p + 1]
-        true_next = corpus_tokens[p + 1]
         examples.append({
             'pi_tokens': history,
             'sigmas': sigma_specs,
-            'target_char': true_next,
+            'target_char': true_target,
             'corpus_pos': p,
         })
         if len(examples) % 100000 == 0:
             print(f"[build-pos] {len(examples)} examples...", flush=True)
 
     print(f"[build-pos] done: {len(examples)} examples; "
-          f"skipped {n_skipped_no_leaf} no-leaf, {n_skipped_no_match} no-match",
+          f"skipped {n_skipped_no_leaf} no-leaf, {n_skipped_no_match} no-match, "
+          f"{n_skipped_loo_oob} loo-oob",
           flush=True)
     return examples
 
@@ -439,31 +469,37 @@ class P2SModel(nn.Module):
         B, K, _ = sigma_tokens.shape
         h_pi = self.encode(pi_tokens, pi_mask)                  # [B, d_model]
 
+        mode = os.environ.get("P2S_MODE", "cross")  # cross | direct | aux
         if os.environ.get("P2S_DIRECT", "0") == "1":
-            # Skip σ encoding and cross-attention; predict directly from h_π
+            mode = "direct"
+
+        if mode == "direct":
             logits = self.W_out(h_pi)
             return logits, None
 
         # encode each candidate
         sigma_flat = sigma_tokens.reshape(B * K, -1)
         sigma_mask_flat = sigma_mask.reshape(B * K, -1)
-        # any all-pad rows would NaN; replace with single non-pad to avoid crash
         all_pad = sigma_mask_flat.all(dim=1)
         sigma_mask_flat = sigma_mask_flat.clone()
-        sigma_mask_flat[all_pad, 0] = False  # un-mask first position for stability
-        h_sigma = self.encode(sigma_flat, sigma_mask_flat)       # [B*K, d_model]
+        sigma_mask_flat[all_pad, 0] = False
+        h_sigma = self.encode(sigma_flat, sigma_mask_flat)
         h_sigma = h_sigma.view(B, K, -1)
-        # cross-attention scoring
-        q = self.W_q(h_pi)                                       # [B, d_model]
-        k = self.W_k(h_sigma)                                    # [B, K, d_model]
-        v = self.W_v(h_sigma)                                    # [B, K, d_model]
+        q = self.W_q(h_pi)
+        k = self.W_k(h_sigma)
+        v = self.W_v(h_sigma)
         scores = torch.einsum('bd,bkd->bk', q, k) / math.sqrt(self.d_model)
         scores = scores.masked_fill(sigma_pad, float('-inf'))
-        alpha = F.softmax(scores, dim=-1)                        # [B, K]
-        # If a row has all candidates padded, alpha will be NaN — guard:
+        alpha = F.softmax(scores, dim=-1)
         alpha = torch.nan_to_num(alpha, nan=0.0)
-        context = torch.einsum('bk,bkd->bd', alpha, v)           # [B, d_model]
-        logits = self.W_out(context)                             # [B, vocab]
+        context = torch.einsum('bk,bkd->bd', alpha, v)
+
+        if mode == "aux":
+            # Auxiliary mode: prediction comes from h_π + context (additive),
+            # so cross-attention is a residual signal, not a bottleneck.
+            logits = self.W_out(h_pi + context)
+        else:  # "cross" — original (cross-attention only)
+            logits = self.W_out(context)
         return logits, alpha
 
 # ---------------- batching ----------------
@@ -509,9 +545,11 @@ def main():
 
     SKIP_K1 = os.environ.get("P2S_SKIP_K1", "0") == "1"
     MASS_WEIGHT = os.environ.get("P2S_MASS_WEIGHT", "off")
-    POS_BASED = os.environ.get("P2S_POS_BASED", "0") == "1" or CONTEXT_LEN > D
+    ROOT_LOO = os.environ.get("P2S_ROOT_LOO", "0") == "1"
+    POS_BASED = os.environ.get("P2S_POS_BASED", "0") == "1" or CONTEXT_LEN > D or ROOT_LOO
     print(f"[main] config: D={D} TAG={TAG} CONTEXT_LEN={CONTEXT_LEN} "
-          f"POS_BASED={POS_BASED} SKIP_K1={SKIP_K1} MASS_WEIGHT={MASS_WEIGHT}",
+          f"POS_BASED={POS_BASED} ROOT_LOO={ROOT_LOO} "
+          f"SKIP_K1={SKIP_K1} MASS_WEIGHT={MASS_WEIGHT}",
           flush=True)
 
     print("[main] loading prefix tree...", flush=True)
@@ -556,7 +594,7 @@ def main():
         examples = build_examples_position_based(
             corpus_tokens, match_lookup, sp, se, children_index,
             n_examples=MAX_RECORDS, max_candidates=8, context_len=CONTEXT_LEN, D=D,
-            seed=42,
+            seed=42, root_loo=ROOT_LOO,
         )
     else:
         print(f"[main] building training examples (max_records={MAX_RECORDS})...",

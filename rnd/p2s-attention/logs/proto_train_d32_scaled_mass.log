@@ -92,3 +92,8 @@
   step 28000/30000  train_loss=2.2576  held_loss=2.2899  held_ppl=9.87
   step 28500/30000  train_loss=2.2519  held_loss=2.2892  held_ppl=9.87
   step 29000/30000  train_loss=2.2703  held_loss=2.2872  held_ppl=9.85
+  step 29500/30000  train_loss=2.2538  held_loss=2.2868  held_ppl=9.84
+  step 30000/30000  train_loss=2.2558  held_loss=2.2868  held_ppl=9.84
+[main] final eval (full held-out)...
+[main] final held-out loss=2.2581, ppl=9.57
+[main] saved checkpoint to /home/trans/Projects/agpt/rnd/p2s-attention/proto/p2s_model_d32_scaled_mass.pt

@@ -1,0 +1,49 @@
+[main] config: D=32 TAG=aux_ctx128 CONTEXT_LEN=128 POS_BASED=True SKIP_K1=False MASS_WEIGHT=off
+[main] loading prefix tree...
+[load] /home/trans/agpt-tries/gutenberg_5m_d32_radix_corpus: 7539820 nodes, 33 depth files
+[load]   loaded in 8.0s
+[main] loading suffix tree...
+[load] /home/trans/agpt-tries/gutenberg_5m_d32_suffix_radix: 7587223 nodes, 33 depth files
+[load]   loaded in 7.8s
+[main] vocab_size=65
+[main] building children index for prefix tree...
+[main]   children_index: 2551566 parents, 2.2s
+[main] loading corpus for position-based training...
+[main]   corpus length: 5000000
+[main] preloading match index by pid...
+[main]   match_lookup: 4988254 entries, 4.3s
+[main] building position-based training examples (n=500000)...
+[build-pos] 100000 examples...
+[build-pos] 200000 examples...
+[build-pos] 300000 examples...
+[build-pos] 400000 examples...
+[build-pos] 500000 examples...
+[build-pos] done: 500000 examples; skipped 0 no-leaf, 0 no-match
+[main] 495904 train, 4096 held-out
+/home/trans/Projects/agpt/rnd/p2s-attention/proto/p2s_train.py:406: UserWarning: enable_nested_tensor is True, but self.use_nested_tensor is False because encoder_layer.norm_first was True
+  self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=n_layers)
+[main] model: 875457 params
+[main] training...
+  step   500/10000  train_loss=3.1427  held_loss=2.6769  held_ppl=14.54
+  step  1000/10000  train_loss=2.3945  held_loss=2.2714  held_ppl=9.69
+  step  1500/10000  train_loss=2.1225  held_loss=2.0999  held_ppl=8.17
+  step  2000/10000  train_loss=1.9086  held_loss=1.9088  held_ppl=6.74
+  step  2500/10000  train_loss=1.7503  held_loss=1.7635  held_ppl=5.83
+  step  3000/10000  train_loss=1.6589  held_loss=1.6926  held_ppl=5.43
+  step  3500/10000  train_loss=1.5538  held_loss=1.6055  held_ppl=4.98
+  step  4000/10000  train_loss=1.5132  held_loss=1.5262  held_ppl=4.60
+  step  4500/10000  train_loss=1.4353  held_loss=1.4651  held_ppl=4.33
+  step  5000/10000  train_loss=1.3876  held_loss=1.4232  held_ppl=4.15
+  step  5500/10000  train_loss=1.3584  held_loss=1.3730  held_ppl=3.95
+  step  6000/10000  train_loss=1.2967  held_loss=1.3607  held_ppl=3.90
+  step  6500/10000  train_loss=1.2972  held_loss=1.3138  held_ppl=3.72
+  step  7000/10000  train_loss=1.2437  held_loss=1.3030  held_ppl=3.68
+  step  7500/10000  train_loss=1.2257  held_loss=1.2615  held_ppl=3.53
+  step  8000/10000  train_loss=1.2193  held_loss=1.2630  held_ppl=3.54
+  step  8500/10000  train_loss=1.2075  held_loss=1.2561  held_ppl=3.51
+  step  9000/10000  train_loss=1.1900  held_loss=1.2521  held_ppl=3.50
+  step  9500/10000  train_loss=1.1860  held_loss=1.2491  held_ppl=3.49
+  step 10000/10000  train_loss=1.1765  held_loss=1.2479  held_ppl=3.48
+[main] final eval (full held-out)...
+[main] final held-out loss=1.1496, ppl=3.16
+[main] saved checkpoint to /home/trans/Projects/agpt/rnd/p2s-attention/proto/p2s_model_d32_aux_ctx128.pt
