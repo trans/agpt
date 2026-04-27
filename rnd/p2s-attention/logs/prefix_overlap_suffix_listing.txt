@@ -1,0 +1,168 @@
+
+════════════════════════════════════════════════════════════════════════════════════════════════════
+D = 16
+════════════════════════════════════════════════════════════════════════════════════════════════════
+[load] /home/trans/agpt-tries/gutenberg_5m_d16_radix_corpus: 7073694 nodes, 17 depth files
+[load]   loaded in 6.4s
+[load] /home/trans/agpt-tries/gutenberg_5m_d16_suffix_radix: 7118991 nodes, 17 depth files
+[load]   loaded in 6.2s
+  total: 4731133 records (920510 single-cand, 3810623 multi-cand)
+
+--- 12 single-candidate samples (D=16) ---
+  k= 9  «nd Whal[ing. U.S.] Ex. Ex»
+  k=11  «XXX.\n[ Chapter XX]XVI. »
+  k= 9  «oved no[iselessly], skill»
+  k= 6  «ble league[. Ha!\n]Starbuck! »
+  k= 8  «ugitive'[s safety] would\nd»
+  k=10  «vous f[aire des r]entes »
+  k= 7  «ddle, the[\nfiresi]de intere»
+  k= 6  «ittle, I m[ean a ]captive, o»
+  k= 7  «oving on [his met]hod of co»
+  k= 9  «m, horr[ibly crue]l, to p»
+  k= 8  «lender m[andible\n]of a low»
+  k= 9  «ales\nre[gularly h]unted t»
+
+--- 4 multi-candidate samples (D=16) ---
+  k= 9  «o, for [God's sak]…» (17 candidates)
+           → «[God's sak]e!'\n\nIt»
+           → «[God's sak]e,\nthro»
+           → «[God's sak]e to\ndo»
+           → ... and 14 more candidates
+  k= 5  «y are your [frien]…» (64 candidates)
+           → «[frien]d's company»
+           → «[frien]d, and leav»
+           → «[frien]d, that you»
+           → ... and 61 more candidates
+  k= 6  «next day, [leavin]…» (64 candidates)
+           → «[leavin]g of you, »
+           → «[leavin]g smooth w»
+           → «[leavin]g the univ»
+           → ... and 61 more candidates
+  k= 9  «is mead[ow, and t]…» (2 candidates)
+           → «[ow, and t]hen bac»
+           → «[ow, and t]hen\nran»
+
+════════════════════════════════════════════════════════════════════════════════════════════════════
+D = 24
+════════════════════════════════════════════════════════════════════════════════════════════════════
+[load] /home/trans/agpt-tries/gutenberg_5m_d24_radix_corpus: 7508558 nodes, 25 depth files
+[load]   loaded in 6.1s
+[load] /home/trans/agpt-tries/gutenberg_5m_d24_suffix_radix: 7555961 nodes, 25 depth files
+[load]   loaded in 6.2s
+  total: 4971798 records (3557890 single-cand, 1413908 multi-cand)
+
+--- 12 single-candidate samples (D=24) ---
+  k=15  «f I chatt[ered\nincessantl]y with ot»
+  k=16  «eal too [ill to be\nmoved.] Mr. Jon»
+  k=13  «an is that?['\n\n'Him that ]I speak of,»
+  k=14  «. 'On the [top of the gal]lows is\nfi»
+  k=12  «f firing it,[ flung it at] his adversa»
+  k=14  «n to her. [At last it\narr]ested her-»
+  k=13  «round the l[uxurious room].\n\n'To the »
+  k=16  «d so rem[orseless a havoc]; whethe»
+  k=17  «nstruct[, though we can t]each on»
+  k=17  «de a po[t of money by it;] but\nCo»
+  k=15  «f actual [felicity; to ha]ve\nsome o»
+  k=10  «s on the larbo[ard; did y]ou never hear,»
+
+--- 4 multi-candidate samples (D=24) ---
+  k=11  «straight line[ in the cle]…» (7 candidates)
+           → «[ in the cle]at, and with »
+           → «[ in the cle]ar heavens bl»
+           → «[ in the cle]ar whiteness »
+           → ... and 4 more candidates
+  k= 8  «\nfurnished with [that com]…» (19 candidates)
+           → «[that com]ical, childish,\n»
+           → «[that com]ing of age at al»
+           → «[that com]mon highway all »
+           → ... and 16 more candidates
+  k=10  «ce Andrew, 'th[e old\nman ]…» (2 candidates)
+           → «[e old\nman ]would emerge, »
+           → «[e old\nman ]is as surly as»
+  k= 9  «where we were, [and would]…» (64 candidates)
+           → «[and would] say that her s»
+           → «[and would] believe that s»
+           → «[and would] have made the »
+           → ... and 61 more candidates
+
+════════════════════════════════════════════════════════════════════════════════════════════════════
+D = 30
+════════════════════════════════════════════════════════════════════════════════════════════════════
+[load] /home/trans/agpt-tries/gutenberg_5m_d30_radix_corpus: 7536597 nodes, 31 depth files
+[load]   loaded in 6.7s
+[load] /home/trans/agpt-tries/gutenberg_5m_d30_suffix_radix: 7584019 nodes, 31 depth files
+[load]   loaded in 6.6s
+  total: 4986553 records (4614395 single-cand, 372158 multi-cand)
+
+--- 12 single-candidate samples (D=30) ---
+  k=21  «more, I s[hall certainly let hi]m know th»
+  k=17  « and frequent[ as it ever had b]een: that it\n»
+  k=19  «rly mountin[g to the three\nmast]-heads; whi»
+  k=19  «sit beside [Joe whenever I ente]red that pl»
+  k=20  «ld not go [fast, because of the]ir lamenes»
+  k=20  «face then,[ and he turned his\ne]yes on me »
+  k=18  «t as if the [pocket\nwere full o]f secrets.\n\n»
+  k=20  «o\nweep wit[hout knowing why-rod]e behind o»
+  k=21  «oat at it[s outer end,\nand a we]ight in i»
+  k=18  « to weep for[ me.'\n\n'How can yo]u say that? »
+  k=16  «ould not be he[rs, she\ncould no]t scream like »
+  k=17  « dark symptom[s, the calculatin]g people of t»
+
+--- 4 multi-candidate samples (D=30) ---
+  k=15  « the shrubbery [behind the hous]…» (2 candidates)
+           → «[behind the hous]e, they saw the»
+           → «[behind the hous]e, and of the b»
+  k=15  «\neither.'\n\n'You[ appear to me, ]…» (2 candidates)
+           → «[ appear to me, ]Mr. Darcy, to a»
+           → «[ appear to me, ]to pilot me sti»
+  k= 8  «aring down upon them, [either s]…» (33 candidates)
+           → «[either s]ensation or instinct; »
+           → «[either s]ensible nor agreeable:»
+           → «[either s]eeing or\nhearing from »
+           → ... and 30 more candidates
+  k=14  «me in late, from[ Tellson's, an]…» (2 candidates)
+           → «[ Tellson's, an]d a cocking\nthei»
+           → «[ Tellson's, an]d he both bankin»
+
+════════════════════════════════════════════════════════════════════════════════════════════════════
+D = 32
+════════════════════════════════════════════════════════════════════════════════════════════════════
+[load] /home/trans/agpt-tries/gutenberg_5m_d32_radix_corpus: 7539820 nodes, 33 depth files
+[load]   loaded in 6.6s
+[load] /home/trans/agpt-tries/gutenberg_5m_d32_suffix_radix: 7587223 nodes, 33 depth files
+[load]   loaded in 7.1s
+  total: 4988254 records (4760710 single-cand, 227544 multi-cand)
+
+--- 12 single-candidate samples (D=32) ---
+  k=21  « as I have\n[seen pervade the bear]ing of a ch»
+  k=20  «lar question[, that I asked him i]n return, 'I»
+  k=23  «ockets wi[th the fiery waters fro]m the pew»
+  k=12  «, felt that the comm[ander did no]t himself know what »
+  k=18  «iately and in [silence withdrew; ]determined, th»
+  k=18  «which have els[ewhere\nbeen cursor]ily mentioned.»
+  k=18  «tood up and\nsh[owed how he presen]ted himself, w»
+  k=13  « any circumstances.[ But, imbued ]from her childhood\n»
+  k=18  « lively manner[.\n\n'Don't you expe]ct to see him?»
+  k=20  «gain, you se[e!' cried Wemmick, ']I told you s»
+  k=24  «ar from\n[insensible or unfeeling;] their w»
+  k=22  «rise from [the public notice of L]ydia's ung»
+
+--- 4 multi-candidate samples (D=32) ---
+  k=14  «s at Netherfield, [and leave the ]…» (4 candidates)
+           → «[and leave the ]rest to repay the »
+           → «[and leave the ]law to take\ncare o»
+           → «[and leave the ]next generation to»
+           → ... and 1 more candidates
+  k=11  « a stop to the exclam[ations of h]…» (4 candidates)
+           → «[ations of h]is\nvoice.\n\nHis wound,»
+           → «[ations of h]is conduct as the\nrep»
+           → «[ations of h]im.\n\nNow, by all odds»
+           → ... and 1 more candidates
+  k=14  «nvoluntary shudder[ passed over b]…» (2 candidates)
+           → «[ passed over b]oth of us.\n\n'Yet I»
+           → «[ passed over b]y superstitious\nsa»
+  k=11  «iment was stationed, [in the holl]…» (7 candidates)
+           → «[in the holl]ow where the\nrivulet »
+           → «[in the holl]ow of the left, and t»
+           → «[in the holl]ow of his cerebellum;»
+           → ... and 4 more candidates
