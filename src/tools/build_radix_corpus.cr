@@ -20,15 +20,17 @@ max_depth = 0
 per_subtree = false
 prune_min_mass = 1
 prune_min_depth = 4
+reverse = false
 
 OptionParser.parse do |parser|
   parser.banner = "Usage: bin/agpt_build_radix_corpus --corpus PATH --max-depth N [options]"
   parser.on("--corpus PATH", "Character-level corpus text file") { |v| corpus_path = v }
-  parser.on("--out DIR", "Output radix directory (default: /tmp/agpt_<basename>_d<depth>_radix)") { |v| out_dir = v }
+  parser.on("--out DIR", "Output radix directory (default: /tmp/agpt_<basename>_d<depth>[_suffix]_radix)") { |v| out_dir = v }
   parser.on("--max-depth N", "Trie max depth (required)") { |v| max_depth = v.to_i }
   parser.on("--per-subtree", "Also emit per-subtree files for memory-scoped training") { per_subtree = true }
   parser.on("--prune-min-mass N", "Drop edges with prefix count < N past --prune-min-depth (default 1)") { |v| prune_min_mass = v.to_i }
   parser.on("--prune-min-depth N", "Never prune at depths shallower than this (default 4)") { |v| prune_min_depth = v.to_i }
+  parser.on("--reverse", "Reverse corpus before building → suffix radix tree (for p2s-attention)") { reverse = true }
   parser.on("-h", "--help", "Help") { puts parser; exit 0 }
 end
 
@@ -42,15 +44,21 @@ if max_depth <= 0
 end
 if out_dir.empty?
   basename = File.basename(corpus_path, File.extname(corpus_path))
-  out_dir = "/tmp/agpt_#{basename}_d#{max_depth}_radix"
+  suffix_tag = reverse ? "_suffix" : ""
+  out_dir = "/tmp/agpt_#{basename}_d#{max_depth}#{suffix_tag}_radix"
 end
 
 text = File.read(corpus_path)
 dataset = MicroGPT::CharDataset.new(text)
 tokens = dataset.data
+# Reverse the token sequence to build a suffix radix tree. The same
+# CorpusRadixBuilder produces a prefix-radix-shaped output over reversed
+# input; semantically that's the suffix tree (paths read right-to-left
+# in the original corpus). Vocab and tokenizer are unchanged.
+tokens = tokens.reverse if reverse
 corpus_hash = MicroGPT::AGPT::TrieCorpus.token_hash(tokens)
 
-STDERR.puts "[radix-corpus] corpus: #{corpus_path} (#{tokens.size} tokens, vocab=#{dataset.vocab_size})"
+STDERR.puts "[radix-corpus] corpus: #{corpus_path} (#{tokens.size} tokens, vocab=#{dataset.vocab_size})#{reverse ? " [REVERSED → suffix tree]" : ""}"
 STDERR.puts "[radix-corpus] max_depth=#{max_depth}, output=#{out_dir}"
 if prune_min_mass > 1
   STDERR.puts "[radix-corpus] pruning: drop paths with mass < #{prune_min_mass} past depth #{prune_min_depth}"
