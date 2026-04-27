@@ -1,0 +1,5 @@
+[p2s] Loading suffix tree from /home/trans/agpt-tries/gutenberg_5m_d64_suffix_radix
+[p2s]   7599343 radix nodes, 273614215 total edge chars
+[p2s] Pass 1: collecting suffix-tree parent ids
+[p2s]   scanned 7599342 records
+[p2s] Pass 2: inserting reversed leaf edges into head trie

@@ -64,8 +64,8 @@ RNG_SEED     = 42
 # ---------------- read radix tree depth files ----------------
 RDXA_MAGIC = 0x52445841  # 'RDXA'
 
-def load_radix_tree(dirpath):
-    """Returns {id: parent}, {id: edge_tokens}, vocab_size."""
+def load_radix_tree(dirpath, with_mass=False):
+    """Returns parent_arr, edge_arr, vocab_size, radix_count, [mass_arr if with_mass]."""
     meta_path = os.path.join(dirpath, "meta.bin")
     with open(meta_path, "rb") as f:
         magic, = struct.unpack("<I", f.read(4))
@@ -83,6 +83,7 @@ def load_radix_tree(dirpath):
 
     parent_arr = [0] * (radix_count + 1)
     edge_arr = [None] * (radix_count + 1)
+    mass_arr = [0] * (radix_count + 1) if with_mass else None
 
     print(f"[load] {dirpath}: {radix_count} nodes, {depth_file_count} depth files",
           flush=True)
@@ -102,12 +103,16 @@ def load_radix_tree(dirpath):
         for _ in range(n):
             rid, parent, fcd, edge_len = struct.unpack_from("<iiii", buf, pos); pos += 16
             edge = list(struct.unpack_from(f"<{edge_len}i", buf, pos)); pos += 4 * edge_len
-            _edge_mass, = struct.unpack_from("<i", buf, pos); pos += 4
+            edge_mass, = struct.unpack_from("<i", buf, pos); pos += 4
             ec, = struct.unpack_from("<i", buf, pos); pos += 4
             pos += 8 * ec  # skip (tok, cnt) pairs
             parent_arr[rid] = parent
             edge_arr[rid] = edge
+            if mass_arr is not None:
+                mass_arr[rid] = edge_mass
     print(f"[load]   loaded in {time.time() - t0:.1f}s", flush=True)
+    if with_mass:
+        return parent_arr, edge_arr, vocab_size, radix_count, mass_arr
     return parent_arr, edge_arr, vocab_size, radix_count
 
 def path_tokens(node_id, parent, edge):
@@ -146,7 +151,7 @@ def iter_match_records(path):
 # ---------------- build training examples ----------------
 def build_examples(match_path, prefix_parent, prefix_edge,
                    suffix_parent, suffix_edge, max_records=None,
-                   max_candidates=8):
+                   max_candidates=8, prefix_mass=None, skip_k1=False):
     """
     Returns list of dicts, each:
       {
@@ -165,8 +170,14 @@ def build_examples(match_path, prefix_parent, prefix_edge,
     """
     examples = []
     n_skipped_no_pred = 0
-    for i, (pid, max_k, sigmas) in enumerate(iter_match_records(match_path)):
-        if max_records and i >= max_records:
+    n_skipped_k1 = 0
+    n_seen = 0
+    for pid, max_k, sigmas in iter_match_records(match_path):
+        n_seen += 1
+        if skip_k1 and len(sigmas) <= 1:
+            n_skipped_k1 += 1
+            continue
+        if max_records and len(examples) >= max_records:
             break
         pi_path = path_tokens(pid, prefix_parent, prefix_edge)
         if not pi_path:
@@ -186,11 +197,14 @@ def build_examples(match_path, prefix_parent, prefix_edge,
             })
         if not sigma_specs:
             continue
-        examples.append({'pi_tokens': pi_path, 'sigmas': sigma_specs})
+        ex = {'pi_tokens': pi_path, 'sigmas': sigma_specs}
+        if prefix_mass is not None:
+            ex['mass'] = prefix_mass[pid] if 0 <= pid < len(prefix_mass) else 1
+        examples.append(ex)
         if len(examples) % 100000 == 0:
-            print(f"[build] {len(examples)} examples...", flush=True)
-    print(f"[build] done: {len(examples)} examples; "
-          f"skipped {n_skipped_no_pred} candidate slots (overlap == leaf-edge length)",
+            print(f"[build] {len(examples)} examples (scanned {n_seen})...", flush=True)
+    print(f"[build] done: {len(examples)} examples (scanned {n_seen}); "
+          f"skipped {n_skipped_no_pred} candidate slots, {n_skipped_k1} K=1 records",
           flush=True)
     return examples
 
@@ -293,8 +307,17 @@ def main():
     random.seed(RNG_SEED)
     torch.manual_seed(RNG_SEED)
 
+    SKIP_K1 = os.environ.get("P2S_SKIP_K1", "0") == "1"
+    MASS_WEIGHT = os.environ.get("P2S_MASS_WEIGHT", "off")  # off|log|sqrt|linear
+    print(f"[main] config: D={D} TAG={TAG} SKIP_K1={SKIP_K1} MASS_WEIGHT={MASS_WEIGHT}",
+          flush=True)
+
     print("[main] loading prefix tree...", flush=True)
-    pp, pe, vocab_pre, _ = load_radix_tree(PREFIX_DIR)
+    if MASS_WEIGHT != "off":
+        pp, pe, vocab_pre, _, pmass = load_radix_tree(PREFIX_DIR, with_mass=True)
+    else:
+        pp, pe, vocab_pre, _ = load_radix_tree(PREFIX_DIR)
+        pmass = None
     print("[main] loading suffix tree...", flush=True)
     sp, se, vocab_suf, _ = load_radix_tree(SUFFIX_DIR)
     assert vocab_pre == vocab_suf
@@ -304,7 +327,8 @@ def main():
     print(f"[main] building training examples (max_records={MAX_RECORDS})...",
           flush=True)
     examples = build_examples(MATCH_PATH, pp, pe, sp, se,
-                              max_records=MAX_RECORDS, max_candidates=8)
+                              max_records=MAX_RECORDS, max_candidates=8,
+                              prefix_mass=pmass, skip_k1=SKIP_K1)
     # free some memory
     del pp, pe, sp, se
 
@@ -360,10 +384,29 @@ def main():
             n += len(batch)
         return total / max(n, 1)
 
+    # Build mass-weighted sampling weights (if enabled) — uses log/sqrt/linear
+    # to compress the heavy-tail mass distribution.
+    sampling_weights = None
+    if MASS_WEIGHT != "off" and 'mass' in train[0]:
+        raw = [ex['mass'] for ex in train]
+        if MASS_WEIGHT == "log":
+            sampling_weights = [math.log(1 + m) for m in raw]
+        elif MASS_WEIGHT == "sqrt":
+            sampling_weights = [math.sqrt(max(1, m)) for m in raw]
+        elif MASS_WEIGHT == "linear":
+            sampling_weights = [max(1, m) for m in raw]
+        wmin, wmax = min(sampling_weights), max(sampling_weights)
+        wmean = sum(sampling_weights) / len(sampling_weights)
+        print(f"[main] sampling weights ({MASS_WEIGHT}): "
+              f"min={wmin:.2f} mean={wmean:.2f} max={wmax:.2f}", flush=True)
+
     print("[main] training...", flush=True)
     losses = []
     for step in range(N_TRAIN_STEPS):
-        batch = random.sample(train, BATCH_SIZE)
+        if sampling_weights is None:
+            batch = random.sample(train, BATCH_SIZE)
+        else:
+            batch = random.choices(train, weights=sampling_weights, k=BATCH_SIZE)
         loss = train_batch(batch)
         losses.append(loss)
         if (step + 1) % PRINT_EVERY == 0:
