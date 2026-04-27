@@ -171,6 +171,57 @@ def build_children_index(parent_arr, edge_arr):
         children.setdefault(p, []).append((e[0], cid, e))
     return children
 
+def compute_d_star(parent_arr, edge_arr, mass_arr):
+    """For each radix node, compute d* = depth at which path becomes unique (mass=1).
+    Returns array of d* values indexed by radix id; -1 for non-mass-1-leaves."""
+    n = len(parent_arr)
+    # Need first_char_depth per node. Re-derive from edge length and parent depths.
+    # Simpler: walk from root, BFS, tracking depth.
+    # depth[node] = parent_depth + edge_len
+    depth_arr = [0] * n
+    # Build children list for BFS
+    children = {}
+    for cid in range(1, n):
+        if edge_arr[cid] is None: continue
+        children.setdefault(parent_arr[cid], []).append(cid)
+    # BFS from root (id=0)
+    queue = [0]
+    while queue:
+        next_q = []
+        for cur in queue:
+            for kid in children.get(cur, []):
+                elen = len(edge_arr[kid]) if edge_arr[kid] else 0
+                depth_arr[kid] = depth_arr[cur] + elen
+            next_q.extend(children.get(cur, []))
+        queue = next_q
+
+    # For each leaf, find shallowest ancestor with mass=1 and record its
+    # first_char_depth = depth - edge_len + 1
+    is_parent = [False] * n
+    for cid in range(1, n):
+        p = parent_arr[cid]
+        if 0 < p < n:
+            is_parent[p] = True
+    leaves = [cid for cid in range(1, n) if not is_parent[cid]]
+
+    d_star = [-1] * n
+    for leaf_id in leaves:
+        if mass_arr[leaf_id] != 1:
+            continue
+        chain = []
+        cur = leaf_id
+        while cur > 0:
+            elen = len(edge_arr[cur]) if edge_arr[cur] else 0
+            fcd = depth_arr[cur] - elen + 1
+            chain.append((fcd, mass_arr[cur]))
+            cur = parent_arr[cur]
+        chain.reverse()  # root → leaf
+        for fcd, m in chain:
+            if m == 1:
+                d_star[leaf_id] = fcd
+                break
+    return d_star
+
 def find_leaf(tokens, children_index):
     """Walk prefix tree from root following tokens, return deepest matched node id."""
     cur = 0
@@ -201,7 +252,7 @@ def build_examples_position_based(corpus_tokens, match_lookup,
                                    suffix_parent, suffix_edge,
                                    children_index, n_examples,
                                    max_candidates=8, context_len=32, D=32, seed=42,
-                                   root_loo=False):
+                                   root_loo=False, d_star_arr=None):
     """
     Position-based training-example builder. Each example:
       - Sample corpus position p (uniformly)
@@ -278,12 +329,15 @@ def build_examples_position_based(corpus_tokens, match_lookup,
             continue
 
         history = corpus_tokens[max(0, p - context_len + 1): p + 1]
-        examples.append({
+        ex = {
             'pi_tokens': history,
             'sigmas': sigma_specs,
             'target_char': true_target,
             'corpus_pos': p,
-        })
+        }
+        if d_star_arr is not None and 0 <= leaf_id < len(d_star_arr):
+            ex['d_star'] = d_star_arr[leaf_id]
+        examples.append(ex)
         if len(examples) % 100000 == 0:
             print(f"[build-pos] {len(examples)} examples...", flush=True)
 
@@ -546,6 +600,7 @@ def main():
     SKIP_K1 = os.environ.get("P2S_SKIP_K1", "0") == "1"
     MASS_WEIGHT = os.environ.get("P2S_MASS_WEIGHT", "off")
     ROOT_LOO = os.environ.get("P2S_ROOT_LOO", "0") == "1"
+    DSTAR_WEIGHT = os.environ.get("P2S_DSTAR_WEIGHT", "off")  # off|linear|inverse|peak
     POS_BASED = os.environ.get("P2S_POS_BASED", "0") == "1" or CONTEXT_LEN > D or ROOT_LOO
     print(f"[main] config: D={D} TAG={TAG} CONTEXT_LEN={CONTEXT_LEN} "
           f"POS_BASED={POS_BASED} ROOT_LOO={ROOT_LOO} "
@@ -553,11 +608,18 @@ def main():
           flush=True)
 
     print("[main] loading prefix tree...", flush=True)
-    if MASS_WEIGHT != "off":
+    need_mass = (MASS_WEIGHT != "off") or (DSTAR_WEIGHT != "off")
+    if need_mass:
         pp, pe, vocab_pre, _, pmass = load_radix_tree(PREFIX_DIR, with_mass=True)
     else:
         pp, pe, vocab_pre, _ = load_radix_tree(PREFIX_DIR)
         pmass = None
+    d_star_arr = None
+    if DSTAR_WEIGHT != "off":
+        print(f"[main] computing d* per leaf for d*-weighted sampling...", flush=True)
+        t0 = time.time()
+        d_star_arr = compute_d_star(pp, pe, pmass)
+        print(f"[main]   d* computed in {time.time() - t0:.1f}s", flush=True)
     print("[main] loading suffix tree...", flush=True)
     sp, se, vocab_suf, _ = load_radix_tree(SUFFIX_DIR)
     assert vocab_pre == vocab_suf
@@ -594,7 +656,7 @@ def main():
         examples = build_examples_position_based(
             corpus_tokens, match_lookup, sp, se, children_index,
             n_examples=MAX_RECORDS, max_candidates=8, context_len=CONTEXT_LEN, D=D,
-            seed=42, root_loo=ROOT_LOO,
+            seed=42, root_loo=ROOT_LOO, d_star_arr=d_star_arr,
         )
     else:
         print(f"[main] building training examples (max_records={MAX_RECORDS})...",
@@ -673,6 +735,20 @@ def main():
         wmean = sum(sampling_weights) / len(sampling_weights)
         print(f"[main] sampling weights ({MASS_WEIGHT}): "
               f"min={wmin:.2f} mean={wmean:.2f} max={wmax:.2f}", flush=True)
+
+    # d*-weighted sampling: focus training on high (or low) branching-depth examples
+    if DSTAR_WEIGHT != "off" and 'd_star' in train[0]:
+        raw = [max(1, ex.get('d_star', 11)) for ex in train]
+        if DSTAR_WEIGHT == "linear":          # weight ∝ d* (favor high d*)
+            sampling_weights = [float(d) for d in raw]
+        elif DSTAR_WEIGHT == "inverse":        # weight ∝ 1/d* (favor low d*)
+            sampling_weights = [1.0 / float(d) for d in raw]
+        elif DSTAR_WEIGHT == "peak":           # gaussian around 11 (favor median)
+            sampling_weights = [math.exp(-((d - 11) ** 2) / (2 * 4 ** 2)) for d in raw]
+        wmin, wmax = min(sampling_weights), max(sampling_weights)
+        wmean = sum(sampling_weights) / len(sampling_weights)
+        print(f"[main] d*-sampling weights ({DSTAR_WEIGHT}): "
+              f"min={wmin:.4f} mean={wmean:.4f} max={wmax:.4f}", flush=True)
 
     print("[main] training...", flush=True)
     losses = []
