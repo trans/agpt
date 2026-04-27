@@ -175,6 +175,13 @@ struct LightningConfig {
     // RMSProp when a single high-mass sample dominates. Log is the recommended
     // starting point.
     MassWeightMode    mass_lr    = MassWeightMode::Off;
+    // Adaptive cap on per-step subtree size (proxied by mass — at d=32, where
+    // most leaves are mass-1, mass(r) ≈ subtree_radix_size(r)). When the mass-
+    // walk lands on a node with mass > max_mass, force-descend (override
+    // p_stop) until the sampled subtree fits. 0 = no cap. Without this, on
+    // skewed corpora (e.g. Gutenberg's biggest root-child has 2.47M nodes), a
+    // single L3 step can train millions of nodes, blowing up wall-clock.
+    long long         max_mass   = 0;
 };
 
 // 32-bit xorshift. Same output across platforms; reproducible from a seed.
@@ -3180,6 +3187,31 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                         TrainPersistence* persist = nullptr)
 {
     const bool quiet = persist && persist->quiet;
+
+    // ---- Per-kernel timing instrumentation (diagnostic) ----
+    // Set AGPT_TIMING_BREAKDOWN=1 to enable. Per-kernel cudaEventSynchronize
+    // adds ~5-10% overhead but produces a per-section breakdown at end of
+    // each epoch so we can see where time actually goes.
+    bool t_enabled = (getenv("AGPT_TIMING_BREAKDOWN") != NULL);
+    cudaEvent_t te_start = NULL, te_stop = NULL;
+    if (t_enabled) {
+        cudaEventCreate(&te_start);
+        cudaEventCreate(&te_stop);
+    }
+    double t_us_gather_fwd = 0, t_us_gather_bwd = 0;
+    double t_us_attn_fwd = 0,   t_us_attn_bwd   = 0;
+    double t_us_scatter_fwd = 0;
+    #define TIME_K(accum, code) do { \
+        if (t_enabled) cudaEventRecord(te_start); \
+        code; \
+        if (t_enabled) { \
+            cudaEventRecord(te_stop); \
+            cudaEventSynchronize(te_stop); \
+            float __ms = 0; \
+            cudaEventElapsedTime(&__ms, te_start, te_stop); \
+            accum += __ms * 1000.0; \
+        } \
+    } while(0)
     if (!quiet) {
     const char* sched_name = (lr_schedule == LRSchedule::Constant)    ? "constant"
                            : (lr_schedule == LRSchedule::Cosine)       ? "cosine"
@@ -3228,6 +3260,10 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                         :                                                  "";
         printf("  lightning: %s, %d samples/super-epoch, p_stop=%.2f, seed=0x%x%s\n",
                sname, lightning.steps, lightning.p_stop, lightning.seed, mlr);
+        if (lightning.max_mass > 0) {
+            printf("  lightning: max-mass=%lld (force-descend when sampled subtree exceeds this)\n",
+                   lightning.max_mass);
+        }
         printf("           (stochastic per-sample optimizer steps; accumulate forced off)\n");
     }
     if (intermediate_weight != 1.0f) {
@@ -3537,11 +3573,12 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
     CUDA_CHECK(cudaMalloc(&d_rope_positions, T_q_cap * H * sizeof(int)));
     CUDA_CHECK(cudaMalloc(&d_char_pos,       T_q_cap * sizeof(int)));
 
-    // Per-query mass weight buffer (populated when mass_weight mode != Off).
+    // Per-query mass weight buffer. Allocated unconditionally so it's
+    // available for ancestor-loss-masking (Lightning prepends ancestors to
+    // the BFS for K/V freshness; their loss must be zeroed via this buffer
+    // even when --mass-weight is off). Cost: T_q_cap * 4 bytes (~kB).
     float* d_mass_weights = NULL;
-    if (mass_weight != MassWeightMode::Off) {
-        CUDA_CHECK(cudaMalloc(&d_mass_weights, T_q_cap * sizeof(float)));
-    }
+    CUDA_CHECK(cudaMalloc(&d_mass_weights, T_q_cap * sizeof(float)));
 
     // cuBLAS handle
     cublasHandle_t cublas;
@@ -3590,6 +3627,15 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
     // K/V is written to the cache before any descendant reads it).
     int** subtree_nodes = (int**)malloc(n_root_children * sizeof(int*));
     int* subtree_sizes = (int*)calloc(n_root_children, sizeof(int));
+    // Per-Lightning-sample count of ancestors prepended to subtree_nodes[s].
+    // The bucket sort places ancestors first (lowest endpoint depth), so the
+    // global indices [0, subtree_n_anc[s]) within subtree_nodes[s] are ancestors.
+    // For deterministic AGPT and L4, no ancestors are prepended → stays 0.
+    // Used by chunk processing to mask ancestor positions out of the loss
+    // (forward K/V scatter still happens, populating cache with current-weight
+    // K/V; only the first-order CE loss is suppressed to avoid over-training
+    // shallow ancestors that appear in many L3 BFS sets per epoch).
+    int* subtree_n_anc = (int*)calloc(n_root_children, sizeof(int));
     // rc_index[rc_id] = index into root_children[]
     // Built on demand via linear search since n_root_children ≤ vocab_size (≤ 65).
 
@@ -3715,8 +3761,10 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
         }
         free(subtree_nodes);
         free(subtree_sizes);
+        free(subtree_n_anc);
         subtree_nodes = (int**)malloc(sizeof(int*));
         subtree_sizes = (int*)malloc(sizeof(int));
+        subtree_n_anc = (int*)calloc(1, sizeof(int));  // no ancestors in deterministic AGPT
         subtree_nodes[0] = big;
         subtree_sizes[0] = fill;
         // Re-sort globally by endpoint depth so BFS order holds across the full subtree
@@ -3831,6 +3879,8 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
 
         subtree_nodes = group_nodes;
         subtree_sizes = group_sizes;
+        free(subtree_n_anc);
+        subtree_n_anc = (int*)calloc(n_groups, sizeof(int));  // no ancestors in deterministic AGPT
         n_root_children = n_groups;   // semantics: now "partition groups"
 
         if (!quiet) {
@@ -3947,6 +3997,13 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
         struct timespec t0, t1;
         clock_gettime(CLOCK_MONOTONIC, &t0);
 
+        // Reset per-epoch timing accumulators
+        if (t_enabled) {
+            t_us_gather_fwd = t_us_gather_bwd = 0;
+            t_us_attn_fwd = t_us_attn_bwd = 0;
+            t_us_scatter_fwd = 0;
+        }
+
         // Zero KV caches
         for (int l = 0; l < L_layers; l++) {
             CUDA_CHECK(cudaMemset(d_kv_keys[l],   0, kv_bytes));
@@ -3962,6 +4019,11 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
         double* lightning_subtree_mass = NULL;
         double lightning_mean_mass = 1.0;
         double lightning_mass_min = 0.0, lightning_mass_max = 0.0;
+        // Per-step BFS node count (sz) — the actual cost driver. mass_accum
+        // (depth-inflated sum over subtree) is a misleading proxy because it
+        // counts each corpus context once per ancestor depth.
+        int lightning_size_min = 0, lightning_size_max = 0;
+        double lightning_size_mean = 0.0;
         double lightning_w_min = 1.0, lightning_w_max = 1.0;
         // Per-sample virtual-tree cycle shift: shift = k_sample * D_max applied
         // to RoPE angle of Q and K (both own-edge fresh buffer and ancestor
@@ -3972,13 +4034,15 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
         int D_max = trie.depth_file_count - 1;
         if (lightning_active) {
             for (int i = 0; i < 64; i++) lightning_depth_hist[i] = 0;
-            // Free previous subtree_nodes / subtree_sizes.
+            // Free previous subtree_nodes / subtree_sizes / subtree_n_anc.
             for (int i = 0; i < n_root_children; i++) free(subtree_nodes[i]);
             free(subtree_nodes);
             free(subtree_sizes);
+            free(subtree_n_anc);
             n_root_children = lightning.steps;
             subtree_nodes = (int**)malloc(n_root_children * sizeof(int*));
             subtree_sizes = (int*)calloc(n_root_children, sizeof(int));
+            subtree_n_anc = (int*)calloc(n_root_children, sizeof(int));
             lightning_subtree_mass = (double*)calloc(n_root_children, sizeof(double));
             lightning_cycle_shift = (int*)calloc(n_root_children, sizeof(int));
             // Pick per-sample cycle shift uniformly from {0, D, 2D, ..., (K-1)D}.
@@ -4011,7 +4075,12 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                     int cur = 0;
                     while (1) {
                         // Stop probability applies at all nodes except the virtual root.
-                        if (cur != 0 && p_stop_eff > 0.0f) {
+                        // Force-descend (override p_stop) when the current node's mass
+                        // exceeds the configured cap — mass(r) is a tight proxy for
+                        // subtree_radix_size(r) at d=32, so this bounds per-step work.
+                        bool force_descend = (lightning.max_mass > 0 && cur != 0 &&
+                                              (long long)trie.edge_mass[cur] > lightning.max_mass);
+                        if (cur != 0 && p_stop_eff > 0.0f && !force_descend) {
                             float u = xorshift_float01(&lightning_rng);
                             if (u < p_stop_eff) break;
                         }
@@ -4089,10 +4158,45 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                         int t = bfs_buf[a]; bfs_buf[a] = bfs_buf[b]; bfs_buf[b] = t;
                     }
                 } else {
+                    // ancestors(r_sample) ∪ {r_sample} ∪ descendants(r_sample).
+                    //
+                    // Ancestors are prepended so that in the chunk loop their
+                    // forward pass scatters fresh K/V (current weights) into
+                    // the cache before any descendant query reads from those
+                    // positions. Without this, the cache holds zeros (epoch-
+                    // init memset) or stale K/V from prior steps, and the
+                    // prefix portion of descendant attention reads garbage.
+                    //
+                    // CRITICAL: the count of prepended ancestors is recorded
+                    // in subtree_n_anc[s]; the chunk-loss code zeros their
+                    // mass_weight so they don't contribute first-order CE
+                    // loss. (Naive variant — letting ancestors contribute to
+                    // loss — over-trains shallow nodes that appear in many
+                    // BFS sets, and PPL got worse: see git log apr 2026.)
+                    // Ancestor weights still receive gradient via descendant
+                    // attention's K/V grad path — that's the AGPT mechanism
+                    // and remains intact.
+                    int cur = trie.parents[r_sample];
+                    int anc_start = fill;
+                    while (cur > 0) {
+                        bfs_buf[fill++] = cur;
+                        mass_accum += (double)trie.edge_mass[cur];
+                        cur = trie.parents[cur];
+                    }
+                    // Reverse ancestor segment to depth-ascending order
+                    // (cosmetic; the endpoint-depth bucket sort below
+                    // re-orders strictly by endpoint depth anyway, putting
+                    // ancestors first and descendants last).
+                    for (int a = anc_start, b = fill - 1; a < b; a++, b--) {
+                        int t = bfs_buf[a]; bfs_buf[a] = bfs_buf[b]; bfs_buf[b] = t;
+                    }
+                    int n_anc_local = fill - anc_start;
+                    subtree_n_anc[s] = n_anc_local;
+
                     // BFS: {r_sample} ∪ descendants(r_sample)
-                    int head = 0;
+                    int head = fill;
                     bfs_buf[fill++] = r_sample;
-                    mass_accum = (double)trie.edge_mass[r_sample];
+                    mass_accum += (double)trie.edge_mass[r_sample];
                     while (head < fill) {
                         int cur_i = bfs_buf[head++];
                         int cs = lightning_children_offsets[cur_i];
@@ -4154,6 +4258,20 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
             }
             lightning_mean_mass = (n_root_children > 0 && total_raw > 0.0)
                                   ? total_raw / n_root_children : 1.0;
+
+            // Honest per-step cost stats: BFS node count (sz).
+            if (n_root_children > 0) {
+                lightning_size_min = subtree_sizes[0];
+                lightning_size_max = subtree_sizes[0];
+                long long total_sz = 0;
+                for (int s = 0; s < n_root_children; s++) {
+                    int sz_s = subtree_sizes[s];
+                    total_sz += sz_s;
+                    if (sz_s < lightning_size_min) lightning_size_min = sz_s;
+                    if (sz_s > lightning_size_max) lightning_size_max = sz_s;
+                }
+                lightning_size_mean = (double)total_sz / (double)n_root_children;
+            }
 
             if (lightning.mass_lr != MassWeightMode::Off) {
                 // In-place: replace subtree_mass[s] with the normalized weight
@@ -4480,6 +4598,13 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                 // the chunk. This preserves ORDER (common > rare) while bounding
                 // the per-step ratio to ~log(max_mass) / log(min_mass + 1) ≈ 10x.
                 // Gradient stability wins out over exact linear-mass correspondence.
+                // Naive warmup: ancestors are in the BFS and contribute to loss
+                // exactly like any other position. This matches L4 (path-sampling)
+                // semantics, where every position in the path is trained. The
+                // masked variant (anc loss = 0) was based on an over-training
+                // hypothesis that turned out to be wrong: L4 also has shallow
+                // ancestors appearing in many paths and works fine (PPL 29 vs
+                // L3-masked 59 on Gutenberg). See git log for the experiment.
                 if (mass_weight != MassWeightMode::Off) {
                     float* h_mass_weights = (float*)malloc(T_q * sizeof(float));
                     float* node_w = (float*)malloc(N * sizeof(float));
@@ -4510,6 +4635,7 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                     CUDA_CHECK(cudaMemcpy(d_mass_weights, h_mass_weights, T_q * sizeof(float), cudaMemcpyHostToDevice));
                     free(h_mass_weights);
                 }
+                bool need_mass_weights = (mass_weight != MassWeightMode::Off);
 
                 // NOTE: gradients zeroed at subtree start; NOT per chunk.
                 // This chunk's backward accumulates into d_grads (via +=).
@@ -4562,8 +4688,10 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
 
                     // Scatter K/V into compact cache (mass=1 char positions are
                     // skipped — they're never queried as ancestors).
-                    launch_kv_scatter_compact_bf16(d_k, d_char_pos, d_compact_slot, d_kv_keys[l],   T_q, D);
-                    launch_kv_scatter_compact_bf16(d_v, d_char_pos, d_compact_slot, d_kv_values[l], T_q, D);
+                    TIME_K(t_us_scatter_fwd, {
+                        launch_kv_scatter_compact_bf16(d_k, d_char_pos, d_compact_slot, d_kv_keys[l],   T_q, D);
+                        launch_kv_scatter_compact_bf16(d_v, d_char_pos, d_compact_slot, d_kv_values[l], T_q, D);
+                    });
 
                     // Virtual-tree shift: if this sample's cycle shift > 0, rotate
                     // Q and own-edge K by θ(shift) on top of real-position rotation.
@@ -4583,34 +4711,38 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                     // When virtual-tree training is active (K>1), K gather uses delta-RoPE so
                     // the same cache entry can serve a virtual read position; otherwise the
                     // plain gather is used (faster, no extra trig). V has no RoPE.
-                    if (lightning.virtual_cycles > 1) {
-                        launch_kv_gather_k_anc_delta_rope(d_kv_keys[l], d_anc_ids_cache, d_anc_offsets_cache,
+                    TIME_K(t_us_gather_fwd, {
+                        if (lightning.virtual_cycles > 1) {
+                            launch_kv_gather_k_anc_delta_rope(d_kv_keys[l], d_anc_ids_cache, d_anc_offsets_cache,
+                                                              d_kv_offsets, d_anc_lengths_cache, d_compact_slot,
+                                                              d_read_pos_flat_cache, d_real_pos_of_char,
+                                                              d_rope_cos, d_rope_sin,
+                                                              d_kv_pack_k, N, H, HD);
+                        } else {
+                            launch_kv_gather_anc_compact_bf16(d_kv_keys[l], d_anc_ids_cache, d_anc_offsets_cache,
+                                                              d_kv_offsets, d_anc_lengths_cache, d_compact_slot,
+                                                              d_kv_pack_k, N, H, HD);
+                        }
+                        launch_kv_gather_anc_compact_bf16(d_kv_values[l], d_anc_ids_cache, d_anc_offsets_cache,
                                                           d_kv_offsets, d_anc_lengths_cache, d_compact_slot,
-                                                          d_read_pos_flat_cache, d_real_pos_of_char,
-                                                          d_rope_cos, d_rope_sin,
-                                                          d_kv_pack_k, N, H, HD);
-                    } else {
-                        launch_kv_gather_anc_compact_bf16(d_kv_keys[l], d_anc_ids_cache, d_anc_offsets_cache,
-                                                          d_kv_offsets, d_anc_lengths_cache, d_compact_slot,
-                                                          d_kv_pack_k, N, H, HD);
-                    }
-                    launch_kv_gather_anc_compact_bf16(d_kv_values[l], d_anc_ids_cache, d_anc_offsets_cache,
-                                                      d_kv_offsets, d_anc_lengths_cache, d_compact_slot,
-                                                      d_kv_pack_v, N, H, HD);
-                    launch_kv_copy_own_edge(d_k, d_query_offsets, d_kv_offsets,
-                                             d_anc_lengths_cache, d_own_lengths_cache,
-                                             d_kv_pack_k, N, H, HD);
-                    launch_kv_copy_own_edge(d_v, d_query_offsets, d_kv_offsets,
-                                             d_anc_lengths_cache, d_own_lengths_cache,
-                                             d_kv_pack_v, N, H, HD);
+                                                          d_kv_pack_v, N, H, HD);
+                        launch_kv_copy_own_edge(d_k, d_query_offsets, d_kv_offsets,
+                                                 d_anc_lengths_cache, d_own_lengths_cache,
+                                                 d_kv_pack_k, N, H, HD);
+                        launch_kv_copy_own_edge(d_v, d_query_offsets, d_kv_offsets,
+                                                 d_anc_lengths_cache, d_own_lengths_cache,
+                                                 d_kv_pack_v, N, H, HD);
+                    });
 
                     // L-query varlen attention
                     float scale = 1.0f / sqrtf((float)HD);
-                    cuda_batched_varlen_attention_L_queries(
-                        d_q, d_kv_pack_k, d_kv_pack_v,
-                        d_query_to_node, d_query_offsets, d_kv_offsets, d_kv_lengths,
-                        d_attn_out /* used as packed output temp */, sv_attn_weights[l],
-                        T_q, H, HD, max_kv_len, scale);
+                    TIME_K(t_us_attn_fwd, {
+                        cuda_batched_varlen_attention_L_queries(
+                            d_q, d_kv_pack_k, d_kv_pack_v,
+                            d_query_to_node, d_query_offsets, d_kv_offsets, d_kv_lengths,
+                            d_attn_out /* used as packed output temp */, sv_attn_weights[l],
+                            T_q, H, HD, max_kv_len, scale);
+                    });
                     // d_attn_out now has packed [T_q * H, HD] output — same memory layout as [T_q, D].
                     // Since D = H * HD and heads are contiguous in the last dim, this is already the
                     // right layout for [T_q, D]. Save for backward.
@@ -4678,7 +4810,7 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                 launch_agpt_loss_per_query(d_logits, d_query_to_node, d_query_offsets,
                                             d_radix_ids, d_token_ids,
                                             d_radix_counts_offset, d_radix_counts_tok, d_radix_counts_val,
-                                            (mass_weight != MassWeightMode::Off) ? d_mass_weights : NULL,
+                                            need_mass_weights ? d_mass_weights : NULL,
                                             d_d_logits, d_loss, T_q, V, entropy_lambda,
                                             intermediate_weight, cfg.ce_only ? 1 : 0);
 
@@ -4824,37 +4956,41 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                     // Gather packed K/V for backward: ancestors from compact cache,
                     // own-edge from freshly-recomputed d_k/d_v. Delta-RoPE K gather
                     // only when virtual-tree mode is active.
-                    if (lightning.virtual_cycles > 1) {
-                        launch_kv_gather_k_anc_delta_rope(d_kv_keys[l], d_anc_ids_cache, d_anc_offsets_cache,
+                    TIME_K(t_us_gather_bwd, {
+                        if (lightning.virtual_cycles > 1) {
+                            launch_kv_gather_k_anc_delta_rope(d_kv_keys[l], d_anc_ids_cache, d_anc_offsets_cache,
+                                                              d_kv_offsets, d_anc_lengths_cache, d_compact_slot,
+                                                              d_read_pos_flat_cache, d_real_pos_of_char,
+                                                              d_rope_cos, d_rope_sin,
+                                                              d_kv_pack_k, N, H, HD);
+                        } else {
+                            launch_kv_gather_anc_compact_bf16(d_kv_keys[l], d_anc_ids_cache, d_anc_offsets_cache,
+                                                              d_kv_offsets, d_anc_lengths_cache, d_compact_slot,
+                                                              d_kv_pack_k, N, H, HD);
+                        }
+                        launch_kv_gather_anc_compact_bf16(d_kv_values[l], d_anc_ids_cache, d_anc_offsets_cache,
                                                           d_kv_offsets, d_anc_lengths_cache, d_compact_slot,
-                                                          d_read_pos_flat_cache, d_real_pos_of_char,
-                                                          d_rope_cos, d_rope_sin,
-                                                          d_kv_pack_k, N, H, HD);
-                    } else {
-                        launch_kv_gather_anc_compact_bf16(d_kv_keys[l], d_anc_ids_cache, d_anc_offsets_cache,
-                                                          d_kv_offsets, d_anc_lengths_cache, d_compact_slot,
-                                                          d_kv_pack_k, N, H, HD);
-                    }
-                    launch_kv_gather_anc_compact_bf16(d_kv_values[l], d_anc_ids_cache, d_anc_offsets_cache,
-                                                      d_kv_offsets, d_anc_lengths_cache, d_compact_slot,
-                                                      d_kv_pack_v, N, H, HD);
-                    launch_kv_copy_own_edge(d_k, d_query_offsets, d_kv_offsets,
-                                             d_anc_lengths_cache, d_own_lengths_cache,
-                                             d_kv_pack_k, N, H, HD);
-                    launch_kv_copy_own_edge(d_v, d_query_offsets, d_kv_offsets,
-                                             d_anc_lengths_cache, d_own_lengths_cache,
-                                             d_kv_pack_v, N, H, HD);
+                                                          d_kv_pack_v, N, H, HD);
+                        launch_kv_copy_own_edge(d_k, d_query_offsets, d_kv_offsets,
+                                                 d_anc_lengths_cache, d_own_lengths_cache,
+                                                 d_kv_pack_k, N, H, HD);
+                        launch_kv_copy_own_edge(d_v, d_query_offsets, d_kv_offsets,
+                                                 d_anc_lengths_cache, d_own_lengths_cache,
+                                                 d_kv_pack_v, N, H, HD);
+                    });
 
                     // Zero dK/dV packed buffers
                     CUDA_CHECK(cudaMemset(d_dk_pack, 0, (long long)T_kv * H * HD * sizeof(float)));
                     CUDA_CHECK(cudaMemset(d_dv_pack, 0, (long long)T_kv * H * HD * sizeof(float)));
 
                     float scale = 1.0f / sqrtf((float)HD);
-                    cuda_batched_varlen_attention_L_queries_backward(
-                        d_q, d_kv_pack_k, d_kv_pack_v, sv_attn_weights[l], d_d_attn_out,
-                        d_query_to_node, d_query_offsets, d_kv_offsets, d_kv_lengths,
-                        d_dq_pack, d_dk_pack, d_dv_pack,
-                        T_q, H, HD, max_kv_len, scale);
+                    TIME_K(t_us_attn_bwd, {
+                        cuda_batched_varlen_attention_L_queries_backward(
+                            d_q, d_kv_pack_k, d_kv_pack_v, sv_attn_weights[l], d_d_attn_out,
+                            d_query_to_node, d_query_offsets, d_kv_offsets, d_kv_lengths,
+                            d_dq_pack, d_dk_pack, d_dv_pack,
+                            T_q, H, HD, max_kv_len, scale);
+                    });
 
                     // Inverse RoPE on dQ. Reverse order of forward composition:
                     // Q was rotated first by real position, then by scalar shift.
@@ -5111,6 +5247,14 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
         if (!quiet) {
             printf("Epoch %d: loss=%.6f  (%.2f sec, %d subtrees, %d chunks, %d nodes)\n",
                    epoch + 1, mean_loss, elapsed, subtrees_trained, chunks_processed, nodes_trained);
+            if (t_enabled) {
+                double total_us = t_us_gather_fwd + t_us_gather_bwd + t_us_attn_fwd + t_us_attn_bwd + t_us_scatter_fwd;
+                printf("  [timing] gather_fwd=%.2fs gather_bwd=%.2fs attn_fwd=%.2fs attn_bwd=%.2fs scatter_fwd=%.2fs  measured_total=%.2fs / wall=%.2fs (%.0f%%)\n",
+                       t_us_gather_fwd / 1e6, t_us_gather_bwd / 1e6,
+                       t_us_attn_fwd   / 1e6, t_us_attn_bwd   / 1e6,
+                       t_us_scatter_fwd / 1e6,
+                       total_us / 1e6, elapsed, 100.0 * (total_us / 1e6) / elapsed);
+            }
 
             if (n_root_children > 0) {
                 int top_k = 10;
@@ -5135,15 +5279,14 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
             }
 
             if (lightning_active) {
-                double mean_size = (n_root_children > 0) ? (double)lightning_nodes_sum / n_root_children : 0.0;
                 printf("  lightning depth histogram (sample endpoint depth):");
                 int max_seen = 0;
                 for (int d = 0; d < 64; d++) if (lightning_depth_hist[d] > 0 && d > max_seen) max_seen = d;
                 for (int d = 0; d <= max_seen; d++) {
                     if (lightning_depth_hist[d] > 0) printf(" d%d:%d", d, lightning_depth_hist[d]);
                 }
-                printf("  mean_size=%.0f  mass[min=%.0f mean=%.0f max=%.0f]",
-                       mean_size, lightning_mass_min, lightning_mean_mass, lightning_mass_max);
+                printf("  size[min=%d mean=%.0f max=%d]",
+                       lightning_size_min, lightning_size_mean, lightning_size_max);
                 if (lightning.mass_lr != MassWeightMode::Off) {
                     printf("  lr_scale[min=%.3f max=%.3f]", lightning_w_min, lightning_w_max);
                 }
@@ -5323,8 +5466,11 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                 for (int i = 0; i < n_root_children; i++) free(subtree_nodes[i]);
                 free(subtree_nodes);
                 free(subtree_sizes);
+                free(subtree_n_anc);
                 subtree_nodes = sorted_nodes;
                 subtree_sizes = sorted_sizes;
+                // Hotspot-split is a deterministic-AGPT path; no ancestors prepended.
+                subtree_n_anc = (int*)calloc(new_n, sizeof(int));
                 int old_n = n_root_children;
                 n_root_children = new_n;
 
@@ -5407,7 +5553,7 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
     if (d_mass_weights) cudaFree(d_mass_weights);
     free(root_child_of); free(root_children);
     for (int i = 0; i < n_root_children; i++) free(subtree_nodes[i]);
-    free(subtree_nodes); free(subtree_sizes);
+    free(subtree_nodes); free(subtree_sizes); free(subtree_n_anc);
     if (prev_epoch_score) free(prev_epoch_score);
     if (lightning_children_offsets) free(lightning_children_offsets);
     if (lightning_children_flat)    free(lightning_children_flat);
@@ -5800,6 +5946,7 @@ int main(int argc, char** argv) {
             else { fprintf(stderr, "Unknown --lightning-sampler '%s' (l1|l2|l3)\n", s); return 1; }
         }
         else if (strcmp(argv[i], "--lightning-p-stop") == 0 && i + 1 < argc) lightning.p_stop = atof(argv[++i]);
+        else if (strcmp(argv[i], "--lightning-max-mass") == 0 && i + 1 < argc) lightning.max_mass = atoll(argv[++i]);
         else if (strcmp(argv[i], "--lightning-seed") == 0 && i + 1 < argc) lightning.seed = (unsigned)strtoul(argv[++i], NULL, 0);
         else if (strcmp(argv[i], "--virtual-cycles") == 0 && i + 1 < argc) lightning.virtual_cycles = atoi(argv[++i]);
         else if (strcmp(argv[i], "--lightning-mass-lr") == 0) {
@@ -5880,6 +6027,10 @@ int main(int argc, char** argv) {
                         "                                l2 = uniform over depth-1 root-children.\n"
                         "                                l3 = mass-weighted top-down walk with p_stop.\n"
                         "  [--lightning-p-stop F]      — L3 stop probability at each level (default 0.3).\n"
+                        "  [--lightning-max-mass N]    — L3 cap on per-step subtree mass; force-descend\n"
+                        "                                past nodes with mass>N (default 0=off). Use to\n"
+                        "                                bound wall-clock on skewed corpora — e.g. set to\n"
+                        "                                ~50000 on Gutenberg 5M to avoid 2M-node steps.\n"
                         "  [--lightning-seed N]        — sampler RNG seed (default 0x5c115e1).\n"
                         "  [--hotspot-coverage F]      — Adaptive split between epochs. 0.0 (default)\n"
                         "                                disables. 0.8 splits the top subtrees covering\n"
@@ -5900,9 +6051,15 @@ int main(int argc, char** argv) {
                         "                                linear can blow up RMSProp with a single\n"
                         "                                high-mass sample dominating; log is the\n"
                         "                                stable default. off = no scaling.\n"
-                        "  [--save <path>]\n");
+                        "  [--save <path>]            — output weights path (default: --model path,\n"
+                        "                                i.e. overwrite-in-place).\n");
         return 1;
     }
+
+    // Default --save to --model when not specified (overwrite-in-place).
+    // Without this, training silently discards weights at exit — a footgun
+    // that wasted multiple multi-hour runs (apr 2026).
+    if (!save_path) save_path = model_path;
 
     printf("AGPT CUDA Training Engine\n");
 
