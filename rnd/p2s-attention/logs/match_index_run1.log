@@ -1,0 +1,62 @@
+[p2s]   head trie: 63258098 nodes, ~1003.2993392944336 MB
+[p2s] Loading prefix tree from /home/trans/agpt-tries/gutenberg_5m_d32_radix_corpus
+[p2s]   7539820 radix nodes
+[p2s] Pass 3: collecting prefix-tree parent ids
+[p2s] Pass 4: matching prefix leaves...
+[p2s]   processed 500000 prefix leaves...
+[p2s]   processed 1000000 prefix leaves...
+[p2s]   processed 1500000 prefix leaves...
+[p2s]   processed 2000000 prefix leaves...
+[p2s]   processed 2500000 prefix leaves...
+[p2s]   processed 3000000 prefix leaves...
+[p2s]   processed 3500000 prefix leaves...
+[p2s]   processed 4000000 prefix leaves...
+[p2s]   processed 4500000 prefix leaves...
+
+[p2s] === Match index summary ===
+[p2s]   prefix leaves total:       4988254
+[p2s]   with any match (k≥1):      4988254 (100.0%)
+[p2s]   with k ≥ min_overlap=1: 4988254 (100.0%)
+[p2s]   mean candidate-set size (where k≥1): 1.49 (capped at 64)
+[p2s]   truncated count (subtree exceeded cap): 1378112
+
+[p2s] Overlap k histogram:
+  k= 1:       1477 ( 0.03%)
+  k= 2:       1682 ( 0.03%)
+  k= 3:       2182 ( 0.04%)
+  k= 4:       2942 ( 0.06%)
+  k= 5:       4118 ( 0.08%)
+  k= 6:       6036 ( 0.12%)
+  k= 7:       9036 ( 0.18%)
+  k= 8:      13191 ( 0.26%)
+  k= 9:      18794 ( 0.38%)
+  k=10:      26853 ( 0.54%)
+  k=11:      38743 ( 0.78%)
+  k=12:      55603 ( 1.11%)
+  k=13:      80480 ( 1.61%)
+  k=14:     115006 ( 2.31%)
+  k=15:     162892 ( 3.27%)
+  k=16:     225695 ( 4.52%)
+  k=17:     307459 ( 6.16%)
+  k=18:     404356 ( 8.11%)
+  k=19:     508285 (10.19%)
+  k=20:     597623 (11.98%)
+  k=21:     639179 (12.81%)
+  k=22:     609886 (12.23%)
+  k=23:     505907 (10.14%)
+  k=24:     352572 ( 7.07%)
+  k=25:     194177 ( 3.89%)
+  k=26:      79196 ( 1.59%)
+  k=27:      20760 ( 0.42%)
+  k=28:       3533 ( 0.07%)
+  k=29:        516 ( 0.01%)
+  k=30:         74 (  0.0%)
+  k=31:          1 (  0.0%)
+
+[p2s] Candidate-set size histogram (over ALL prefix leaves):
+         1:    4760710 (95.44%)
+       2-4:     143981 ( 2.89%)
+      5-19:      47054 ( 0.94%)
+     20-99:      36509 ( 0.73%)
+bin/agpt_p2s_match --prefix  --suffix  --min-overlap 1 --max-candidates 64 2>  195.58s user 2.91s system 99% cpu 3:19.98 total
+tail -60  0.00s user 0.00s system 0% cpu 3:19.98 total

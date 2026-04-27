@@ -52,6 +52,11 @@ build-trie-profile: build-stubs
     mkdir -p bin
     timeout 3m crystal build src/tools/trie_profile.cr -o bin/trie-profile --link-flags="{{root}}/build/kernels.o"
 
+# Build p2s-attention match index tool (Phase 2/3 of rnd/p2s-attention).
+build-p2s-match: build-stubs
+    mkdir -p bin
+    timeout 3m crystal build src/tools/p2s_match_index.cr -o bin/agpt_p2s_match --release --link-flags="{{root}}/build/kernels.o -lstdc++"
+
 # Build Bayesian posterior density tool.
 build-bayesian-posterior: build-stubs
     mkdir -p bin
