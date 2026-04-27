@@ -48,9 +48,9 @@ N_HEADS      = 4
 N_LAYERS     = 2
 BATCH_SIZE   = 16
 LR           = 3e-4
-N_TRAIN_STEPS = 2000
+N_TRAIN_STEPS = 10000
 N_HELDOUT    = 4096
-PRINT_EVERY  = 50
+PRINT_EVERY  = 250
 DEVICE       = "cuda" if torch.cuda.is_available() else "cpu"
 RNG_SEED     = 42
 
