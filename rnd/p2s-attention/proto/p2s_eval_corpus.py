@@ -128,13 +128,14 @@ def main():
           flush=True)
 
     # Build model and load weights
+    eval_max_len = cfg.get('max_len', cfg['D'])
     model = P2SModel(
         vocab_size=cfg['vocab_size'],
         embed_size=cfg['vocab_size'] + 1,
         d_model=cfg['d_model'],
         n_heads=cfg['n_heads'],
         n_layers=cfg['n_layers'],
-        max_len=cfg['D'],
+        max_len=eval_max_len,
     ).to(DEVICE)
     model.load_state_dict(ckpt['model_state'])
     model.eval()
@@ -156,14 +157,14 @@ def main():
     def run_batch(items):
         nonlocal total_loss, total_count
         B = len(items)
-        pi = torch.full((B, D), PAD, dtype=torch.long)
-        pim = torch.ones((B, D), dtype=torch.bool)
+        pi = torch.full((B, eval_max_len), PAD, dtype=torch.long)
+        pim = torch.ones((B, eval_max_len), dtype=torch.bool)
         sg = torch.full((B, MAX_K, D), PAD, dtype=torch.long)
         sgm = torch.ones((B, MAX_K, D), dtype=torch.bool)
         sgp = torch.ones((B, MAX_K), dtype=torch.bool)
         targets = torch.zeros(B, dtype=torch.long)
         for b, (pi_path, sigmas_fwd, true_next) in enumerate(items):
-            pt = pi_path[:D]
+            pt = pi_path[-eval_max_len:]   # take TAIL (most recent context)
             pi[b, :len(pt)] = torch.tensor(pt, dtype=torch.long)
             pim[b, :len(pt)] = False
             for ki, st in enumerate(sigmas_fwd[:MAX_K]):
@@ -181,7 +182,10 @@ def main():
     batch = []
     for p_idx, p in enumerate(eval_positions):
         # window is corpus_tokens[p-D+1 .. p], next char is corpus_tokens[p+1]
-        # but we need the prefix-tree leaf for the window ENDING at p
+        # We use the LEAF of the D-window walk to find the match set, but the
+        # encoder input for the prefix is the longer eval_max_len tail of the
+        # corpus (so a wrap-trained model gets the longer context it was
+        # trained on, instead of being evaluated on short prefix only).
         win = corpus_tokens[max(0, p - D + 1) : p + 1]
         if len(win) < D:
             continue
@@ -190,8 +194,6 @@ def main():
             skipped_no_leaf += 1
             continue
         if leaf_id not in match_by_pid:
-            # This is an internal node, no match entry. Walk to a child if possible —
-            # but for evaluation, just skip (rare)
             skipped_no_match += 1
             continue
         max_k, sigmas = match_by_pid[leaf_id]
@@ -212,10 +214,10 @@ def main():
             skipped_no_match += 1
             continue
 
-        # Get the prefix leaf's full path tokens (for the encoder)
-        pi_path = path_tokens(leaf_id, pp, pe)
-        if not pi_path:
-            continue
+        # Use longer-context corpus chars as the prefix encoder input
+        # (matches training distribution when wrap_cycles > 1)
+        long_win = corpus_tokens[max(0, p - eval_max_len + 1) : p + 1]
+        pi_path = long_win
 
         true_next = corpus_tokens[p + 1]
         batch.append((pi_path, sigmas_fwd, true_next))

@@ -47,6 +47,14 @@ CORPUS_PATH = "/home/trans/Projects/agpt/data/gutenberg_5m.txt"
 
 # Tag for log + checkpoint filenames; lets us run multiple recipes per D
 TAG = os.environ.get("P2S_TAG", "default")
+
+# Wrap-around: number of chained cycles per training example.
+# WRAP=1 (default) is no chaining (one match per example).
+# WRAP=N>1 chains N cycles, concatenating each cycle's σ-extension into the
+# encoder's prefix input. Effective context grows as D + (N-1)·(D-mean_overlap)
+# ≈ D + (N-1)·11 for our D=32 mean overlap 21.
+WRAP_CYCLES = int(os.environ.get("P2S_WRAP", "1"))
+MAX_LEN     = int(os.environ.get("P2S_MAX_LEN", str(D if WRAP_CYCLES <= 1 else D * 4)))
 D_MODEL      = int(os.environ.get("P2S_D_MODEL", "256"))
 N_HEADS      = int(os.environ.get("P2S_N_HEADS", "8"))
 N_LAYERS     = int(os.environ.get("P2S_N_LAYERS", "6"))
@@ -149,9 +157,47 @@ def iter_match_records(path):
         yield pid, max_k, sigmas
 
 # ---------------- build training examples ----------------
+def build_children_index(parent_arr, edge_arr):
+    """For walking prefix tree from root: parent → [(first_token, child_id, edge_tokens)]."""
+    children = {}
+    for cid in range(1, len(parent_arr)):
+        e = edge_arr[cid]
+        if e is None or len(e) == 0:
+            continue
+        p = parent_arr[cid]
+        children.setdefault(p, []).append((e[0], cid, e))
+    return children
+
+def find_leaf(tokens, children_index):
+    """Walk prefix tree from root following tokens, return deepest matched node id."""
+    cur = 0
+    pos = 0
+    while pos < len(tokens):
+        ch = tokens[pos]
+        kids = children_index.get(cur)
+        if not kids:
+            return cur
+        match = None
+        for first_tok, child_id, edge in kids:
+            if first_tok == ch:
+                match = (child_id, edge); break
+        if match is None:
+            return cur
+        child_id, edge = match
+        ok = True
+        for i in range(1, len(edge)):
+            if pos + i >= len(tokens) or tokens[pos + i] != edge[i]:
+                ok = False; break
+        if not ok:
+            return cur
+        cur = child_id
+        pos += len(edge)
+    return cur
+
 def build_examples(match_path, prefix_parent, prefix_edge,
                    suffix_parent, suffix_edge, max_records=None,
-                   max_candidates=8, prefix_mass=None, skip_k1=False):
+                   max_candidates=8, prefix_mass=None, skip_k1=False,
+                   wrap_cycles=1, children_index=None):
     """
     Returns list of dicts, each:
       {
@@ -168,44 +214,113 @@ def build_examples(match_path, prefix_parent, prefix_edge,
       - max_candidates: cap on candidates per example (large match sets are
         truncated; fine for prototyping)
     """
+    # If wrap_cycles > 1, we need a fast lookup of all matches by pid for chaining.
+    match_lookup = None
+    if wrap_cycles > 1:
+        if children_index is None:
+            raise ValueError("wrap_cycles>1 requires children_index for prefix-tree walks")
+        print(f"[build] (wrap={wrap_cycles}) preloading match_lookup...", flush=True)
+        match_lookup = {}
+        for p, k, ss in iter_match_records(match_path):
+            match_lookup[p] = (k, ss)
+        print(f"[build]   match_lookup: {len(match_lookup)} entries", flush=True)
+
+    def get_sigma_specs(pid_, max_k_, sigmas_):
+        """Build sigma_specs list for one cycle's match record."""
+        out = []
+        for sid in sigmas_[:max_candidates]:
+            sp_path = path_tokens(sid, suffix_parent, suffix_edge)
+            sf = list(reversed(sp_path))
+            if max_k_ >= len(sf):
+                continue
+            out.append({
+                'tokens': sf,
+                'overlap_k': max_k_,
+                'pred_char': sf[max_k_],
+            })
+        return out
+
     examples = []
     n_skipped_no_pred = 0
     n_skipped_k1 = 0
     n_seen = 0
-    for pid, max_k, sigmas in iter_match_records(match_path):
+    n_chains_short = 0  # chains that broke before wrap_cycles completed
+    chain_lens = [0] * (wrap_cycles + 1)
+
+    iter_records = (match_lookup.items() if match_lookup is not None
+                    else ((p, (k, s)) for p, k, s in iter_match_records(match_path)))
+
+    for pid, kv in iter_records:
         n_seen += 1
+        max_k, sigmas = kv
         if skip_k1 and len(sigmas) <= 1:
             n_skipped_k1 += 1
             continue
         if max_records and len(examples) >= max_records:
             break
-        pi_path = path_tokens(pid, prefix_parent, prefix_edge)
-        if not pi_path:
+
+        # Build the chain
+        chain_specs = []   # list of [sigma_specs] per cycle
+        chain_pi_tokens = []  # π_tokens of cycle 0
+        curr_pid = pid
+        curr_max_k = max_k
+        curr_sigmas = sigmas
+        for cycle in range(wrap_cycles):
+            specs = get_sigma_specs(curr_pid, curr_max_k, curr_sigmas)
+            if not specs:
+                break
+            if cycle == 0:
+                chain_pi_tokens = path_tokens(curr_pid, prefix_parent, prefix_edge)
+                if not chain_pi_tokens:
+                    break
+            chain_specs.append({'specs': specs, 'overlap_k': curr_max_k})
+            # Advance: top-1 σ's content -> walk prefix tree -> next pid
+            if cycle == wrap_cycles - 1 or match_lookup is None:
+                break
+            top_sigma_fwd = specs[0]['tokens']
+            next_pid = find_leaf(top_sigma_fwd, children_index)
+            if next_pid <= 0 or next_pid == curr_pid:
+                break
+            if next_pid not in match_lookup:
+                break
+            curr_pid = next_pid
+            curr_max_k, curr_sigmas = match_lookup[curr_pid]
+
+        if not chain_specs:
             continue
-        sigma_specs = []
-        for sid in sigmas[:max_candidates]:
-            sigma_path = path_tokens(sid, suffix_parent, suffix_edge)
-            sigma_fwd = list(reversed(sigma_path))  # reversed-corpus -> forward
-            if max_k >= len(sigma_fwd):
-                n_skipped_no_pred += 1
-                continue
-            pred_char = sigma_fwd[max_k]
-            sigma_specs.append({
-                'tokens': sigma_fwd,
-                'overlap_k': max_k,
-                'pred_char': pred_char,
-            })
-        if not sigma_specs:
-            continue
-        ex = {'pi_tokens': pi_path, 'sigmas': sigma_specs}
+        if len(chain_specs) < wrap_cycles:
+            n_chains_short += 1
+        chain_lens[len(chain_specs)] += 1
+
+        # Combined prefix tokens: π_0's path + each subsequent σ's "new chars past overlap"
+        combined = list(chain_pi_tokens)
+        for cycle_idx in range(1, len(chain_specs)):
+            prev = chain_specs[cycle_idx - 1]
+            top_sigma_fwd = prev['specs'][0]['tokens']
+            new_chars = top_sigma_fwd[prev['overlap_k']:]
+            combined.extend(new_chars)
+
+        # Final cycle's σ specs are the targets for cross-attention loss
+        final_specs = chain_specs[-1]['specs']
+
+        ex = {
+            'pi_tokens': combined,
+            'sigmas': final_specs,
+        }
         if prefix_mass is not None:
             ex['mass'] = prefix_mass[pid] if 0 <= pid < len(prefix_mass) else 1
         examples.append(ex)
+
         if len(examples) % 100000 == 0:
             print(f"[build] {len(examples)} examples (scanned {n_seen})...", flush=True)
+
     print(f"[build] done: {len(examples)} examples (scanned {n_seen}); "
           f"skipped {n_skipped_no_pred} candidate slots, {n_skipped_k1} K=1 records",
           flush=True)
+    if wrap_cycles > 1:
+        hist = ", ".join(f"len={i}:{c}" for i, c in enumerate(chain_lens) if c > 0)
+        print(f"[build] chain length histogram: {hist}, short_chains={n_chains_short}",
+              flush=True)
     return examples
 
 # ---------------- model ----------------
@@ -273,19 +388,20 @@ class P2SModel(nn.Module):
         return logits, alpha
 
 # ---------------- batching ----------------
-def collate(examples, vocab_size, max_k):
+def collate(examples, vocab_size, max_k, pi_max_len=None):
     """Build padded tensors. PAD token = vocab_size (extra index)."""
     PAD = vocab_size
     B = len(examples)
-    pi = torch.full((B, D), PAD, dtype=torch.long)
-    pi_mask = torch.ones((B, D), dtype=torch.bool)
+    pi_len = pi_max_len if pi_max_len is not None else D
+    pi = torch.full((B, pi_len), PAD, dtype=torch.long)
+    pi_mask = torch.ones((B, pi_len), dtype=torch.bool)
     sigma = torch.full((B, max_k, D), PAD, dtype=torch.long)
     sigma_mask = torch.ones((B, max_k, D), dtype=torch.bool)
     sigma_pad = torch.ones((B, max_k), dtype=torch.bool)
     target = torch.zeros((B, vocab_size + 1), dtype=torch.float32)  # +1 for PAD slot
 
     for b, ex in enumerate(examples):
-        pt = ex['pi_tokens'][:D]
+        pt = ex['pi_tokens'][-pi_len:]   # take TAIL of combined chain (most recent context)
         pi[b, :len(pt)] = torch.tensor(pt, dtype=torch.long)
         pi_mask[b, :len(pt)] = False
         # build target: fraction of candidates predicting each char
@@ -308,9 +424,9 @@ def main():
     torch.manual_seed(RNG_SEED)
 
     SKIP_K1 = os.environ.get("P2S_SKIP_K1", "0") == "1"
-    MASS_WEIGHT = os.environ.get("P2S_MASS_WEIGHT", "off")  # off|log|sqrt|linear
-    print(f"[main] config: D={D} TAG={TAG} SKIP_K1={SKIP_K1} MASS_WEIGHT={MASS_WEIGHT}",
-          flush=True)
+    MASS_WEIGHT = os.environ.get("P2S_MASS_WEIGHT", "off")
+    print(f"[main] config: D={D} TAG={TAG} SKIP_K1={SKIP_K1} MASS_WEIGHT={MASS_WEIGHT} "
+          f"WRAP_CYCLES={WRAP_CYCLES} MAX_LEN={MAX_LEN}", flush=True)
 
     print("[main] loading prefix tree...", flush=True)
     if MASS_WEIGHT != "off":
@@ -324,11 +440,21 @@ def main():
     vocab_size = vocab_pre
     print(f"[main] vocab_size={vocab_size}", flush=True)
 
+    children_index = None
+    if WRAP_CYCLES > 1:
+        print("[main] building children index for prefix tree (wrap-around)...",
+              flush=True)
+        t0 = time.time()
+        children_index = build_children_index(pp, pe)
+        print(f"[main]   children_index: {len(children_index)} parents, {time.time()-t0:.1f}s",
+              flush=True)
+
     print(f"[main] building training examples (max_records={MAX_RECORDS})...",
           flush=True)
     examples = build_examples(MATCH_PATH, pp, pe, sp, se,
                               max_records=MAX_RECORDS, max_candidates=8,
-                              prefix_mass=pmass, skip_k1=SKIP_K1)
+                              prefix_mass=pmass, skip_k1=SKIP_K1,
+                              wrap_cycles=WRAP_CYCLES, children_index=children_index)
     # free some memory
     del pp, pe, sp, se
 
@@ -337,7 +463,7 @@ def main():
     train = examples[N_HELDOUT:]
     print(f"[main] {len(train)} train, {len(held)} held-out", flush=True)
 
-    model = P2SModel(vocab_size, vocab_size + 1, D_MODEL, N_HEADS, N_LAYERS, D).to(DEVICE)
+    model = P2SModel(vocab_size, vocab_size + 1, D_MODEL, N_HEADS, N_LAYERS, MAX_LEN).to(DEVICE)
     n_params = sum(p.numel() for p in model.parameters())
     print(f"[main] model: {n_params} params", flush=True)
     opt = torch.optim.AdamW(model.parameters(), lr=LR, weight_decay=WEIGHT_DECAY)
@@ -354,7 +480,7 @@ def main():
 
     def train_batch(batch):
         model.train()
-        pi, pim, sg, sgm, sgp, tgt = collate(batch, vocab_size, MAX_K)
+        pi, pim, sg, sgm, sgp, tgt = collate(batch, vocab_size, MAX_K, pi_max_len=MAX_LEN)
         pi, pim, sg, sgm, sgp, tgt = (x.to(DEVICE) for x in (pi, pim, sg, sgm, sgp, tgt))
         logits, _ = model(pi, pim, sg, sgm, sgp)
         logp = F.log_softmax(logits, dim=-1)
@@ -375,7 +501,7 @@ def main():
         while i < len(examples):
             batch = examples[i:i + BATCH_SIZE]
             i += BATCH_SIZE
-            pi, pim, sg, sgm, sgp, tgt = collate(batch, vocab_size, MAX_K)
+            pi, pim, sg, sgm, sgp, tgt = collate(batch, vocab_size, MAX_K, pi_max_len=MAX_LEN)
             pi, pim, sg, sgm, sgp, tgt = (x.to(DEVICE) for x in (pi, pim, sg, sgm, sgp, tgt))
             logits, _ = model(pi, pim, sg, sgm, sgp)
             logp = F.log_softmax(logits, dim=-1)
@@ -431,6 +557,8 @@ def main():
             'n_layers': N_LAYERS,
             'D': D,
             'max_k': MAX_K,
+            'max_len': MAX_LEN,
+            'wrap_cycles': WRAP_CYCLES,
         },
     }, ckpt_path)
     print(f"[main] saved checkpoint to {ckpt_path}", flush=True)
