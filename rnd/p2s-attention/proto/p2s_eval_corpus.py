@@ -27,7 +27,7 @@ from p2s_train import (
     PREFIX_DIR, SUFFIX_DIR, MATCH_PATH, CORPUS_PATH, D, DEVICE,
 )
 
-CKPT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "p2s_model.pt")
+CKPT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), f"p2s_model_d{D}.pt")
 N_EVAL    = 4096
 MAX_K     = 8
 SEED      = 7

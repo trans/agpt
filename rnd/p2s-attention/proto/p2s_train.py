@@ -37,12 +37,13 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 # ---------------- paths and config ----------------
-PREFIX_DIR  = "/home/trans/agpt-tries/gutenberg_5m_d32_radix_corpus"
-SUFFIX_DIR  = "/home/trans/agpt-tries/gutenberg_5m_d32_suffix_radix"
-MATCH_PATH  = "/home/trans/agpt-tries/g5m_d32_p2s_match.bin"
+# D can be overridden via env var P2S_D (16, 24, 32 supported); paths derived
+# Used by both p2s_train.py and p2s_eval_corpus.py
+D = int(os.environ.get("P2S_D", "32"))
+PREFIX_DIR  = f"/home/trans/agpt-tries/gutenberg_5m_d{D}_radix_corpus"
+SUFFIX_DIR  = f"/home/trans/agpt-tries/gutenberg_5m_d{D}_suffix_radix"
+MATCH_PATH  = f"/home/trans/agpt-tries/g5m_d{D}_p2s_match.bin"
 CORPUS_PATH = "/home/trans/Projects/agpt/data/gutenberg_5m.txt"
-
-D            = 32
 D_MODEL      = 128
 N_HEADS      = 4
 N_LAYERS     = 4
@@ -362,8 +363,8 @@ def main():
     final = eval_loss(held)
     print(f"[main] final held-out loss={final:.4f}, ppl={math.exp(final):.2f}", flush=True)
 
-    # Save checkpoint so corpus-walk eval can load it
-    ckpt_path = os.path.join(os.path.dirname(__file__), "p2s_model.pt")
+    # Save checkpoint so corpus-walk eval can load it (per-D filename)
+    ckpt_path = os.path.join(os.path.dirname(__file__), f"p2s_model_d{D}.pt")
     torch.save({
         'model_state': model.state_dict(),
         'config': {

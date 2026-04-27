@@ -1,0 +1,51 @@
+[p2s] Loading suffix tree from /home/trans/agpt-tries/gutenberg_5m_d16_suffix_radix
+[p2s]   7118991 radix nodes, 34623391 total edge chars
+[p2s] Pass 1: collecting suffix-tree parent ids
+[p2s]   scanned 7118990 records
+[p2s] Pass 2: inserting reversed leaf edges into head trie
+[p2s]   inserted 4731134 suffix leaves (30452635 chars)
+[p2s]   head trie: 4263054 nodes, ~101.14472961425781 MB
+[p2s] Loading prefix tree from /home/trans/agpt-tries/gutenberg_5m_d16_radix_corpus
+[p2s]   7073694 radix nodes
+[p2s] Pass 3: collecting prefix-tree parent ids
+[p2s] Pass 4: matching prefix leaves...
+[p2s]   writing match index to /home/trans/agpt-tries/g5m_d16_p2s_match.bin (min-overlap=1, max-candidates=64)
+[p2s]   processed 500000 prefix leaves...
+[p2s]   processed 1000000 prefix leaves...
+[p2s]   processed 1500000 prefix leaves...
+[p2s]   processed 2000000 prefix leaves...
+[p2s]   processed 2500000 prefix leaves...
+[p2s]   processed 3000000 prefix leaves...
+[p2s]   processed 3500000 prefix leaves...
+[p2s]   processed 4000000 prefix leaves...
+[p2s]   processed 4500000 prefix leaves...
+
+[p2s] === Match index summary ===
+[p2s]   prefix leaves total:       4731133
+[p2s]   with any match (k≥1):      4731133 (100.0%)
+[p2s]   with k ≥ min_overlap=1: 4731133 (100.0%)
+[p2s]   mean candidate-set size (where k≥1): 31.17 (capped at 64)
+[p2s]   truncated count (subtree exceeded cap): 117777344
+
+[p2s] Overlap k histogram:
+  k= 1:     201286 ( 4.25%)
+  k= 2:     258421 ( 5.46%)
+  k= 3:     341886 ( 7.23%)
+  k= 4:     451352 ( 9.54%)
+  k= 5:     592169 (12.52%)
+  k= 6:     737264 (15.58%)
+  k= 7:     802742 (16.97%)
+  k= 8:     696249 (14.72%)
+  k= 9:     430546 (  9.1%)
+  k=10:     171565 ( 3.63%)
+  k=11:      40739 ( 0.86%)
+  k=12:       6020 ( 0.13%)
+  k=13:        797 ( 0.02%)
+  k=14:         95 (  0.0%)
+  k=15:          2 (  0.0%)
+
+[p2s] Candidate-set size histogram (over ALL prefix leaves):
+         1:     920510 (19.46%)
+       2-4:     687344 (14.53%)
+      5-19:     758866 (16.04%)
+     20-99:    2364413 (49.98%)
