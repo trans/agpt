@@ -154,6 +154,12 @@ def main():
     total_loss = 0.0
     total_count = 0
 
+    USE_PRIOR = os.environ.get("P2S_USE_PRIOR", "0") == "1"
+    PRIOR_LAMBDA = float(os.environ.get("P2S_PRIOR_LAMBDA", "1.0"))
+    if USE_PRIOR:
+        print(f"[eval] applying tree-prior constraint when num_distinct_first_chars > 1 "
+              f"(λ={PRIOR_LAMBDA})", flush=True)
+
     @torch.no_grad()
     def run_batch(items):
         nonlocal total_loss, total_count
@@ -164,8 +170,12 @@ def main():
         sgm = torch.ones((B, MAX_K, D), dtype=torch.bool)
         sgp = torch.ones((B, MAX_K), dtype=torch.bool)
         targets = torch.zeros(B, dtype=torch.long)
-        for b, (pi_path, sigmas_fwd, true_next) in enumerate(items):
-            pt = pi_path[-eval_max_len:]   # take TAIL (most recent context)
+        # candidate_chars_per_item[b] = list of distinct candidate first-chars for item b
+        # (used for the optional prior constraint at inference)
+        candidate_chars_per_item = [[] for _ in range(B)]
+        for b, item in enumerate(items):
+            pi_path, sigmas_fwd, true_next, cand_chars = item
+            pt = pi_path[-eval_max_len:]
             pi[b, :len(pt)] = torch.tensor(pt, dtype=torch.long)
             pim[b, :len(pt)] = False
             for ki, st in enumerate(sigmas_fwd[:MAX_K]):
@@ -174,8 +184,40 @@ def main():
                 sgm[b, ki, :len(st_d)] = False
                 sgp[b, ki] = False
             targets[b] = true_next
+            candidate_chars_per_item[b] = cand_chars
         pi, pim, sg, sgm, sgp, targets = (x.to(DEVICE) for x in (pi, pim, sg, sgm, sgp, targets))
         logits, alpha = model(pi, pim, sg, sgm, sgp)
+
+        if USE_PRIOR:
+            # Build a mask per item: True at chars that ARE in the candidate set.
+            # Apply ONLY when num_distinct_chars > 1 (i.e., genuine ambiguity)
+            # AND the true target is in the candidate set (otherwise the mask
+            # would penalize the truth catastrophically — skip those items).
+            vocab_size = logits.shape[1]
+            mask = torch.ones((B, vocab_size), dtype=torch.bool, device=DEVICE)
+            targets_cpu = targets.cpu().tolist()
+            applied = 0
+            skipped_oos = 0
+            for b, chars in enumerate(candidate_chars_per_item):
+                distinct = set(chars)
+                if len(distinct) > 1 and targets_cpu[b] in distinct:
+                    in_set = torch.zeros(vocab_size, dtype=torch.bool, device=DEVICE)
+                    for c in distinct:
+                        if 0 <= c < vocab_size:
+                            in_set[c] = True
+                    mask[b] = in_set
+                    applied += 1
+                elif len(distinct) > 1:
+                    skipped_oos += 1
+            logits = logits.masked_fill(~mask, -1e9 * PRIOR_LAMBDA)
+            # Track for reporting
+            if hasattr(run_batch, '_applied'):
+                run_batch._applied += applied
+                run_batch._skipped_oos += skipped_oos
+            else:
+                run_batch._applied = applied
+                run_batch._skipped_oos = skipped_oos
+
         loss = F.cross_entropy(logits, targets, reduction='sum').item()
         total_loss += loss
         total_count += B
@@ -199,6 +241,7 @@ def main():
 
         # Build candidate forward paths; for ROOT_LOO mode mask σ's last char.
         sigmas_fwd = []
+        cand_chars = []   # candidate "predicted" chars (used for prior mask)
         for sid in sigmas[:MAX_K]:
             sp_path = path_tokens(sid, sp, se)
             if not sp_path:
@@ -208,10 +251,12 @@ def main():
                 if len(sf) < 2:
                     continue
                 sigmas_fwd.append(sf[:-1])
+                cand_chars.append(sf[-1])
             else:
                 if max_k >= len(sf):
                     continue
                 sigmas_fwd.append(sf)
+                cand_chars.append(sf[max_k])
         if not sigmas_fwd:
             skipped_no_match += 1
             continue
@@ -228,7 +273,7 @@ def main():
         else:
             true_target = corpus_tokens[p + 1]
 
-        batch.append((pi_path, sigmas_fwd, true_target))
+        batch.append((pi_path, sigmas_fwd, true_target, cand_chars))
 
         if len(batch) >= BATCH:
             run_batch(batch)
@@ -247,6 +292,10 @@ def main():
     mean_loss = total_loss / total_count
     print(f"[eval] corpus-positional NLL={mean_loss:.4f}, PPL={math.exp(mean_loss):.2f}, "
           f"bpc={mean_loss / math.log(2):.4f}, n={total_count}", flush=True)
+    if USE_PRIOR and hasattr(run_batch, '_applied'):
+        print(f"[eval] prior applied to {run_batch._applied} items, "
+              f"skipped {run_batch._skipped_oos} (target not in candidate set)",
+              flush=True)
 
 if __name__ == "__main__":
     main()
