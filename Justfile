@@ -57,6 +57,11 @@ build-p2s-match: build-stubs
     mkdir -p bin
     timeout 3m crystal build src/tools/p2s_match_index.cr -o bin/agpt_p2s_match --release --link-flags="{{root}}/build/kernels.o -lstdc++"
 
+# Build p2s-attention match inspector tool.
+build-p2s-inspect: build-stubs
+    mkdir -p bin
+    timeout 3m crystal build src/tools/p2s_inspect.cr -o bin/agpt_p2s_inspect --release --link-flags="{{root}}/build/kernels.o -lstdc++"
+
 # Build Bayesian posterior density tool.
 build-bayesian-posterior: build-stubs
     mkdir -p bin

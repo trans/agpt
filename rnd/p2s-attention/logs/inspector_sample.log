@@ -1,0 +1,197 @@
+[inspect] Loading prefix tree from /home/trans/agpt-tries/gutenberg_5m_d32_radix_corpus...
+[inspect]   loaded 7539819 prefix records
+[inspect] Loading suffix tree from /home/trans/agpt-tries/gutenberg_5m_d32_suffix_radix...
+[inspect]   loaded 7587222 suffix records
+[inspect] Reading match index from /home/trans/agpt-tries/g5m_d32_p2s_match.bin...
+[inspect]   prefix_count=7539820, suffix_count=7587223, suffix_leaves=4988255
+[inspect] First pass: indexing match records...
+[inspect]   indexed 4988254 match records
+
+[inspect] === Sample matches (n=30, seed=42) ===
+
+──────────────────────────────────────────────────────────────────────
+Sample #1:  prefix_leaf=4845  max_k=23  n_candidates=1
+  π full path (32 chars):  «\n\nLavrshka turned all the beddin»
+  σ1 forward (32 chars):  «a turned all the bedding over, l»
+       overlap=«a turned all the beddin» (k=23) ✓
+       σ predicts next-char: 'g' (σ.fwd[23])
+──────────────────────────────────────────────────────────────────────
+Sample #2:  prefix_leaf=170774  max_k=18  n_candidates=1
+  π full path (32 chars):  « yield, and instead\n     of bein»
+  σ1 forward (32 chars):  «stead\n     of being allowed to b»
+       overlap=«stead\n     of bein» (k=18) ✓
+       σ predicts next-char: 'g' (σ.fwd[18])
+──────────────────────────────────────────────────────────────────────
+Sample #3:  prefix_leaf=293740  max_k=21  n_candidates=1
+  π full path (32 chars):  « saw Herbert had been of course,»
+  σ1 forward (32 chars):  «t had been of course, whether al»
+       overlap=«t had been of course,» (k=21) ✓
+       σ predicts next-char: ' ' (σ.fwd[21])
+──────────────────────────────────────────────────────────────────────
+Sample #4:  prefix_leaf=488107  max_k=24  n_candidates=1
+  π full path (32 chars):  « range, nearer\nor lower than the»
+  σ1 forward (32 chars):  «nearer\nor lower than the summits»
+       overlap=«nearer\nor lower than the» (k=24) ✓
+       σ predicts next-char: ' ' (σ.fwd[24])
+──────────────────────────────────────────────────────────────────────
+Sample #5:  prefix_leaf=795996  max_k=18  n_candidates=1
+  π full path (32 chars):  « off to sleep. The arrival of hi»
+  σ1 forward (32 chars):  « The arrival of his breakfast ro»
+       overlap=« The arrival of hi» (k=18) ✓
+       σ predicts next-char: 's' (σ.fwd[18])
+──────────────────────────────────────────────────────────────────────
+Sample #6:  prefix_leaf=1266820  max_k=18  n_candidates=2
+  π full path (32 chars):  « on one side, I began to think h»
+  σ1 forward (32 chars):  «I began to think his\nfirst idea »
+       overlap=«I began to think h» (k=18) ✓
+       σ predicts next-char: 'i' (σ.fwd[18])
+  σ2 forward (32 chars):  «I began to think her\nrather an e»
+       overlap=«I began to think h» (k=18) ✓
+       σ predicts next-char: 'e' (σ.fwd[18])
+──────────────────────────────────────────────────────────────────────
+Sample #7:  prefix_leaf=1665915  max_k=24  n_candidates=1
+  π full path (32 chars):  «; and\nexcept the fine eyes, and »
+  σ1 forward (32 chars):  «cept the fine eyes, and a hint o»
+       overlap=«cept the fine eyes, and » (k=24) ✓
+       σ predicts next-char: 'a' (σ.fwd[24])
+──────────────────────────────────────────────────────────────────────
+Sample #8:  prefix_leaf=1760210  max_k=22  n_candidates=1
+  π full path (32 chars):  «I can say is,-they were quite ri»
+  σ1 forward (32 chars):  «is,-they were quite right too.\n\n»
+       overlap=«is,-they were quite ri» (k=22) ✓
+       σ predicts next-char: 'g' (σ.fwd[22])
+──────────────────────────────────────────────────────────────────────
+Sample #9:  prefix_leaf=1967452  max_k=23  n_candidates=1
+  π full path (32 chars):  «ake everything along with you-vo»
+  σ1 forward (32 chars):  «thing along with you-vodka and\ns»
+       overlap=«thing along with you-vo» (k=23) ✓
+       σ predicts next-char: 'd' (σ.fwd[23])
+──────────────────────────────────────────────────────────────────────
+Sample #10:  prefix_leaf=2143595  max_k=24  n_candidates=1
+  π full path (32 chars):  «ay be fancied, that from the nak»
+  σ1 forward (32 chars):  «ncied, that from the naked skele»
+       overlap=«ncied, that from the nak» (k=24) ✓
+       σ predicts next-char: 'e' (σ.fwd[24])
+──────────────────────────────────────────────────────────────────────
+Sample #11:  prefix_leaf=2229523  max_k=20  n_candidates=1
+  π full path (32 chars):  «and a light answer does not help»
+  σ1 forward (32 chars):  «answer does not help me to forge»
+       overlap=«answer does not help» (k=20) ✓
+       σ predicts next-char: ' ' (σ.fwd[20])
+──────────────────────────────────────────────────────────────────────
+Sample #12:  prefix_leaf=2924433  max_k=21  n_candidates=1
+  π full path (32 chars):  «e, laughing, after a moment, 'pe»
+  σ1 forward (32 chars):  «, after a moment, 'perhaps. Yes.»
+       overlap=«, after a moment, 'pe» (k=21) ✓
+       σ predicts next-char: 'r' (σ.fwd[21])
+──────────────────────────────────────────────────────────────────────
+Sample #13:  prefix_leaf=2985028  max_k=24  n_candidates=1
+  π full path (32 chars):  «er left Miss Havisham's neighbou»
+  σ1 forward (32 chars):  «Miss Havisham's neighbourhood un»
+       overlap=«Miss Havisham's neighbou» (k=24) ✓
+       σ predicts next-char: 'r' (σ.fwd[24])
+──────────────────────────────────────────────────────────────────────
+Sample #14:  prefix_leaf=3023355  max_k=19  n_candidates=1
+  π full path (32 chars):  «e myself. She\nwill have in me a »
+  σ1 forward (32 chars):  «\nwill have in me a man already p»
+       overlap=«\nwill have in me a » (k=19) ✓
+       σ predicts next-char: 'm' (σ.fwd[19])
+──────────────────────────────────────────────────────────────────────
+Sample #15:  prefix_leaf=3430800  max_k=18  n_candidates=1
+  π full path (32 chars):  «e whales were swimming. Seen in »
+  σ1 forward (32 chars):  «swimming. Seen in advance of all»
+       overlap=«swimming. Seen in » (k=18) ✓
+       σ predicts next-char: 'a' (σ.fwd[18])
+──────────────────────────────────────────────────────────────────────
+Sample #16:  prefix_leaf=3788173  max_k=23  n_candidates=1
+  π full path (32 chars):  «how nearly the compliment lost h»
+  σ1 forward (32 chars):  «y the compliment lost him his pu»
+       overlap=«y the compliment lost h» (k=23) ✓
+       σ predicts next-char: 'i' (σ.fwd[23])
+──────────────────────────────────────────────────────────────────────
+Sample #17:  prefix_leaf=3857887  max_k=17  n_candidates=1
+  π full path (32 chars):  «he poker again; without which, I»
+  σ1 forward (32 chars):  « without which, I doubt if he co»
+       overlap=« without which, I» (k=17) ✓
+       σ predicts next-char: ' ' (σ.fwd[17])
+──────────────────────────────────────────────────────────────────────
+Sample #18:  prefix_leaf=4066834  max_k=19  n_candidates=1
+  π full path (32 chars):  «hind them, and those again expla»
+  σ1 forward (32 chars):  «d those again explaining to\nothe»
+       overlap=«d those again expla» (k=19) ✓
+       σ predicts next-char: 'i' (σ.fwd[19])
+──────────────────────────────────────────────────────────────────────
+Sample #19:  prefix_leaf=4278446  max_k=25  n_candidates=1
+  π full path (32 chars):  «imilar\nsight, yet, to any monoma»
+  σ1 forward (32 chars):  «sight, yet, to any monomaniac ma»
+       overlap=«sight, yet, to any monoma» (k=25) ✓
+       σ predicts next-char: 'n' (σ.fwd[25])
+──────────────────────────────────────────────────────────────────────
+Sample #20:  prefix_leaf=4315717  max_k=23  n_candidates=1
+  π full path (32 chars):  «itary hut, not seeing no faces b»
+  σ1 forward (32 chars):  «, not seeing no faces but faces »
+       overlap=«, not seeing no faces b» (k=23) ✓
+       σ predicts next-char: 'u' (σ.fwd[23])
+──────────────────────────────────────────────────────────────────────
+Sample #21:  prefix_leaf=4351366  max_k=17  n_candidates=1
+  π full path (32 chars):  «ike a skin, and he spoke with a »
+  σ1 forward (32 chars):  « he spoke with a helpless look\ns»
+       overlap=« he spoke with a » (k=17) ✓
+       σ predicts next-char: 'h' (σ.fwd[17])
+──────────────────────────────────────────────────────────────────────
+Sample #22:  prefix_leaf=4678010  max_k=24  n_candidates=1
+  π full path (32 chars):  «lly for elephants' tusks.'\n\n'You»
+  σ1 forward (32 chars):  «elephants' tusks.'\n\n'You will wa»
+       overlap=«elephants' tusks.'\n\n'You» (k=24) ✓
+       σ predicts next-char: ' ' (σ.fwd[24])
+──────────────────────────────────────────────────────────────────────
+Sample #23:  prefix_leaf=5080301  max_k=23  n_candidates=1
+  π full path (32 chars):  «n earth that his heart was to wa»
+  σ1 forward (32 chars):  «hat his heart was to warm and so»
+       overlap=«hat his heart was to wa» (k=23) ✓
+       σ predicts next-char: 'r' (σ.fwd[23])
+──────────────────────────────────────────────────────────────────────
+Sample #24:  prefix_leaf=5376583  max_k=21  n_candidates=1
+  π full path (32 chars):  «opontis, or Sea of Marmora, afte»
+  σ1 forward (32 chars):  « Sea of Marmora, after having de»
+       overlap=« Sea of Marmora, afte» (k=21) ✓
+       σ predicts next-char: 'r' (σ.fwd[21])
+──────────────────────────────────────────────────────────────────────
+Sample #25:  prefix_leaf=5388890  max_k=24  n_candidates=1
+  π full path (32 chars):  «onvict in the very grain of the »
+  σ1 forward (32 chars):  «n the very grain of the man.\n\nTh»
+       overlap=«n the very grain of the » (k=24) ✓
+       σ predicts next-char: 'm' (σ.fwd[24])
+──────────────────────────────────────────────────────────────────────
+Sample #26:  prefix_leaf=5752125  max_k=13  n_candidates=1
+  π full path (32 chars):  «of the Sperm\nWhale when beneath »
+  σ1 forward (32 chars):  «when beneath the surface remain,»
+       overlap=«when beneath » (k=13) ✓
+       σ predicts next-char: 't' (σ.fwd[13])
+──────────────────────────────────────────────────────────────────────
+Sample #27:  prefix_leaf=5808256  max_k=22  n_candidates=1
+  π full path (32 chars):  «perhaps, sitting down for a whil»
+  σ1 forward (32 chars):  «itting down for a while and\nrest»
+       overlap=«itting down for a whil» (k=22) ✓
+       σ predicts next-char: 'e' (σ.fwd[22])
+──────────────────────────────────────────────────────────────────────
+Sample #28:  prefix_leaf=5907953  max_k=19  n_candidates=1
+  π full path (32 chars):  «r, mamma? What do\nyou keep winki»
+  σ1 forward (32 chars):  «t do\nyou keep winking at me for?»
+       overlap=«t do\nyou keep winki» (k=19) ✓
+       σ predicts next-char: 'n' (σ.fwd[19])
+──────────────────────────────────────────────────────────────────────
+Sample #29:  prefix_leaf=6198313  max_k=23  n_candidates=1
+  π full path (32 chars):  «sey wore a\npolished necklace of »
+  σ1 forward (32 chars):  «a\npolished necklace of codfish v»
+       overlap=«a\npolished necklace of » (k=23) ✓
+       σ predicts next-char: 'c' (σ.fwd[23])
+──────────────────────────────────────────────────────────────────────
+Sample #30:  prefix_leaf=7137269  max_k=16  n_candidates=1
+  π full path (32 chars):  «ugh him: 'No,\nbetter not look,' »
+  σ1 forward (32 chars):  «tter not look,' he thought, but »
+       overlap=«tter not look,' » (k=16) ✓
+       σ predicts next-char: 'h' (σ.fwd[16])
+──────────────────────────────────────────────────────────────────────
+
+[inspect] Done.
