@@ -43,14 +43,15 @@ MATCH_PATH  = "/home/trans/agpt-tries/g5m_d32_p2s_match.bin"
 CORPUS_PATH = "/home/trans/Projects/agpt/data/gutenberg_5m.txt"
 
 D            = 32
-D_MODEL      = 64
+D_MODEL      = 128
 N_HEADS      = 4
-N_LAYERS     = 2
-BATCH_SIZE   = 16
+N_LAYERS     = 4
+BATCH_SIZE   = 32
 LR           = 3e-4
-N_TRAIN_STEPS = 10000
+N_TRAIN_STEPS = 20000
 N_HELDOUT    = 4096
-PRINT_EVERY  = 250
+PRINT_EVERY  = 500
+MAX_RECORDS  = 1_000_000
 DEVICE       = "cuda" if torch.cuda.is_available() else "cpu"
 RNG_SEED     = 42
 
@@ -294,10 +295,10 @@ def main():
     vocab_size = vocab_pre
     print(f"[main] vocab_size={vocab_size}", flush=True)
 
-    print("[main] building training examples (limited to 200K for prototype)...",
+    print(f"[main] building training examples (max_records={MAX_RECORDS})...",
           flush=True)
     examples = build_examples(MATCH_PATH, pp, pe, sp, se,
-                              max_records=200_000, max_candidates=8)
+                              max_records=MAX_RECORDS, max_candidates=8)
     # free some memory
     del pp, pe, sp, se
 

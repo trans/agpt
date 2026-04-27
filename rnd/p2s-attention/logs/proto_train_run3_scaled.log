@@ -1,0 +1,66 @@
+[main] loading prefix tree...
+[load] /home/trans/agpt-tries/gutenberg_5m_d32_radix_corpus: 7539820 nodes, 33 depth files
+[load]   loaded in 7.7s
+[main] loading suffix tree...
+[load] /home/trans/agpt-tries/gutenberg_5m_d32_suffix_radix: 7587223 nodes, 33 depth files
+[load]   loaded in 7.3s
+[main] vocab_size=65
+[main] building training examples (max_records=1000000)...
+[build] 100000 examples...
+[build] 200000 examples...
+[build] 300000 examples...
+[build] 400000 examples...
+[build] 500000 examples...
+[build] 600000 examples...
+[build] 700000 examples...
+[build] 800000 examples...
+[build] 900000 examples...
+[build] 1000000 examples...
+[build] done: 1000000 examples; skipped 0 candidate slots (overlap == leaf-edge length)
+[main] 995904 train, 4096 held-out
+/home/trans/Projects/agpt/rnd/p2s-attention/proto/p2s_train.py:202: UserWarning: enable_nested_tensor is True, but self.use_nested_tensor is False because encoder_layer.norm_first was True
+  self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=n_layers)
+[main] model: 863169 params
+[main] training...
+  step   500/20000  train_loss=2.9838  held_loss=2.6909  held_ppl=14.75
+  step  1000/20000  train_loss=2.6709  held_loss=2.6082  held_ppl=13.57
+  step  1500/20000  train_loss=2.6017  held_loss=2.5541  held_ppl=12.86
+  step  2000/20000  train_loss=2.5547  held_loss=2.4835  held_ppl=11.98
+  step  2500/20000  train_loss=2.5284  held_loss=2.4742  held_ppl=11.87
+  step  3000/20000  train_loss=2.4974  held_loss=2.4071  held_ppl=11.10
+  step  3500/20000  train_loss=2.4860  held_loss=2.4487  held_ppl=11.57
+  step  4000/20000  train_loss=2.4715  held_loss=2.4424  held_ppl=11.50
+  step  4500/20000  train_loss=2.4598  held_loss=2.4087  held_ppl=11.12
+  step  5000/20000  train_loss=2.4367  held_loss=2.4289  held_ppl=11.35
+  step  5500/20000  train_loss=2.4276  held_loss=2.3921  held_ppl=10.94
+  step  6000/20000  train_loss=2.4244  held_loss=2.4259  held_ppl=11.31
+  step  6500/20000  train_loss=2.4239  held_loss=2.4169  held_ppl=11.21
+  step  7000/20000  train_loss=2.4214  held_loss=2.3728  held_ppl=10.73
+  step  7500/20000  train_loss=2.4081  held_loss=2.3730  held_ppl=10.73
+  step  8000/20000  train_loss=2.4123  held_loss=2.3816  held_ppl=10.82
+  step  8500/20000  train_loss=2.4073  held_loss=2.3740  held_ppl=10.74
+  step  9000/20000  train_loss=2.3888  held_loss=2.3580  held_ppl=10.57
+  step  9500/20000  train_loss=2.3798  held_loss=2.3617  held_ppl=10.61
+  step 10000/20000  train_loss=2.3909  held_loss=2.3774  held_ppl=10.78
+  step 10500/20000  train_loss=2.3667  held_loss=2.3739  held_ppl=10.74
+  step 11000/20000  train_loss=2.3812  held_loss=2.3239  held_ppl=10.22
+  step 11500/20000  train_loss=2.3788  held_loss=2.3298  held_ppl=10.28
+  step 12000/20000  train_loss=2.3738  held_loss=2.3734  held_ppl=10.73
+  step 12500/20000  train_loss=2.3621  held_loss=2.3495  held_ppl=10.48
+  step 13000/20000  train_loss=2.3617  held_loss=2.3402  held_ppl=10.38
+  step 13500/20000  train_loss=2.3525  held_loss=2.3575  held_ppl=10.56
+  step 14000/20000  train_loss=2.3600  held_loss=2.3306  held_ppl=10.28
+  step 14500/20000  train_loss=2.3544  held_loss=2.3488  held_ppl=10.47
+  step 15000/20000  train_loss=2.3450  held_loss=2.3418  held_ppl=10.40
+  step 15500/20000  train_loss=2.3481  held_loss=2.3197  held_ppl=10.17
+  step 16000/20000  train_loss=2.3492  held_loss=2.3273  held_ppl=10.25
+  step 16500/20000  train_loss=2.3474  held_loss=2.3486  held_ppl=10.47
+  step 17000/20000  train_loss=2.3529  held_loss=2.3092  held_ppl=10.07
+  step 17500/20000  train_loss=2.3515  held_loss=2.3308  held_ppl=10.29
+  step 18000/20000  train_loss=2.3341  held_loss=2.3227  held_ppl=10.20
+  step 18500/20000  train_loss=2.3403  held_loss=2.3104  held_ppl=10.08
+  step 19000/20000  train_loss=2.3328  held_loss=2.3810  held_ppl=10.82
+  step 19500/20000  train_loss=2.3347  held_loss=2.3424  held_ppl=10.41
+  step 20000/20000  train_loss=2.3382  held_loss=2.3128  held_ppl=10.10
+[main] final eval (full held-out)...
+[main] final held-out loss=2.3645, ppl=10.64
