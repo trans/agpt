@@ -48,13 +48,16 @@ CORPUS_PATH = "/home/trans/Projects/agpt/data/gutenberg_5m.txt"
 # Tag for log + checkpoint filenames; lets us run multiple recipes per D
 TAG = os.environ.get("P2S_TAG", "default")
 
-# Wrap-around: number of chained cycles per training example.
-# WRAP=1 (default) is no chaining (one match per example).
-# WRAP=N>1 chains N cycles, concatenating each cycle's σ-extension into the
-# encoder's prefix input. Effective context grows as D + (N-1)·(D-mean_overlap)
-# ≈ D + (N-1)·11 for our D=32 mean overlap 21.
+# Wrap-around: extended HISTORY context for the prefix encoder. The "2x tree"
+# interpretation — instead of just D chars of history, give the model
+# CONTEXT_LEN chars of history (≥D, typically 2×D or 4×D). Position-based
+# training: sample corpus positions, walk the prefix tree at the position's
+# D-window to find the match leaf, but encode corpus[p-CONTEXT_LEN+1..p] as
+# the prefix input. Target = corpus[p+1] (true next char).
+CONTEXT_LEN = int(os.environ.get("P2S_CONTEXT_LEN", str(D)))
+MAX_LEN     = CONTEXT_LEN
+# Legacy chained variant (now deprecated; left for one-off comparison)
 WRAP_CYCLES = int(os.environ.get("P2S_WRAP", "1"))
-MAX_LEN     = int(os.environ.get("P2S_MAX_LEN", str(D if WRAP_CYCLES <= 1 else D * 4)))
 D_MODEL      = int(os.environ.get("P2S_D_MODEL", "256"))
 N_HEADS      = int(os.environ.get("P2S_N_HEADS", "8"))
 N_LAYERS     = int(os.environ.get("P2S_N_LAYERS", "6"))
@@ -193,6 +196,72 @@ def find_leaf(tokens, children_index):
         cur = child_id
         pos += len(edge)
     return cur
+
+def build_examples_position_based(corpus_tokens, match_lookup,
+                                   suffix_parent, suffix_edge,
+                                   children_index, n_examples,
+                                   max_candidates=8, context_len=32, D=32, seed=42):
+    """
+    Position-based training-example builder. Each example:
+      - Sample corpus position p (uniformly)
+      - Find prefix-tree leaf for the D-window ending at p
+      - Look up the leaf's match record
+      - Encode corpus[p-context_len+1..p] as prefix input (extended history)
+      - Target = corpus[p+1] (true next char)
+    """
+    rng = random.Random(seed)
+    examples = []
+    n_skipped_no_leaf = 0
+    n_skipped_no_match = 0
+    L = len(corpus_tokens)
+    eligible = list(range(D, L - 1))   # need D chars before, 1 after
+    rng.shuffle(eligible)
+
+    for p in eligible:
+        if len(examples) >= n_examples:
+            break
+        win = corpus_tokens[p - D + 1: p + 1]
+        leaf_id = find_leaf(win, children_index)
+        if leaf_id <= 0:
+            n_skipped_no_leaf += 1
+            continue
+        if leaf_id not in match_lookup:
+            n_skipped_no_match += 1
+            continue
+        max_k, sigmas = match_lookup[leaf_id]
+        if not sigmas:
+            n_skipped_no_match += 1
+            continue
+        sigma_specs = []
+        for sid in sigmas[:max_candidates]:
+            sp_path = path_tokens(sid, suffix_parent, suffix_edge)
+            sf = list(reversed(sp_path))
+            if max_k >= len(sf):
+                continue
+            sigma_specs.append({
+                'tokens': sf,
+                'overlap_k': max_k,
+                'pred_char': sf[max_k],
+            })
+        if not sigma_specs:
+            n_skipped_no_match += 1
+            continue
+
+        history = corpus_tokens[max(0, p - context_len + 1): p + 1]
+        true_next = corpus_tokens[p + 1]
+        examples.append({
+            'pi_tokens': history,
+            'sigmas': sigma_specs,
+            'target_char': true_next,
+            'corpus_pos': p,
+        })
+        if len(examples) % 100000 == 0:
+            print(f"[build-pos] {len(examples)} examples...", flush=True)
+
+    print(f"[build-pos] done: {len(examples)} examples; "
+          f"skipped {n_skipped_no_leaf} no-leaf, {n_skipped_no_match} no-match",
+          flush=True)
+    return examples
 
 def build_examples(match_path, prefix_parent, prefix_edge,
                    suffix_parent, suffix_edge, max_records=None,
@@ -401,21 +470,26 @@ def collate(examples, vocab_size, max_k, pi_max_len=None):
     target = torch.zeros((B, vocab_size + 1), dtype=torch.float32)  # +1 for PAD slot
 
     for b, ex in enumerate(examples):
-        pt = ex['pi_tokens'][-pi_len:]   # take TAIL of combined chain (most recent context)
+        pt = ex['pi_tokens'][-pi_len:]   # take TAIL (most recent context)
         pi[b, :len(pt)] = torch.tensor(pt, dtype=torch.long)
         pi_mask[b, :len(pt)] = False
-        # build target: fraction of candidates predicting each char
+        # σ candidates (still used for cross-attention K/V)
         for ki, s in enumerate(ex['sigmas'][:max_k]):
             st = s['tokens'][:D]
             sigma[b, ki, :len(st)] = torch.tensor(st, dtype=torch.long)
             sigma_mask[b, ki, :len(st)] = False
             sigma_pad[b, ki] = False
-            target[b, s['pred_char']] += 1.0
-        # normalize target to a distribution over real-vocab chars
-        target[b, vocab_size] = 0.0
-        s = target[b, :vocab_size].sum()
-        if s > 0:
-            target[b, :vocab_size] /= s
+        # target: prefer ex['target_char'] (corpus-aligned, position-based) when
+        # present; otherwise use the σ candidates' pred_char distribution.
+        if 'target_char' in ex:
+            target[b, ex['target_char']] = 1.0
+        else:
+            for s in ex['sigmas'][:max_k]:
+                target[b, s['pred_char']] += 1.0
+            target[b, vocab_size] = 0.0
+            tot = target[b, :vocab_size].sum()
+            if tot > 0:
+                target[b, :vocab_size] /= tot
     return pi, pi_mask, sigma, sigma_mask, sigma_pad, target[:, :vocab_size]
 
 # ---------------- main ----------------
@@ -425,8 +499,10 @@ def main():
 
     SKIP_K1 = os.environ.get("P2S_SKIP_K1", "0") == "1"
     MASS_WEIGHT = os.environ.get("P2S_MASS_WEIGHT", "off")
-    print(f"[main] config: D={D} TAG={TAG} SKIP_K1={SKIP_K1} MASS_WEIGHT={MASS_WEIGHT} "
-          f"WRAP_CYCLES={WRAP_CYCLES} MAX_LEN={MAX_LEN}", flush=True)
+    POS_BASED = os.environ.get("P2S_POS_BASED", "0") == "1" or CONTEXT_LEN > D
+    print(f"[main] config: D={D} TAG={TAG} CONTEXT_LEN={CONTEXT_LEN} "
+          f"POS_BASED={POS_BASED} SKIP_K1={SKIP_K1} MASS_WEIGHT={MASS_WEIGHT}",
+          flush=True)
 
     print("[main] loading prefix tree...", flush=True)
     if MASS_WEIGHT != "off":
@@ -441,20 +517,44 @@ def main():
     print(f"[main] vocab_size={vocab_size}", flush=True)
 
     children_index = None
-    if WRAP_CYCLES > 1:
-        print("[main] building children index for prefix tree (wrap-around)...",
+    if WRAP_CYCLES > 1 or POS_BASED:
+        print("[main] building children index for prefix tree...",
               flush=True)
         t0 = time.time()
         children_index = build_children_index(pp, pe)
         print(f"[main]   children_index: {len(children_index)} parents, {time.time()-t0:.1f}s",
               flush=True)
 
-    print(f"[main] building training examples (max_records={MAX_RECORDS})...",
-          flush=True)
-    examples = build_examples(MATCH_PATH, pp, pe, sp, se,
-                              max_records=MAX_RECORDS, max_candidates=8,
-                              prefix_mass=pmass, skip_k1=SKIP_K1,
-                              wrap_cycles=WRAP_CYCLES, children_index=children_index)
+    if POS_BASED:
+        print(f"[main] loading corpus for position-based training...", flush=True)
+        text = open(CORPUS_PATH).read()
+        chars_sorted = sorted(set(text))
+        c2t = {c: i for i, c in enumerate(chars_sorted)}
+        corpus_tokens = [c2t[c] for c in text]
+        print(f"[main]   corpus length: {len(corpus_tokens)}", flush=True)
+
+        print(f"[main] preloading match index by pid...", flush=True)
+        t0 = time.time()
+        match_lookup = {}
+        for p_, k_, ss_ in iter_match_records(MATCH_PATH):
+            match_lookup[p_] = (k_, ss_)
+        print(f"[main]   match_lookup: {len(match_lookup)} entries, {time.time()-t0:.1f}s",
+              flush=True)
+
+        print(f"[main] building position-based training examples (n={MAX_RECORDS})...",
+              flush=True)
+        examples = build_examples_position_based(
+            corpus_tokens, match_lookup, sp, se, children_index,
+            n_examples=MAX_RECORDS, max_candidates=8, context_len=CONTEXT_LEN, D=D,
+            seed=42,
+        )
+    else:
+        print(f"[main] building training examples (max_records={MAX_RECORDS})...",
+              flush=True)
+        examples = build_examples(MATCH_PATH, pp, pe, sp, se,
+                                  max_records=MAX_RECORDS, max_candidates=8,
+                                  prefix_mass=pmass, skip_k1=SKIP_K1,
+                                  wrap_cycles=WRAP_CYCLES, children_index=children_index)
     # free some memory
     del pp, pe, sp, se
 
