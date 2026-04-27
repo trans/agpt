@@ -44,15 +44,20 @@ PREFIX_DIR  = f"/home/trans/agpt-tries/gutenberg_5m_d{D}_radix_corpus"
 SUFFIX_DIR  = f"/home/trans/agpt-tries/gutenberg_5m_d{D}_suffix_radix"
 MATCH_PATH  = f"/home/trans/agpt-tries/g5m_d{D}_p2s_match.bin"
 CORPUS_PATH = "/home/trans/Projects/agpt/data/gutenberg_5m.txt"
-D_MODEL      = 128
-N_HEADS      = 4
-N_LAYERS     = 4
-BATCH_SIZE   = 32
-LR           = 3e-4
-N_TRAIN_STEPS = 10000   # cut from 20K — diminishing returns past ~10K
-N_HELDOUT    = 4096
-PRINT_EVERY  = 500
-MAX_RECORDS  = 500_000  # cut from 1M for faster iteration; we have a saved 1M run already
+
+# Tag for log + checkpoint filenames; lets us run multiple recipes per D
+TAG = os.environ.get("P2S_TAG", "default")
+D_MODEL      = int(os.environ.get("P2S_D_MODEL", "256"))
+N_HEADS      = int(os.environ.get("P2S_N_HEADS", "8"))
+N_LAYERS     = int(os.environ.get("P2S_N_LAYERS", "6"))
+BATCH_SIZE   = int(os.environ.get("P2S_BATCH",   "32"))
+LR           = float(os.environ.get("P2S_LR",    "5e-4"))
+N_TRAIN_STEPS = int(os.environ.get("P2S_STEPS",  "30000"))
+WARMUP_STEPS  = int(os.environ.get("P2S_WARMUP", "1000"))
+WEIGHT_DECAY  = float(os.environ.get("P2S_WD",   "0.01"))
+N_HELDOUT     = 4096
+PRINT_EVERY   = 500
+MAX_RECORDS   = int(os.environ.get("P2S_RECORDS", "2000000"))  # 2M of 5M
 DEVICE       = "cuda" if torch.cuda.is_available() else "cpu"
 RNG_SEED     = 42
 
@@ -311,7 +316,14 @@ def main():
     model = P2SModel(vocab_size, vocab_size + 1, D_MODEL, N_HEADS, N_LAYERS, D).to(DEVICE)
     n_params = sum(p.numel() for p in model.parameters())
     print(f"[main] model: {n_params} params", flush=True)
-    opt = torch.optim.AdamW(model.parameters(), lr=LR)
+    opt = torch.optim.AdamW(model.parameters(), lr=LR, weight_decay=WEIGHT_DECAY)
+    # warmup-cosine LR schedule
+    def lr_lambda(step):
+        if step < WARMUP_STEPS:
+            return float(step + 1) / float(WARMUP_STEPS)
+        progress = (step - WARMUP_STEPS) / max(1, N_TRAIN_STEPS - WARMUP_STEPS)
+        return 0.5 * (1.0 + math.cos(math.pi * progress))
+    sched = torch.optim.lr_scheduler.LambdaLR(opt, lr_lambda)
 
     # max candidate count we cap to (matches collate's max_k arg)
     MAX_K = 8
@@ -325,7 +337,9 @@ def main():
         loss = -(tgt * logp).sum(dim=-1).mean()
         opt.zero_grad()
         loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         opt.step()
+        sched.step()
         return loss.item()
 
     @torch.no_grad()
@@ -363,8 +377,8 @@ def main():
     final = eval_loss(held)
     print(f"[main] final held-out loss={final:.4f}, ppl={math.exp(final):.2f}", flush=True)
 
-    # Save checkpoint so corpus-walk eval can load it (per-D filename)
-    ckpt_path = os.path.join(os.path.dirname(__file__), f"p2s_model_d{D}.pt")
+    # Save checkpoint so corpus-walk eval can load it (per-D + tag filename)
+    ckpt_path = os.path.join(os.path.dirname(__file__), f"p2s_model_d{D}_{TAG}.pt")
     torch.save({
         'model_state': model.state_dict(),
         'config': {

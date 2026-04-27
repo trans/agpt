@@ -1,0 +1,97 @@
+[main] loading prefix tree...
+[load] /home/trans/agpt-tries/gutenberg_5m_d32_radix_corpus: 7539820 nodes, 33 depth files
+[load]   loaded in 7.4s
+[main] loading suffix tree...
+[load] /home/trans/agpt-tries/gutenberg_5m_d32_suffix_radix: 7587223 nodes, 33 depth files
+[load]   loaded in 7.2s
+[main] vocab_size=65
+[main] building training examples (max_records=2000000)...
+[build] 100000 examples...
+[build] 200000 examples...
+[build] 300000 examples...
+[build] 400000 examples...
+[build] 500000 examples...
+[build] 600000 examples...
+[build] 700000 examples...
+[build] 800000 examples...
+[build] 900000 examples...
+[build] 1000000 examples...
+[build] 1100000 examples...
+[build] 1200000 examples...
+[build] 1300000 examples...
+[build] 1400000 examples...
+[build] 1500000 examples...
+[build] 1600000 examples...
+[build] 1700000 examples...
+[build] 1800000 examples...
+[build] 1900000 examples...
+[build] 2000000 examples...
+[build] done: 2000000 examples; skipped 0 candidate slots (overlap == leaf-edge length)
+[main] 1995904 train, 4096 held-out
+/home/trans/Projects/agpt/rnd/p2s-attention/proto/p2s_train.py:208: UserWarning: enable_nested_tensor is True, but self.use_nested_tensor is False because encoder_layer.norm_first was True
+  self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=n_layers)
+[main] model: 4976961 params
+[main] training...
+  step   500/30000  train_loss=3.1504  held_loss=2.8941  held_ppl=18.07
+  step  1000/30000  train_loss=2.7837  held_loss=2.7841  held_ppl=16.18
+  step  1500/30000  train_loss=2.7158  held_loss=2.7283  held_ppl=15.31
+  step  2000/30000  train_loss=2.6879  held_loss=2.6523  held_ppl=14.19
+  step  2500/30000  train_loss=2.6347  held_loss=2.6355  held_ppl=13.95
+  step  3000/30000  train_loss=2.6386  held_loss=2.6288  held_ppl=13.86
+  step  3500/30000  train_loss=2.6026  held_loss=2.6194  held_ppl=13.73
+  step  4000/30000  train_loss=2.5829  held_loss=2.5370  held_ppl=12.64
+  step  4500/30000  train_loss=2.5765  held_loss=2.4675  held_ppl=11.79
+  step  5000/30000  train_loss=2.5484  held_loss=2.5233  held_ppl=12.47
+  step  5500/30000  train_loss=2.5426  held_loss=2.5281  held_ppl=12.53
+  step  6000/30000  train_loss=2.5314  held_loss=2.4967  held_ppl=12.14
+  step  6500/30000  train_loss=2.5187  held_loss=2.5127  held_ppl=12.34
+  step  7000/30000  train_loss=2.5055  held_loss=2.4920  held_ppl=12.09
+  step  7500/30000  train_loss=2.4919  held_loss=2.4819  held_ppl=11.96
+  step  8000/30000  train_loss=2.4932  held_loss=2.4203  held_ppl=11.25
+  step  8500/30000  train_loss=2.4748  held_loss=2.5163  held_ppl=12.38
+  step  9000/30000  train_loss=2.4659  held_loss=2.4601  held_ppl=11.71
+  step  9500/30000  train_loss=2.4765  held_loss=2.4741  held_ppl=11.87
+  step 10000/30000  train_loss=2.4494  held_loss=2.4605  held_ppl=11.71
+  step 10500/30000  train_loss=2.4508  held_loss=2.4434  held_ppl=11.51
+  step 11000/30000  train_loss=2.4168  held_loss=2.4091  held_ppl=11.12
+  step 11500/30000  train_loss=2.4275  held_loss=2.4733  held_ppl=11.86
+  step 12000/30000  train_loss=2.4219  held_loss=2.4673  held_ppl=11.79
+  step 12500/30000  train_loss=2.3995  held_loss=2.4743  held_ppl=11.87
+  step 13000/30000  train_loss=2.4035  held_loss=2.4584  held_ppl=11.69
+  step 13500/30000  train_loss=2.4083  held_loss=2.4297  held_ppl=11.36
+  step 14000/30000  train_loss=2.3892  held_loss=2.4149  held_ppl=11.19
+  step 14500/30000  train_loss=2.3950  held_loss=2.3828  held_ppl=10.84
+  step 15000/30000  train_loss=2.3862  held_loss=2.3770  held_ppl=10.77
+  step 15500/30000  train_loss=2.3857  held_loss=2.3836  held_ppl=10.84
+  step 16000/30000  train_loss=2.3584  held_loss=2.3641  held_ppl=10.63
+  step 16500/30000  train_loss=2.3600  held_loss=2.3776  held_ppl=10.78
+  step 17000/30000  train_loss=2.3455  held_loss=2.3537  held_ppl=10.52
+  step 17500/30000  train_loss=2.3440  held_loss=2.3257  held_ppl=10.23
+  step 18000/30000  train_loss=2.3359  held_loss=2.3395  held_ppl=10.38
+  step 18500/30000  train_loss=2.3357  held_loss=2.3312  held_ppl=10.29
+  step 19000/30000  train_loss=2.3293  held_loss=2.3182  held_ppl=10.16
+  step 19500/30000  train_loss=2.3163  held_loss=2.3141  held_ppl=10.12
+  step 20000/30000  train_loss=2.3231  held_loss=2.3294  held_ppl=10.27
+  step 20500/30000  train_loss=2.3066  held_loss=2.2990  held_ppl=9.96
+  step 21000/30000  train_loss=2.3180  held_loss=2.3245  held_ppl=10.22
+  step 21500/30000  train_loss=2.2998  held_loss=2.3305  held_ppl=10.28
+  step 22000/30000  train_loss=2.2985  held_loss=2.3013  held_ppl=9.99
+  step 22500/30000  train_loss=2.3005  held_loss=2.2992  held_ppl=9.97
+  step 23000/30000  train_loss=2.2901  held_loss=2.3015  held_ppl=9.99
+  step 23500/30000  train_loss=2.2894  held_loss=2.2810  held_ppl=9.79
+  step 24000/30000  train_loss=2.2754  held_loss=2.2803  held_ppl=9.78
+  step 24500/30000  train_loss=2.2805  held_loss=2.2697  held_ppl=9.68
+  step 25000/30000  train_loss=2.2640  held_loss=2.2720  held_ppl=9.70
+  step 25500/30000  train_loss=2.2747  held_loss=2.2773  held_ppl=9.75
+  step 26000/30000  train_loss=2.2651  held_loss=2.2760  held_ppl=9.74
+  step 26500/30000  train_loss=2.2700  held_loss=2.2640  held_ppl=9.62
+  step 27000/30000  train_loss=2.2648  held_loss=2.2607  held_ppl=9.59
+  step 27500/30000  train_loss=2.2588  held_loss=2.2623  held_ppl=9.60
+  step 28000/30000  train_loss=2.2621  held_loss=2.2613  held_ppl=9.60
+  step 28500/30000  train_loss=2.2615  held_loss=2.2603  held_ppl=9.59
+  step 29000/30000  train_loss=2.2653  held_loss=2.2595  held_ppl=9.58
+  step 29500/30000  train_loss=2.2574  held_loss=2.2596  held_ppl=9.58
+  step 30000/30000  train_loss=2.2579  held_loss=2.2596  held_ppl=9.58
+[main] final eval (full held-out)...
+[main] final held-out loss=2.2603, ppl=9.59
+[main] saved checkpoint to /home/trans/Projects/agpt/rnd/p2s-attention/proto/p2s_model_d32_scaled.pt
