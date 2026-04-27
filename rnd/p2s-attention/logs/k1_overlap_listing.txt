@@ -1,0 +1,340 @@
+
+════════════════════════════════════════════════════════════════════════════════════════════════════
+D = 32    (entries with overlap k = 1)
+════════════════════════════════════════════════════════════════════════════════════════════════════
+[load] /home/trans/agpt-tries/gutenberg_5m_d32_radix_corpus: 7539820 nodes, 33 depth files
+[load]   loaded in 7.4s
+[load] /home/trans/agpt-tries/gutenberg_5m_d32_suffix_radix: 7587223 nodes, 33 depth files
+[load]   loaded in 7.1s
+  1477 entries with k=1 out of 4988254 total (0.030%)
+
+  « . Schools and Schoolmasters.\n\n[C]…»  (64 candidates)
+      → «[C], December 3st, 3. THIS MARBLE\n»
+      → «[C]ape-Cod-man. A happy-go-lucky;\n»
+      → «[C]ape-Horner\nin a great hurricane»
+      → ... and 61 more candidates
+  «APTER . The Jeroboam's Story.\n\n[H]…»  (64 candidates)
+      → «[H]is eyes were so often turned to»
+      → «[H]ad you any conversation with th»
+      → «[H]ad you behaved in a\nmore gentle»
+      → ... and 61 more candidates
+  «vtski, Zherkv, and the officer [f]…»  (64 candidates)
+      → «[f] the year one thousand seven hu»
+      → «[f] the stone faces of the chateau»
+      → «[f] the news of the battle of Aust»
+      → ... and 61 more candidates
+  « without waiting for an answer [t]…»  (64 candidates)
+      → «[t] where the commander in chief w»
+      → «[t].\n\n'What is the matter with you»
+      → «[t]o assure you in the most animat»
+      → ... and 61 more candidates
+  «garden by the side of the lane,[-]…»  (64 candidates)
+      → «[-]'The corpusants have mercy on u»
+      → «[-]I have brought you, Mum, a bott»
+      → «[-]\n\n'Lizzy, my dear, I want to sp»
+      → ... and 61 more candidates
+  «aid, 'Thank you, Flopson,' and [s]…»  (64 candidates)
+      → «[s] 'My husband, my father, and my»
+      → «[s], Monseigneur had the other tru»
+      → «[s] the bell at the great gate sou»
+      → ... and 61 more candidates
+  «t three o'clock in the morning.[\n]…»  (64 candidates)
+      → «[\n]Charles Evrmonde, called Darnay»
+      → «[\n]Pumblechook if he knew of a boy»
+      → «[\n]up and down, walking up and dow»
+      → ... and 61 more candidates
+  «ven hundred and seventy-seventh[,]…»  (64 candidates)
+      → «[,] 'My husband, my father, and my»
+      → «[,] Madame Defarge, pursuing her w»
+      → «[,] the stone faces of the chateau»
+      → ... and 61 more candidates
+  « the enormous cutting tackles, [a]…»  (64 candidates)
+      → «[a]s dropped, because it would hav»
+      → «[a].\n\nCHAPTER . Ahab's Boat and Cr»
+      → «[a]ce.\n\n'What's the matter with yo»
+      → ... and 61 more candidates
+  «f the honour of\nyour noble name[,]…»  (64 candidates)
+      → «[,] 'My husband, my father, and my»
+      → «[,] Madame Defarge, pursuing her w»
+      → «[,] the stone faces of the chateau»
+      → ... and 61 more candidates
+  «ooked for all the world like a [m]…»  (64 candidates)
+      → «[m]y dear Charles,' said Mr. Lorry»
+      → «[m].'\n\n'I don't understand you,' s»
+      → «[m], is that so.'\n\n'It is so,' ass»
+      → ... and 61 more candidates
+  «he beautiful expression of her [d]…»  (64 candidates)
+      → «[d] the year one thousand seven hu»
+      → «[d], Monsieur heretofore the Marqu»
+      → «[d]?'\n\n'In England.'\n\n'Without dou»
+      → ... and 61 more candidates
+  «pter and an eavesdropper among [t]…»  (64 candidates)
+      → «[t] where the commander in chief w»
+      → «[t].\n\n'What is the matter with you»
+      → «[t]o assure you in the most animat»
+      → ... and 61 more candidates
+  «\n\nCHAPTER . The Fossil Whale.\n\n[C]…»  (64 candidates)
+      → «[C], December 3st, 3. THIS MARBLE\n»
+      → «[C]ape-Cod-man. A happy-go-lucky;\n»
+      → «[C]ape-Horner\nin a great hurricane»
+      → ... and 61 more candidates
+  «is arms on the back of the sofa[,]…»  (64 candidates)
+      → «[,] 'My husband, my father, and my»
+      → «[,] Madame Defarge, pursuing her w»
+      → «[,] the stone faces of the chateau»
+      → ... and 61 more candidates
+
+════════════════════════════════════════════════════════════════════════════════════════════════════
+D = 30    (entries with overlap k = 1)
+════════════════════════════════════════════════════════════════════════════════════════════════════
+[load] /home/trans/agpt-tries/gutenberg_5m_d30_radix_corpus: 7536597 nodes, 31 depth files
+[load]   loaded in 6.4s
+[load] /home/trans/agpt-tries/gutenberg_5m_d30_suffix_radix: 7584019 nodes, 31 depth files
+[load]   loaded in 7.3s
+  2146 entries with k=1 out of 4986553 total (0.043%)
+
+  «in this way for a long time, [w]…»  (64 candidates)
+      → «[w]s of the battle of Austerlitz»
+      → «[w].'\n\n'I follow you, sir.'\n\n'Pu»
+      → «[w],' said the princess in the s»
+      → ... and 61 more candidates
+  «e beginning of the campaign,\n[a]…»  (64 candidates)
+      → «[a]. Prince Andrew was struck by»
+      → «[a] brilliant position in societ»
+      → «[a] suspicion in your own breast»
+      → ... and 61 more candidates
+  «R . Ahab and the Carpenter.\n\n[T]…»  (64 candidates)
+      → «[T]he corpusants have mercy on u»
+      → «[T]he member of the Hofkriegsrat»
+      → «[T]he keeper of the wine-shop st»
+      → ... and 61 more candidates
+  «'\n\n'He says, Monsieur, that h[i]…»  (64 candidates)
+      → «[i]t was not to be supposed that»
+      → «[i]t was as much as I could do t»
+      → «[i]r.\n\nCHAPTER . The First Lower»
+      → ... and 61 more candidates
+  «ith the greatest satisfaction[.]…»  (64 candidates)
+      → «[.]\n\n'Might a mere warmint ask w»
+      → «[.] 'I am the resurrection and t»
+      → «[.]'\n\nI said I should be delight»
+      → ... and 61 more candidates
+  «definition of what a whale is[,]…»  (64 candidates)
+      → «[,]' said the mender of roads, w»
+      → «[,] 'I am the resurrection and t»
+      → «[,] with his hands\nin his pocket»
+      → ... and 61 more candidates
+  «d\n                           [I]…»  (64 candidates)
+      → «[I] take the liberty of asking y»
+      → «[I]t was not to be supposed that»
+      → «[I]t was as much as I could do t»
+      → ... and 61 more candidates
+  «ince Andrew entered the room [w]…»  (64 candidates)
+      → «[w]s of the battle of Austerlitz»
+      → «[w].'\n\n'I follow you, sir.'\n\n'Pu»
+      → «[w],' said the princess in the s»
+      → ... and 61 more candidates
+  «\n\nCHAPTER 3. The Lee Shore.\n\n[C]…»  (64 candidates)
+      → «[C]annon, muskets, fire and smok»
+      → «[C]OURT, CHANCERY LANE, LONDON.\n»
+      → «[C]OND STAGE OF PIP'S EXPECTATIO»
+      → ... and 61 more candidates
+  «ar one thousand seven hundred[\n]…»  (64 candidates)
+      → «[\n]are within sight of the enemy»
+      → «[\n]Liberty, Equality, Fraternity»
+      → «[\n]Mademoiselle Bourienne.\n\n'Why»
+      → ... and 61 more candidates
+  «\n\n'What's the matter with you[r]…»  (64 candidates)
+      → «[r].\n\n     'Delighted to see you»
+      → «[r] I had no objection.\n\n'I shou»
+      → «[r], Monseigneur had the other t»
+      → ... and 61 more candidates
+  «pyright  by George Allen.\n\n'A[r]…»  (64 candidates)
+      → «[r].\n\n     'Delighted to see you»
+      → «[r] I had no objection.\n\n'I shou»
+      → «[r], Monseigneur had the other t»
+      → ... and 61 more candidates
+  «                            P[A]…»  (64 candidates)
+      → «[A] letter, under date Portsmout»
+      → «[A]t the office in Little Britai»
+      → «[A]D\n                           »
+      → ... and 61 more candidates
+  «                          \n\n'[T]…»  (64 candidates)
+      → «[T]he corpusants have mercy on u»
+      → «[T]he member of the Hofkriegsrat»
+      → «[T]he keeper of the wine-shop st»
+      → ... and 61 more candidates
+  «e came down to see the place'[ ]…»  (64 candidates)
+      → «[ ]are within sight of the enemy»
+      → «[ ]Liberty, Equality, Fraternity»
+      → «[ ]Mademoiselle Bourienne.\n\n'Why»
+      → ... and 61 more candidates
+
+════════════════════════════════════════════════════════════════════════════════════════════════════
+D = 24    (entries with overlap k = 1)
+════════════════════════════════════════════════════════════════════════════════════════════════════
+[load] /home/trans/agpt-tries/gutenberg_5m_d24_radix_corpus: 7508558 nodes, 25 depth files
+[load]   loaded in 6.2s
+[load] /home/trans/agpt-tries/gutenberg_5m_d24_suffix_radix: 7555961 nodes, 25 depth files
+[load]   loaded in 6.7s
+  11600 entries with k=1 out of 4971798 total (0.233%)
+
+  «onvict I had recognised[ ]…»  (64 candidates)
+      → «[ ]conversation, evidently»
+      → «[ ]appeared in the doorway»
+      → «[ ]in which he immediately»
+      → ... and 61 more candidates
+  «cion in your own breast[,]…»  (64 candidates)
+      → «[,] that this was the very»
+      → «[,] Lucie,' said Mr. Lorry»
+      → «[,] without raising his ey»
+      → ... and 61 more candidates
+  « the Sperm Whale fisher[m]…»  (64 candidates)
+      → «[m]e,' said Charles Darnay»
+      → «[m].\n\nCHAPTER . The Sphynx»
+      → «[m], and leaning his elbow»
+      → ... and 61 more candidates
+  «considered it necessary[\n]…»  (64 candidates)
+      → «[\n]conversation, evidently»
+      → «[\n]appeared in the doorway»
+      → «[\n]in which he immediately»
+      → ... and 61 more candidates
+  « that it must have been[ ]…»  (64 candidates)
+      → «[ ]conversation, evidently»
+      → «[ ]appeared in the doorway»
+      → «[ ]in which he immediately»
+      → ... and 61 more candidates
+  «Prince Andrew suddenly [d]…»  (64 candidates)
+      → «[d] don't wish to apologiz»
+      → «[d] that this was the very»
+      → «[d] me out of this country»
+      → ... and 61 more candidates
+  «hankye,' said Wemmick, [s]…»  (64 candidates)
+      → «[s],--\n\n'My dear Miss Eliz»
+      → «[s] Cyril Vladmirovich Bez»
+      → «[s],' she added, 'that Liz»
+      → ... and 61 more candidates
+  «.\n\nThe little princess [d]…»  (64 candidates)
+      → «[d] don't wish to apologiz»
+      → «[d] that this was the very»
+      → «[d] me out of this country»
+      → ... and 61 more candidates
+  «of the most remarkable [s]…»  (64 candidates)
+      → «[s],--\n\n'My dear Miss Eliz»
+      → «[s] Cyril Vladmirovich Bez»
+      → «[s],' she added, 'that Liz»
+      → ... and 61 more candidates
+  « was appointed that the[ ]…»  (64 candidates)
+      → «[ ]conversation, evidently»
+      → «[ ]appeared in the doorway»
+      → «[ ]in which he immediately»
+      → ... and 61 more candidates
+  «no other object than to[ ]…»  (64 candidates)
+      → «[ ]conversation, evidently»
+      → «[ ]appeared in the doorway»
+      → «[ ]in which he immediately»
+      → ... and 61 more candidates
+  «I'll tell you something[.]…»  (64 candidates)
+      → «[.] Prince Andrew\nrecogniz»
+      → «[.] I took the opportunity»
+      → «[.]\n\n'Yes, your excellency»
+      → ... and 61 more candidates
+  «t was an old-fashioned [p]…»  (64 candidates)
+      → «[p],- Such a funny, sporty»
+      → «[p].\n\n'There go flukes!' w»
+      → «[p]ursuing her way along t»
+      → ... and 61 more candidates
+  «ed Whalebone whales, th[e]…»  (64 candidates)
+      → «[e] me out of this country»
+      → «[e] make the most of every»
+      → «[e] message to His Majesty»
+      → ... and 61 more candidates
+  «r in a debtors'\nprison?[-]…»  (64 candidates)
+      → «[-]\n\n'No, no; stay where y»
+      → «[-]\n\n'I hope Mr. Bingley w»
+      → «[-]The Vengeance and\nJacqu»
+      → ... and 61 more candidates
+
+════════════════════════════════════════════════════════════════════════════════════════════════════
+D = 16    (entries with overlap k = 1)
+════════════════════════════════════════════════════════════════════════════════════════════════════
+[load] /home/trans/agpt-tries/gutenberg_5m_d16_radix_corpus: 7073694 nodes, 17 depth files
+[load]   loaded in 6.3s
+[load] /home/trans/agpt-tries/gutenberg_5m_d16_suffix_radix: 7118991 nodes, 17 depth files
+[load]   loaded in 6.0s
+  201286 entries with k=1 out of 4731133 total (4.254%)
+
+  «sisted between [M]…»  (64 candidates)
+      → «[M]ake a life-buoy»
+      → «[M]y dear Lizzy, y»
+      → «[M]aking his way t»
+      → ... and 61 more candidates
+  «ierre wished to[ ]…»  (64 candidates)
+      → «[ ]day,' said Eliz»
+      → «[ ]of the Preobraz»
+      → «[ ]My dearest Lizz»
+      → ... and 61 more candidates
+  «t the shoemaker[']…»  (64 candidates)
+      → «[']\n\n'My dear Lizz»
+      → «[']My dearest Lizz»
+      → «[']\n\nThis was very»
+      → ... and 61 more candidates
+  «al manner, and [s]…»  (64 candidates)
+      → «[s],' replied Eliz»
+      → «[s],' thought Eliz»
+      → «[s]t of the family»
+      → ... and 61 more candidates
+  «a pleasant home[ ]…»  (64 candidates)
+      → «[ ]day,' said Eliz»
+      → «[ ]of the Preobraz»
+      → «[ ]My dearest Lizz»
+      → ... and 61 more candidates
+  « face, and her [h]…»  (64 candidates)
+      → «[h],' replied Eliz»
+      → «[h]as not authoriz»
+      → «[h] in the country»
+      → ... and 61 more candidates
+  « tormented her.[ ]…»  (64 candidates)
+      → «[ ]day,' said Eliz»
+      → «[ ]of the Preobraz»
+      → «[ ]My dearest Lizz»
+      → ... and 61 more candidates
+  « got out of bed[ ]…»  (64 candidates)
+      → «[ ]day,' said Eliz»
+      → «[ ]of the Preobraz»
+      → «[ ]My dearest Lizz»
+      → ... and 61 more candidates
+  «Illustration\n\nC[o]…»  (64 candidates)
+      → «[o]rt of the enemy»
+      → «[o]o had evidently»
+      → «[o]e was evidently»
+      → ... and 61 more candidates
+  «nd put\nthem on [t]…»  (64 candidates)
+      → «[t] did not realiz»
+      → «[t],' thought Eliz»
+      → «[t] the Austerlitz»
+      → ... and 61 more candidates
+  «directly facing[ ]…»  (64 candidates)
+      → «[ ]day,' said Eliz»
+      → «[ ]of the Preobraz»
+      → «[ ]My dearest Lizz»
+      → ... and 61 more candidates
+  «God's folk.' It[ ]…»  (64 candidates)
+      → «[ ]day,' said Eliz»
+      → «[ ]of the Preobraz»
+      → «[ ]My dearest Lizz»
+      → ... and 61 more candidates
+  «ement, though f[l]…»  (64 candidates)
+      → «[l] did not realiz»
+      → «[l]s about the siz»
+      → «[l]e of the family»
+      → ... and 61 more candidates
+  «e distance of s[o]…»  (64 candidates)
+      → «[o]rt of the enemy»
+      → «[o]o had evidently»
+      → «[o]e was evidently»
+      → ... and 61 more candidates
+  « to his seat, t[o]…»  (64 candidates)
+      → «[o]rt of the enemy»
+      → «[o]o had evidently»
+      → «[o]e was evidently»
+      → ... and 61 more candidates
