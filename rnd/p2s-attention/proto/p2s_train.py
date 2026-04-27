@@ -48,10 +48,10 @@ N_HEADS      = 4
 N_LAYERS     = 4
 BATCH_SIZE   = 32
 LR           = 3e-4
-N_TRAIN_STEPS = 20000
+N_TRAIN_STEPS = 10000   # cut from 20K — diminishing returns past ~10K
 N_HELDOUT    = 4096
 PRINT_EVERY  = 500
-MAX_RECORDS  = 1_000_000
+MAX_RECORDS  = 500_000  # cut from 1M for faster iteration; we have a saved 1M run already
 DEVICE       = "cuda" if torch.cuda.is_available() else "cpu"
 RNG_SEED     = 42
 
@@ -361,6 +361,21 @@ def main():
     print("[main] final eval (full held-out)...", flush=True)
     final = eval_loss(held)
     print(f"[main] final held-out loss={final:.4f}, ppl={math.exp(final):.2f}", flush=True)
+
+    # Save checkpoint so corpus-walk eval can load it
+    ckpt_path = os.path.join(os.path.dirname(__file__), "p2s_model.pt")
+    torch.save({
+        'model_state': model.state_dict(),
+        'config': {
+            'vocab_size': vocab_size,
+            'd_model': D_MODEL,
+            'n_heads': N_HEADS,
+            'n_layers': N_LAYERS,
+            'D': D,
+            'max_k': MAX_K,
+        },
+    }, ckpt_path)
+    print(f"[main] saved checkpoint to {ckpt_path}", flush=True)
 
 if __name__ == "__main__":
     main()
