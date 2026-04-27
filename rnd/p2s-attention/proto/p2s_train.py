@@ -431,9 +431,19 @@ class P2SModel(nn.Module):
         sigma_tokens: [B, K, D]   sigma_mask: [B, K, D] (True at pad)
         sigma_pad: [B, K] (True for slots that are not real candidates)
         Returns logits [B, vocab].
+
+        Two modes:
+          - direct (P2S_DIRECT=1): bypass cross-attn, predict logits = W_out · h_π
+          - default: cross-attention path through σ candidates (original p2s)
         """
         B, K, _ = sigma_tokens.shape
         h_pi = self.encode(pi_tokens, pi_mask)                  # [B, d_model]
+
+        if os.environ.get("P2S_DIRECT", "0") == "1":
+            # Skip σ encoding and cross-attention; predict directly from h_π
+            logits = self.W_out(h_pi)
+            return logits, None
+
         # encode each candidate
         sigma_flat = sigma_tokens.reshape(B * K, -1)
         sigma_mask_flat = sigma_mask.reshape(B * K, -1)

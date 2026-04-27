@@ -72,3 +72,23 @@
   step 18000/30000  train_loss=2.3399  held_loss=2.3685  held_ppl=10.68
   step 18500/30000  train_loss=2.3221  held_loss=2.3608  held_ppl=10.60
   step 19000/30000  train_loss=2.3259  held_loss=2.3351  held_ppl=10.33
+  step 19500/30000  train_loss=2.3287  held_loss=2.3584  held_ppl=10.57
+  step 20000/30000  train_loss=2.3095  held_loss=2.3492  held_ppl=10.48
+  step 20500/30000  train_loss=2.3203  held_loss=2.3154  held_ppl=10.13
+  step 21000/30000  train_loss=2.3016  held_loss=2.3347  held_ppl=10.33
+  step 21500/30000  train_loss=2.2961  held_loss=2.3137  held_ppl=10.11
+  step 22000/30000  train_loss=2.2994  held_loss=2.3161  held_ppl=10.14
+  step 22500/30000  train_loss=2.2963  held_loss=2.3080  held_ppl=10.05
+  step 23000/30000  train_loss=2.2906  held_loss=2.3026  held_ppl=10.00
+  step 23500/30000  train_loss=2.2877  held_loss=2.3013  held_ppl=9.99
+  step 24000/30000  train_loss=2.2767  held_loss=2.2930  held_ppl=9.90
+  step 24500/30000  train_loss=2.2854  held_loss=2.3027  held_ppl=10.00
+  step 25000/30000  train_loss=2.2745  held_loss=2.2905  held_ppl=9.88
+  step 25500/30000  train_loss=2.2813  held_loss=2.2936  held_ppl=9.91
+  step 26000/30000  train_loss=2.2532  held_loss=2.2915  held_ppl=9.89
+  step 26500/30000  train_loss=2.2680  held_loss=2.2958  held_ppl=9.93
+  step 27000/30000  train_loss=2.2552  held_loss=2.2937  held_ppl=9.91
+  step 27500/30000  train_loss=2.2666  held_loss=2.2900  held_ppl=9.88
+  step 28000/30000  train_loss=2.2576  held_loss=2.2899  held_ppl=9.87
+  step 28500/30000  train_loss=2.2519  held_loss=2.2892  held_ppl=9.87
+  step 29000/30000  train_loss=2.2703  held_loss=2.2872  held_ppl=9.85
