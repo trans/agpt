@@ -1,0 +1,28 @@
+Loading checkpoint and trees...
+[load] /home/trans/agpt-tries/gutenberg_5m_d32_radix_corpus: 7539820 nodes, 33 depth files
+[load]   loaded in 7.9s
+[load] /home/trans/agpt-tries/gutenberg_5m_d32_suffix_radix: 7587223 nodes, 33 depth files
+[load]   loaded in 8.0s
+  space token = 1
+Building prefix-tree children index...
+Indexing match records by pid...
+/home/trans/Projects/agpt/rnd/p2s-attention/proto/p2s_train.py:490: UserWarning: enable_nested_tensor is True, but self.use_nested_tensor is False because encoder_layer.norm_first was True
+  self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=n_layers)
+Model loaded, 875457 params
+Sampled 4096 space-ending and 4096 arbitrary positions
+
+=== EVAL: arbitrary positions, NO prior ===
+[all-noprior] n=4096  NLL=1.8820  PPL=6.57  applied=0 skipped_oos=0
+
+=== EVAL: arbitrary positions, WITH prior ===
+[all-withprior] n=4096  NLL=1.8618  PPL=6.44  applied=72 skipped_oos=15
+
+=== EVAL: space-ending positions, NO prior ===
+[space-noprior] n=4096  NLL=2.9790  PPL=19.67  applied=0 skipped_oos=0
+
+=== EVAL: space-ending positions, WITH prior ===
+[space-withprior] n=4096  NLL=2.8963  PPL=18.11  applied=194 skipped_oos=52
+
+=== Δ from prior ===
+  arbitrary positions:    6.57 → 6.44  (Δ -0.131)
+  space-ending positions: 19.67 → 18.11  (Δ -1.562)
