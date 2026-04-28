@@ -1,0 +1,96 @@
+space token = 1
+Loading prefix tree...
+[load] /home/trans/agpt-tries/gutenberg_5m_d32_radix_corpus: 7539820 nodes, 33 depth files
+[load]   loaded in 7.3s
+Loading suffix tree...
+[load] /home/trans/agpt-tries/gutenberg_5m_d32_suffix_radix: 7587223 nodes, 33 depth files
+[load]   loaded in 6.8s
+Identifying leaves...
+  prefix leaves: 4988255
+  suffix leaves: 4988256
+
+Computing truncated prefix paths (clip at last space)...
+  done in 8.4s, 196 prefixes had no space
+Computing truncated suffix forward paths (clip at last space)...
+  done in 9.8s, 196 suffixes had no space
+
+Truncated prefix path-length distribution:
+  len= 9:     1181 ( 0.02%)
+  len=10:     1684 ( 0.03%)
+  len=11:     2425 ( 0.05%)
+  len=12:     3426 ( 0.07%)
+  len=13:     4788 ( 0.10%)
+  len=14:     6698 ( 0.13%)
+  len=15:     9386 ( 0.19%)
+  len=16:    13004 ( 0.26%)
+  len=17:    18046 ( 0.36%)
+  len=18:    24659 ( 0.49%)
+  len=19:    33930 ( 0.68%)
+  len=20:    46212 ( 0.93%)
+  len=21:    61900 ( 1.24%)
+  len=22:    84121 ( 1.69%)
+  len=23:   115495 ( 2.32%)
+  len=24:   156986 ( 3.15%)
+  len=25:   211022 ( 4.23%)
+  len=26:   274559 ( 5.50%)
+  len=27:   357274 ( 7.16%)
+  len=28:   487948 ( 9.78%)
+  len=29:   658176 (13.19%)
+  len=30:   783906 (15.72%)
+  len=31:   810732 (16.25%)
+  len=32:   817929 (16.40%)
+
+Building head trie from truncated suffix forwards...
+  inserted 1000000/4988256 suffixes, head trie has 23151502 nodes
+  inserted 2000000/4988256 suffixes, head trie has 41939457 nodes
+  inserted 3000000/4988256 suffixes, head trie has 60512775 nodes
+  inserted 4000000/4988256 suffixes, head trie has 78691483 nodes
+  head trie: 96414205 nodes, 4988256 terms, 158.2s
+
+Matching prefix truncated tails to head trie...
+  done in 113.2s
+
+=== Word-aligned match summary (D=32 truncated at last space) ===
+  prefix leaves total:     4988255
+  matched (k>=1):          4988254
+  no match:                1
+
+=== Word-aligned overlap k histogram ===
+  k= 1:       82 ( 0.00%) 
+  k= 2:      128 ( 0.00%) 
+  k= 3:      178 ( 0.00%) 
+  k= 4:      248 ( 0.00%) 
+  k= 5:      316 ( 0.01%) 
+  k= 6:      430 ( 0.01%) 
+  k= 7:      577 ( 0.01%) 
+  k= 8:      808 ( 0.02%) 
+  k= 9:     1181 ( 0.02%) 
+  k=10:     1684 ( 0.03%) 
+  k=11:     2425 ( 0.05%) 
+  k=12:     3426 ( 0.07%) 
+  k=13:     4788 ( 0.10%) 
+  k=14:     6698 ( 0.13%) 
+  k=15:     9386 ( 0.19%) 
+  k=16:    13004 ( 0.26%) 
+  k=17:    18046 ( 0.36%) 
+  k=18:    24659 ( 0.49%) 
+  k=19:    33930 ( 0.68%) 
+  k=20:    46212 ( 0.93%) 
+  k=21:    61900 ( 1.24%) █
+  k=22:    84121 ( 1.69%) █
+  k=23:   115495 ( 2.32%) ██
+  k=24:   156986 ( 3.15%) ███
+  k=25:   211022 ( 4.23%) ████
+  k=26:   274559 ( 5.50%) █████
+  k=27:   357274 ( 7.16%) ███████
+  k=28:   487948 ( 9.78%) █████████
+  k=29:   658176 (13.19%) █████████████
+  k=30:   783906 (15.72%) ███████████████
+  k=31:   810732 (16.25%) ████████████████
+  k=32:   817929 (16.40%) ████████████████
+
+=== Word-aligned candidate-set size histogram ===
+      1:  4953233 (99.30%)
+    2-4:    23685 ( 0.47%)
+   5-19:     5905 ( 0.12%)
+    20+:     5431 ( 0.11%)
