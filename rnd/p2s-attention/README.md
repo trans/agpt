@@ -1,9 +1,10 @@
 # Prefix-to-Suffix Attention via Structural Max-Overlap Matching
 
-> **Status (2026-04-26): planning + design.** No code yet. Pivoted here from
-> `rnd/lightning-cap-warmup/` after confirming the current AGPT architecture
-> is capacity-bound at PPL ~29 on Gutenberg 5M (d_model=64, n_layers=2). Need
-> a different training signal, not just better recipes.
+> **Status (2026-04-27): CLOSED.** Architectural investigation complete.
+> Headline result: a vanilla transformer with proper context wins (PPL 6.50);
+> the structural matching gives a small +2% PPL boost as an inference-time
+> mask but doesn't work as a prediction backbone. See `findings.md` for the
+> full closeout. Artifacts retained for future reference.
 
 ## Hypothesis
 

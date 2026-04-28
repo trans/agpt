@@ -1,124 +1,215 @@
-# p2s-attention Phase 2/3 Findings (Match Index Distribution)
+# Prefix-to-Suffix Attention — Final Findings
 
-> **Status (2026-04-26): Phase 2/3 complete.** Structural max-overlap matching
-> on Gutenberg 5M d=32 produces a strikingly tight match-set distribution.
-> Architectural validation confirmed; greenlight for Phase 4 (attention
-> kernel + gradient).
+> **Status (2026-04-27): closed.** Full architectural investigation complete.
 
-## Headline
+## TL;DR
 
-| Metric | Value |
-|---|---:|
-| Prefix leaves total | 4,988,254 |
-| With any match (k≥1) | **100.0%** |
-| Mean candidate-set size | **1.49** |
-| Mode overlap k | **21** out of max 32 |
-| Wall-clock for full match-index build | 3:20 |
-| Peak memory | ~6 GB (Crystal Array 2× capacity overhead; nominal 1 GB) |
+We set out to build a new prediction architecture using structural matches
+between prefix-trie leaves and suffix-trie leaves. After thorough empirical
+investigation, the architectural ambition didn't pan out — but we
+characterized the corpus's structural properties precisely and found a
+small but real inference-time win.
 
-## Match-set size distribution (over all prefix leaves)
+| Approach | Corpus PPL | Notes |
+|---|---:|---|
+| AGPT family ceiling | ~29 | starting reference |
+| Cross-attention p2s (D=32, ctx=32) | 10.84 | bottleneck/leak issues |
+| Cross-attention p2s, scaled (256/6, ctx=128) | 9.45 | better recipe, same arch |
+| **Direct transformer ctx=128** | **6.50** | the winning baseline |
+| **Direct + inference-time tree mask** | **6.35** | small but real arch win |
+| Wrap-around-synth SGD seq=128 ref | 6.78 | comparable prior baseline |
 
-| Candidates | % of prefix leaves |
-|---|---:|
-| 1 | **95.44%** |
-| 2-4 | 2.89% |
-| 5-19 | 0.94% |
-| 20-99 | 0.73% |
-| 100+ | <0.01% |
+## What worked
 
-**95.4% of prefix leaves have exactly one structurally compatible suffix
-candidate.** This is essentially the corpus-positional dual; the model gets
-a deterministic continuation target for the vast majority of prefixes.
-The 4.6% with multiple candidates are the genuinely-ambiguous prefixes
-where attention has to choose — exactly the cases where the model is
-expected to do useful work.
+### Direct transformer training (PPL 6.50)
+Standard transformer trained with corpus[p-127..p] as input, predict
+corpus[p+1]. Same recipe as wrap-around-synth SGD seq=128, just on real
+corpus. 875K-param model trained in ~10 minutes. Beats the prior reference
+(6.78) cleanly.
 
-## Overlap k histogram (k = max chars shared between prefix-edge and suffix-edge)
+### Inference-time mask (PPL 6.35)
+At held-out positions where the structural matching produces multiple
+distinct candidate next-chars, mask the model's logits to that candidate
+set. Applied to ~1.9% of positions (the genuinely-ambiguous ones).
+**Crucially**: applies only when there's real ambiguity in the candidate
+set, avoiding the leak that killed cross-attention modes.
 
-```
-k= 1:       1477 ( 0.03%)
-k= 5:       4118 ( 0.08%)
-k=10:      26853 ( 0.54%)
-k=15:     162892 ( 3.27%)
-k=17:     307459 ( 6.16%)
-k=18:     404356 ( 8.11%)
-k=19:     508285 (10.19%)
-k=20:     597623 (11.98%)
-k=21:     639179 (12.81%)  ← peak
-k=22:     609886 (12.23%)
-k=23:     505907 (10.14%)
-k=24:     352572 ( 7.07%)
-k=25:     194177 ( 3.89%)
-k=30:         74 (  0.0%)
-k=31:          1 (  0.0%)
-```
+### Word-aligned matching is 12× more useful at word boundaries
+The structural matching's value is concentrated at word boundaries (where
+corpus[p] is a space):
+- All-position PPL improvement from mask: -0.13
+- Space-position PPL improvement from mask: -1.56
 
-The bell curve centered at k≈21 says: typical leaf-edge content is ~21
-characters long, and the corpus has structural continuations matching
-those 21 characters. This represents real linguistic structure (word
-fragments, phrase patterns), not noise.
+This connects to the prior `--space-cut` observation about cleaner
+generation: word boundaries are where real linguistic decisions happen,
+and where the structural matching has work to do.
 
-## What this validates
+## Real corpus property characterizations
 
-1. **Tractability claim from the design note** (`notes/agpt/prefix-to-suffix-attention.md`):
-   "the candidate set is bounded by the leaf's mass" — confirmed.
-   For Gutenberg, mean=1.49 is even tighter than expected.
-2. **Structural matching is sufficient** — we don't need §8's corpus-walk
-   dual-tree loop. Pure tree-on-tree string overlap gives matches that
-   are essentially the corpus-positional dual for ~95% of prefixes.
-3. **Per-step compute cost is O(N)** at training time — total attention
-   work over an epoch is `Σ_leaves mean_match_size ≈ corpus_size × 1.49`.
-4. **Build cost is one-time and modest** — 3:20 wall-clock for 5M
-   corpus, ~6GB peak memory.
+### Branching depth ≈ 11
+For each mass-1 prefix-tree leaf, computed `d*` = depth at which path becomes
+unique. Distribution is bell-shaped centered at d*=10-11, with mean 11.23 and
+median 11. **Empirically matches the theoretical prediction**
+`log₂(N)/per-char-entropy ≈ 22.3 / 2 ≈ 11`. The corpus has an intrinsic
+information-theoretic structure independent of architecture.
 
-## What this doesn't yet measure
+### D=32 is the right operating point for Gutenberg 5M
+- D < 22: matching loses meaning (overlaps too short)
+- D = 30-32: flat plateau (~95% single-cand, mode k=21)
+- D = 48: saturation (radix barely grows past 32)
 
-- **Whether the model trained on this signal beats the current PPL=29
-  ceiling** — Phase 4 goal.
-- **Whether the few-candidate cases are the "informative" ones** —
-  expect yes, since these are exactly where the corpus has multiple
-  continuations for the same prefix.
-- **Inference-side cost** — our 1.49 mean is for training; at inference
-  we'd query the match index on each token. Hash/trie lookup cost is
-  negligible vs the model forward.
+D-vs-PPL is also flat across 30-32. The "sweet spot" isn't a knife-edge.
 
-## Reproduce
+### 95% deterministic continuation at D=32
+- 4.99M prefix leaves
+- 95.4% have exactly 1 structural candidate (mass-1 single-cand)
+- Mode overlap k = 21 (phrase-level chunks)
+- 4.6% multi-candidate, of which most are deterministic at next-char level
+
+### Word-aligned matching is structurally cleaner
+Truncating leaf-edges at the last space increases single-cand rate from
+95.4% to 99.3%. Mode k jumps from 21 to 32. The remaining 0.7% multi-cand
+cases are *real linguistic branch points*: verb/adjective/noun choices at
+phrase positions ("Prince Andrew, [watched/glanced]", "with the most
+[exasperated/lively/awful]", etc.).
+
+## What didn't work
+
+### Cross-attention as prediction backbone
+The natural design — prefix encodes via transformer, σ candidates encode
+via same transformer, cross-attention picks among them, output decodes
+context — has a fatal flaw: σ's input contains σ.fwd[overlap_k] which IS
+the answer for 95% mass-1 cases. The architecture is structurally a leak.
+- Unmitigated: PPL 3.09 (memorization through the σ encoder)
+- Compressed bottleneck: PPL ~10 (lossy encoding limits the leak)
+- Masked-σ-loss: PPL 11.5 (no leak, no learning)
+
+The cross-attention path can't be made to work as a clean prediction
+mechanism because σ-as-input is fundamentally answer-revealing.
+
+### Wrap-around / chained training
+Tried building chained training examples that use σ's content past the
+overlap as additional context for predicting deeper into the chain. Gives
+wrong target alignment — predicts ~11 chars ahead instead of 1. Reverted.
+
+### Mass-weighted, d*-weighted, skip-K=1 sampling
+None of these training-signal modifications produced meaningful PPL
+changes at scale. Position-based sampling (the natural distribution) is
+already optimal for next-char prediction.
+
+### Word-aligned inference mask
+Applied at all positions, gave zero PPL change. The word-aligned matching
+predicts "next char after current word ends" not "corpus[p+1]" — the
+prediction targets don't align. Word-aligned matching implies word-level
+prediction, not char-level.
+
+## Why the cross-attention architecture was inherently capped
+
+Two constraints prevent it from beating direct transformer:
+
+**1. The matching at low overlap is noise.** At k=1 (~0.03% at D=32),
+the prefix's last char matches some random suffix's first char with no
+corpus-positional alignment. The "concatenation" pairs unrelated text
+fragments. There's no useful signal there.
+
+**2. The matching at high overlap is corpus-positional.** At k=21+, the
+matching pins to a single corpus position whose continuation is already
+visible in the model's input context. Whatever the matching tells us,
+SGD with the same context window has already seen.
+
+There's no regime where the matching strictly beats SGD. At low k it's
+worse (adds noise); at high k it's redundant (provides what SGD has).
+
+## Artifacts produced
+
+### Tools (`bin/`)
+- `agpt_build_radix_corpus --reverse` — suffix-tree builder
+- `agpt_p2s_match` — match-index builder (Crystal, ~3min, ~6GB RAM)
+- `agpt_p2s_inspect` — match index visualizer
+
+### Python prototype (`rnd/p2s-attention/proto/`)
+- `p2s_train.py` — parameterized training, supports {direct, cross-attn,
+  aux, root-LOO} modes; mass-weighted, d*-weighted sampling; CONTEXT_LEN,
+  position-based, leaf-based options
+- `p2s_eval_corpus.py` — corpus-walk evaluator with optional inference mask
+- `branching_depth.py` — d* analyzer per leaf
+- `word_aligned_match.py` — word-aligned matching variant
+- `word_aligned_multi.py` — multi-candidate decoder for word-aligned
+- `listing.py` / `k1_listing.py` — visualization tools
+
+### Data artifacts (`/home/trans/agpt-tries/`)
+- `gutenberg_5m_d{16,24,30,32,64}_radix_corpus/` — prefix trees at each D
+- `gutenberg_5m_d{16,24,30,32,64}_suffix_radix/` — suffix trees
+- `g5m_d{16,24,30,32}_p2s_match.bin` — match indices
+
+### Logs (`rnd/p2s-attention/logs/`)
+Run logs and analysis outputs preserved for all experiments.
+
+## Reproduce headline results
 
 ```sh
-just build-p2s-match
-bin/agpt_p2s_match \
-  --prefix /home/trans/agpt-tries/gutenberg_5m_d32_radix_corpus \
-  --suffix /home/trans/agpt-tries/gutenberg_5m_d32_suffix_radix \
-  --min-overlap 1 \
-  --max-candidates 64 \
-  --out /tmp/g5m_p2s_match.bin
+# 1. Direct mode baseline (PPL 6.50)
+P2S_D=32 P2S_TAG=direct_ctx128 P2S_CONTEXT_LEN=128 P2S_DIRECT=1 \
+  P2S_D_MODEL=128 P2S_N_HEADS=4 P2S_N_LAYERS=4 \
+  P2S_BATCH=32 P2S_LR=3e-4 P2S_STEPS=10000 P2S_WARMUP=500 \
+  P2S_RECORDS=500000 \
+  python3 rnd/p2s-attention/proto/p2s_train.py
+P2S_D=32 P2S_TAG=direct_ctx128 P2S_DIRECT=1 \
+  python3 rnd/p2s-attention/proto/p2s_eval_corpus.py
+# → corpus PPL 6.50
+
+# 2. With inference-time mask (PPL 6.35)
+P2S_D=32 P2S_TAG=direct_ctx128 P2S_DIRECT=1 P2S_USE_PRIOR=1 \
+  python3 rnd/p2s-attention/proto/p2s_eval_corpus.py
+# → corpus PPL 6.35
+
+# 3. d* analysis
+python3 rnd/p2s-attention/proto/branching_depth.py
+# → mean d* = 11.23, median 11
+
+# 4. Word-aligned matching analysis
+python3 rnd/p2s-attention/proto/word_aligned_match.py
+# → 99.3% single-cand
 ```
 
-The `--out` writes the binary match index with header `'P2SC'` (4-byte magic),
-prefix_count + suffix_count + suffix_leaf_count (3 × int32), then per-prefix
-records: `(prefix_id, max_k, num_sigmas, sigma_id × num_sigmas)` all int32.
+## Lessons
 
-## Implementation notes
+1. **Architectural ambition needs to clear the SGD baseline first.** We spent
+significant time on cross-attention variants before realizing that direct
+mode (no matching) was the right baseline — and our cross-attention setup
+was *worse* than this baseline.
 
-- The head trie is a struct-of-arrays (4 int arrays per node + 2 for terminal
-  list). Total nodes: 63.3M for Gutenberg, 1003 MB nominal in those arrays.
-  Actual RSS hit ~6 GB due to Crystal `Array<Int32>` doubling on push;
-  pre-sized `Slice`s would cut this to ~2 GB if needed.
-- Matching loop is O(L²) per prefix leaf (try k from L down to 1, restart
-  walk for each k). With L ≤ 32, total ~7.5B ops, ran in ~3 minutes.
-  Aho-Corasick fail-link upgrade would make it O(L) per leaf if matching
-  wall-clock matters; not the bottleneck today.
-- 100% match coverage isn't surprising: every prefix leaf's last char
-  appears somewhere as a "first char of a reversed suffix-tree leaf edge"
-  in the head trie (i.e., as a char somewhere in the corpus). At minimum,
-  k=1 always works.
+2. **Beware of "good results" that turn out to be leaks.** The aux-mode PPL
+3.09 result looked transformative until we traced where σ.fwd[overlap_k]
+was coming from. Always check that the prediction target isn't reachable
+through the input.
 
-## Phase 4 (next)
+3. **Corpus properties scale with theoretical bounds.** The branching depth
+matched `log₂(N)/per-char-entropy` precisely. For future work on
+similar architectures, this lets us predict the operating regime from
+corpus statistics rather than empirical sweep.
 
-Build the actual attention layer. Per the design note's Option B:
-- No per-leaf K/V table; compute on-the-fly from each candidate suffix's
-  edge tokens via the AGPT forward pass
-- Add as a separate head alongside current attention for clean A/B
-- Target: PPL < 25 (vs current ceiling 29)
+4. **Inference-time augmentation > training-time integration** for static
+structural information. The matching gave no training-time win in any
+variant we tried, but did give a small inference-time win when applied
+selectively to genuinely-ambiguous positions.
 
-Estimated effort: 3-5 days for the CUDA kernel + gradient + integration.
+5. **Word boundaries are where the action is.** Mid-word positions are
+predictable from local context (SGD does fine); word boundaries are where
+linguistic decisions happen and where structural information helps most.
+
+## Possible future directions (not pursued)
+
+- **Word-level model**: predict next *word* (variable-length token) given
+  word-aligned context. Word-aligned matching gives small candidate sets
+  per position — could form the basis of an efficient word-level prediction
+  architecture.
+- **Generation-time use**: use the structural matching as a *constraint*
+  during sampling (post-hoc filter on model outputs) to ensure outputs
+  stay structurally valid. Doesn't help training PPL but could improve
+  generation quality measurably.
+- **Retrieval-augmented application**: use the match index as a corpus
+  retrieval primitive for tasks other than next-char prediction.
+
+These are all sensible follow-ups but require different problem framings
+than the one this experiment investigated.
