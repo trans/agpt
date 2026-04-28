@@ -1,0 +1,129 @@
+Loading prefix tree...
+[load] /home/trans/agpt-tries/gutenberg_5m_d32_radix_corpus: 7539820 nodes, 33 depth files
+[load]   loaded in 7.9s
+Loading suffix tree...
+[load] /home/trans/agpt-tries/gutenberg_5m_d32_suffix_radix: 7587223 nodes, 33 depth files
+[load]   loaded in 7.4s
+Identifying leaves...
+Computing truncated prefix paths...
+Computing truncated suffix forwards...
+Building head trie...
+  head trie nodes: 96414205
+Matching and collecting multi-cand cases...
+
+35021 multi-cand entries collected.
+  2-4 cands:   23685
+  5-10 cands:  3846
+  10+ cands:   7490
+
+=== Genuine 2-4 candidate cases (showing 8) ===
+
+  prefix: «d,' thought Prince Andrew, »  (n_cands ≥ 2)
+    → «d,' thought Prince Andrew, watch»
+    → «d,' thought Prince Andrew, glanc»
+
+  prefix: « with the most »  (n_cands ≥ 4)
+    → « with the most exasperated\nmonst»
+    → « with the most unaccountable\ngla»
+    → « with the most lively terrors,' »
+    → « with the most awful fears, not »
+
+  prefix: «e did not know\nhow to »  (n_cands ≥ 2)
+    → «e did not know\nhow to escape?'\n\n»
+    → «e did not know\nhow to behave wit»
+
+  prefix: «ttle of Austerlitz, »  (n_cands ≥ 2)
+    → «ttle of Austerlitz, the\nso-calle»
+    → «ttle of Austerlitz, Moscow had\nb»
+
+  prefix: « Miss De Bourgh's »  (n_cands ≥ 2)
+    → « Miss De Bourgh's footstool,--th»
+    → « Miss De Bourgh's being too hot »
+
+  prefix: « Bennet,' said Miss Bingley, »  (n_cands ≥ 2)
+    → « Bennet,' said Miss Bingley, whe»
+    → « Bennet,' said Miss Bingley, 'de»
+
+  prefix: «ng in the chimney »  (n_cands ≥ 3)
+    → «ng in the chimney corner.\n\n'Mrs.»
+
+  prefix: « possessor of such »  (n_cands ≥ 2)
+    → « possessor of such great\nexpecta»
+    → « possessor of such enormous weal»
+
+
+=== 5-10 candidate cases (showing 6) ===
+
+  prefix: «ately, with »  (n_cands ≥ 5)
+    → «ately, with affected\nindifferenc»
+    → «ately, with a bold and\nslightly »
+    → «ately, with two men.\n\n'How, then»
+    → «ately, with the reservation just»
+    → «ately, with her usual condescens»
+
+  prefix: «here was still »  (n_cands ≥ 7)
+    → «here was still something\nlurking»
+    → «here was still a possibility of\n»
+    → «here was still thick fog; on the»
+    → «here was still the same bewitchi»
+    → «here was still hope. A long, yel»
+
+  prefix: « Count Bezkhov »  (n_cands ≥ 8)
+    → « Count Bezkhov everyone\nconstant»
+    → « Count Bezkhov and\npossessor of »
+    → « Count Bezkhov and the\nowner of »
+    → « Count Bezkhov and a rich man, f»
+    → « Count Bezkhov had a\nsixth strok»
+
+  prefix: «ung man of »  (n_cands ≥ 7)
+    → «ung man of about\nfive-and-twenty»
+    → «ung man of five-and-twenty. His »
+    → «ung man of a heavy order of\narch»
+    → «ung man of large fortune from th»
+    → «ung man of such amiable appearan»
+
+  prefix: «en the old »  (n_cands ≥ 10)
+    → «en the old countess,\nwho-dreadin»
+    → «en the old lady and seat\nhim on »
+    → «en the old prince was at home we»
+    → «en the old man-as his wont at\nin»
+    → «en the old man began to speak to»
+
+  prefix: « the matter of »  (n_cands ≥ 6)
+    → « the matter of my\nbedfellow.\n\nHo»
+    → « the matter of those crown witne»
+    → « the matter of the alleged uncle»
+    → « the matter of obeying them.\n\nIn»
+    → « the matter of making thole-pins»
+
+
+=== 10+ candidate cases (showing 4) ===
+
+  prefix: «\nCHAPTER »  (n_cands ≥ 461)
+    → «\nCHAPTER LX.\n\nIllustration\n\nEliz»
+    → «\nCHAPTER IX.\n\nIllustration\n\nEliz»
+    → «\nCHAPTER XL.\n\nIllustration\n\nEliz»
+    → «\nCHAPTER LIX.\n\nIllustration\n\n'My»
+    → «\nCHAPTER XLIX.\n\nIllustration\n\nTw»
+
+  prefix: « of »  (n_cands ≥ 1000)
+    → « of a\njack-of-all-trades.'\n\n'But»
+    → « of thy\nocean-perishing-straight»
+    → « of poor\ngrass.'\n\n'Well?'\n\n'Mons»
+    → « of their\ncondition.'\n\n'Whatever»
+    → « of Rostv's\nrunning.\n\n'Gentlemen»
+
+  prefix: «by George Allen.\n\nCHAPTER »  (n_cands ≥ 13)
+    → «by George Allen.\n\nCHAPTER V.\n\nIl»
+    → «by George Allen.\n\nCHAPTER L.\n\nIl»
+    → «by George Allen.\n\nCHAPTER II.\n\nI»
+    → «by George Allen.\n\nCHAPTER LI.\n\nI»
+    → «by George Allen.\n\nCHAPTER XI.\n\nI»
+
+  prefix: «able, and »  (n_cands ≥ 77)
+    → «able, and supernatural\nrevenge.\n»
+    → «able, and finally at herself in\n»
+    → «able, and full as strong, blow m»
+    → «able, and folded the miserable\nw»
+    → «able, and brave, but if he robs »
+
