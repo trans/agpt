@@ -75,17 +75,35 @@ phrase positions ("Prince Andrew, [watched/glanced]", "with the most
 
 ## What didn't work
 
-### Cross-attention as prediction backbone
-The natural design — prefix encodes via transformer, σ candidates encode
-via same transformer, cross-attention picks among them, output decodes
-context — has a fatal flaw: σ's input contains σ.fwd[overlap_k] which IS
-the answer for 95% mass-1 cases. The architecture is structurally a leak.
-- Unmitigated: PPL 3.09 (memorization through the σ encoder)
-- Compressed bottleneck: PPL ~10 (lossy encoding limits the leak)
-- Masked-σ-loss: PPL 11.5 (no leak, no learning)
+### Cross-attention as prediction backbone — a structural dilemma
+The natural design — prefix encodes, σ candidates encode (same transformer),
+cross-attention picks, output decodes — has a structural problem that
+manifested as a leak in our implementation:
 
-The cross-attention path can't be made to work as a clean prediction
-mechanism because σ-as-input is fundamentally answer-revealing.
+- **σ = corpus suffix at p+1 (our setup)**: σ's input contains
+  σ.fwd[overlap_k] = corpus[p+1] (the answer). Feeding σ into the encoder
+  leaks the answer through self-attention. PPL 3.09 (aux mode), or PPL
+  ~10 with the bottleneck partially limiting the leak.
+
+- **σ with last char masked (root-LOO)**: no longer leaks corpus[p+1] at
+  exact position k, but σ.fwd[:-1] still covers corpus[q..q+30] which
+  includes corpus[p+1..p+10] for overlap=21. The "target" σ.fwd[-1] is
+  now corpus[p+11], not corpus[p+1]. So root-LOO trained on **far-char
+  prediction**, not next-char prediction. PPL 11.5 on this (different
+  task than the 6.50 baseline measures).
+
+The dilemma underneath: σ-as-corpus-suffix is defined to start AT or near
+p+1, so it inherently contains future chars. Either σ contains corpus[p+1]
+(leak) or it doesn't (then it can't predict corpus[p+1]). To break the
+dilemma you'd need σ to be something other than the corpus suffix —
+e.g., representing context BEFORE p — but that's a different architecture
+entirely, not p2s as we've defined it.
+
+**The implementation-level "leak" was a bug, fixable by masking** (we did,
+via root-LOO). What's **architecturally fundamental** is that the fixed
+version doesn't predict next-char; it predicts a far-future char. There's
+no clean way to use σ-as-corpus-suffix for next-char prediction without
+either leaking the answer or solving a different prediction problem.
 
 ### Wrap-around / chained training
 Tried building chained training examples that use σ's content past the
@@ -103,9 +121,11 @@ predicts "next char after current word ends" not "corpus[p+1]" — the
 prediction targets don't align. Word-aligned matching implies word-level
 prediction, not char-level.
 
-## Why the cross-attention architecture was inherently capped
+## Why the cross-attention architecture was capped against SGD
 
-Two constraints prevent it from beating direct transformer:
+Once the leak issue is set aside (root-LOO removes it), two structural
+constraints prevent the architecture from beating direct transformer for
+next-char prediction:
 
 **1. The matching at low overlap is noise.** At k=1 (~0.03% at D=32),
 the prefix's last char matches some random suffix's first char with no
@@ -117,8 +137,15 @@ matching pins to a single corpus position whose continuation is already
 visible in the model's input context. Whatever the matching tells us,
 SGD with the same context window has already seen.
 
-There's no regime where the matching strictly beats SGD. At low k it's
-worse (adds noise); at high k it's redundant (provides what SGD has).
+**3. (the dilemma above)** σ-as-corpus-suffix can't be used for next-char
+prediction without leaking the answer. The non-leaky variant (root-LOO)
+predicts a different target (far-future char) which our PPL eval doesn't
+measure.
+
+There's no regime where the matching strictly beats SGD on the next-char
+PPL task. At low k it's worse (adds noise); at high k it's redundant
+(provides what SGD has); a clean non-leaky version doesn't predict the
+right target.
 
 ## Artifacts produced
 
