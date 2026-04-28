@@ -1,0 +1,33 @@
+Loading checkpoint and trees...
+[load] /home/trans/agpt-tries/gutenberg_5m_d32_radix_corpus: 7539820 nodes, 33 depth files
+[load]   loaded in 8.1s
+[load] /home/trans/agpt-tries/gutenberg_5m_d32_suffix_radix: 7587223 nodes, 33 depth files
+[load]   loaded in 8.1s
+Identifying suffix leaves...
+  4988256 suffix leaves
+Building word-aligned head trie...
+  inserted 1000000/4988256, head trie 23151502 nodes
+  inserted 2000000/4988256, head trie 41939457 nodes
+  inserted 3000000/4988256, head trie 60512775 nodes
+  inserted 4000000/4988256, head trie 78691483 nodes
+  head trie: 96414205 nodes, built in 191.5s
+Building prefix-tree children index...
+/home/trans/Projects/agpt/rnd/p2s-attention/proto/p2s_train.py:490: UserWarning: enable_nested_tensor is True, but self.use_nested_tensor is False because encoder_layer.norm_first was True
+  self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=n_layers)
+Model loaded (875457 params)
+
+=== ALL POSITIONS ===
+baseline (no mask):
+[all-noprior] n=4096  NLL=1.8820  PPL=6.57
+with word-aligned mask:
+[all-wordaligned] n=4096  NLL=1.8820  PPL=6.57  applied=0 skipped_oos=16 no_match=680
+
+=== SPACE-ENDING POSITIONS ===
+baseline (no mask):
+[space-noprior] n=4096  NLL=2.9790  PPL=19.67
+with word-aligned mask:
+[space-wordaligned] n=4096  NLL=2.9790  PPL=19.67  applied=0 skipped_oos=0 no_match=4096
+
+=== Δ from word-aligned mask ===
+  all positions:    6.57 → 6.57  (Δ +0.000)
+  space-ending:     19.67 → 19.67  (Δ +0.000)
