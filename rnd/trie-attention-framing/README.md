@@ -76,6 +76,31 @@ The strict architectural realization (drop Wv entirely, V as
 corpus-tail-lookup, decision-paced inference) was not built — it requires
 a real architectural rebuild rather than a flag.
 
+## Follow-up (2026-04-29): joint-mass per-position
+
+After this directory's initial closeout, we extended joint-mass weighting
+from the aggregate per-depth-mean proxy to true per-position lookups —
+walking the suffix tree from each corpus position to compute the actual
+suffix-mass at the complementary depth. Implemented as
+`AGPT_JOINT_MASS=1` + `AGPT_CHAR_SUFFIX_MASS_PATH=<table.bin>` env vars,
+where the precomputed table comes from
+`proto/compute_char_suffix_mass.py`.
+
+Result at 3-SE recipe: per-position joint-log gives **12.55 PPL** vs
+plain log mass-weight **12.67 PPL** — marginal improvement (1%, p ≈ 0.5
+not significant). The per-position resolution captures real
+per-position variation (e.g. mean csm at d_p=16 is 1.48 with max 236,
+vs the aggregate proxy's 1.03 mean) but doesn't translate into
+significant PPL gain at this training budget.
+
+**Important caveat from `../agpt-epoch-scaling/`:** all the joint-mass
+results above were measured at 3 SE, which we discovered is severely
+undertrained. At 20+ SE, AGPT achieves <7 PPL with the basic recipe —
+twice as good as our "best" jmpp number. The joint-mass effect's
+relative size and significance may shift dramatically under proper
+training; this needs re-measurement before any conclusion about
+joint-mass's prescriptive value can stand.
+
 ## Layout
 
 - `findings.md` — full result tables, diagnoses, and the supervision-signal
@@ -108,8 +133,22 @@ In `microgpt`:
 
 The d_split precompute runs at trie load with no measurable cost.
 
+## See also
+
+- `../agpt-epoch-scaling/` — discovery that AGPT was severely undertrained
+  at the 3-SE budget used for all experiments here. Pure AGPT at 20-40 SE
+  achieves PPL@32 in the 5-7 range, far below this directory's "best"
+  ~10.83. Re-running the joint-mass / depth-routing comparisons at 20+ SE
+  would be the proper follow-up.
+- `../subtree-dropout/` — the experiment that surfaced the undertraining.
+  Random root-child masking helps slightly at low-SE budgets, vanishes
+  at high-SE.
+
 ## Future directions (not pursued)
 
+- **Re-measure all prescriptive operationalizations at 20+ SE.** Most
+  important follow-up — the effects measured here may shift significantly
+  under proper training.
 - **Strict V=corpus-lookup architecture.** Drop Wv as a learnable parameter;
   V_b at branch point b becomes the embedding of the first char of the
   unary cap. Train Wq/Wk/Wo only. Decision-paced inference (emit unary tail

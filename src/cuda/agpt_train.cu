@@ -364,6 +364,13 @@ struct RadixTrieData {
     // boundary, vs a flat global threshold).
     int* d_split;                // [radix_count]
 
+    // mean_edge_mass[d] for d in [0, depth_file_count+1). Average edge_mass
+    // across all radix nodes whose edge spans depth d. Used by joint-mass
+    // weighting (AGPT_JOINT_MASS=1) — at a query at depth d_q, the
+    // "complementary" suffix-side mass is approximated by mean_edge_mass at
+    // the complementary depth (depth_file_count - d_q).
+    double* mean_edge_mass;      // [depth_file_count + 1]
+
     int* endpoint_depth_start;   // [depth_file_count + 1]
     int* endpoint_depth_count;   // [depth_file_count]
 
@@ -948,6 +955,36 @@ RadixTrieData load_radix_trie(const char* dir) {
 
     printf("  Radix loaded: %d counts entries, %lld ancestor char entries\n",
            t.total_counts, t.total_ancestor_chars);
+
+    // mean_edge_mass[d] = average edge_mass over all radix nodes whose edge
+    // spans depth d. Used as a proxy for "expected mass at this depth" in
+    // joint mass weighting (prefix tree and suffix tree have statistically
+    // identical per-depth distributions, so the prefix tree's per-depth mean
+    // serves as the suffix-side complementary mass at the corresponding
+    // complementary depth).
+    {
+        int max_d = t.depth_file_count + 1;
+        long long* sum_per_d = (long long*)calloc(max_d, sizeof(long long));
+        long long* cnt_per_d = (long long*)calloc(max_d, sizeof(long long));
+        for (int r = 1; r < t.radix_count; r++) {
+            int fcd = t.edge_first_char_depths[r];
+            int elen = t.edge_lens[r];
+            long long m = (long long)t.edge_mass[r];
+            for (int d = fcd; d < fcd + elen; d++) {
+                if (d >= 0 && d < max_d) {
+                    sum_per_d[d] += m;
+                    cnt_per_d[d] += 1;
+                }
+            }
+        }
+        t.mean_edge_mass = (double*)malloc(max_d * sizeof(double));
+        for (int d = 0; d < max_d; d++) {
+            t.mean_edge_mass[d] = (cnt_per_d[d] > 0)
+                ? (double)sum_per_d[d] / (double)cnt_per_d[d]
+                : 1.0;
+        }
+        free(sum_per_d); free(cnt_per_d);
+    }
 
     // d_split: depth at which each node's path first becomes unique (mass=1).
     // Walk the parent chain root→node, find shallowest ancestor with edge_mass=1.
@@ -3371,6 +3408,62 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
         const char* env = getenv("AGPT_DECISION_BUFFER");
         if (env) decision_buffer = atoi(env);
     }
+    // Joint mass weighting: when set, per-query mass weight is
+    //   compress(edge_mass[r] * suffix_factor(query)).
+    // Multiplies the existing prefix-mass weighting by a complementary-depth
+    // factor. Two implementations:
+    //   1. Aggregate proxy (default): suffix_factor = mean_edge_mass[D_max - d_q]
+    //      from the prefix tree (suffix tree has identical per-depth distribution
+    //      by corpus symmetry, so prefix-side mean serves as a good proxy).
+    //   2. Per-position table (when AGPT_CHAR_SUFFIX_MASS_PATH is set):
+    //      suffix_factor = char_suffix_mass[char_pos], precomputed offline by
+    //      walking the corpus + suffix tree.
+    // Effective only when --mass-weight is set to log/sqrt/linear.
+    int joint_mass = 0;
+    {
+        const char* env = getenv("AGPT_JOINT_MASS");
+        if (env) joint_mass = atoi(env);
+    }
+    // Subtree dropout: per super-epoch, randomly skip a fraction of root-child
+    // subtrees. AGPT_SUBTREE_DROPOUT=p (e.g., 0.3) drops each rc with prob p.
+    // Different subset each epoch → more "effective epochs" of distinct trajectories.
+    // 0 = disabled (default); 1 = drop everything (degenerate).
+    double subtree_dropout = 0.0;
+    {
+        const char* env = getenv("AGPT_SUBTREE_DROPOUT");
+        if (env) subtree_dropout = atof(env);
+        if (subtree_dropout < 0.0) subtree_dropout = 0.0;
+        if (subtree_dropout > 0.99) subtree_dropout = 0.99;
+    }
+    unsigned int subtree_dropout_seed = 0xA9F71E13;
+    {
+        const char* env = getenv("AGPT_SUBTREE_DROPOUT_SEED");
+        if (env) subtree_dropout_seed = (unsigned int)atoll(env);
+    }
+    double* char_suffix_mass = NULL;
+    long long char_suffix_mass_n = 0;
+    {
+        const char* path = getenv("AGPT_CHAR_SUFFIX_MASS_PATH");
+        if (path && joint_mass > 0) {
+            FILE* f = fopen(path, "rb");
+            if (!f) {
+                fprintf(stderr, "AGPT_CHAR_SUFFIX_MASS_PATH=%s: cannot open\n", path);
+                exit(1);
+            }
+            long long n;
+            if (fread(&n, 8, 1, f) != 1) {
+                fprintf(stderr, "AGPT_CHAR_SUFFIX_MASS_PATH=%s: header read failed\n", path);
+                exit(1);
+            }
+            char_suffix_mass = (double*)malloc(n * sizeof(double));
+            if (fread(char_suffix_mass, sizeof(double), n, f) != (size_t)n) {
+                fprintf(stderr, "AGPT_CHAR_SUFFIX_MASS_PATH=%s: data read failed (expected %lld doubles)\n", path, n);
+                exit(1);
+            }
+            fclose(f);
+            char_suffix_mass_n = n;
+        }
+    }
     if (!quiet) {
         if (decision_only > 0) {
             printf("  decision-only: yes  (loss + gradient zeroed at depth > d_split + %d)\n",
@@ -3381,6 +3474,18 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
         } else if (depth_route_k > 0) {
             printf("  depth-route k: %d (Wk grad ← d≤%d, Wv grad ← d>%d)\n",
                    depth_route_k, depth_route_k, depth_route_k);
+        }
+        if (joint_mass > 0) {
+            if (char_suffix_mass != NULL) {
+                printf("  joint-mass: per-position  (table loaded: %lld char offsets)\n",
+                       char_suffix_mass_n);
+            } else {
+                printf("  joint-mass: aggregate proxy  (per-query weight = compress(edge_mass × mean_edge_mass[D_max - d_q]))\n");
+            }
+        }
+        if (subtree_dropout > 0.0) {
+            printf("  subtree-dropout: %.2f  (per super-epoch, each root-child skipped with prob %.2f)\n",
+                   subtree_dropout, subtree_dropout);
         }
     }
     #define TIME_K(accum, code) do { \
@@ -4175,6 +4280,13 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
     // ------------------------------------------------------------
     // Training loop
     // ------------------------------------------------------------
+    // Subtree dropout keep-mask, regenerated each super-epoch.
+    char* subtree_keep = NULL;
+    if (subtree_dropout > 0.0) {
+        subtree_keep = (char*)malloc(n_root_children * sizeof(char));
+    }
+    unsigned int sd_rng_state = subtree_dropout_seed;
+
     for (int epoch = 0; epoch < epochs; epoch++) {
         struct timespec t0, t1;
         clock_gettime(CLOCK_MONOTONIC, &t0);
@@ -4184,6 +4296,31 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
             t_us_gather_fwd = t_us_gather_bwd = 0;
             t_us_attn_fwd = t_us_attn_bwd = 0;
             t_us_scatter_fwd = 0;
+        }
+
+        // Subtree dropout: sample which root-child subtrees to keep this epoch.
+        // Simple LCG to keep it deterministic per seed.
+        if (subtree_dropout > 0.0) {
+            int n_kept = 0;
+            for (int i = 0; i < n_root_children; i++) {
+                sd_rng_state = sd_rng_state * 1664525u + 1013904223u;
+                double u = (double)(sd_rng_state >> 8) / (double)(1u << 24);
+                subtree_keep[i] = (u >= subtree_dropout) ? 1 : 0;
+                if (subtree_keep[i]) n_kept++;
+            }
+            // Guard: if we dropped everything, keep at least one (the largest by mass).
+            if (n_kept == 0) {
+                int best = 0;
+                for (int i = 1; i < n_root_children; i++) {
+                    if (subtree_sizes[i] > subtree_sizes[best]) best = i;
+                }
+                subtree_keep[best] = 1;
+                n_kept = 1;
+            }
+            if (!quiet) {
+                printf("  [epoch %d] subtree-dropout: keeping %d/%d root-children\n",
+                       epoch + 1, n_kept, n_root_children);
+            }
         }
 
         // Zero KV caches
@@ -4573,6 +4710,9 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
         // Iterate over root-child subtrees. Each subtree is one training unit:
         // weights fixed throughout forward+backward+grad-aggregation, one Adam step.
         for (int rc_idx = 0; rc_idx < n_root_children; rc_idx++) {
+            // Subtree dropout: skip this rc if not in this epoch's keep set.
+            if (subtree_keep != NULL && subtree_keep[rc_idx] == 0) continue;
+
             int* radix_list = subtree_nodes[rc_idx];
             int n_in_subtree;
             if (curriculum == CurriculumMode::Progressive) {
@@ -4816,31 +4956,73 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                 // L3-masked 59 on Gutenberg). See git log for the experiment.
                 if (mass_weight != MassWeightMode::Off) {
                     float* h_mass_weights = (float*)malloc(T_q * sizeof(float));
-                    float* node_w = (float*)malloc(N * sizeof(float));
-                    double total_w = 0.0;
-                    for (int i = 0; i < N; i++) {
-                        int r = h_radix_ids[i];
-                        float count = (float)trie.edge_mass[r];
-                        float w;
-                        switch (mass_weight) {
-                            case MassWeightMode::Log:    w = logf(1.0f + count); break;
-                            case MassWeightMode::Sqrt:   w = sqrtf(count);       break;
-                            case MassWeightMode::Linear: w = count;              break;
-                            default:                     w = 1.0f;               break;
+                    if (joint_mass > 0 && (char_suffix_mass != NULL || trie.mean_edge_mass != NULL)) {
+                        // Per-query joint weight: compress(edge_mass[r] * suffix_factor).
+                        // suffix_factor: per-position from char_suffix_mass[h_char_pos[q]] if
+                        // table is loaded; otherwise aggregate mean_edge_mass[D_max - d_q].
+                        int D_max = trie.depth_file_count;
+                        double total_w = 0.0;
+                        for (int q = 0; q < T_q; q++) {
+                            int node_idx = h_query_to_node[q];
+                            int r = h_radix_ids[node_idx];
+                            double pref_m = (double)trie.edge_mass[r];
+                            double suff_m;
+                            if (char_suffix_mass != NULL) {
+                                long long c = (long long)h_char_pos[q];
+                                if (c >= 0 && c < char_suffix_mass_n) {
+                                    suff_m = char_suffix_mass[c];
+                                } else {
+                                    suff_m = 1.0;  // fallback for out-of-range
+                                }
+                            } else {
+                                int d_q = h_query_depth[q];
+                                int comp_d = D_max - d_q;
+                                if (comp_d < 0) comp_d = 0;
+                                if (comp_d >= D_max) comp_d = D_max - 1;
+                                suff_m = trie.mean_edge_mass[comp_d];
+                            }
+                            double joint = pref_m * suff_m;
+                            float w;
+                            switch (mass_weight) {
+                                case MassWeightMode::Log:    w = (float)log(1.0 + joint); break;
+                                case MassWeightMode::Sqrt:   w = (float)sqrt(joint);      break;
+                                case MassWeightMode::Linear: w = (float)joint;             break;
+                                default:                     w = 1.0f;                     break;
+                            }
+                            h_mass_weights[q] = w;
+                            total_w += (double)w;
                         }
-                        node_w[i] = w;
-                        int L = trie.edge_lens[r];
-                        total_w += (double)w * L;
+                        float mean_w = (T_q > 0) ? (float)(total_w / T_q) : 1.0f;
+                        if (mean_w <= 0.0f) mean_w = 1.0f;
+                        for (int q = 0; q < T_q; q++) h_mass_weights[q] /= mean_w;
+                    } else {
+                        // Standard per-node weight: compress(edge_mass[r]).
+                        float* node_w = (float*)malloc(N * sizeof(float));
+                        double total_w = 0.0;
+                        for (int i = 0; i < N; i++) {
+                            int r = h_radix_ids[i];
+                            float count = (float)trie.edge_mass[r];
+                            float w;
+                            switch (mass_weight) {
+                                case MassWeightMode::Log:    w = logf(1.0f + count); break;
+                                case MassWeightMode::Sqrt:   w = sqrtf(count);       break;
+                                case MassWeightMode::Linear: w = count;              break;
+                                default:                     w = 1.0f;               break;
+                            }
+                            node_w[i] = w;
+                            int L = trie.edge_lens[r];
+                            total_w += (double)w * L;
+                        }
+                        float mean_w = (T_q > 0) ? (float)(total_w / T_q) : 1.0f;
+                        if (mean_w <= 0.0f) mean_w = 1.0f;
+                        for (int i = 0; i < N; i++) {
+                            float w = node_w[i] / mean_w;
+                            int q_start = h_query_offsets[i];
+                            int q_end = h_query_offsets[i + 1];
+                            for (int q = q_start; q < q_end; q++) h_mass_weights[q] = w;
+                        }
+                        free(node_w);
                     }
-                    float mean_w = (T_q > 0) ? (float)(total_w / T_q) : 1.0f;
-                    if (mean_w <= 0.0f) mean_w = 1.0f;
-                    for (int i = 0; i < N; i++) {
-                        float w = node_w[i] / mean_w;
-                        int q_start = h_query_offsets[i];
-                        int q_end = h_query_offsets[i + 1];
-                        for (int q = q_start; q < q_end; q++) h_mass_weights[q] = w;
-                    }
-                    free(node_w);
                     CUDA_CHECK(cudaMemcpy(d_mass_weights, h_mass_weights, T_q * sizeof(float), cudaMemcpyHostToDevice));
                     free(h_mass_weights);
                 }
