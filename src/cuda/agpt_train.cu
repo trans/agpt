@@ -357,6 +357,13 @@ struct RadixTrieData {
     int* edge_mass;              // [radix_count] — prefix mass at head of edge (v2+)
     int* edge_tokens_flat;       // [total_edge_chars]
 
+    // d_split[r] = depth at which the path root→r first becomes mass=1.
+    // Populated post-load by walking each node's parent chain. INT_MAX for
+    // multi-mass leaves (whose paths never reach mass=1 within the trie).
+    // Used for per-leaf depth-routed K/V gradient (the "real radix point"
+    // boundary, vs a flat global threshold).
+    int* d_split;                // [radix_count]
+
     int* endpoint_depth_start;   // [depth_file_count + 1]
     int* endpoint_depth_count;   // [depth_file_count]
 
@@ -941,6 +948,42 @@ RadixTrieData load_radix_trie(const char* dir) {
 
     printf("  Radix loaded: %d counts entries, %lld ancestor char entries\n",
            t.total_counts, t.total_ancestor_chars);
+
+    // d_split: depth at which each node's path first becomes unique (mass=1).
+    // Walk the parent chain root→node, find shallowest ancestor with edge_mass=1.
+    // Used by per-leaf depth-routing (variable-threshold variant).
+    t.d_split = (int*)malloc(t.radix_count * sizeof(int));
+    {
+        int* chain = (int*)malloc((t.depth_file_count + 1) * sizeof(int));
+        int n_resolved = 0;
+        long long sum_dsplit = 0;
+        for (int r = 0; r < t.radix_count; r++) {
+            int len = 0;
+            int cur = r;
+            while (cur > 0 && len <= t.depth_file_count) {
+                chain[len++] = cur;
+                cur = t.parents[cur];
+                if (cur == r) break;  // safety: shouldn't happen but avoid loop
+            }
+            // chain[0]=r, chain[len-1] = shallowest ancestor (just under root).
+            // Walk root→r (reverse) and pick first node with edge_mass==1.
+            int dsplit = INT_MAX;
+            for (int i = len - 1; i >= 0; i--) {
+                int n = chain[i];
+                if (t.edge_mass[n] == 1) {
+                    dsplit = t.edge_first_char_depths[n];
+                    break;
+                }
+            }
+            t.d_split[r] = dsplit;
+            if (dsplit != INT_MAX) { n_resolved++; sum_dsplit += dsplit; }
+        }
+        free(chain);
+        if (n_resolved > 0) {
+            printf("  d_split: %d/%d nodes have a mass=1 ancestor (mean depth %.2f)\n",
+                   n_resolved, t.radix_count, (double)sum_dsplit / n_resolved);
+        }
+    }
 
     return t;
 }
@@ -1842,6 +1885,99 @@ void launch_kv_uncopy_own_edge(const float* packed_grad,
     kv_uncopy_own_edge_kernel<<<blocks, threads>>>(packed_grad, query_offsets, kv_offsets,
                                                     anc_lengths, own_lengths, d_out,
                                                     N, n_heads, head_dim);
+}
+
+// --- Mask the per-query gradient buffer (own-edge dK or dV) by query depth ---
+// Used to implement depth-routed gradient: K-weight gradient takes only
+// shallow queries (depth ≤ d_k); V-weight gradient takes only deep queries
+// (depth > d_k). The d_d_ln_out propagation already happened with the FULL
+// gradient before this is called — masking only affects the dWk/dWv gemms.
+//   mode = 0  →  zero query rows where depth >  threshold  (K side: keep shallow)
+//   mode = 1  →  zero query rows where depth <= threshold  (V side: keep deep)
+__global__ void mask_grad_by_query_depth_kernel(float* grad,
+                                                 const int* query_depth,
+                                                 int threshold, int mode,
+                                                 int T_q, int d_model) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    int q   = idx / d_model;
+    int col = idx % d_model;
+    if (q >= T_q) return;
+    int d = query_depth[q];
+    bool zero = (mode == 0) ? (d > threshold) : (d <= threshold);
+    if (zero) grad[(long long)q * d_model + col] = 0.0f;
+}
+
+void launch_mask_grad_by_query_depth(float* grad, const int* query_depth,
+                                      int threshold, int mode,
+                                      int T_q, int d_model) {
+    int total = T_q * d_model;
+    int threads = 256;
+    int blocks = (total + threads - 1) / threads;
+    mask_grad_by_query_depth_kernel<<<blocks, threads>>>(grad, query_depth, threshold, mode, T_q, d_model);
+}
+
+// Per-leaf variant: threshold comes from `query_d_split[q]` instead of a
+// scalar. Implements the variable-radix-cap routing where each leaf's
+// decision/identity boundary is its own d* (depth at which the path first
+// becomes mass=1).
+__global__ void mask_grad_by_query_dsplit_kernel(float* grad,
+                                                  const int* query_depth,
+                                                  const int* query_d_split,
+                                                  int mode,
+                                                  int T_q, int d_model) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    int q   = idx / d_model;
+    int col = idx % d_model;
+    if (q >= T_q) return;
+    int d = query_depth[q];
+    int k = query_d_split[q];
+    bool zero = (mode == 0) ? (d > k) : (d <= k);
+    if (zero) grad[(long long)q * d_model + col] = 0.0f;
+}
+
+void launch_mask_grad_by_query_dsplit(float* grad, const int* query_depth,
+                                       const int* query_d_split, int mode,
+                                       int T_q, int d_model) {
+    int total = T_q * d_model;
+    int threads = 256;
+    int blocks = (total + threads - 1) / threads;
+    mask_grad_by_query_dsplit_kernel<<<blocks, threads>>>(grad, query_depth, query_d_split,
+                                                          mode, T_q, d_model);
+}
+
+// Decision-only loss mask: zero d_loss[i] and d_d_logits[i,:] for queries
+// where depth > d_split[node] + buffer. The buffer keeps a configurable
+// number of post-decision-point events (so we don't strip every tail event,
+// only the deeper ones). buffer=0 = strict decision-only; buffer>0 keeps
+// events for a few chars into the unary cap. Multi-mass intermediate nodes
+// have d_split=INT_MAX so all their queries are kept regardless.
+__global__ void mask_loss_decision_only_kernel(float* d_loss, float* d_d_logits,
+                                                const int* query_depth,
+                                                const int* query_d_split,
+                                                int buffer,
+                                                int T_q, int V) {
+    int q = blockIdx.x;
+    if (q >= T_q) return;
+    int d = query_depth[q];
+    int k = query_d_split[q];
+    // Saturate against overflow — k can be INT_MAX for multi-mass nodes.
+    long long boundary = (long long)k + (long long)buffer;
+    if ((long long)d <= boundary) return;
+    // Skipped event: zero loss and gradient row.
+    if (threadIdx.x == 0) d_loss[q] = 0.0f;
+    for (int v = threadIdx.x; v < V; v += blockDim.x) {
+        d_d_logits[(long long)q * V + v] = 0.0f;
+    }
+}
+
+void launch_mask_loss_decision_only(float* d_loss, float* d_d_logits,
+                                     const int* query_depth, const int* query_d_split,
+                                     int buffer,
+                                     int T_q, int V) {
+    int threads = 128;
+    mask_loss_decision_only_kernel<<<T_q, threads>>>(d_loss, d_d_logits,
+                                                      query_depth, query_d_split,
+                                                      buffer, T_q, V);
 }
 
 // --- Copy own-edge K/V from fresh d_k[T_q, D] into the packed prefix buffer ---
@@ -3201,6 +3337,52 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
     double t_us_gather_fwd = 0, t_us_gather_bwd = 0;
     double t_us_attn_fwd = 0,   t_us_attn_bwd   = 0;
     double t_us_scatter_fwd = 0;
+
+    // Depth-routed K/V gradient. d_k threshold: shallow queries (d ≤ d_k) feed
+    // dWk only; deep queries (d > d_k) feed dWv only. 0 disables (default).
+    int depth_route_k = 0;
+    {
+        const char* env = getenv("AGPT_DEPTH_ROUTE_K");
+        if (env) depth_route_k = atoi(env);
+    }
+    // Per-leaf d* routing: instead of the static depth_route_k threshold above,
+    // each query uses its node's d_split (depth at which path becomes mass=1)
+    // as the threshold. Set AGPT_DEPTH_ROUTE_PERLEAF=1 to enable. Mutually
+    // exclusive with the static threshold (per-leaf takes precedence).
+    int depth_route_perleaf = 0;
+    {
+        const char* env = getenv("AGPT_DEPTH_ROUTE_PERLEAF");
+        if (env) depth_route_perleaf = atoi(env);
+    }
+    // Decision-only loss: skip loss + gradient at queries where depth > d_split.
+    // Trains only on decision events (depths up through where path becomes
+    // mass=1). Deterministic-tail events contribute neither loss nor gradient.
+    int decision_only = 0;
+    {
+        const char* env = getenv("AGPT_DECISION_ONLY");
+        if (env) decision_only = atoi(env);
+    }
+    // Buffer past d_split to keep before zeroing. 0 = strict decision-only
+    // (drops ALL deterministic-tail events). Larger buffer keeps more events
+    // for a few chars into the cap, less aggressive cut. Mostly relevant
+    // when AGPT_DECISION_ONLY=1.
+    int decision_buffer = 0;
+    {
+        const char* env = getenv("AGPT_DECISION_BUFFER");
+        if (env) decision_buffer = atoi(env);
+    }
+    if (!quiet) {
+        if (decision_only > 0) {
+            printf("  decision-only: yes  (loss + gradient zeroed at depth > d_split + %d)\n",
+                   decision_buffer);
+        }
+        if (depth_route_perleaf > 0) {
+            printf("  depth-route: per-leaf d* (Wk grad ← d≤d*[node], Wv grad ← d>d*[node])\n");
+        } else if (depth_route_k > 0) {
+            printf("  depth-route k: %d (Wk grad ← d≤%d, Wv grad ← d>%d)\n",
+                   depth_route_k, depth_route_k, depth_route_k);
+        }
+    }
     #define TIME_K(accum, code) do { \
         if (t_enabled) cudaEventRecord(te_start); \
         code; \
@@ -4450,6 +4632,8 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                 int* h_token_ids      = (int*)malloc(T_q * sizeof(int));
                 int* h_rope_positions = (int*)malloc(T_q * H * sizeof(int));
                 int* h_char_pos       = (int*)malloc(T_q * sizeof(int));
+                int* h_query_depth    = (int*)malloc(T_q * sizeof(int));  // per-query trie depth
+                int* h_query_d_split  = (int*)malloc(T_q * sizeof(int));  // per-query leaf d* (per-leaf routing)
 
                 int q_fill = 0;
                 int kv_fill = 0;
@@ -4465,6 +4649,7 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
 
                     int edge_start = trie.edge_starts[r];
                     int fcd = trie.edge_first_char_depths[r];
+                    int node_d_split = trie.d_split ? trie.d_split[r] : INT_MAX;
                     for (int j = 0; j < L; j++) {
                         h_query_to_node[q_fill + j] = i;
                         h_token_ids[q_fill + j] = trie.edge_tokens_flat[edge_start + j];
@@ -4474,6 +4659,8 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                         for (int h = 0; h < H; h++)
                             h_rope_positions[(q_fill + j) * H + h] = pos;
                         h_char_pos[q_fill + j] = edge_start + j;
+                        h_query_depth[q_fill + j] = fcd + j;  // 1-based char depth for routing
+                        h_query_d_split[q_fill + j] = node_d_split;  // shared by all queries within this radix node
                     }
                     q_fill += L;
                     kv_fill += K_i;
@@ -4487,6 +4674,7 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                     fprintf(stderr, "Chunk T_kv=%d exceeds T_kv_max=%lld; skip\n", T_kv, T_kv_max);
                     free(h_radix_ids); free(h_query_offsets); free(h_kv_offsets); free(h_kv_lengths);
                     free(h_query_to_node); free(h_token_ids); free(h_rope_positions); free(h_char_pos);
+                    free(h_query_depth); free(h_query_d_split);
                     chunk_start = chunk_end;
                     continue;
                 }
@@ -4588,6 +4776,27 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                 CUDA_CHECK(cudaMemcpy(d_token_ids,      h_token_ids,      T_q * sizeof(int), cudaMemcpyHostToDevice));
                 CUDA_CHECK(cudaMemcpy(d_rope_positions, h_rope_positions, T_q * H * sizeof(int), cudaMemcpyHostToDevice));
                 CUDA_CHECK(cudaMemcpy(d_char_pos,       h_char_pos,       T_q * sizeof(int), cudaMemcpyHostToDevice));
+
+                // Per-query depth (for depth-routed K/V gradient).
+                // Allocated once, grown as needed across chunks.
+                static int* d_query_depth_cache = NULL;
+                static int  d_query_depth_cap   = 0;
+                if (T_q > d_query_depth_cap) {
+                    if (d_query_depth_cache) cudaFree(d_query_depth_cache);
+                    CUDA_CHECK(cudaMalloc(&d_query_depth_cache, T_q * sizeof(int)));
+                    d_query_depth_cap = T_q;
+                }
+                CUDA_CHECK(cudaMemcpy(d_query_depth_cache, h_query_depth, T_q * sizeof(int), cudaMemcpyHostToDevice));
+
+                // Per-query d_split (for per-leaf depth routing).
+                static int* d_query_d_split_cache = NULL;
+                static int  d_query_d_split_cap   = 0;
+                if (T_q > d_query_d_split_cap) {
+                    if (d_query_d_split_cache) cudaFree(d_query_d_split_cache);
+                    CUDA_CHECK(cudaMalloc(&d_query_d_split_cache, T_q * sizeof(int)));
+                    d_query_d_split_cap = T_q;
+                }
+                CUDA_CHECK(cudaMemcpy(d_query_d_split_cache, h_query_d_split, T_q * sizeof(int), cudaMemcpyHostToDevice));
 
                 // Corpus-mass weighting. Raw edge_mass varies by 5+ orders of
                 // magnitude in natural-language tries (common letters vs rare
@@ -4814,6 +5023,13 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                                             d_d_logits, d_loss, T_q, V, entropy_lambda,
                                             intermediate_weight, cfg.ce_only ? 1 : 0);
 
+                if (decision_only > 0) {
+                    // Zero loss + grad for queries past d_split + buffer.
+                    launch_mask_loss_decision_only(d_loss, d_d_logits,
+                                                    d_query_depth_cache, d_query_d_split_cache,
+                                                    decision_buffer, T_q, V);
+                }
+
                 float* h_loss = (float*)malloc(T_q * sizeof(float));
                 CUDA_CHECK(cudaMemcpy(h_loss, d_loss, T_q * sizeof(float), cudaMemcpyDeviceToHost));
                 int chunk_trained = 0;
@@ -5036,9 +5252,22 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
 
                     // dK → d_d_ln_out += d_dk_own × Wk^T;  dWk += ln1_out^T × d_dk_own;
                     //                                      dwk_b += col-sum(d_dk_own)
+                    // dlnout propagation uses the FULL gradient (no depth routing) —
+                    // we only route the *weight* gradient, not the path through Wk to
+                    // the input embedding stack.
                     CUBLAS_CHECK(cublasSgemm(cublas, CUBLAS_OP_T, CUBLAS_OP_N, D, T_q, D,
                                               &alpha, d_weights + wo.wk_w[l], D,
                                               d_dk_own, D, &alpha, d_d_ln_out, D));
+                    if (depth_route_perleaf > 0) {
+                        // Per-leaf d* routing: each query's threshold is its node's d_split.
+                        launch_mask_grad_by_query_dsplit(d_dk_own, d_query_depth_cache,
+                                                          d_query_d_split_cache, /*mode=*/0, T_q, D);
+                    } else if (depth_route_k > 0) {
+                        // Zero queries whose char depth > d_k → only shallow events
+                        // contribute to dWk (matches K = decision-zone projection).
+                        launch_mask_grad_by_query_depth(d_dk_own, d_query_depth_cache,
+                                                         depth_route_k, /*mode=*/0, T_q, D);
+                    }
                     {
                         float* dW_kw = d_grads + wo.wk_w[l];
                         float* dW_kb = d_grads + wo.wk_b[l];
@@ -5053,6 +5282,15 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                     CUBLAS_CHECK(cublasSgemm(cublas, CUBLAS_OP_T, CUBLAS_OP_N, D, T_q, D,
                                               &alpha, d_weights + wo.wv_w[l], D,
                                               d_dv_own, D, &alpha, d_d_ln_out, D));
+                    if (depth_route_perleaf > 0) {
+                        launch_mask_grad_by_query_dsplit(d_dv_own, d_query_depth_cache,
+                                                          d_query_d_split_cache, /*mode=*/1, T_q, D);
+                    } else if (depth_route_k > 0) {
+                        // Zero queries whose char depth ≤ d_k → only deep events
+                        // contribute to dWv (matches V = identity-zone projection).
+                        launch_mask_grad_by_query_depth(d_dv_own, d_query_depth_cache,
+                                                         depth_route_k, /*mode=*/1, T_q, D);
+                    }
                     {
                         float* dW_vw = d_grads + wo.wv_w[l];
                         float* dW_vb = d_grads + wo.wv_b[l];
@@ -5077,6 +5315,7 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
 
                 free(h_radix_ids); free(h_query_offsets); free(h_kv_offsets); free(h_kv_lengths);
                 free(h_query_to_node); free(h_token_ids); free(h_rope_positions); free(h_char_pos);
+                free(h_query_depth); free(h_query_d_split);
 
                 chunks_processed++;
                 chunk_start = chunk_end;
