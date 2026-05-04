@@ -1,8 +1,7 @@
 # AGPT project tasks
 #
-# AGPT (Aggregated-Gradient Pretraining) — research project on top of the
-# µGPT components kit. CUDA kernels and model code are sourced from the
-# µGPT shard at lib/microgpt/.
+# AGPT is its own project/repo. It depends on the µGPT shard for model/runtime
+# primitives, shared CUDA kernels, and reference comparison binaries.
 
 # Resolve absolute path for linker
 root := `pwd`
@@ -52,6 +51,14 @@ build-trie-profile: build-stubs
     mkdir -p bin
     timeout 3m crystal build src/tools/trie_profile.cr -o bin/trie-profile --link-flags="{{root}}/build/kernels.o"
 
+# Build cap-folding side-table builder.
+# Walks the prefix trie from root with each cap's tail (longest match,
+# w_max..w_min) to produce per-cap fold-target distributions. Output is
+# consumed by `agpt_train --fold-table PATH`.
+build-agpt-build-fold-table: build-stubs
+    mkdir -p bin
+    timeout 3m crystal build src/tools/agpt_build_fold_table.cr -o bin/agpt_build_fold_table --release --link-flags="{{root}}/build/kernels.o -lstdc++"
+
 # Build p2s-attention match index tool (Phase 2/3 of rnd/p2s-attention).
 build-p2s-match: build-stubs
     mkdir -p bin
@@ -77,11 +84,11 @@ build-check-weights:
     mkdir -p bin
     gcc -O2 tools/check_weights.c -o bin/check_weights
 
-# Build all AGPT binaries.
+# Build all AGPT-native binaries.
 build-all: build-agpt-train build-agpt-build-index build-agpt-build-radix build-synth-wrap-corpus build-radix-verify build-trie-profile build-bayesian-posterior build-convergence build-check-weights
 
-# Build µGPT inference / SGD reference binaries from the µGPT shard.
-# Used by the foundational tests to compare AGPT against window-trained baselines.
+# Build µGPT reference binaries from the shard.
+# Used only for baseline comparison / parity tests, not for ordinary AGPT builds.
 build-microgpt-tools: build-stubs
     mkdir -p bin
     timeout 3m crystal build lib/microgpt/src/microgpt/main.cr -o bin/microgpt --release --link-flags="{{root}}/build/kernels.o -lstdc++"
@@ -89,17 +96,21 @@ build-microgpt-tools: build-stubs
     timeout 3m crystal build lib/microgpt/src/tools/perplexity.cr -o bin/perplexity --release --link-flags="{{root}}/build/kernels.o -lstdc++"
     cc -c -O2 lib/microgpt/src/cuda/stubs.c -o build/kernels.o
 
-# Run foundational AGPT CUDA-trainer unit tests (gradient flow, radix build, training sanity).
+# Alias to make the AGPT-vs-reference boundary explicit in local workflows.
+build-reference-tools: build-microgpt-tools
+
+# Run AGPT foundational parity tests (gradient flow, radix build, training sanity).
+# These depend on the µGPT reference binaries.
 test-agpt:
     bash tests/test_agpt_fundamentals.sh
 
-# Run Crystal-side specs (backward attention, leveled trie, chain compression).
-# Crystal's build links to CUDA kernel symbols via build/kernels.o; the CPU
-# stubs satisfy them for spec compilation.
+# Run AGPT-native Crystal specs (backward attention, leveled trie, chain compression).
+# Crystal's build links to CUDA kernel symbols via build/kernels.o; the CPU stubs
+# satisfy them for spec compilation.
 test-crystal: build-stubs
     crystal spec --link-flags="{{root}}/build/kernels.o -lstdc++"
 
-# Run all tests.
+# Run AGPT-native specs plus AGPT foundational parity tests.
 test: test-crystal test-agpt
 
 # Generate Crystal API docs.

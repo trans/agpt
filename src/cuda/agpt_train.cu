@@ -109,6 +109,9 @@ struct Config {
                       //   2=inv-sqrt-depth (1/sqrt(depth)),
                       //   3=sqrt-batch (sqrt(tokens/mean_tokens)),
                       //   4=residual (prev-epoch score/mean_score)
+    bool shuffle_order = false;  // randomize partition-group visit order each super-epoch
+    unsigned shuffle_seed = 0xa17b1edu;  // RNG seed for shuffle-order (independent of lightning seed)
+    int lbfgs_k = 10;  // L-BFGS history size (K most-recent (s,y) pairs); 0 disables
 };
 
 // Curriculum modes: how subtrees are scheduled across an epoch.
@@ -126,7 +129,7 @@ enum class CurriculumMode { Flat, Progressive };
 //  - SGD:      plain w -= lr * g; tests whether AGPT needs any optimizer smarts
 //  - Momentum: SGD + velocity; tests if just gradient smoothing is what helps
 //  - RMSProp:  per-param variance without momentum; isolates Adam's two mechanisms
-enum class OptimizerKind { Adam, SGD, Momentum, RMSProp };
+enum class OptimizerKind { Adam, SGD, Momentum, RMSProp, LBFGS };
 
 // Mass-weight compression schemes. Each assigns a per-query weight
 // w_i = compress(edge_mass_i) / mean_j(compress(edge_mass_j)), which
@@ -183,6 +186,187 @@ struct LightningConfig {
     // single L3 step can train millions of nodes, blowing up wall-clock.
     long long         max_mass   = 0;
 };
+
+// L-BFGS optimizer state. Maintains rolling K-history of (s_i, y_i) pairs and
+// a previous gradient. Two-loop recursion uses cuBLAS for axpy/dot/scal/copy.
+// All buffers are device-side; rho values cached on host (small, K floats).
+struct LBFGSState {
+    int K = 0;            // history size
+    int n = 0;            // total params
+    float* d_g_prev = nullptr;    // previous gradient (n)
+    float* d_step = nullptr;      // step taken last iteration = -lr * direction (n)
+    float* d_s_hist = nullptr;    // K x n flattened (param differences)
+    float* d_y_hist = nullptr;    // K x n flattened (gradient differences)
+    float* rho_hist = nullptr;    // K floats (host)
+    float* alpha = nullptr;       // K floats (host scratch for two-loop)
+    int pushed_count = 0;  // number of accepted (s,y) pairs in history (== valid history size up to K)
+    float* d_q = nullptr;         // n scratch for two-loop
+    bool first_step = true;
+};
+
+// L-BFGS one-step update. Two-loop recursion using cuBLAS.
+//
+// State semantics:
+//   d_g_prev: gradient from previous call (used to compute y_new).
+//   d_step:   the step (-lr * direction) we took LAST CALL. Used as s_new.
+//   d_s_hist[slot*n..]: param-difference history at history slot.
+//   d_y_hist[slot*n..]: gradient-difference history at history slot.
+//   rho_hist[slot]:     1 / (y^T s) for the entry at slot.
+//   pushed_count:       number of (s,y) pairs ever pushed into history. The
+//                       valid history size is min(pushed_count, K). Slot for
+//                       the i-th pushed pair (0-indexed) is i % K.
+//
+// Per call:
+//   1. If first_step: take SGD step θ -= lr * g, save d_step and d_g_prev,
+//      mark first_step=false, return. (No (s,y) pair yet.)
+//   2. Else:
+//      a. y_new = d_grads - d_g_prev
+//      b. ys = y_new^T d_step (curvature)
+//      c. If ys is sufficiently positive AND finite, push (d_step, y_new, 1/ys)
+//         into history at slot (pushed_count % K), increment pushed_count.
+//         Otherwise SKIP the push (curvature condition violated).
+//      d. If pushed_count > 0: two-loop recursion using all valid history.
+//         Direction d = H * d_grads. Take θ -= lr * d.
+//         If pushed_count == 0 (no valid pairs ever): SGD step instead.
+//      e. Save d_step = -lr * (direction taken). Save d_g_prev = d_grads.
+//
+// Bug fixes from initial impl (2026-05-03 review):
+//   - pushed_count separate from call count; skipped pairs don't lie about
+//     history size and the two-loop never reads uninitialized slots.
+//   - γ uses the most recent VALID pair's ρ even when this step skipped its
+//     push, instead of falling back to identity.
+static void cuda_lbfgs_step(LBFGSState* st, cublasHandle_t cublas,
+                            float* d_weights, float* d_grads, float lr) {
+    int n = st->n;
+    int K = st->K;
+    float neg_lr = -lr;
+
+    if (st->first_step) {
+        // First call: no history → plain SGD.
+        CUBLAS_CHECK(cublasSaxpy(cublas, n, &neg_lr, d_grads, 1, d_weights, 1));
+        // Save the step taken = -lr * g (overwrite d_step from zero state)
+        CUDA_CHECK(cudaMemset(st->d_step, 0, n * sizeof(float)));
+        CUBLAS_CHECK(cublasSaxpy(cublas, n, &neg_lr, d_grads, 1, st->d_step, 1));
+        CUBLAS_CHECK(cublasScopy(cublas, n, d_grads, 1, st->d_g_prev, 1));
+        st->first_step = false;
+        return;
+    }
+
+    // ---- Compute y_new = d_grads - d_g_prev into d_q (scratch) ----
+    CUBLAS_CHECK(cublasScopy(cublas, n, d_grads, 1, st->d_q, 1));
+    float neg1 = -1.0f;
+    CUBLAS_CHECK(cublasSaxpy(cublas, n, &neg1, st->d_g_prev, 1, st->d_q, 1));
+    // d_q now holds y_new.
+
+    // Curvature condition. Use a relative threshold (Wolfe-style):
+    //   ys > eps_rel * sqrt(ys * yy)   ⟺   ys / sqrt(ys*yy) > eps_rel
+    // Equivalently: ys > eps_rel * ||y|| * ||s||
+    float ys = 0.0f, yy = 0.0f, ss = 0.0f;
+    CUBLAS_CHECK(cublasSdot(cublas, n, st->d_q, 1, st->d_step, 1, &ys));
+    CUBLAS_CHECK(cublasSdot(cublas, n, st->d_q, 1, st->d_q, 1, &yy));
+    CUBLAS_CHECK(cublasSdot(cublas, n, st->d_step, 1, st->d_step, 1, &ss));
+
+    const float CURVATURE_EPS = 1e-6f;  // relative tolerance for ys > eps * |y| * |s|
+    float yy_ss = yy * ss;
+    bool ys_finite = std::isfinite(ys) && std::isfinite(yy) && std::isfinite(ss);
+    bool ys_valid  = ys_finite && (ys > CURVATURE_EPS * std::sqrt(yy_ss > 0.0f ? yy_ss : 1.0f));
+
+    if (ys_valid) {
+        // Push (d_step, y_new, 1/ys) into history at slot (pushed_count % K).
+        int slot = st->pushed_count % K;
+        CUBLAS_CHECK(cublasScopy(cublas, n, st->d_step, 1, st->d_s_hist + (size_t)slot * n, 1));
+        CUBLAS_CHECK(cublasScopy(cublas, n, st->d_q, 1, st->d_y_hist + (size_t)slot * n, 1));
+        st->rho_hist[slot] = 1.0f / ys;
+        st->pushed_count++;
+    }
+
+    int hist_size = (st->pushed_count < K) ? st->pushed_count : K;
+
+    if (hist_size == 0) {
+        // No valid history yet (curvature failed every prior call). Fall back
+        // to SGD this step, but keep tracking d_step / d_g_prev so subsequent
+        // attempts to build curvature pairs can succeed.
+        CUBLAS_CHECK(cublasSaxpy(cublas, n, &neg_lr, d_grads, 1, d_weights, 1));
+        CUDA_CHECK(cudaMemset(st->d_step, 0, n * sizeof(float)));
+        CUBLAS_CHECK(cublasSaxpy(cublas, n, &neg_lr, d_grads, 1, st->d_step, 1));
+        CUBLAS_CHECK(cublasScopy(cublas, n, d_grads, 1, st->d_g_prev, 1));
+        return;
+    }
+
+    // ---- Two-loop recursion ----
+    // q = current gradient
+    CUBLAS_CHECK(cublasScopy(cublas, n, d_grads, 1, st->d_q, 1));
+
+    // Slot of i-th most recent pushed pair (0=newest, hist_size-1=oldest):
+    //   slot = ((pushed_count - 1 - i) % K + K) % K
+    // We store alpha at the SAME slot index used for the s/y read, so the
+    // second loop retrieves a matching alpha for each slot.
+
+    // First loop: i = newest to oldest
+    for (int idx = 0; idx < hist_size; idx++) {
+        int slot = ((st->pushed_count - 1 - idx) % K + K) % K;
+        float si_q = 0.0f;
+        CUBLAS_CHECK(cublasSdot(cublas, n,
+                                st->d_s_hist + (size_t)slot * n, 1,
+                                st->d_q, 1, &si_q));
+        float a = st->rho_hist[slot] * si_q;
+        st->alpha[slot] = a;
+        float neg_a = -a;
+        CUBLAS_CHECK(cublasSaxpy(cublas, n, &neg_a,
+                                 st->d_y_hist + (size_t)slot * n, 1,
+                                 st->d_q, 1));
+    }
+
+    // Initial Hessian scaling: γ = (s_last^T y_last) / (y_last^T y_last)
+    // Use the MOST RECENT valid pair (slot of the newest push), even if THIS
+    // call didn't push. This is the standard L-BFGS H_0 estimate.
+    //
+    // AGPT_LBFGS_GAMMA_ONE=1 env var forces γ=1.0 (identity H_0 init). This
+    // is a diagnostic option for when the standard γ collapses to lr (which
+    // happens when consecutive partition fires have orthogonal gradients —
+    // see notes/agpt/todo/l-bfgs.md).
+    {
+        static const bool gamma_one = (getenv("AGPT_LBFGS_GAMMA_ONE") != nullptr);
+        if (!gamma_one) {
+            int slot_last = (st->pushed_count - 1) % K;
+            float yy_last = 0.0f;
+            CUBLAS_CHECK(cublasSdot(cublas, n,
+                                    st->d_y_hist + (size_t)slot_last * n, 1,
+                                    st->d_y_hist + (size_t)slot_last * n, 1, &yy_last));
+            // gamma = (s^T y) / (y^T y) = (1 / ρ_slot_last) / (y^T y)
+            float gamma = 1.0f;
+            if (yy_last > 1e-12f && std::isfinite(yy_last) && st->rho_hist[slot_last] > 0.0f) {
+                gamma = 1.0f / (st->rho_hist[slot_last] * yy_last);
+            }
+            if (gamma > 0.0f && std::isfinite(gamma)) {
+                CUBLAS_CHECK(cublasSscal(cublas, n, &gamma, st->d_q, 1));
+            }
+        }
+        // else: leave d_q as-is (γ=1 implicit).
+    }
+
+    // Second loop: i = oldest to newest
+    for (int idx = hist_size - 1; idx >= 0; idx--) {
+        int slot = ((st->pushed_count - 1 - idx) % K + K) % K;
+        float yi_r = 0.0f;
+        CUBLAS_CHECK(cublasSdot(cublas, n,
+                                st->d_y_hist + (size_t)slot * n, 1,
+                                st->d_q, 1, &yi_r));
+        float beta = st->rho_hist[slot] * yi_r;
+        float coef = st->alpha[slot] - beta;
+        CUBLAS_CHECK(cublasSaxpy(cublas, n, &coef,
+                                 st->d_s_hist + (size_t)slot * n, 1,
+                                 st->d_q, 1));
+    }
+
+    // d_q now holds H * g. Take step θ -= lr * d_q.
+    CUBLAS_CHECK(cublasSaxpy(cublas, n, &neg_lr, st->d_q, 1, d_weights, 1));
+
+    // Save the step taken = -lr * d_q, and current grad as g_prev.
+    CUDA_CHECK(cudaMemset(st->d_step, 0, n * sizeof(float)));
+    CUBLAS_CHECK(cublasSaxpy(cublas, n, &neg_lr, st->d_q, 1, st->d_step, 1));
+    CUBLAS_CHECK(cublasScopy(cublas, n, d_grads, 1, st->d_g_prev, 1));
+}
 
 // 32-bit xorshift. Same output across platforms; reproducible from a seed.
 static inline unsigned xorshift32(unsigned* state) {
@@ -2249,6 +2433,14 @@ __global__ void agpt_loss_per_query_kernel(
     const int* counts_tok,
     const int* counts_val,
     const float* mass_weights,    // [T_q] per-query mass weight, or NULL to disable
+    // Fold-table arrays (optional; non-NULL fold_lengths enables fold path).
+    // For caps with fold target, replaces the degenerate cap counts with the
+    // composite next-char distribution P(c | W) where W is the cap's suffix
+    // tail. Per-radix sparse top-K entries; probabilities renormalized to 1.
+    const int* fold_offsets,      // [radix_count] start index into fold_tokens/probs (NULL if no fold)
+    const int* fold_lengths,      // [radix_count] entries per radix_id (0 = no fold target)
+    const int* fold_tokens,       // [total_fold_entries] flat token indices
+    const float* fold_probs,      // [total_fold_entries] flat probabilities (sum to 1 per cap)
     float* d_logits,              // [T_q, V] — written with gradient
     float* loss_out,              // [T_q]
     int T_q, int V,
@@ -2307,6 +2499,41 @@ __global__ void agpt_loss_per_query_kernel(
         if (is_endpoint && !ce_as_intermediate) {
             // Endpoint: use stored counts (may be branching). AGPT KL semantic.
             int radix_id = radix_ids[n_idx];
+
+            // Fold-table override: if this radix has a fold target, use it
+            // instead of the (degenerate) cap counts. Fold probabilities are
+            // pre-normalized to sum to 1.0 per cap, so the loss/gradient
+            // formulas match the existing counts-based path with cnt/total_f
+            // replaced by prob.
+            int fold_len = (fold_lengths != NULL) ? fold_lengths[radix_id] : 0;
+            if (fold_len > 0) {
+                int fold_off = fold_offsets[radix_id];
+                float weight = 1.0f;
+                if (entropy_lambda > 0.0f && fold_len > 1) {
+                    float H = 0.0f;
+                    for (int e = 0; e < fold_len; e++) {
+                        float prob = fold_probs[fold_off + e];
+                        if (prob > 0.0f) H -= prob * logf(prob);
+                    }
+                    weight = 1.0f + entropy_lambda * (H / logf((float)V));
+                }
+                if (mass_weights != NULL) weight *= mass_weights[q];
+                float loss = 0.0f;
+                for (int e = 0; e < fold_len; e++) {
+                    int tok = fold_tokens[fold_off + e];
+                    float prob = fold_probs[fold_off + e];
+                    float p = grad_row[tok];
+                    loss -= prob * logf(p + 1e-10f);
+                    grad_row[tok] -= prob;
+                }
+                if (weight != 1.0f) {
+                    loss *= weight;
+                    for (int j = 0; j < V; j++) grad_row[j] *= weight;
+                }
+                loss_out[q] = loss;
+                return;
+            }
+
             int start = counts_offset[radix_id];
             int end = counts_offset[radix_id + 1];
             if (start == end) {
@@ -2375,6 +2602,8 @@ void launch_agpt_loss_per_query(const float* logits, const int* query_to_node,
                                  const int* counts_offset, const int* counts_tok,
                                  const int* counts_val,
                                  const float* mass_weights,
+                                 const int* fold_offsets, const int* fold_lengths,
+                                 const int* fold_tokens, const float* fold_probs,
                                  float* d_logits, float* loss_out,
                                  int T_q, int V, float entropy_lambda,
                                  float intermediate_weight, int ce_only) {
@@ -2385,6 +2614,7 @@ void launch_agpt_loss_per_query(const float* logits, const int* query_to_node,
     agpt_loss_per_query_kernel<<<T_q, threads, smem>>>(
         logits, query_to_node, query_offsets, radix_ids, token_ids,
         counts_offset, counts_tok, counts_val, mass_weights,
+        fold_offsets, fold_lengths, fold_tokens, fold_probs,
         d_logits, loss_out, T_q, V, entropy_lambda, intermediate_weight, ce_only);
 }
 
@@ -3334,6 +3564,105 @@ __global__ void gather_endpoint_rows_kernel(
     dst[n * D + d] = src[end_q * D + d];
 }
 
+// File-scope fold-table device pointers. Set in main() when --fold-table is
+// passed; remain NULL otherwise. The loss kernel reads g_d_fold_lengths !=
+// NULL to gate the fold path. Single-process/single-threaded trainer, so a
+// global here avoids threading the four pointers through all training entry
+// points.
+static const int*   g_d_fold_offsets = NULL;
+static const int*   g_d_fold_lengths = NULL;
+static const int*   g_d_fold_tokens  = NULL;
+static const float* g_d_fold_probs   = NULL;
+
+// Load a fold-table file produced by `bin/agpt_build_fold_table` and upload
+// its arrays to GPU. Sets g_d_fold_* globals on success.
+//
+// File format:
+//   magic (u32 = 'FOLD')
+//   version (u32 = 1)
+//   n_radix (u32) — must match expected_radix_count
+//   vocab_size (u32) — must match expected_vocab
+//   top_k (u32) — informational
+//   offsets[n_radix] (i32)
+//   lengths[n_radix] (i32)
+//   entries[total]: i32 token + f32 prob
+static void load_fold_table(const char* path, int expected_radix_count, int expected_vocab) {
+    FILE* f = fopen(path, "rb");
+    if (!f) {
+        fprintf(stderr, "fold-table: cannot open %s\n", path);
+        exit(1);
+    }
+    uint32_t magic = 0, version = 0, n_radix = 0, vocab = 0, top_k = 0;
+    if (fread(&magic, 4, 1, f) != 1 || magic != 0x444C4F46u) {
+        fprintf(stderr, "fold-table: bad magic in %s (got 0x%08x)\n", path, magic);
+        exit(1);
+    }
+    if (fread(&version, 4, 1, f) != 1 || version != 1) {
+        fprintf(stderr, "fold-table: unsupported version %u (expected 1)\n", version);
+        exit(1);
+    }
+    if (fread(&n_radix, 4, 1, f) != 1 || (int)n_radix != expected_radix_count) {
+        fprintf(stderr, "fold-table: n_radix=%u does not match trie radix_count=%d\n",
+                n_radix, expected_radix_count);
+        exit(1);
+    }
+    if (fread(&vocab, 4, 1, f) != 1 || (int)vocab != expected_vocab) {
+        fprintf(stderr, "fold-table: vocab_size=%u does not match cfg.vocab_size=%d\n",
+                vocab, expected_vocab);
+        exit(1);
+    }
+    if (fread(&top_k, 4, 1, f) != 1) { fprintf(stderr, "fold-table: short read at top_k\n"); exit(1); }
+
+    int* h_offsets = (int*)malloc((size_t)n_radix * sizeof(int));
+    int* h_lengths = (int*)malloc((size_t)n_radix * sizeof(int));
+    if (fread(h_offsets, sizeof(int), n_radix, f) != n_radix) {
+        fprintf(stderr, "fold-table: short read at offsets\n"); exit(1);
+    }
+    if (fread(h_lengths, sizeof(int), n_radix, f) != n_radix) {
+        fprintf(stderr, "fold-table: short read at lengths\n"); exit(1);
+    }
+
+    long long total_entries = 0;
+    int n_with_fold = 0;
+    for (uint32_t i = 0; i < n_radix; i++) {
+        total_entries += h_lengths[i];
+        if (h_lengths[i] > 0) n_with_fold++;
+    }
+
+    int* h_tokens = (int*)malloc((size_t)total_entries * sizeof(int));
+    float* h_probs = (float*)malloc((size_t)total_entries * sizeof(float));
+    for (long long i = 0; i < total_entries; i++) {
+        int tok = 0; float prob = 0.0f;
+        if (fread(&tok, sizeof(int), 1, f) != 1 || fread(&prob, sizeof(float), 1, f) != 1) {
+            fprintf(stderr, "fold-table: short read at entry %lld/%lld\n", i, total_entries);
+            exit(1);
+        }
+        h_tokens[i] = tok;
+        h_probs[i] = prob;
+    }
+    fclose(f);
+
+    int *d_off, *d_len, *d_tok;
+    float* d_prb;
+    CUDA_CHECK(cudaMalloc(&d_off, (size_t)n_radix * sizeof(int)));
+    CUDA_CHECK(cudaMalloc(&d_len, (size_t)n_radix * sizeof(int)));
+    CUDA_CHECK(cudaMalloc(&d_tok, (size_t)total_entries * sizeof(int)));
+    CUDA_CHECK(cudaMalloc(&d_prb, (size_t)total_entries * sizeof(float)));
+    CUDA_CHECK(cudaMemcpy(d_off, h_offsets, (size_t)n_radix * sizeof(int), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_len, h_lengths, (size_t)n_radix * sizeof(int), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_tok, h_tokens, (size_t)total_entries * sizeof(int), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_prb, h_probs, (size_t)total_entries * sizeof(float), cudaMemcpyHostToDevice));
+    free(h_offsets); free(h_lengths); free(h_tokens); free(h_probs);
+
+    g_d_fold_offsets = d_off;
+    g_d_fold_lengths = d_len;
+    g_d_fold_tokens  = d_tok;
+    g_d_fold_probs   = d_prb;
+
+    printf("Loaded fold-table from %s: %u radix slots, %d with fold, %lld entries, top_k=%u\n",
+           path, n_radix, n_with_fold, total_entries, top_k);
+}
+
 // run_radix_training optional parameters (declared here via overload-less defaults).
 // When invoked from the per-subtree wrapper, these thread optimizer state across
 // calls so RMSProp/Adam running averages don't reset per subtree, and suppress
@@ -3440,6 +3769,18 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
         const char* env = getenv("AGPT_SUBTREE_DROPOUT_SEED");
         if (env) subtree_dropout_seed = (unsigned int)atoll(env);
     }
+    // Branch dropout depth: when > 0, the dropout sampling happens at radix
+    // nodes whose first-char-depth is exactly this value (instead of depth=1
+    // root-children). All descendants of a masked node are also skipped.
+    // E.g., depth=3 masks bigram/trigram-rooted subtrees → many more candidate
+    // masks per epoch (~10k vs 65 at depth=1), giving much more per-epoch variety.
+    // depth=0 (default) is the root-child masking behavior.
+    int branch_dropout_depth = 0;
+    {
+        const char* env = getenv("AGPT_BRANCH_DROPOUT_DEPTH");
+        if (env) branch_dropout_depth = atoi(env);
+        if (branch_dropout_depth < 0) branch_dropout_depth = 0;
+    }
     double* char_suffix_mass = NULL;
     long long char_suffix_mass_n = 0;
     {
@@ -3484,8 +3825,13 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
             }
         }
         if (subtree_dropout > 0.0) {
-            printf("  subtree-dropout: %.2f  (per super-epoch, each root-child skipped with prob %.2f)\n",
-                   subtree_dropout, subtree_dropout);
+            if (branch_dropout_depth > 0) {
+                printf("  branch-dropout: %.2f at depth %d  (subtrees rooted at depth-%d nodes skipped with prob %.2f)\n",
+                       subtree_dropout, branch_dropout_depth, branch_dropout_depth, subtree_dropout);
+            } else {
+                printf("  subtree-dropout: %.2f  (per super-epoch, each root-child skipped with prob %.2f)\n",
+                       subtree_dropout, subtree_dropout);
+            }
         }
     }
     #define TIME_K(accum, code) do { \
@@ -3518,6 +3864,7 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
     const char* opt_name = (optimizer == OptimizerKind::Adam)     ? "adam"
                          : (optimizer == OptimizerKind::SGD)      ? "sgd"
                          : (optimizer == OptimizerKind::Momentum) ? "momentum"
+                         : (optimizer == OptimizerKind::LBFGS)    ? "lbfgs"
                          :                                          "rmsprop";
     printf("  optimizer: %s (lr=%.4g)\n", opt_name, cfg.lr);
     if (entropy_lambda > 0.0f) {
@@ -3614,6 +3961,27 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
         CUDA_CHECK(cudaMemset(d_adam_v, 0, wo.total_floats * sizeof(float)));
     }
     CUDA_CHECK(cudaMemcpy(d_weights, h_weights, wo.total_floats * sizeof(float), cudaMemcpyHostToDevice));
+
+    // ---- L-BFGS optimizer state (allocated only if --optimizer lbfgs) ----
+    LBFGSState lbfgs_state;
+    if (optimizer == OptimizerKind::LBFGS) {
+        lbfgs_state.K = cfg.lbfgs_k > 0 ? cfg.lbfgs_k : 10;
+        lbfgs_state.n = wo.total_floats;
+        lbfgs_state.first_step = true;
+        lbfgs_state.pushed_count = 0;
+        size_t hist_bytes = (size_t)lbfgs_state.K * (size_t)wo.total_floats * sizeof(float);
+        CUDA_CHECK(cudaMalloc(&lbfgs_state.d_g_prev, wo.total_floats * sizeof(float)));
+        CUDA_CHECK(cudaMalloc(&lbfgs_state.d_step,   wo.total_floats * sizeof(float)));
+        CUDA_CHECK(cudaMalloc(&lbfgs_state.d_s_hist, hist_bytes));
+        CUDA_CHECK(cudaMalloc(&lbfgs_state.d_y_hist, hist_bytes));
+        CUDA_CHECK(cudaMalloc(&lbfgs_state.d_q,      wo.total_floats * sizeof(float)));
+        lbfgs_state.rho_hist = (float*)calloc(lbfgs_state.K, sizeof(float));
+        lbfgs_state.alpha    = (float*)calloc(lbfgs_state.K, sizeof(float));
+        if (!quiet) {
+            double mb = (2.0 * hist_bytes + 3.0 * wo.total_floats * sizeof(float)) / (1024.0 * 1024.0);
+            printf("  lbfgs state: K=%d, n=%d, %.2f MB\n", lbfgs_state.K, wo.total_floats, mb);
+        }
+    }
 
     // Scratch for gradient clipping: one partial per block + one float for norm.
     float* d_clip_partials = NULL;
@@ -4285,7 +4653,15 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
     if (subtree_dropout > 0.0) {
         subtree_keep = (char*)malloc(n_root_children * sizeof(char));
     }
+    // Branch-dropout per-radix-node mask (1 = dropped, 0 = kept).
+    // Used only when branch_dropout_depth > 0. Marked dropped if the node OR
+    // any of its ancestors is at branch_dropout_depth and was randomly selected.
+    char* branch_drop_mask = NULL;
+    if (subtree_dropout > 0.0 && branch_dropout_depth > 0) {
+        branch_drop_mask = (char*)calloc(trie.radix_count, sizeof(char));
+    }
     unsigned int sd_rng_state = subtree_dropout_seed;
+    unsigned int shuffle_rng_state = cfg.shuffle_order ? cfg.shuffle_seed : 0u;
 
     for (int epoch = 0; epoch < epochs; epoch++) {
         struct timespec t0, t1;
@@ -4298,9 +4674,30 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
             t_us_scatter_fwd = 0;
         }
 
+        // --shuffle-order: Fisher-Yates permutation of partition groups per
+        // super-epoch. Tests order-independence at constant exposure (every
+        // group still hit exactly once). Shuffles subtree_nodes/sizes/n_anc
+        // in tandem; per-epoch arrays (mass/lr_mult/loss_sum) are populated
+        // below from the shuffled order so they stay consistent.
+        if (cfg.shuffle_order && n_root_children > 1) {
+            for (int i = n_root_children - 1; i > 0; i--) {
+                shuffle_rng_state ^= shuffle_rng_state << 13;
+                shuffle_rng_state ^= shuffle_rng_state >> 17;
+                shuffle_rng_state ^= shuffle_rng_state << 5;
+                int j = (int)(shuffle_rng_state % (unsigned)(i + 1));
+                int* tn = subtree_nodes[i]; subtree_nodes[i] = subtree_nodes[j]; subtree_nodes[j] = tn;
+                int  ts = subtree_sizes[i]; subtree_sizes[i] = subtree_sizes[j]; subtree_sizes[j] = ts;
+                int  ta = subtree_n_anc[i]; subtree_n_anc[i] = subtree_n_anc[j]; subtree_n_anc[j] = ta;
+            }
+            if (!quiet && epoch == 0) {
+                printf("  shuffle-order: per-SE Fisher-Yates over %d partition groups (seed=0x%x)\n",
+                       n_root_children, cfg.shuffle_seed);
+            }
+        }
+
         // Subtree dropout: sample which root-child subtrees to keep this epoch.
         // Simple LCG to keep it deterministic per seed.
-        if (subtree_dropout > 0.0) {
+        if (subtree_dropout > 0.0 && branch_dropout_depth == 0) {
             int n_kept = 0;
             for (int i = 0; i < n_root_children; i++) {
                 sd_rng_state = sd_rng_state * 1664525u + 1013904223u;
@@ -4320,6 +4717,44 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
             if (!quiet) {
                 printf("  [epoch %d] subtree-dropout: keeping %d/%d root-children\n",
                        epoch + 1, n_kept, n_root_children);
+            }
+        }
+        // Branch dropout: sample at internal depth instead of root level.
+        // Step 1: at each radix node whose fcd == branch_dropout_depth, sample
+        // whether to mask. Step 2: propagate mask to all descendants.
+        if (subtree_dropout > 0.0 && branch_dropout_depth > 0) {
+            memset(branch_drop_mask, 0, trie.radix_count * sizeof(char));
+            int n_candidates = 0, n_masked_seeds = 0;
+            for (int r = 1; r < trie.radix_count; r++) {
+                if (trie.edge_first_char_depths[r] != branch_dropout_depth) continue;
+                n_candidates++;
+                sd_rng_state = sd_rng_state * 1664525u + 1013904223u;
+                double u = (double)(sd_rng_state >> 8) / (double)(1u << 24);
+                if (u < subtree_dropout) {
+                    branch_drop_mask[r] = 1;
+                    n_masked_seeds++;
+                }
+            }
+            // Propagate: walk parent chain for each node; if any ancestor masked, mark.
+            // This is O(depth × radix_count). One pass per node.
+            int n_total_masked = n_masked_seeds;
+            for (int r = 1; r < trie.radix_count; r++) {
+                if (branch_drop_mask[r]) continue;  // self already marked
+                int cur = trie.parents[r];
+                while (cur > 0) {
+                    if (branch_drop_mask[cur]) {
+                        branch_drop_mask[r] = 1;
+                        n_total_masked++;
+                        break;
+                    }
+                    cur = trie.parents[cur];
+                }
+            }
+            if (!quiet) {
+                printf("  [epoch %d] branch-dropout depth=%d: %d/%d seeds masked, %d total nodes (%.1f%%)\n",
+                       epoch + 1, branch_dropout_depth,
+                       n_masked_seeds, n_candidates, n_total_masked,
+                       100.0 * (double)n_total_masked / (double)trie.radix_count);
             }
         }
 
@@ -4746,11 +5181,16 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
             // Chunk by total queries ≤ CHUNK_QUERIES
             int chunk_start = 0;
             while (chunk_start < n_at_depth) {
-                // Accumulate radix nodes until total queries exceeds CHUNK_QUERIES or we hit N_cap
+                // Accumulate radix nodes until total queries exceeds CHUNK_QUERIES or we hit N_cap.
+                // Branch-dropout: skip masked nodes (advance chunk_end past them without counting).
                 int chunk_end = chunk_start;
                 int T_q = 0;
                 while (chunk_end < n_at_depth) {
                     int r = radix_list[subtree_offset + chunk_end];
+                    if (branch_drop_mask && branch_drop_mask[r]) {
+                        chunk_end++;
+                        continue;
+                    }
                     int L = trie.edge_lens[r];
                     if (T_q + L > T_q_cap || chunk_end - chunk_start >= N_cap) break;
                     T_q += L;
@@ -4761,7 +5201,23 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                     chunk_start++;
                     continue;
                 }
-                int N = chunk_end - chunk_start;
+                // Count unmasked nodes in [chunk_start, chunk_end). With branch-dropout
+                // off, this equals chunk_end - chunk_start.
+                int N;
+                if (branch_drop_mask) {
+                    N = 0;
+                    for (int k = chunk_start; k < chunk_end; k++) {
+                        int r = radix_list[subtree_offset + k];
+                        if (!branch_drop_mask[r]) N++;
+                    }
+                    if (N == 0) {
+                        // Whole chunk range was masked — advance and try next.
+                        chunk_start = chunk_end;
+                        continue;
+                    }
+                } else {
+                    N = chunk_end - chunk_start;
+                }
 
                 // Build per-chunk host arrays
                 int* h_radix_ids      = (int*)malloc(N * sizeof(int));
@@ -4777,8 +5233,12 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
 
                 int q_fill = 0;
                 int kv_fill = 0;
-                for (int i = 0; i < N; i++) {
-                    int r = radix_list[subtree_offset + chunk_start + i];
+                int i = 0;
+                int k_iter = chunk_start;
+                while (i < N) {
+                    int r = radix_list[subtree_offset + k_iter];
+                    k_iter++;
+                    if (branch_drop_mask && branch_drop_mask[r]) continue;  // skip masked
                     h_radix_ids[i] = r;
                     int L = trie.edge_lens[r];
                     int anc_len = trie.ancestor_char_offsets[r + 1] - trie.ancestor_char_offsets[r];
@@ -4804,7 +5264,11 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                     }
                     q_fill += L;
                     kv_fill += K_i;
+                    i++;
                 }
+                // Advance chunk_start past the consumed range (works for both
+                // standard and branch-dropout paths; k_iter has already walked
+                // the full [chunk_start, chunk_end) range).
                 h_query_offsets[N] = q_fill;
                 h_kv_offsets[N] = kv_fill;
                 int T_kv = kv_fill;
@@ -5202,6 +5666,8 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                                             d_radix_ids, d_token_ids,
                                             d_radix_counts_offset, d_radix_counts_tok, d_radix_counts_val,
                                             need_mass_weights ? d_mass_weights : NULL,
+                                            g_d_fold_offsets, g_d_fold_lengths,
+                                            g_d_fold_tokens, g_d_fold_probs,
                                             d_d_logits, d_loss, T_q, V, entropy_lambda,
                                             intermediate_weight, cfg.ce_only ? 1 : 0);
 
@@ -5575,6 +6041,9 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                     cuda_rmsprop_bulk(d_weights, d_grads, d_adam_v,
                                       step_lr, rmsprop_beta, 1e-8f, wo.total_floats);
                     break;
+                case OptimizerKind::LBFGS:
+                    cuda_lbfgs_step(&lbfgs_state, cublas, d_weights, d_grads, step_lr);
+                    break;
             }
             // Decoupled weight decay (applies after optimizer step — AdamW style
             // across all optimizers). lr is the scheduled lr so decay also decays.
@@ -5629,6 +6098,9 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                     cuda_rmsprop_bulk(d_weights, d_grads, d_adam_v,
                                       step_lr, rmsprop_beta, 1e-8f, wo.total_floats);
                     break;
+                case OptimizerKind::LBFGS:
+                    cuda_lbfgs_step(&lbfgs_state, cublas, d_weights, d_grads, step_lr);
+                    break;
             }
             if (weight_decay > 0.0f) {
                 cuda_weight_decay(d_weights, step_lr, weight_decay, wo.total_floats);
@@ -5656,13 +6128,21 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
             total_excess += score[rc];
             order[rc] = rc;
         }
-        // Full sort (simple) — we need it for split coverage selection.
-        for (int i = 0; i < n_root_children; i++) {
-            int best = i;
-            for (int j = i + 1; j < n_root_children; j++) {
-                if (score[order[j]] > score[order[best]]) best = j;
-            }
-            if (best != i) { int tmp = order[i]; order[i] = order[best]; order[best] = tmp; }
+        // Full sort by score descending — used for residual top-10 print and
+        // hotspot split coverage selection. qsort is O(n log n); the prior
+        // selection sort was O(n²) and at pd=6 (283k groups) burned ~6-7 min
+        // per epoch (40B compares). qsort here is ~50ms regardless of n.
+        {
+            static const double* g_score_for_sort;  // file-scope handoff to comparator
+            g_score_for_sort = score;
+            auto cmp = [](const void* a, const void* b) -> int {
+                int ia = *(const int*)a, ib = *(const int*)b;
+                double sa = g_score_for_sort[ia], sb = g_score_for_sort[ib];
+                if (sa > sb) return -1;
+                if (sa < sb) return  1;
+                return ia - ib;  // tiebreak on rc id for determinism
+            };
+            qsort(order, n_root_children, sizeof(int), cmp);
         }
 
         if (!quiet) {
@@ -5945,6 +6425,15 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
     cudaFree(d_weights); cudaFree(d_grads); cudaFree(d_adam_m); cudaFree(d_adam_v);
     if (d_clip_partials) cudaFree(d_clip_partials);
     if (d_clip_norm)     cudaFree(d_clip_norm);
+
+    // L-BFGS state cleanup (allocated only when optimizer == LBFGS)
+    if (lbfgs_state.d_g_prev) cudaFree(lbfgs_state.d_g_prev);
+    if (lbfgs_state.d_step)   cudaFree(lbfgs_state.d_step);
+    if (lbfgs_state.d_s_hist) cudaFree(lbfgs_state.d_s_hist);
+    if (lbfgs_state.d_y_hist) cudaFree(lbfgs_state.d_y_hist);
+    if (lbfgs_state.d_q)      cudaFree(lbfgs_state.d_q);
+    if (lbfgs_state.rho_hist) free(lbfgs_state.rho_hist);
+    if (lbfgs_state.alpha)    free(lbfgs_state.alpha);
     for (int l = 0; l < L_layers; l++) {
         cudaFree(d_kv_keys[l]); cudaFree(d_kv_values[l]);
     }
@@ -6058,6 +6547,7 @@ int run_per_subtree_training(const Config& cfg_in, const WeightOffsets& wo,
     const char* opt_name = (optimizer == OptimizerKind::Adam)     ? "adam"
                          : (optimizer == OptimizerKind::SGD)      ? "sgd"
                          : (optimizer == OptimizerKind::Momentum) ? "momentum"
+                         : (optimizer == OptimizerKind::LBFGS)    ? "lbfgs"
                          :                                          "rmsprop";
     printf("  optimizer: %s (lr=%.4g)\n", opt_name, cfg.lr);
     const char* sched_name = (lr_schedule == LRSchedule::Constant)    ? "constant"
@@ -6256,6 +6746,7 @@ int main(int argc, char** argv) {
     const char* model_path = NULL;
     const char* trie_dir = NULL;
     const char* save_path = NULL;
+    const char* fold_table_path = NULL;
     int epochs = 1;
     float lr = 3e-4f;
     float entropy_lambda = 0.0f;
@@ -6273,9 +6764,12 @@ int main(int argc, char** argv) {
     bool ce_only = false;  // force single-target CE at endpoints too (SGD-semantic, disables KL aggregation)
     float hotspot_coverage = 0.0f;  // 0 disables; X>0 splits top subtrees covering top X of excess-loss between epochs
     int   lr_rule = 0;  // per-subtree LR multiplier rule (0=none, 1=inv-depth, 2=inv-sqrt-depth, 3=sqrt-batch, 4=residual)
+    bool shuffle_order = false;     // --shuffle-order: random partition-group order per SE
+    unsigned shuffle_seed = 0xa17b1edu;  // --shuffle-seed: RNG seed for shuffle
     OptimizerKind optimizer = OptimizerKind::Adam;
     float momentum_beta = 0.9f;   // used by momentum + (via β₁) adam
     float rmsprop_beta = 0.999f;  // used by rmsprop + (via β₂) adam
+    int   lbfgs_k = 10;           // L-BFGS history size
     LRSchedule lr_schedule = LRSchedule::Constant;
     int warmup_epochs = 0;
     float weight_decay = 0.0f;
@@ -6290,6 +6784,7 @@ int main(int argc, char** argv) {
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--model") == 0 && i + 1 < argc) model_path = argv[++i];
         else if (strcmp(argv[i], "--trie-dir") == 0 && i + 1 < argc) trie_dir = argv[++i];
+        else if (strcmp(argv[i], "--fold-table") == 0 && i + 1 < argc) fold_table_path = argv[++i];
         else if (strcmp(argv[i], "--save") == 0 && i + 1 < argc) save_path = argv[++i];
         else if (strcmp(argv[i], "--epochs") == 0 && i + 1 < argc) epochs = atoi(argv[++i]);
         else if (strcmp(argv[i], "--lr") == 0 && i + 1 < argc) lr = atof(argv[++i]);
@@ -6321,6 +6816,8 @@ int main(int argc, char** argv) {
         else if (strcmp(argv[i], "--intermediate-weight") == 0 && i + 1 < argc) intermediate_weight = atof(argv[++i]);
         else if (strcmp(argv[i], "--ce-only") == 0) ce_only = true;
         else if (strcmp(argv[i], "--hotspot-coverage") == 0 && i + 1 < argc) hotspot_coverage = atof(argv[++i]);
+        else if (strcmp(argv[i], "--shuffle-order") == 0) shuffle_order = true;
+        else if (strcmp(argv[i], "--shuffle-seed") == 0 && i + 1 < argc) shuffle_seed = (unsigned)strtoul(argv[++i], NULL, 0);
         else if (strcmp(argv[i], "--lr-rule") == 0 && i + 1 < argc) {
             const char* m = argv[++i];
             if      (strcmp(m, "none")          == 0) lr_rule = 0;
@@ -6336,8 +6833,10 @@ int main(int argc, char** argv) {
             else if (strcmp(o, "sgd")      == 0) optimizer = OptimizerKind::SGD;
             else if (strcmp(o, "momentum") == 0) optimizer = OptimizerKind::Momentum;
             else if (strcmp(o, "rmsprop")  == 0) optimizer = OptimizerKind::RMSProp;
-            else { fprintf(stderr, "Unknown optimizer '%s' (adam|sgd|momentum|rmsprop)\n", o); return 1; }
+            else if (strcmp(o, "lbfgs")    == 0) optimizer = OptimizerKind::LBFGS;
+            else { fprintf(stderr, "Unknown optimizer '%s' (adam|sgd|momentum|rmsprop|lbfgs)\n", o); return 1; }
         }
+        else if (strcmp(argv[i], "--lbfgs-k") == 0 && i + 1 < argc) lbfgs_k = atoi(argv[++i]);
         else if (strcmp(argv[i], "--momentum-beta") == 0 && i + 1 < argc) momentum_beta = atof(argv[++i]);
         else if (strcmp(argv[i], "--rmsprop-beta") == 0 && i + 1 < argc) rmsprop_beta = atof(argv[++i]);
         else if (strcmp(argv[i], "--lr-schedule") == 0 && i + 1 < argc) {
@@ -6473,7 +6972,14 @@ int main(int argc, char** argv) {
                         "                                high-mass sample dominating; log is the\n"
                         "                                stable default. off = no scaling.\n"
                         "  [--save <path>]            — output weights path (default: --model path,\n"
-                        "                                i.e. overwrite-in-place).\n");
+                        "                                i.e. overwrite-in-place).\n"
+                        "  [--fold-table <path>]      — composite cap-fold side-table built by\n"
+                        "                                bin/agpt_build_fold_table. When present,\n"
+                        "                                radix caps with a fold target use the\n"
+                        "                                suffix-W posterior P(c|W) (top-K, sum=1)\n"
+                        "                                as the training target instead of the\n"
+                        "                                degenerate one-hot. Only the radix trie\n"
+                        "                                format (format=1) is supported.\n");
         return 1;
     }
 
@@ -6491,11 +6997,19 @@ int main(int argc, char** argv) {
     cfg.ce_only = ce_only;
     cfg.hotspot_coverage = hotspot_coverage;
     cfg.lr_rule = lr_rule;
+    cfg.shuffle_order = shuffle_order;
+    cfg.shuffle_seed = shuffle_seed;
+    cfg.lbfgs_k = lbfgs_k;
     float* h_weights = load_model_weights(model_path, &cfg);
     WeightOffsets wo = compute_offsets(cfg);
 
     // Detect trie format
     int format = detect_trie_format(trie_dir);
+    if (fold_table_path && format != 1) {
+        fprintf(stderr, "--fold-table is only supported with the radix trie format (format=1). "
+                        "Detected format=%d at %s.\n", format, trie_dir);
+        return 1;
+    }
     if (format == 2) {
         printf("Per-subtree radix format detected at %s\n", trie_dir);
         SubtreeManifest manifest = load_subtree_manifest(trie_dir);
@@ -6523,6 +7037,10 @@ int main(int argc, char** argv) {
     if (format == 1) {
         printf("Loading radix trie from %s...\n", trie_dir);
         RadixTrieData radix_trie = load_radix_trie(trie_dir);
+
+        if (fold_table_path) {
+            load_fold_table(fold_table_path, radix_trie.radix_count, cfg.vocab_size);
+        }
 
         return run_radix_training(cfg, wo, h_weights, radix_trie, epochs, entropy_lambda, mass_weight, subtree_splits, partition_depth, accumulate, single_subtree, intermediate_weight, optimizer, momentum_beta, rmsprop_beta, lr_schedule, warmup_epochs, weight_decay, grad_clip_norm, save_every, curriculum, save_path, lightning);
     }
