@@ -67,6 +67,13 @@ build-prefix-suffix-compare: build-stubs
     mkdir -p bin
     timeout 3m crystal build src/tools/prefix_suffix_compare.cr -o bin/prefix_suffix_compare --release --link-flags="{{root}}/build/kernels.o -lstdc++"
 
+# Build dual-view consistency trainer (forward + backward models, KL coupling).
+# First-version per-position Adam fire; per-partition batching is a future
+# optimization. See rnd/dual-model-fold/PLAN.md.
+build-agpt-dual-train: build-stubs
+    mkdir -p bin
+    timeout 3m crystal build src/tools/agpt_dual_train.cr -o bin/agpt_dual_train --release --link-flags="{{root}}/build/kernels.o -lstdc++"
+
 # Build p2s-attention match index tool (Phase 2/3 of rnd/p2s-attention).
 build-p2s-match: build-stubs
     mkdir -p bin
