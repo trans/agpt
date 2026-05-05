@@ -31,6 +31,7 @@ top_k = 16
 max_cached = 64
 progress_every = 50_000
 empty_only = false
+match_mode = "suffix"
 
 OptionParser.parse do |p|
   p.banner = "Usage: agpt_build_fold_table --trie DIR --out PATH [options]"
@@ -43,6 +44,7 @@ OptionParser.parse do |p|
   p.on("--top-k N", "Top-K next chars per fold target (default 16)") { |v| top_k = v.to_i }
   p.on("--max-cached N", "Reader LRU depth-file cache size (default 64)") { |v| max_cached = v.to_i }
   p.on("--empty", "Skip cap scan; emit all-dead-end side-table for parity testing") { empty_only = true }
+  p.on("--match-mode MODE", "suffix (last W chars of cap path; default) | pretunnel (W chars just before cap-edge starts)") { |v| match_mode = v }
   p.on("-h", "--help", "") { puts p; exit 0 }
 end
 
@@ -158,9 +160,22 @@ reader.each do |r|
   path = full_path(r, record_by_id)
   found = false
 
+  # Match-key extraction:
+  #   suffix    — last W chars of the full path (depth 33-W..32 for d=32 caps)
+  #   pretunnel — W chars just before cap-edge starts (depths h-W..h-1, where
+  #               h = cap.first_char_depth). The cap-edge is the unary identity
+  #               tail; its preceding chars are the last informative window
+  #               before the corpus collapsed to a single continuation.
+  cap_edge_start = r.first_char_depth   # 1-indexed depth where cap edge begins
+  pretunnel_end_idx = cap_edge_start - 1  # exclusive: 0-indexed end of pretunnel slice
   w_max.downto(w_min) do |w_len|
     next if w_len > path.size
-    w = path[(path.size - w_len)..]
+    if match_mode == "pretunnel"
+      next if pretunnel_end_idx < w_len
+      w = path[(pretunnel_end_idx - w_len)...pretunnel_end_idx]
+    else
+      w = path[(path.size - w_len)..]
+    end
 
     walk_result = walk_from_root(w, child_by_token)
     next if walk_result.nil?

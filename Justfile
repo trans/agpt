@@ -59,6 +59,14 @@ build-agpt-build-fold-table: build-stubs
     mkdir -p bin
     timeout 3m crystal build src/tools/agpt_build_fold_table.cr -o bin/agpt_build_fold_table --release --link-flags="{{root}}/build/kernels.o -lstdc++"
 
+# Build prefix/suffix model comparison tool.
+# Loads a forward model (trained on prefix trie) and backward model (trained on
+# suffix/reversed-corpus trie); reports KL between their predictions at held-out
+# positions plus per-model NLL.
+build-prefix-suffix-compare: build-stubs
+    mkdir -p bin
+    timeout 3m crystal build src/tools/prefix_suffix_compare.cr -o bin/prefix_suffix_compare --release --link-flags="{{root}}/build/kernels.o -lstdc++"
+
 # Build p2s-attention match index tool (Phase 2/3 of rnd/p2s-attention).
 build-p2s-match: build-stubs
     mkdir -p bin

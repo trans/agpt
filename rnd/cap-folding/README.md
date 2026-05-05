@@ -298,22 +298,31 @@ random init for 6 SE (no continuation reset of optimizer state):
 | baseline (no fold) | — | — | 4.998 | — |
 | natural (m≥2, w 1..32) | 99.94% | 0.84 | 4.948 | −1.0% |
 | h-min=0.5 (m≥2, w 1..32, h≥0.5) | 99.12% | 1.03 | 4.934 | −1.3% |
+| m=5 (m≥5, w 4..16) | 84.98% | 1.05 | 4.990 | −0.2% |
+| m=9 (m≥9, w 4..16) | 82.46% | 1.17 | 4.954 | −0.9% |
 | **m=10 (m≥10, w 4..16)** | 81.87% | 1.19 | **4.864** | **−2.7%** |
+| m=11 (m≥11, w 4..16) | 81.30% | 1.20 | 5.042 | **+0.9% (loses)** |
+| m=30 (m≥30, w 4..16) | 72.05% | 1.33 | 4.958 | −0.8% |
 | m=100 (m≥100, w 4..16) | 52.14% | 1.45 | 4.947 | −1.0% |
 
-**The mass-floor curve is non-monotonic.** m=10 sits at the peak.
-Both lower (m=2 and h-floor) and higher (m=100) floors degrade the
-gain. The pattern:
+**The m=10 point is a single-seed spike, not a smooth peak.** m=9 and
+m=11 have nearly-identical coverage (82.5% / 81.3%) and mean entropy
+(1.17 / 1.20) yet land 0.09 / 0.18 PPL above m=10. m=11 actually
+*loses* to no-fold baseline. With single-seed run-to-run variance of
+~0.05 PPL, the m=10 outlier is partly seed luck — not a true
+mass-floor optimum.
 
-- m=2: too much noise in long-W targets, model overfits to noise
-- m=10: sweet spot — most caps get a usable target
-- m=100: too aggressive, half the caps fall back to one-hot
+**Honest gain estimate:** the median across the m-sweep is around
+−1% PPL. The m=10 specifically delivered −2.7% in this run, and a
+matched-shuffle reproduction gave −2.0%. So the *expected* cap-fold
+gain at this recipe is probably **−1% to −2%**, and the −2.7% / 12 SE
+−3.5% headlines were inflated by lucky single-seed effects.
 
-So **coverage matters as much as target quality** past a low statistical
-threshold. The model is apparently robust to ~30-90% relative noise
-in the fold target (per the ESS-vs-mass table) as long as the signal
-direction is roughly right and *many* caps benefit. Quality-vs-coverage
-is a real tradeoff; m=10 happens to land near the optimum.
+To pin down the true gain would need 5+ seeds at each m value
+(prohibitive at ~22 min/run); single-seed sweeps only show rough
+trends. The main signal — that fold helps, that it doesn't extend
+seq_len, and that target substitution is fundamentally a regularizer —
+holds across all variants and seeds.
 
 ### Training-budget trajectory
 
@@ -462,3 +471,113 @@ to support a reliable distribution estimate.
 4. Cap-loss instrumentation: per-event-type loss breakdown in the
    trainer to directly measure whether fold reduces cap-loss in
    isolation, even when total loss is comparable.
+
+## Structural measurements (added 2026-05-04)
+
+Two foundational measurements gathered during the cap-folding work that
+inform any future fold/loop/dual-model design.
+
+### Cap-edge length vs. corpus size
+
+Mean radix-cap edge length (depth-32 endpoint nodes with `counts.size==1`)
+across three corpus sizes, all built with `--max-depth 32`:
+
+| corpus | size (chars) | caps @ d=32 | mean cap-edge length | %singleton |
+|---|---:|---:|---:|---:|
+| Shakespeare slice | 100,000 | 99,930 | **25.06** | 100.00% |
+| Shakespeare full  | 1,115,394 | 1,114,330 | **23.29** | 99.99% |
+| Gutenberg combined | 9,815,099 | 7,052,157 | **21.15** | 99.98% |
+
+Each 10× in corpus size shaves ~2 chars off the mean cap edge. The
+identity-tail length scales sub-logarithmically — corpus growth helps
+slowly. At Gutenberg 10M, ~28% of corpus characters are *not* caps
+(they're at branching internal nodes), vs. ~0% at Shakespeare 100k
+where every position is a cap. So aliasing is the corpus-size-dependent
+effect that fold can exploit; cap-edge length is structural and
+slow-moving.
+
+The ~2-chars-per-decade is consistent with d_optimal = log₂(N)/H + 21
+from the trie-attention framing: identity-region depth is roughly
+constant (~21) in linguistic terms, decision-region grows
+log-with-corpus, and the cap-edge captures "everything past the
+decision point in the unique tail."
+
+### Forward vs. backward model disagreement
+
+We trained two AGPT models on Shakespeare 1M d=32 with the same recipe
+(pd=6 RMSprop --no-accumulate, 6 SE):
+
+- **Forward F**: trained on the prefix radix-trie (standard direction).
+- **Backward B**: trained on the suffix radix-trie (reversed corpus,
+  `--reverse` flag).
+
+Each predicts the same target c at corpus position p, conditioned on
+opposite sides — F sees `tokens[p-32..p-1]`, B sees the reverse of
+`tokens[p+1..p+32]`. We then compared their predictions at 4096
+held-out positions:
+
+| metric | value |
+|---|---:|
+| KL(F ‖ B) | **2.37 nats** |
+| KL(B ‖ F) | **2.40 nats** |
+| Symmetric KL | 2.38 nats |
+| JS divergence | 0.33 nats (out of max 0.69) |
+| Forward NLL on true c | 1.57 (PPL 4.80) |
+| Backward NLL on true c | 1.63 (PPL 5.12) |
+| Top-1 agreement | **33.2%** |
+
+**The trained models disagree heavily even though the trie distributions
+agree perfectly** (`bayes_probe.cr` confirmed KL=0 for the underlying
+corpus statistics in both directions). The disagreement is at the model
+level — both converge toward the same fixed point in the limit but at
+finite training they encode genuinely different views of the corpus.
+
+Two interpretations worth keeping straight:
+
+1. **Models factor different aspects.** Forward learns continuation
+   patterns (what follows from a prefix); backward learns precedence
+   patterns (what precedes a suffix). Same data, different inductive
+   structure. The 2.4-nat gap quantifies this divergence.
+
+2. **Per-position prefix/suffix asymmetry is large.** At any individual
+   position, prefix and suffix are not equivalent evidence — they carry
+   different *amounts* of information about c. The two models converge
+   to the corpus marginal *over many positions*, but at any single
+   position prefix and suffix point in different directions. Top-1
+   agreement of 33% is essentially "they each have a fan of plausible
+   guesses, those fans overlap on a third of positions."
+
+**Implication for fold mechanism design.** The KL_suffix consistency
+loss in the broader architecture (§3 of `prefix-suffix-fold-architecture.md`)
+is exactly the bridge that would close this gap — it forces F and B to
+agree at training time. The 2.4-nat measurement is what that loss has to
+work against. It's also the magnitude that "real fold/loop" mechanisms
+would have to navigate: any fold operator that crosses prefix↔suffix
+information has to handle this large per-position disagreement, not just
+the corpus-marginal agreement that bayes_probe validated.
+
+The cap-fold mechanism we shipped (target substitution) doesn't bridge
+this divergence — it stays entirely within the prefix-tree view. The
+small PPL win we saw is independent of this gap. The bigger structural
+opportunity (and challenge) is the dual-model coupling that this
+measurement scopes.
+
+### Reproduce
+
+```sh
+just build-agpt-build-radix-corpus
+just build-prefix-suffix-compare
+
+# Cap-edge stats
+./bin/agpt_build_radix_corpus --corpus /tmp/shakespeare_100k.txt --max-depth 32 --out /tmp/agpt_shakes100k_d32_radix
+./bin/trie-profile /tmp/agpt_shakes100k_d32_radix
+# (and likewise for input.txt and gutenberg 10M)
+
+# Forward/backward divergence
+./bin/agpt_build_radix_corpus --corpus data/input.txt --max-depth 32 --reverse --out /tmp/agpt_input_d32_suffix_radix
+./bin/agpt_train --model data/input.random.model --trie-dir /tmp/agpt_input_d32_suffix_radix \
+                 --save /tmp/backward_6se.model --epochs 6 --partition-depth 6 --no-accumulate \
+                 --optimizer rmsprop --lr 3e-3 --weight-decay 0.01 --mass-weight off
+./bin/prefix_suffix_compare --forward /tmp/baseline_6se.model --backward /tmp/backward_6se.model \
+                             --file data/input.txt --seq-len 32 --max-positions 4096 --backend openblas
+```
