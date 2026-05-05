@@ -53,7 +53,7 @@ OptionParser.parse do |p|
   p.on("--lr F", "Learning rate (default 3e-3)") { |v| lr = v.to_f }
   p.on("--backend B", "crystal|openblas|cublas (default openblas)") { |v| backend = v }
   p.on("--seed N", "RNG seed for shuffle (default 42)") { |v| seed = v.to_i }
-  p.on("--shuffle-suffix", "Negative control: pair F prefix with B suffix from random position") { shuffle_suffix = true }
+  p.on("--shuffle-suffix", "Negative control: F at pos i, B at random pos j, both train against own correct targets but KL couples them (mismatched pairing)") { shuffle_suffix = true }
   p.on("--log-every N", "Log every N steps (default 5000)") { |v| log_every = v.to_i }
   p.on("--max-positions N", "Cap positions per epoch (default: all)") { |v| max_positions = v.to_i }
   p.on("-h", "--help", "") { puts p; exit 0 }
@@ -123,7 +123,8 @@ backward = load_model(init_b_path, v, seq_len)
 # Returns (ce_F, ce_B, kl_F_unweighted, kl_B_unweighted).
 def dual_step(forward : MiniGPT, backward : MiniGPT,
               prefix : Array(Int32), reversed_suffix : Array(Int32),
-              target : Int32, beta : Float64, lr : Float64,
+              target_F : Int32, target_B : Int32,
+              beta : Float64, lr : Float64,
               v : Int32, seq_len : Int32) : Tuple(Float64, Float64, Float64, Float64)
   logits_F = forward.forward(prefix)
   logits_B = backward.forward(reversed_suffix)
@@ -139,8 +140,11 @@ def dual_step(forward : MiniGPT, backward : MiniGPT,
   p_F = exp_F.map { |x| x / s_F }
   p_B = exp_B.map { |x| x / s_B }
 
-  ce_F = -Math.log(p_F[target] + 1e-30)
-  ce_B = -Math.log(p_B[target] + 1e-30)
+  # CE: each model scored against its own correct target (target_F == target_B
+  # in aligned mode; differ in shuffle-suffix mode where the KL pairing is
+  # mismatched but each model still trains on its own corpus position).
+  ce_F = -Math.log(p_F[target_F] + 1e-30)
+  ce_B = -Math.log(p_B[target_B] + 1e-30)
 
   kl_F = 0.0
   kl_B = 0.0
@@ -154,9 +158,10 @@ def dual_step(forward : MiniGPT, backward : MiniGPT,
   d_logits_F = Mat.new(seq_len, v)
   d_logits_B = Mat.new(seq_len, v)
   v.times do |t|
-    one_hot = (t == target ? 1.0 : 0.0)
-    g_F = (p_F[t] - one_hot) + beta * (p_F[t] - p_B[t])
-    g_B = (p_B[t] - one_hot) + beta * (p_B[t] - p_F[t])
+    one_hot_F = (t == target_F ? 1.0 : 0.0)
+    one_hot_B = (t == target_B ? 1.0 : 0.0)
+    g_F = (p_F[t] - one_hot_F) + beta * (p_F[t] - p_B[t])
+    g_B = (p_B[t] - one_hot_B) + beta * (p_B[t] - p_F[t])
     d_logits_F[seq_len - 1, t] = g_F
     d_logits_B[seq_len - 1, t] = g_B
   end
@@ -215,13 +220,20 @@ epochs.times do |epoch|
     next if pos + seq_len + 1 > tokens.size
 
     prefix = tokens[pos - seq_len, seq_len]
+    target_F = tokens[pos]
     if shuffle_suffix
+      # Negative control: B sees a suffix from a DIFFERENT random position j,
+      # and trains on c_j as its target (so B still learns its own task
+      # correctly). The KL pairing is then mismatched — F at i is coupled
+      # via KL to B at j. If aligned coupling beats this, the prefix↔suffix
+      # info transfer is real; if it ties, KL is acting as generic regularizer.
       j = rng.rand(seq_len..(tokens.size - seq_len - 1))
       reversed_suffix = tokens[j + 1, seq_len].reverse
+      target_B = tokens[j]
     else
       reversed_suffix = tokens[pos + 1, seq_len].reverse
+      target_B = target_F
     end
-    target = tokens[pos]
 
     beta_eff = if warmup_steps > 0
                  beta_max * Math.min(1.0, total_steps.to_f / warmup_steps.to_f)
@@ -230,7 +242,7 @@ epochs.times do |epoch|
                end
 
     ce_F, ce_B, kl_F, kl_B = dual_step(
-      forward, backward, prefix, reversed_suffix, target,
+      forward, backward, prefix, reversed_suffix, target_F, target_B,
       beta_eff, lr, v, seq_len
     )
 
