@@ -1,293 +1,331 @@
-# Dual-Model AGPT with Unified Prefix/Suffix Tree
+# Dual-View Consistency Training (Forward + Backward Models)
 
 **Branch:** `dual-model-fold`
-**Status:** design
+**Status:** design (revised after review #1 + AGPT-fit reconsideration)
 
-## Context
+## What this experiment is
 
-The cap-folding experiment (`rnd/cap-folding/`) shipped target-substitution
-fold as a small regularizer (~-1 to -2% PPL on Shakespeare 1M d=32) but
-explicitly does not address the seq_len-extension goal that motivated
-folding in the first place. The user's original intent — fold-as-loop
-to bridge prefix and suffix views — requires a structurally different
-mechanism.
+Two independent models train simultaneously on the same corpus:
+- **F** sees the prefix before each target token.
+- **B** sees the reversed suffix after each target token.
 
-Measurement (`notes/agpt/prefix-suffix-model-divergence.md`):
-independently-trained forward F and backward B AGPT models on the same
-Shakespeare 1M corpus disagree by **KL = 2.38 nats** per held-out
-position despite the underlying trie distributions agreeing perfectly
-(KL=0). That 2.4-nat gap is the per-position information asymmetry
-between prefix and suffix evidence — the gap any meaningful "fold"
-must close.
+Both predict the same target c_p. They're coupled by a symmetric
+stop-gradient KL consistency loss that pulls each toward the other's
+prediction. The experiment measures whether explicit cross-direction
+coupling can shrink the **2.38-nat per-position F-vs-B divergence**
+measured in `notes/agpt/prefix-suffix-model-divergence.md`.
 
-This experiment builds the dual-model trainer that explicitly couples
-F and B via a KL_suffix consistency term during training, on top of a
-unified prefix/suffix-tree data structure that physically pairs the two
-views per corpus position.
+## What this experiment is NOT
 
-## Goal
+- Not fold-as-loop or path extension — does not reach beyond the
+  trained seq_len.
+- Not a wrap-around or position-encoding generalization mechanism.
+- Not strict AGPT in the "distribution-CE-per-trie-event" sense — see
+  "Relationship to AGPT" below.
 
-Train F and B jointly on a unified tree such that:
+## Relationship to AGPT — important clarification
 
-1. The 2.4-nat F-vs-B divergence shrinks meaningfully (target: < 0.5
-   nats — a 5× reduction would be strong evidence the coupling works).
-2. Held-out PPL of either model alone improves (each gets the benefit
-   of the other's view as regularization).
-3. The ensemble F+B (Bayesian-inverted at inference) outperforms either
-   alone. This is the deliverable that distinguishes "real fold" from
-   "side-table fold."
+The original architecture notes (`prefix-suffix-fold-architecture.md`)
+specified per-corpus-position CE (`ce_F = CE(c_p, Q_F)`, c_p a single
+token), NOT trie-aggregated distribution-CE. So:
 
-If (1) closes but (2)/(3) don't improve, the coupling is structurally
-present but the corpus's per-position information asymmetry is genuine
-and not bridgeable beyond a certain level.
+- **What's preserved as AGPT-flavored:** per-partition gradient
+  batching, one Adam step per partition, deferred optimizer fires.
+  This is the operational AGPT property that matters for gradient
+  variance and convergence dynamics.
+- **What's NOT preserved:** the existing AGPT trainer's per-trie-event
+  distribution-CE (where the target at a branching node is the
+  empirical multinomial over children). With per-position dual
+  coupling, each event is at a corpus position with a one-hot CE
+  target. This is closer to SGD-with-batching than to AGPT-with-
+  trie-aggregation.
 
-## Architecture
+So calling this "dual-model AGPT" overclaims. It's **dual-view
+consistency training** with AGPT-style partition batching for the
+Adam-fire schedule. The cap-folding work we already shipped (target
+substitution at trie events) genuinely IS AGPT-with-coupling because
+it adds a term to the existing distribution-CE loss; the dual-model
+work is a structurally different training formulation.
 
-### Unified prefix/suffix tree
+## Hypothesis
 
-A single data structure per corpus, replacing the current pair of
-separate prefix-trie + suffix-trie files. Each node corresponds to a
-substring of the corpus and carries both forward (out) and backward
-(in) views.
+The 2.38-nat F-vs-B divergence comes from each model learning a
+different lossy compression of the same corpus joint distribution.
+Coupling them via KL_suffix during training should:
 
-**Per-node payload:**
+1. (Tier 1) Shrink the F-vs-B KL gap meaningfully.
+2. (Tier 2) Improve F-alone causal PPL via cross-direction
+   regularization.
+3. (Tier 3) Make the F+B ensemble outperform either model alone.
+4. (Tier 4) The improvement should require *aligned* prefix/suffix
+   pairing — a shuffled-suffix control should NOT show similar
+   benefit. If shuffled also helps, the KL is just a generic
+   regularizer.
 
-| field | type | meaning |
-|---|---|---|
-| `token_id` | int32 | token at this position in the substring |
-| `out_counts` | sparse (token_id, count) | next-char counts (forward) |
-| `in_counts`  | sparse (token_id, count) | preceding-char counts (backward) |
-| `out_children` | edge pointers | radix-compressed forward edges |
-| `in_children`  | edge pointers | radix-compressed backward edges |
-| `out_mass`, `in_mass` | int32 | mass at this node from each side |
+## Training objective
 
-The forward and backward radix structures are independently compressed
-(unary chains in one direction may not be unary in the other), so the
-same physical node can be a branching point in one direction and inside
-a unary edge in the other.
-
-**Key invariant** that the user observed (`notes/agpt/prefix-suffix-fold-architecture.md`,
-§1.5): every node represents a unique corpus substring, and the node's
-in_counts and out_counts are marginals of the same underlying joint
-P(c_before, substring, c_after). This is structurally guaranteed by
-construction; we don't need to enforce it.
-
-**Wire format:** new file format `unified_tree_meta.bin` +
-`unified_depth_NNN.bin` files. Each record extends the existing
-`RadixTrieReader::LoadedRecord` struct with `in_counts` and `in_edge`
-fields.
-
-**Builder:** new tool `bin/agpt_build_unified_tree`. Takes corpus + max-depth,
-builds both forward and backward views in one pass over the corpus,
-emits unified file format. Memory cost: ~2× current radix trie (since
-we're storing both views), so ~300 MB for Shakespeare 1M at d=32.
-Reasonable.
-
-**Reader:** new class `UnifiedTrieReader` that exposes both
-`forward_walk(W)` and `backward_walk(W)` plus `dual_node_at(corpus_pos)`
-which returns the (in, out) pair at that position.
-
-### Trainer architecture
-
-Two separate `MiniGPT` instances loaded simultaneously (F and B). No
-shared parameters. Each has its own Adam state.
-
-**Per-event flow** (pseudocode):
+For each corpus position i:
 
 ```
-for each AGPT partition group g (visiting unified-tree nodes):
-    F.zero_grads(); B.zero_grads()
+prefix     = corpus[i - seq_len .. i - 1]
+suffix_rev = reverse(corpus[i + 1 .. i + seq_len])
+target     = corpus[i]
 
-    for each query q in g:
-        prefix     = corpus[q.pos - seq_len .. q.pos - 1]
-        suffix_rev = reverse(corpus[q.pos + 1 .. q.pos + seq_len])
-        target     = corpus[q.pos]
+P_F = softmax(F(prefix))
+P_B = softmax(B(suffix_rev))
 
-        P_F = F.forward(prefix)        # predicts target
-        P_B = B.forward(suffix_rev)    # predicts target
+ce_F = CE(target, P_F)
+ce_B = CE(target, P_B)
 
-        ce_F = CE(target, P_F)
-        ce_B = CE(target, P_B)
-        kl_F = KL(stop_grad(P_B) || P_F)   # F is pulled toward B
-        kl_B = KL(stop_grad(P_F) || P_B)   # B is pulled toward F
+kl_F = KL(stop_grad(P_B) || P_F)   # F pulled toward B's view
+kl_B = KL(stop_grad(P_F) || P_B)   # B pulled toward F's view
 
-        F.grad += ce_F + β · kl_F
-        B.grad += ce_B + β · kl_B
-
-    F.adam_step()
-    B.adam_step()
+loss_F = ce_F + β_eff(step) · kl_F
+loss_B = ce_B + β_eff(step) · kl_B
 ```
 
-The `stop_grad` is critical: each model's KL term uses the OTHER
-model's prediction as a fixed teacher. Symmetric KL (both directions)
-ensures neither is privileged. The two models pull each other toward
-agreement, not toward one direction.
+Both models receive their own gradient through their own forward pass.
+The `stop_grad` on the teacher-side is critical — without it, the
+gradient flows through both models simultaneously and the KL term
+becomes a tangle.
 
-**Why both queries fire at the same corpus position:** the unified
-tree's natural training unit IS a corpus position, with both views
-co-located. Each event computes both losses and aggregates per
-partition exactly like single-model AGPT. F and B see identical
-event-counts and identical partition boundaries.
+The KL gradient is simple in closed form:
 
-**Hyperparameter β (KL weight):** start at 0.1 per the architecture-notes
-recommendation. Sweep {0.0 = no coupling baseline, 0.01, 0.1, 1.0} once
-the trainer works. Higher β risks dominating CE; β=0 gives back two
-independent models.
+```
+∂kl_F / ∂logits_F = β · (P_F - P_B)
+∂kl_B / ∂logits_B = β · (P_B - P_F)
+```
 
-### Memory budget
+When the teacher distribution is detached.
 
-At Shakespeare 1M d=32, d_model=64, n_layers=2:
+### β warmup
 
-| component | single-model | dual-model |
-|---|---:|---:|
-| weights | ~430 KB | ~860 KB |
-| Adam state | ~860 KB | ~1.7 MB |
-| K/V cache | 569 MB | 1138 MB |
-| forward-pass buffers | ~3 GB | ~3 GB (shared) |
-| trie (unified) | ~150 MB | ~300 MB |
-| **total** | ~3.7 GB | ~5.4 GB |
+Early in training both models are noisy teachers. Pulling each toward
+the other's noise actively hurts. Use linear warmup:
 
-Fits in 8 GB GPU comfortably for our default architecture. At larger
-architectures (d=96 n_layers=6) we'd be tight — would need to be careful
-about buffer sharing.
+```
+β_eff = β_max · min(1, step / warmup_steps)
+```
 
-### Compute cost
+Default `warmup_steps` = total_partition_groups (one full SE of warmup).
 
-Per training step: 2× forward, 2× backward, single Adam-step-per-model.
-Wall-time per SE roughly 2× single-model. At our Shakespeare 1M
-baseline of ~215 s/SE, dual-model SE would be ~430 s. 6 SE = 43 min.
-Tractable.
+## Training loop
+
+```
+for SE in 1..n_epochs:
+    partitions = group_corpus_positions_by_depth_d_prefix(corpus, partition_depth)
+    for partition g in partitions:
+        F.zero_grad(); B.zero_grad()
+        for position i in g:
+            # forward both models
+            P_F = F(corpus[i-seq_len..i-1])
+            P_B = B(reverse(corpus[i+1..i+seq_len]))
+
+            # accumulate joint loss
+            ce_F = CE(corpus[i], P_F);  ce_B = CE(corpus[i], P_B)
+            kl_F = KL(stop_grad(P_B) || P_F)
+            kl_B = KL(stop_grad(P_F) || P_B)
+
+            F.grad += ce_F + β_eff · kl_F
+            B.grad += ce_B + β_eff · kl_B
+
+        F.adam_step()  # one Adam step per partition for both models
+        B.adam_step()
+```
+
+Partition grouping uses the same `--partition-depth` semantics as
+existing AGPT — positions with identical depth-N prefix go into the
+same partition. Adam fires per partition. This is the
+"AGPT-flavored" part: per-partition gradient batching.
+
+## Architecture choices
+
+- **Two independent models**, no shared parameters. Same architecture
+  for clean comparison (d_model=64, n_layers=2, default).
+- **Different random init seeds** for F and B so their independent
+  factorings have full freedom.
+- **Same tokenizer / vocabulary** so their predictions are over the
+  same V-dim space.
+- **Coupled only via KL terms.** Everything else is independent.
+
+## Memory + compute
+
+At Shakespeare 1M d_model=64 n_layers=2 d=32 seq_len=32:
+
+| component | dual cost |
+|---|---:|
+| Two model weights | ~860 KB |
+| Two Adam states | ~1.7 MB |
+| Two K/V working buffers | ~6 GB at chunked forward |
+| Corpus + partition table | <100 MB |
+| **Total** | **~6 GB** |
+
+Fits in 8 GB. Wall-time per SE roughly 2× single-model SGD pass
+(both F and B forward+backward per event). On the order of ~10-15 min
+per SE on our GPU.
 
 ## Implementation phases
 
-### Phase 1: Unified tree data structure + builder + reader
-
-- [ ] `src/agpt/unified_tree_reader.cr` — Crystal class, mirrors
-      `RadixTrieReader` but with dual in/out fields per record
-- [ ] `src/tools/agpt_build_unified_tree.cr` — builder, walks corpus
-      to construct both views in one pass
-- [ ] Test: round-trip — build, load, verify each node's in_counts +
-      out_counts sum to the same total mass (corpus-position count)
-- [ ] Test: at a known substring W, `forward_walk(W).out_counts`
-      should match what current `agpt_build_radix_corpus` produces;
-      `backward_walk(reverse(W)).in_counts` should match the
-      `--reverse` build's analog
-
-### Phase 2: Dual-model trainer
+### Phase 1 — new dual-trainer
 
 - [ ] `src/cuda/agpt_dual_train.cu` — new trainer entry point.
-      Loads unified tree, two models, two Adam states. Reuses kernels
-      from `agpt_train.cu` for individual model forward/backward.
-- [ ] New kernel: `agpt_dual_loss_per_query_kernel` — extends
-      `agpt_loss_per_query_kernel` to take both models' logits and
-      compute the joint loss including KL terms
-- [ ] Per-pass dual forward (run F on prefix, B on reversed suffix,
-      get both logits)
-- [ ] Per-pass dual backward (gradients through both networks
-      independently)
-- [ ] CLI: `bin/agpt_dual_train --corpus PATH --unified-tree PATH
-      --kl-beta F [...standard agpt_train flags]`
+      Loads corpus directly (not a trie). Builds partition table by
+      sorting positions by depth-N prefix. Loads two models.
+      Per-partition: dual forward, joint loss kernel, dual backward,
+      dual Adam.
+- [ ] New loss kernel: `dual_loss_per_position_kernel` — takes both
+      models' logits at each position, computes joint CE+KL loss and
+      writes gradient to both models' logit grad buffers.
+- [ ] CLI: `bin/agpt_dual_train --model-f F.model --model-b B.model
+      --corpus PATH --epochs N --partition-depth N --kl-beta F
+      --kl-warmup-steps N [--shuffle-suffix] [--branch-gated]`
+- [ ] Logging per partition: `ce_F`, `ce_B`, `kl_F`, `kl_B`,
+      `H(P_F)`, `H(P_B)`, β_eff. Dump to a TSV alongside the standard
+      SE summary line.
 
-### Phase 3: Inference / evaluation
+### Phase 2 — eval tools
 
-- [ ] `bin/prefix_suffix_compare` (already shipped from cap-folding
-      work) — measure post-training KL gap to confirm convergence
-- [ ] New tool: `bin/dual_ensemble_perplexity` — computes ensemble
-      PPL via Bayesian inversion of F and B at each position. Compare
-      to F alone and B alone.
+- [ ] `bin/prefix_suffix_compare` (already exists from cap-folding
+      work) — gives F-vs-B KL post-training. Compute pre and post,
+      track Tier 1 metric.
+- [ ] `bin/dual_ensemble_perplexity` — new tool. Computes ensemble
+      PPL via several mixtures: arithmetic mean, logit average,
+      product-of-experts, weighted product. Reports each so we can
+      see which mixture strategy actually wins.
+- [ ] Causal-only PPL: existing `bin/perplexity` on F alone gives
+      Tier 2. Same on B alone for completeness.
 
-### Phase 4: Verification & sweep
+### Phase 3 — verification
 
-- [ ] **Sanity** — train at β=0 (no coupling) and verify the result
-      matches independent F + independent B from prior work (they
-      should reproduce the 2.38-nat divergence). This validates the
-      dual trainer doesn't accidentally couple at β=0.
-- [ ] **Coupling sweep** — train at β ∈ {0.01, 0.1, 1.0}. Measure:
-  - Final F-vs-B KL (the 2.4-nat gap; does it shrink?)
-  - F-alone PPL, B-alone PPL, ensemble PPL
-  - Wall-time
-- [ ] **Pick β* from the sweep**. Use that β for the headline run.
-- [ ] **Headline experiment** — 6 SE dual-model at β*, compare to:
-  - Independent baseline_6se (F-alone, no coupling)
-  - Cap-fold variant fold_orig_6se (target-substitution version)
-  - Best PPL from cap-folding work (4.728 at 12 SE)
-- [ ] **Effective-context probe** — same as D.4 in cap-folding,
-      see if dual training changes the seq_len profile
+- [ ] **β=0 sanity** — train at β=0 from same random init as our
+      existing `baseline_6se` and `backward_6se`. PPL should match
+      those models within fp tolerance. Confirms the dual trainer
+      has no implicit coupling.
+- [ ] **Shuffled-suffix negative control** — `--shuffle-suffix` flag
+      that pairs F's prefix at position i with B's suffix from a
+      different random position j (target stays c_i). Train at β > 0.
+      If aligned-suffix improvement vanishes under shuffling, alignment
+      is the source of signal. If shuffled improves similarly,
+      the KL is a generic regularizer.
 
-## Open design questions
+### Phase 4 — sweeps + headline
 
-1. **Should KL_suffix terms apply at every event or only at branching
-   points?** Architecture notes don't say. Applying everywhere is
-   simplest. Applying only at branching nodes (skip cap intermediates)
-   would couple less aggressively. We saw earlier that suppressing
-   training at cap intermediates hurts; so coupling there might
-   matter too. Default: apply everywhere.
+- [ ] **Coarse β sweep**: β ∈ {0.0, 0.01, 0.1, 1.0}. Track Tier 1
+      (KL gap) and Tier 2 (F-alone PPL) at each.
+- [ ] **Refined β sweep** at the best coarse point: β ∈
+      {best/3, best/2, best, 2·best, 3·best}.
+- [ ] **Headline run** at β*: full 6 SE, log all diagnostics, run
+      all eval modes.
+- [ ] **Shuffled-suffix re-run** at β* — distinguishes Tier 4.
+- [ ] **Branch-gated KL ablation** at β* — apply KL only when
+      ε(in_counts) > 0.1 nats AND ε(out_counts) > 0.1 nats.
+      Tests whether coupling matters at decision points only.
 
-2. **Symmetric KL or one-sided?** Architecture notes prescribe
-   symmetric (both `KL(B||F)` for F and `KL(F||B)` for B). Default:
-   symmetric. One-sided might be a cheaper variant to test if
-   compute is tight.
+### Phase 5 — writeup
 
-3. **Should the KL term mass-weight match each event's loss
-   weight?** Currently AGPT's loss has optional mass-weighting (corpus
-   frequency). The KL term should follow the same weighting for
-   consistency. Default: yes, KL term inherits mass-weighting.
+- [ ] `rnd/dual-model-fold/README.md` — full results, all four
+      tiers, sweep tables, mechanism interpretation.
+- [ ] Memory file update.
+- [ ] Decision: does this branch's mechanism justify further work
+      toward fold-as-loop? Or is the per-position information
+      asymmetry irreducible at our scale?
 
-4. **Initialization** — should F and B start from the same random
-   weights, or different ones? Different gives them more independent
-   factorings; same gives them shared starting point. Default:
-   different (use distinct seeds), since independence of factorings
-   is the whole experimental premise.
+## Eval modes — explicit definitions
 
-## Risks
+**Causal F-alone:** Standard left-to-right perplexity. F predicts c_p
+from prefix only, no suffix access. Comparable to single-model AGPT
+PPL. This is the metric for Tier 2.
+
+**Bidirectional ensemble:** P(c_p | prefix, suffix) computed by
+mixing P_F and P_B at each position. Multiple mixture options:
+
+```
+arithmetic     = 0.5 · P_F + 0.5 · P_B
+logit_avg      = softmax(0.5 · logits_F + 0.5 · logits_B)
+product        = normalize(P_F · P_B)
+weighted_prod  = normalize(P_F^α · P_B^(1-α)),  α ∈ [0, 1]
+```
+
+This sees future context, so PPL is not directly comparable to causal.
+It IS comparable to MLM-style reconstruction. Tier 3 metric.
+
+## Diagnostic logging
+
+Per partition (or per N partitions to control log volume):
+
+| field | meaning |
+|---|---|
+| `step` | partition counter |
+| `β_eff` | current KL weight after warmup |
+| `ce_F`, `ce_B` | mean CE per partition |
+| `kl_F`, `kl_B` | mean unweighted KL |
+| `wkl_F`, `wkl_B` | β_eff·kl values added to grad |
+| `H_F`, `H_B` | mean prediction entropy |
+| `top1_agree` | fraction of positions where F and B argmax agree |
+
+Per SE summary:
+
+| field | meaning |
+|---|---|
+| F-alone NLL on held-out | causal PPL proxy |
+| B-alone NLL on held-out | for completeness |
+| Symmetric KL on held-out | the 2.38-nat gap, post-SE |
+| Ensemble NLL (arithmetic) | bidirectional PPL |
+
+## Success criteria (from review)
+
+| Tier | Criterion | Implication |
+|---|---|---|
+| 1 | Symmetric KL drops from 2.38 → < 1.0 nat without entropy collapse | Coupling structurally works |
+| 2 | F-alone PPL at β > 0 < F-alone PPL at β = 0 | Causal model improves from cross-coupling |
+| 3 | Ensemble PPL < min(F PPL, B PPL) | Bidirectional combination has real signal |
+| 4 | Aligned-suffix improvement > shuffled-suffix improvement | The signal is genuine prefix↔suffix coupling, not generic regularization |
+
+Tier 4 is the *most important* control — without it we cannot
+distinguish "dual coupling reveals real bidirectional information"
+from "the KL term acts like dropout."
+
+## Out of scope
+
+- Fold-as-loop / path extension past d.
+- Larger architectures (try after Tier 2 succeeds).
+- Larger corpora (Gutenberg 5M/10M; defer until Shakespeare 1M
+  shows the mechanism works).
+- Combining dual-model with cap-fold (target substitution at
+  caps). They're independent; combining is a follow-up if both win
+  individually.
+
+## Risks (revised)
 
 | risk | likelihood | mitigation |
 |---|---|---|
-| KL term dominates and both models collapse to a single learned distribution | moderate | Start β small (0.01), sweep up |
-| KL gradient is too noisy and slows convergence | low-moderate | Use stop_grad strictly; verify gradient direction |
-| Memory blows past 8 GB at default arch | low | Measured ~5.4 GB above; cushion exists |
-| Unified tree build is slow | low | Single pass over corpus, similar to current builder |
-| No PPL improvement despite KL gap closing | moderate | Documents as null result; the corpus may genuinely have irreducible per-position asymmetry |
-| The fold mechanism really needs forward-pass loops, not just KL coupling | moderate | This is the bigger architectural question; addressing it would be Phase 5 if Phase 4 plateaus |
-
-## Out of scope (for this branch)
-
-- **Forward-pass loops / path extension.** This experiment couples F
-  and B at the loss level; it does not extend training paths past d.
-  Loop-based path extension is a separate larger architectural
-  change.
-- **Wrap-around / position encoding for d > seq_len.** Same as above;
-  not addressing the long-seq question.
-- **Larger architecture / corpus.** Stay at d_model=64 n_layers=2,
-  Shakespeare 1M, d=32 for the headline experiment. Scale up as
-  Phase 5 if results warrant.
-- **Cap-fold + dual-model combined.** The cap-fold mechanism (target
-  substitution at caps) and dual-model coupling are independent.
-  Combining them might compound or interfere; out of scope here.
+| KL dominates and both models collapse to high-entropy bland distributions | moderate | β warmup; track entropy as a guard; abort if H_F or H_B grows monotonically |
+| Aligned and shuffled controls perform identically | moderate | This is *information* — the KL is acting as a regularizer not a bridge. Document and adjust. |
+| Per-position training is slower than expected | low | Profile; if a problem, switch to chunked positions (process N positions per kernel launch) |
+| KL gap closes but F-alone PPL doesn't move | moderate | Tier 1 success without Tier 2 is interesting but limited. Document. |
 
 ## Estimated effort
 
 | task | time |
 |---|---|
-| Unified tree builder + reader | 1 day |
-| Dual trainer (CUDA) | 2-3 days |
-| Verification + sweep | 1 day |
-| Headline + writeup | 1 day |
-| **Total** | **~5-6 days focused work** |
-
-Significantly more than cap-folding's half-day. Worth it because the
-result has clean interpretation regardless of outcome — either we close
-the 2.4-nat gap (positive: coupling works), or we don't (negative: gap
-is irreducible, and that's a structural truth about prefix↔suffix
-asymmetry in language).
+| Phase 1 dual trainer | 2-3 days |
+| Phase 2 eval tools | 1 day |
+| Phase 3 verification | 0.5 day |
+| Phase 4 sweeps + headline | 1 day |
+| Phase 5 writeup | 0.5 day |
+| **Total** | **5-6 focused days** |
 
 ## Pointers
 
-- `notes/agpt/prefix-suffix-fold-architecture.md` — original design
-  (§3.1, §3.3 spec the dual-model trainer)
-- `notes/agpt/prefix-suffix-model-divergence.md` — the 2.4-nat
+- `notes/agpt/prefix-suffix-fold-architecture.md` — original design,
+  §3.1 and §3.3 specify the dual-model architecture
+- `notes/agpt/prefix-suffix-model-divergence.md` — the 2.38-nat
   measurement this experiment targets
-- `rnd/cap-folding/README.md` — what we already shipped (target-sub
-  fold) and how it differs from this work
-- `bin/prefix_suffix_compare` — measurement tool, will be reused
-  for verification
+- `rnd/cap-folding/README.md` — the target-substitution fold work
+  that motivated this; the dual-model approach is structurally
+  different
+- `bin/prefix_suffix_compare` — existing tool that measures the
+  F-vs-B divergence; will be reused for verification
+- `rnd/dual-model-fold/PLAN_REVIEW_1.md` — external review that
+  drove this revision; tier criteria, β warmup, shuffled control
+  all came from there
