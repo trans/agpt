@@ -59,6 +59,16 @@ build-agpt-build-fold-table: build-stubs
     mkdir -p bin
     timeout 3m crystal build src/tools/agpt_build_fold_table.cr -o bin/agpt_build_fold_table --release --link-flags="{{root}}/build/kernels.o -lstdc++"
 
+# Build virtual-tree builder for cap-tunnel expansion.
+# For each cap with edge length L, emits min(expansion_depth, L) composite
+# distributions — one per tunnel position — formed as length-weighted
+# mixtures of shifted-prefix walks. Drops the cap-as-SGD pathology by
+# substituting non-degenerate targets at the +N tunnel positions while
+# leaving the rest of the cap edge as is.
+build-agpt-build-virtual-tree: build-stubs
+    mkdir -p bin
+    timeout 3m crystal build src/tools/agpt_build_virtual_tree.cr -o bin/agpt_build_virtual_tree --release --link-flags="{{root}}/build/kernels.o -lstdc++"
+
 # Build wormhole-table builder for the topological-navigation experiment.
 # Per cap, emits a re-entry edge to a prefix-trie node (depth-1 by default).
 # Variants:
