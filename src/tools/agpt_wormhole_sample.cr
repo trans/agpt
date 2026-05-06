@@ -28,6 +28,7 @@ max_len = 32
 n_loops = 1
 seed = 42
 emit_text = false
+no_separator = false
 
 OptionParser.parse do |p|
   p.banner = "Usage: agpt_wormhole_sample --trie DIR --wormhole-table PATH --out PATH [options]"
@@ -40,6 +41,7 @@ OptionParser.parse do |p|
   p.on("--n-loops N", "Number of wormhole jumps per path (default 1)") { |v| n_loops = v.to_i }
   p.on("--seed N", "Random seed (default 42)") { |v| seed = v.to_i }
   p.on("--text", "Output as decoded text (one sample per line) instead of token IDs") { emit_text = true }
+  p.on("--no-separator", "When emitting text, concatenate samples back-to-back with no newline between (so microgpt's stride=seq_len aligns with sample boundaries)") { no_separator = true }
   p.on("-h", "--help", "") { puts p; exit 0 }
 end
 
@@ -122,7 +124,7 @@ def sample_path(start : RadixTrieReader::LoadedRecord,
                 depth1_for_token : Hash(Int32, Int32),
                 child_by_token : Hash(Int32, Hash(Int32, RadixTrieReader::LoadedRecord)),
                 record_by_id : Hash(Int32, RadixTrieReader::LoadedRecord),
-                rng : Random) : Array(Int32)
+                rng : Random) : {Array(Int32), Int32}
   seq = [] of Int32
   current = start
   loops_used = 0
@@ -133,8 +135,8 @@ def sample_path(start : RadixTrieReader::LoadedRecord,
   if current.id == 0
     # Sample first child of root
     root_children = child_by_token[0]?
-    return seq if root_children.nil?
-    return seq if root_children.empty?
+    return {seq, loops_used} if root_children.nil?
+    return {seq, loops_used} if root_children.empty?
     rc = root_children
     # Sample by mass (weighted by edge_mass of each child)
     keys = rc.keys
@@ -229,7 +231,7 @@ def sample_path(start : RadixTrieReader::LoadedRecord,
 
   # Truncate to max_len.
   seq = seq[0, max_len] if seq.size > max_len
-  seq
+  {seq, loops_used}
 end
 
 # Sample an index from a discrete distribution given by weights.
@@ -255,16 +257,22 @@ rng = Random.new(seed)
 t_start = Time.instant
 File.open(out_path, "w") do |out_file|
   total_chars = 0
+  total_loops = 0_i64
   n_samples.times do |i|
-    path = sample_path(root, max_len, n_loops, wormhole_targets,
-                       depth1_for_token, child_by_token, record_by_id, rng)
+    path, loops_in_path = sample_path(root, max_len, n_loops, wormhole_targets,
+                                      depth1_for_token, child_by_token, record_by_id, rng)
     if emit_text && (cb = chars_by_id)
       text_path = String.build { |io| path.each { |t| io << cb[t] } }
-      out_file.puts text_path
+      if no_separator
+        out_file.print text_path
+      else
+        out_file.puts text_path
+      end
     else
       out_file.puts path.join(" ")
     end
     total_chars += path.size
+    total_loops += loops_in_path
 
     if (i + 1) % 10_000 == 0
       elapsed = (Time.instant - t_start).total_seconds
@@ -272,6 +280,12 @@ File.open(out_path, "w") do |out_file|
       avg_len = total_chars.to_f / (i + 1).to_f
       STDERR.puts "  #{i + 1}/#{n_samples} samples (#{rate.round(0)}/s, avg_len=#{avg_len.round(1)})"
     end
+  end
+  STDERR.puts "Total chars: #{total_chars}"
+  STDERR.puts "Total wormholes: #{total_loops}"
+  if total_loops > 0
+    avg_seg = total_chars.to_f / total_loops.to_f
+    STDERR.puts "Avg chars per wormhole transition: #{avg_seg.round(2)}"
   end
 end
 
