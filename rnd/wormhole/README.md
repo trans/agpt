@@ -23,42 +23,69 @@ pick a "later" routing char (peak boundary depth d=26 in the d=32
 trie). synth_wrap walks the full tunnel and uses a learned bridge
 token sampled from the leaf's endpoint distribution.
 
-## Result (Shakespeare 1M, d=32, seq=128, 10k steps, openblas, seed 42)
+## Result (Shakespeare 1M, d=32, seq=128, 10k steps, openblas)
 
-| Variant | PPL on real corpus | Δ vs synth_wrap |
-|---|---:|---:|
-| synth_wrap baseline (full walks + bridge) | **7.17** | — |
-| Wormhole V1 stream (1 giant 10M sample) | 7.65 | +6.7% |
-| Wormhole V1 aligned (78k × 128, no separator) | 7.67 | +7.0% |
-| Wormhole V2 stream | 7.88 | +9.9% |
-| Wormhole V2 aligned | 8.29 | +15.6% |
+| Variant | Density | PPL | Notes |
+|---|---|---:|---|
+| **SGD on real corpus** (ceiling) | — | **6.96** mean (4 seeds, 6.93–7.02) | the ceiling |
+| synth_wrap (prior result) | 32/tr | 7.04 mean (6.93–7.13) | full walks + bridge token |
+| **Wormhole V2 walk-tunnel** | 32/tr | **7.08** mean (6.97–7.21) | suffix-boundary routing, density-matched |
+| Wormhole V1 walk-tunnel (1 seed) | 32/tr | 7.19 | cap-head routing, density-matched |
+| Wormhole V1 stream (1 seed) | 8.7/tr | 7.65 | skip tunnel, cap-head route |
+| Wormhole V1 aligned (1 seed) | 8.7/tr | 7.67 | skip tunnel, sample boundaries align |
+| Wormhole V2 stream (1 seed) | 8.7/tr | 7.88 | skip tunnel, suffix-boundary route |
+| Wormhole V2 aligned (1 seed) | 8.7/tr | 8.29 | skip tunnel + alignment |
 
-### Sample-boundary alignment
+Density notation: `Y/tr` = average chars per wormhole transition in the synthetic corpus.
+
+### Density was the dominant confound
+
+Initial result (skip-tunnel variants) showed wormhole 7-15% behind
+synth_wrap. The cause was wormhole transition density: skip-tunnel
+variants fire a wormhole every ~9 chars (every cap), while synth_wrap
+walks the full 32-char unary tunnel between transitions. At
+seq_len=128, that's ~14 wormhole-induced transitions per training
+window vs ~4 for synth_wrap — the model can't recover any structure.
+
+The `--walk-tunnel` control emits `cap.edge_tokens` (the unary tunnel
+chars) BEFORE wormholing. Density goes to 32/tr exactly. Result: V1
+walk-tunnel 7.19 ≈ synth_wrap 7.17 (single-seed); V2 walk-tunnel
+multi-seed mean 7.08 sits in the synth_wrap range (6.93–7.13) and
+just above the SGD ceiling 6.96. The wormhole routing rule is
+structurally fine — what failed was skipping the tunnel.
+
+### Sample-boundary alignment didn't matter
 
 "Aligned" variant: emit each sample as exactly `seq_len=128` chars
 with no inter-sample newline (`--no-separator`). File size =
 n_samples × seq_len exactly, so microgpt's stride=seq_len windowing
 puts each training window on one independent walk-with-wormholes.
 
-Result: alignment did not help (V1 aligned 7.67 ≈ V1 stream 7.65).
-With ~14 wormholes per 128-char sample (avg 8.7 chars/wormhole), the
-model sees ~14 transitions per training window regardless of whether
-the window starts at a sample boundary. Transition density dominates
-over starting alignment.
+Alignment didn't help (V1 aligned 7.67 ≈ V1 stream 7.65). At ~14
+wormholes per 128-char sample, transition density saturates the
+window regardless of where it starts. V2 aligned actually regressed
+(7.88 → 8.29), suggesting restart-from-root distribution interacts
+unfavorably with V2's suffix-boundary routing in some way.
 
-V2 aligned actually regresses (7.88 → 8.29), suggesting
-restart-from-root distribution interacts unfavorably with V2's
-suffix-boundary routing.
-
-**Conclusion**: skipping the unary tunnel costs PPL. Both V1 and V2
-underperform synth_wrap — the unary tunnel chars carry training
-signal that the model uses, even though they are
+**Conclusion**: skipping the unary tunnel is the single biggest cost
+in the dumb-baseline experiments. The unary tunnel chars carry
+training signal that the model uses, even though they are
 information-theoretically zero-entropy under the trie distribution.
 
-V1 < V2 (V1 is the smaller regression). Routing by cap head produces
-more coherent stitches than routing by a deeper-in-tunnel boundary
-char, presumably because the cap head is the structurally consistent
-"natural exit" char for the prefix branch.
+When density is matched (`--walk-tunnel`), the wormhole routing rule
+performs comparably to synth_wrap. V2 (suffix-aware boundary char
+routing) sits at multi-seed mean 7.08, within the synth_wrap range
+(6.93–7.13) and just above the SGD ceiling (6.96 mean). V1
+(cap-head routing) at 7.19 single-seed is ~similar.
+
+So the structural framing is validated: routing at cap → re-entry
+via depth-1 root child works as a corpus-construction primitive
+when the unary tunnel is preserved. What it doesn't yet provide is
+the wormhole's promised benefit — constant-memory arbitrary-context
+navigation. To realize that, the model itself would need to
+*learn* to skip identity tunnels at inference; the corpus-level
+test here only validates that the routing rule produces trainable
+data.
 
 ## Interpretation
 
