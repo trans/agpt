@@ -23,18 +23,24 @@ pick a "later" routing char (peak boundary depth d=26 in the d=32
 trie). synth_wrap walks the full tunnel and uses a learned bridge
 token sampled from the leaf's endpoint distribution.
 
-## Result (Shakespeare 1M, d=32, seq=128, 10k steps, openblas)
+## Result (Shakespeare 1M, d=32, seq=128, 10k steps, openblas; multi-seed = 42/44/46/48 with fresh random init per seed)
 
-| Variant | Density | PPL | Notes |
-|---|---|---:|---|
-| **SGD on real corpus** (ceiling) | — | **6.96** mean (4 seeds, 6.93–7.02) | the ceiling |
-| synth_wrap (prior result) | 32/tr | 7.04 mean (6.93–7.13) | full walks + bridge token |
-| **Wormhole V2 walk-tunnel** | 32/tr | **7.08** mean (6.97–7.21) | suffix-boundary routing, density-matched |
-| Wormhole V1 walk-tunnel (1 seed) | 32/tr | 7.19 | cap-head routing, density-matched |
-| Wormhole V1 stream (1 seed) | 8.7/tr | 7.65 | skip tunnel, cap-head route |
-| Wormhole V1 aligned (1 seed) | 8.7/tr | 7.67 | skip tunnel, sample boundaries align |
-| Wormhole V2 stream (1 seed) | 8.7/tr | 7.88 | skip tunnel, suffix-boundary route |
-| Wormhole V2 aligned (1 seed) | 8.7/tr | 8.29 | skip tunnel + alignment |
+| Variant | Density | Mean PPL | Range | Δ vs SGD |
+|---|---|---:|---|---:|
+| **SGD on real corpus** (ceiling) | — | **6.96** | 6.93–7.02 | — |
+| synth_wrap | 32/tr | 7.06 | 6.92–7.18 | +1.4% |
+| Wormhole V2 walk-tunnel | 32/tr | 7.08 | 6.97–7.21 | +1.7% |
+| Wormhole V1 walk-tunnel | 32/tr | 7.10 | 7.06–7.19 | +2.0% |
+| Wormhole V1 stream (1 seed) | 8.7/tr | 7.65 | — | +9.9% |
+| Wormhole V1 aligned (1 seed) | 8.7/tr | 7.67 | — | +10.2% |
+| Wormhole V2 stream (1 seed) | 8.7/tr | 7.88 | — | +13.2% |
+| Wormhole V2 aligned (1 seed) | 8.7/tr | 8.29 | — | +19.1% |
+
+Three density-matched synthetic-corpus methods (synth_wrap bridge,
+V1 cap-head, V2 suffix-boundary) land in the same band ~7.06–7.10
+mean, statistically indistinguishable, all ~1.4–2.0% above the SGD
+ceiling. The wormhole routing rules are equivalent to synth_wrap's
+bridge-token sampling as corpus-construction primitives.
 
 Density notation: `Y/tr` = average chars per wormhole transition in the synthetic corpus.
 
