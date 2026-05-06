@@ -59,6 +59,15 @@ build-agpt-build-fold-table: build-stubs
     mkdir -p bin
     timeout 3m crystal build src/tools/agpt_build_fold_table.cr -o bin/agpt_build_fold_table --release --link-flags="{{root}}/build/kernels.o -lstdc++"
 
+# Build wormhole-table builder for the topological-navigation experiment.
+# Per cap, emits a re-entry edge to a prefix-trie node (depth-1 by default).
+# Variants:
+#   v1 — first-char of cap → depth-1 root child (zero suffix info)
+#   v2 — boundary-char (where suffix entropy crosses 0) → depth-1 root child
+build-agpt-build-wormhole-table: build-stubs
+    mkdir -p bin
+    timeout 3m crystal build src/tools/agpt_build_wormhole_table.cr -o bin/agpt_build_wormhole_table --release --link-flags="{{root}}/build/kernels.o -lstdc++"
+
 # Build prefix/suffix model comparison tool.
 # Loads a forward model (trained on prefix trie) and backward model (trained on
 # suffix/reversed-corpus trie); reports KL between their predictions at held-out
