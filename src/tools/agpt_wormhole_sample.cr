@@ -126,24 +126,6 @@ def sample_path(start : RadixTrieReader::LoadedRecord,
   end
 
   while seq.size < max_len
-    # If current is a cap (counts.size == 1) and we have loop budget, jump.
-    if current.counts.size == 1
-      if loops_used < n_loops
-        target_id = wormhole_targets[current.id]
-        break if target_id < 0
-        target = record_by_id[target_id]?
-        break if target.nil?
-        loops_used += 1
-        # Jump: emit target's edge tokens (typically 1 char for depth-1 root child)
-        seq.concat(target.edge_tokens)
-        current = target
-        next
-      else
-        # Out of loop budget; stop here.
-        break
-      end
-    end
-
     # current is a branching internal node. Sample a child.
     return seq if current.counts.empty?
     tokens = current.counts.map { |entry| entry[0] }
@@ -162,6 +144,30 @@ def sample_path(start : RadixTrieReader::LoadedRecord,
       seq << next_token
       break
     end
+
+    # If the next record is a CAP (counts.size == 1, unary tunnel ahead),
+    # we DO NOT walk into its edge_tokens — that's the identity tunnel we
+    # want to skip. Instead, intercept at the cap head: wormhole-jump
+    # using the cap's pre-mapped target (which is depth-1 of root for the
+    # cap head token). The wormhole target's edge_tokens naturally emit
+    # that head char as part of the new path.
+    if next_rec.counts.size == 1
+      if loops_used < n_loops
+        target_id = wormhole_targets[next_rec.id]
+        break if target_id < 0
+        target = record_by_id[target_id]?
+        break if target.nil?
+        loops_used += 1
+        seq.concat(target.edge_tokens)
+        current = target
+        next
+      else
+        # Out of loop budget; stop without entering the tunnel.
+        break
+      end
+    end
+
+    # Internal branching child: walk into it normally.
     seq.concat(next_rec.edge_tokens)
     current = next_rec
   end

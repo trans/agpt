@@ -171,9 +171,13 @@ reader.each do |r|
 
   case variant
   when "v1"
-    # Re-entry target = depth-1 root child for cap's FIRST char.
-    first_char = path[0]
-    target_id = depth1_for_token[first_char]?
+    # Re-entry target = depth-1 root child for the CAP HEAD token, i.e.,
+    # the first char of the cap's unary edge (= edge_tokens[0]). This is
+    # the char at depth first_char_depth, where the prefix-tree's branching
+    # has died and the identity tunnel begins. Route by *that* boundary
+    # character, NOT the depth-1 char of the whole sequence (path[0]).
+    head_char = r.edge_tokens[0]
+    target_id = depth1_for_token[head_char]?
     if target_id
       targets[r.id] = target_id
       caps_with_target += 1
