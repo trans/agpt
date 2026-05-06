@@ -27,9 +27,28 @@ token sampled from the leaf's endpoint distribution.
 
 | Variant | PPL on real corpus | Δ vs synth_wrap |
 |---|---:|---:|
-| synth_wrap baseline | **7.17** | — |
-| Wormhole V1 (cap-head routing) | **7.65** | +6.7% |
-| Wormhole V2 (suffix-boundary routing) | **7.88** | +9.9% |
+| synth_wrap baseline (full walks + bridge) | **7.17** | — |
+| Wormhole V1 stream (1 giant 10M sample) | 7.65 | +6.7% |
+| Wormhole V1 aligned (78k × 128, no separator) | 7.67 | +7.0% |
+| Wormhole V2 stream | 7.88 | +9.9% |
+| Wormhole V2 aligned | 8.29 | +15.6% |
+
+### Sample-boundary alignment
+
+"Aligned" variant: emit each sample as exactly `seq_len=128` chars
+with no inter-sample newline (`--no-separator`). File size =
+n_samples × seq_len exactly, so microgpt's stride=seq_len windowing
+puts each training window on one independent walk-with-wormholes.
+
+Result: alignment did not help (V1 aligned 7.67 ≈ V1 stream 7.65).
+With ~14 wormholes per 128-char sample (avg 8.7 chars/wormhole), the
+model sees ~14 transitions per training window regardless of whether
+the window starts at a sample boundary. Transition density dominates
+over starting alignment.
+
+V2 aligned actually regresses (7.88 → 8.29), suggesting
+restart-from-root distribution interacts unfavorably with V2's
+suffix-boundary routing.
 
 **Conclusion**: skipping the unary tunnel costs PPL. Both V1 and V2
 underperform synth_wrap — the unary tunnel chars carry training
