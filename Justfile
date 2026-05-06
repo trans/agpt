@@ -68,6 +68,14 @@ build-agpt-build-wormhole-table: build-stubs
     mkdir -p bin
     timeout 3m crystal build src/tools/agpt_build_wormhole_table.cr -o bin/agpt_build_wormhole_table --release --link-flags="{{root}}/build/kernels.o -lstdc++"
 
+# Build wormhole sampler. Walks the prefix trie from root, sampling next-char
+# at each step from the empirical distribution. At cap heads, jumps via the
+# wormhole side-table to a re-entry node. Output: sampled paths suitable as
+# training sequences for SGD/LM training.
+build-agpt-wormhole-sample: build-stubs
+    mkdir -p bin
+    timeout 3m crystal build src/tools/agpt_wormhole_sample.cr -o bin/agpt_wormhole_sample --release --link-flags="{{root}}/build/kernels.o -lstdc++"
+
 # Build prefix/suffix model comparison tool.
 # Loads a forward model (trained on prefix trie) and backward model (trained on
 # suffix/reversed-corpus trie); reports KL between their predictions at held-out
