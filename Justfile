@@ -69,6 +69,11 @@ build-agpt-build-virtual-tree: build-stubs
     mkdir -p bin
     timeout 3m crystal build src/tools/agpt_build_virtual_tree.cr -o bin/agpt_build_virtual_tree --release --link-flags="{{root}}/build/kernels.o -lstdc++"
 
+# Build virtual-tree inspector (CPU-side validator for VTRE side-tables).
+build-agpt-inspect-virtual-tree: build-stubs
+    mkdir -p bin
+    timeout 3m crystal build src/tools/agpt_inspect_virtual_tree.cr -o bin/agpt_inspect_virtual_tree --release --link-flags="{{root}}/build/kernels.o -lstdc++"
+
 # Build wormhole-table builder for the topological-navigation experiment.
 # Per cap, emits a re-entry edge to a prefix-trie node (depth-1 by default).
 # Variants:

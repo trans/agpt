@@ -171,9 +171,14 @@ reader.each do |cap|
   positions_to_emit.times do |p|
     positions_attempted += 1
 
-    # The walk endpoint for shift k at position p: path[k : cap_edge_start_0idx + p + 1].
-    # Walk length = cap_edge_start_0idx + p + 1 - k.
-    walk_end = cap_edge_start_0idx + p + 1
+    # Walks for tunnel position p PREDICT the char at path index
+    # (cap_edge_start_0idx + p). The walk thus stops JUST BEFORE that
+    # index — it walks from shift to (cap_edge_start_0idx + p) exclusive.
+    # Reading the distribution at the walk endpoint then gives
+    #   P(char at predicted position | walked-substring),
+    # which is the corpus-aggregated story for the cap-edge char at
+    # position p instead of the trie's degenerate one-hot.
+    walk_end = cap_edge_start_0idx + p
     composite = Hash(Int32, Float64).new(0.0)
     total_weight = 0.0
 
