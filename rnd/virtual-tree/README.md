@@ -77,19 +77,44 @@ real ~2% KL events at branching endpoints. But it does say:
 **aggressive enrichment of cap targets beyond their natural one-hot is
 not free, and at +3 with α=0.5 it's net-negative.**
 
-## Possible follow-ups (untested)
+## Skip-position-0 follow-up: confirms categorical fail
 
-- **expansion_depth=1**: only override cap-edge position 0. Avoids
-  positions 1, 2 entirely. (But position 0 is the position with the
-  parent-overlap problem, so this might actually be the worst variant.)
-- **Skip position 0, override positions 1, 2 only**: avoids the
-  parent-overlap conflict; keeps the composite-target experiment for
-  positions where there's truly no other signal source.
-- **α=0.1 or hard-cutoff to shift=1 only**: makes composites much
-  sharper, closer to a single-context prediction. Reduces softening.
-- **Mixture target: β × one-hot + (1−β) × composite**: keep most of the
-  sharp signal, add some composite info. β=0.7 or 0.8 starts close to
-  baseline.
+Tested whether the parent-overlap conflict at position 0 was the
+dominant failure mode. Built a vtree side-table with `--position-min 1`
+(positions 1 and 2 use composite, position 0 stays one-hot). Same
+recipe, 6 SE.
+
+| Variant | PPL @ seq=32 |
+|---|---:|
+| Baseline | 4.80 |
+| Vtree expansion=3 (positions 0,1,2) | 5.57 |
+| **Vtree skip-pos-0 (positions 1,2 only)** | **6.23** |
+
+Skip-pos-0 is *worse*, not better. Training loss also unstable
+(2.14 → 1.90 → 1.87 → 1.92 → 1.86 → 2.03 — oscillates instead of
+monotonic descent like full vtree). Mixing one-hot at position 0 with
+composite at positions 1, 2 creates conflicting gradient directions
+within the same cap and breaks training dynamics.
+
+The parent-overlap hypothesis is refuted — position 0 was not the
+dominant cause. Composite-vs-one-hot in any combination at cap-tunnel
+positions is categorically wrong-direction for held-out PPL. The cap
+one-hots are doing the work and any softening hurts; mixing the two
+within a cap hurts even more.
+
+## Verdict
+
+The composite-target idea is dead at this configuration. The other
+follow-ups I'd considered (sharper α, mixture targets, expansion=1)
+all play with how *much* of the cap one-hot to replace; the data says
+the right amount to replace is *zero*.
+
+The mechanism implementation is correct (sanity run, parity tests, off-
+by-one fix all clean) — it's the hypothesis that was wrong. The cap
+one-hots are not noise to be replaced; they're the bulk of useful
+gradient signal at d=32. Any future "enrichment of cap targets" work
+would need a fundamentally different mechanism, not a softer
+distribution to KL-match.
 
 ## Reproduce
 

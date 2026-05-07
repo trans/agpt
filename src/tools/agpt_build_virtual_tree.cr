@@ -43,6 +43,7 @@ top_k = 16
 alpha = 0.5
 max_cached = 64
 progress_every = 50_000
+position_min = 0  # skip cap-edge positions below this (e.g. position_min=1 leaves position 0 to one-hot)
 
 OptionParser.parse do |p|
   p.banner = "Usage: agpt_build_virtual_tree --trie DIR --out PATH [options]"
@@ -55,6 +56,7 @@ OptionParser.parse do |p|
   p.on("--top-k N", "Top-K next chars per composite (default 16)") { |v| top_k = v.to_i }
   p.on("--alpha F", "Geometric weighting decay; weight per shift k = alpha^(k-1) (default 0.5; smaller = sharper preference for long walks)") { |v| alpha = v.to_f }
   p.on("--max-cached N", "Reader LRU cache size (default 64)") { |v| max_cached = v.to_i }
+  p.on("--position-min N", "Skip cap-edge positions below N; positions 0..position_min-1 stay one-hot in the trainer (default 0). Diagnostic for parent-overlap conflict at position 0.") { |v| position_min = v.to_i }
   p.on("-h", "--help", "") { puts p; exit 0 }
 end
 
@@ -169,6 +171,7 @@ reader.each do |cap|
   pos_filled_for_this_cap = 0
   positions_to_emit = Math.min(expansion_depth, edge_len)
   positions_to_emit.times do |p|
+    next if p < position_min  # leave low positions to one-hot (parent-overlap mitigation)
     positions_attempted += 1
 
     # Walks for tunnel position p PREDICT the char at path index
