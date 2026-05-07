@@ -2441,6 +2441,15 @@ __global__ void agpt_loss_per_query_kernel(
     const int* fold_lengths,      // [radix_count] entries per radix_id (0 = no fold target)
     const int* fold_tokens,       // [total_fold_entries] flat token indices
     const float* fold_probs,      // [total_fold_entries] flat probabilities (sum to 1 per cap)
+    // Virtual-tree side-table (optional; non-NULL vtree_lengths enables it).
+    // Per (cap, tunnel-position) composite distribution that replaces the
+    // one-hot intermediate target at tunnel positions p ∈ [0, expansion_depth).
+    // Slot index = radix_id * vtree_expansion_depth + position_in_edge.
+    const int* vtree_offsets,     // [radix_count * expansion_depth] offset into vtree_tokens/probs
+    const int* vtree_lengths,     // [radix_count * expansion_depth] entries per slot (0 = no override)
+    const int* vtree_tokens,      // flat token indices
+    const float* vtree_probs,     // flat probabilities (sum to 1 per slot)
+    int vtree_expansion_depth,    // 0 if no virtual tree
     float* d_logits,              // [T_q, V] — written with gradient
     float* loss_out,              // [T_q]
     int T_q, int V,
@@ -2577,6 +2586,54 @@ __global__ void agpt_loss_per_query_kernel(
             loss_out[q] = loss;
         } else {
             // Intermediate unary: target is the next token in the edge.
+            // Virtual-tree override: at tunnel positions inside a cap, replace
+            // the one-hot with a corpus-aggregated composite distribution from
+            // shifted-prefix walks. The cap's L tunnel positions are otherwise
+            // L deterministic one-hots that the model can't reach (cap-as-SGD
+            // pathology). VTRE substitutes a real distribution at the first
+            // expansion_depth positions where shifted walks still find
+            // non-degenerate evidence; remaining tunnel positions stay one-hot.
+            if (vtree_lengths != NULL && vtree_expansion_depth > 0) {
+                int radix_id = radix_ids[n_idx];
+                int counts_start = counts_offset[radix_id];
+                int counts_end = counts_offset[radix_id + 1];
+                bool is_cap = (counts_end - counts_start) == 1;
+                if (is_cap) {
+                    int node_start_q = query_offsets[n_idx];
+                    int pos_in_edge = q - node_start_q;
+                    if (pos_in_edge < vtree_expansion_depth) {
+                        int slot = radix_id * vtree_expansion_depth + pos_in_edge;
+                        int vlen = vtree_lengths[slot];
+                        if (vlen > 0) {
+                            int voff = vtree_offsets[slot];
+                            float w = intermediate_weight;
+                            if (entropy_lambda > 0.0f && vlen > 1) {
+                                float H = 0.0f;
+                                for (int e = 0; e < vlen; e++) {
+                                    float prob = vtree_probs[voff + e];
+                                    if (prob > 0.0f) H -= prob * logf(prob);
+                                }
+                                w *= 1.0f + entropy_lambda * (H / logf((float)V));
+                            }
+                            if (mass_weights != NULL) w *= mass_weights[q];
+                            float loss = 0.0f;
+                            for (int e = 0; e < vlen; e++) {
+                                int tok = vtree_tokens[voff + e];
+                                float prob = vtree_probs[voff + e];
+                                float p = grad_row[tok];
+                                loss -= prob * logf(p + 1e-10f);
+                                grad_row[tok] -= prob;
+                            }
+                            if (w != 1.0f) {
+                                loss *= w;
+                                for (int j = 0; j < V; j++) grad_row[j] *= w;
+                            }
+                            loss_out[q] = loss;
+                            return;
+                        }
+                    }
+                }
+            }
             int target = token_ids[q + 1];
             float p = grad_row[target];
             float loss = -logf(p + 1e-10f);
@@ -2604,6 +2661,9 @@ void launch_agpt_loss_per_query(const float* logits, const int* query_to_node,
                                  const float* mass_weights,
                                  const int* fold_offsets, const int* fold_lengths,
                                  const int* fold_tokens, const float* fold_probs,
+                                 const int* vtree_offsets, const int* vtree_lengths,
+                                 const int* vtree_tokens, const float* vtree_probs,
+                                 int vtree_expansion_depth,
                                  float* d_logits, float* loss_out,
                                  int T_q, int V, float entropy_lambda,
                                  float intermediate_weight, int ce_only) {
@@ -2615,6 +2675,8 @@ void launch_agpt_loss_per_query(const float* logits, const int* query_to_node,
         logits, query_to_node, query_offsets, radix_ids, token_ids,
         counts_offset, counts_tok, counts_val, mass_weights,
         fold_offsets, fold_lengths, fold_tokens, fold_probs,
+        vtree_offsets, vtree_lengths, vtree_tokens, vtree_probs,
+        vtree_expansion_depth,
         d_logits, loss_out, T_q, V, entropy_lambda, intermediate_weight, ce_only);
 }
 
@@ -3574,6 +3636,15 @@ static const int*   g_d_fold_lengths = NULL;
 static const int*   g_d_fold_tokens  = NULL;
 static const float* g_d_fold_probs   = NULL;
 
+// File-scope virtual-tree side-table device pointers + expansion depth.
+// Set by load_virtual_tree() when --virtual-tree is passed; remain NULL
+// otherwise. Same single-process rationale as the fold-table globals above.
+static const int*   g_d_vtree_offsets = NULL;
+static const int*   g_d_vtree_lengths = NULL;
+static const int*   g_d_vtree_tokens  = NULL;
+static const float* g_d_vtree_probs   = NULL;
+static int          g_vtree_expansion_depth = 0;
+
 // Load a fold-table file produced by `bin/agpt_build_fold_table` and upload
 // its arrays to GPU. Sets g_d_fold_* globals on success.
 //
@@ -3661,6 +3732,103 @@ static void load_fold_table(const char* path, int expected_radix_count, int expe
 
     printf("Loaded fold-table from %s: %u radix slots, %d with fold, %lld entries, top_k=%u\n",
            path, n_radix, n_with_fold, total_entries, top_k);
+}
+
+// Load a VTRE virtual-tree side-table produced by `bin/agpt_build_virtual_tree`
+// and upload its arrays to GPU. Sets g_d_vtree_* + g_vtree_expansion_depth
+// globals on success.
+//
+// File format ('VTRE' v1):
+//   magic (u32 = 'VTRE')
+//   version (u32 = 1)
+//   n_radix (u32) — must match expected_radix_count
+//   vocab_size (u32) — must match expected_vocab
+//   top_k (u32) — informational
+//   expansion_depth (u32)
+//   offsets[n_radix * expansion_depth] (i32)
+//   lengths[n_radix * expansion_depth] (i32)
+//   entries[total]: i32 token + f32 prob
+static void load_virtual_tree(const char* path, int expected_radix_count, int expected_vocab) {
+    FILE* f = fopen(path, "rb");
+    if (!f) {
+        fprintf(stderr, "virtual-tree: cannot open %s\n", path);
+        exit(1);
+    }
+    uint32_t magic = 0, version = 0, n_radix = 0, vocab = 0, top_k = 0, expansion_depth = 0;
+    if (fread(&magic, 4, 1, f) != 1 || magic != 0x45525456u) {
+        fprintf(stderr, "virtual-tree: bad magic in %s (got 0x%08x, expected 'VTRE')\n", path, magic);
+        exit(1);
+    }
+    if (fread(&version, 4, 1, f) != 1 || version != 1) {
+        fprintf(stderr, "virtual-tree: unsupported version %u (expected 1)\n", version);
+        exit(1);
+    }
+    if (fread(&n_radix, 4, 1, f) != 1 || (int)n_radix != expected_radix_count) {
+        fprintf(stderr, "virtual-tree: n_radix=%u does not match trie radix_count=%d\n",
+                n_radix, expected_radix_count);
+        exit(1);
+    }
+    if (fread(&vocab, 4, 1, f) != 1 || (int)vocab != expected_vocab) {
+        fprintf(stderr, "virtual-tree: vocab_size=%u does not match cfg.vocab_size=%d\n",
+                vocab, expected_vocab);
+        exit(1);
+    }
+    if (fread(&top_k, 4, 1, f) != 1) { fprintf(stderr, "virtual-tree: short read at top_k\n"); exit(1); }
+    if (fread(&expansion_depth, 4, 1, f) != 1 || expansion_depth < 1) {
+        fprintf(stderr, "virtual-tree: bad expansion_depth %u\n", expansion_depth);
+        exit(1);
+    }
+
+    long long n_slots = (long long)n_radix * (long long)expansion_depth;
+    int* h_offsets = (int*)malloc((size_t)n_slots * sizeof(int));
+    int* h_lengths = (int*)malloc((size_t)n_slots * sizeof(int));
+    if ((long long)fread(h_offsets, sizeof(int), (size_t)n_slots, f) != n_slots) {
+        fprintf(stderr, "virtual-tree: short read at offsets\n"); exit(1);
+    }
+    if ((long long)fread(h_lengths, sizeof(int), (size_t)n_slots, f) != n_slots) {
+        fprintf(stderr, "virtual-tree: short read at lengths\n"); exit(1);
+    }
+
+    long long total_entries = 0;
+    long long n_filled = 0;
+    for (long long i = 0; i < n_slots; i++) {
+        total_entries += h_lengths[i];
+        if (h_lengths[i] > 0) n_filled++;
+    }
+
+    int* h_tokens = (int*)malloc((size_t)total_entries * sizeof(int));
+    float* h_probs = (float*)malloc((size_t)total_entries * sizeof(float));
+    for (long long i = 0; i < total_entries; i++) {
+        int tok = 0; float prob = 0.0f;
+        if (fread(&tok, sizeof(int), 1, f) != 1 || fread(&prob, sizeof(float), 1, f) != 1) {
+            fprintf(stderr, "virtual-tree: short read at entry %lld/%lld\n", i, total_entries);
+            exit(1);
+        }
+        h_tokens[i] = tok;
+        h_probs[i] = prob;
+    }
+    fclose(f);
+
+    int *d_off, *d_len, *d_tok;
+    float* d_prb;
+    CUDA_CHECK(cudaMalloc(&d_off, (size_t)n_slots * sizeof(int)));
+    CUDA_CHECK(cudaMalloc(&d_len, (size_t)n_slots * sizeof(int)));
+    CUDA_CHECK(cudaMalloc(&d_tok, (size_t)total_entries * sizeof(int)));
+    CUDA_CHECK(cudaMalloc(&d_prb, (size_t)total_entries * sizeof(float)));
+    CUDA_CHECK(cudaMemcpy(d_off, h_offsets, (size_t)n_slots * sizeof(int), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_len, h_lengths, (size_t)n_slots * sizeof(int), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_tok, h_tokens, (size_t)total_entries * sizeof(int), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_prb, h_probs, (size_t)total_entries * sizeof(float), cudaMemcpyHostToDevice));
+    free(h_offsets); free(h_lengths); free(h_tokens); free(h_probs);
+
+    g_d_vtree_offsets = d_off;
+    g_d_vtree_lengths = d_len;
+    g_d_vtree_tokens  = d_tok;
+    g_d_vtree_probs   = d_prb;
+    g_vtree_expansion_depth = (int)expansion_depth;
+
+    printf("Loaded virtual-tree from %s: %u radix slots × expansion=%u, %lld slots filled, %lld entries, top_k=%u\n",
+           path, n_radix, expansion_depth, n_filled, total_entries, top_k);
 }
 
 // run_radix_training optional parameters (declared here via overload-less defaults).
@@ -5668,6 +5836,9 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                                             need_mass_weights ? d_mass_weights : NULL,
                                             g_d_fold_offsets, g_d_fold_lengths,
                                             g_d_fold_tokens, g_d_fold_probs,
+                                            g_d_vtree_offsets, g_d_vtree_lengths,
+                                            g_d_vtree_tokens, g_d_vtree_probs,
+                                            g_vtree_expansion_depth,
                                             d_d_logits, d_loss, T_q, V, entropy_lambda,
                                             intermediate_weight, cfg.ce_only ? 1 : 0);
 
@@ -6747,6 +6918,7 @@ int main(int argc, char** argv) {
     const char* trie_dir = NULL;
     const char* save_path = NULL;
     const char* fold_table_path = NULL;
+    const char* virtual_tree_path = NULL;
     int epochs = 1;
     float lr = 3e-4f;
     float entropy_lambda = 0.0f;
@@ -6785,6 +6957,7 @@ int main(int argc, char** argv) {
         if (strcmp(argv[i], "--model") == 0 && i + 1 < argc) model_path = argv[++i];
         else if (strcmp(argv[i], "--trie-dir") == 0 && i + 1 < argc) trie_dir = argv[++i];
         else if (strcmp(argv[i], "--fold-table") == 0 && i + 1 < argc) fold_table_path = argv[++i];
+        else if (strcmp(argv[i], "--virtual-tree") == 0 && i + 1 < argc) virtual_tree_path = argv[++i];
         else if (strcmp(argv[i], "--save") == 0 && i + 1 < argc) save_path = argv[++i];
         else if (strcmp(argv[i], "--epochs") == 0 && i + 1 < argc) epochs = atoi(argv[++i]);
         else if (strcmp(argv[i], "--lr") == 0 && i + 1 < argc) lr = atof(argv[++i]);
@@ -6979,7 +7152,14 @@ int main(int argc, char** argv) {
                         "                                suffix-W posterior P(c|W) (top-K, sum=1)\n"
                         "                                as the training target instead of the\n"
                         "                                degenerate one-hot. Only the radix trie\n"
-                        "                                format (format=1) is supported.\n");
+                        "                                format (format=1) is supported.\n"
+                        "  [--virtual-tree <path>]    — VTRE side-table built by\n"
+                        "                                bin/agpt_build_virtual_tree. Replaces the\n"
+                        "                                one-hot intermediate target at the first\n"
+                        "                                expansion_depth tunnel positions of each\n"
+                        "                                cap with a length-weighted composite over\n"
+                        "                                shifted-prefix walks. Tunnel positions past\n"
+                        "                                expansion_depth stay one-hot. Only format=1.\n");
         return 1;
     }
 
@@ -7007,6 +7187,11 @@ int main(int argc, char** argv) {
     int format = detect_trie_format(trie_dir);
     if (fold_table_path && format != 1) {
         fprintf(stderr, "--fold-table is only supported with the radix trie format (format=1). "
+                        "Detected format=%d at %s.\n", format, trie_dir);
+        return 1;
+    }
+    if (virtual_tree_path && format != 1) {
+        fprintf(stderr, "--virtual-tree is only supported with the radix trie format (format=1). "
                         "Detected format=%d at %s.\n", format, trie_dir);
         return 1;
     }
@@ -7040,6 +7225,9 @@ int main(int argc, char** argv) {
 
         if (fold_table_path) {
             load_fold_table(fold_table_path, radix_trie.radix_count, cfg.vocab_size);
+        }
+        if (virtual_tree_path) {
+            load_virtual_tree(virtual_tree_path, radix_trie.radix_count, cfg.vocab_size);
         }
 
         return run_radix_training(cfg, wo, h_weights, radix_trie, epochs, entropy_lambda, mass_weight, subtree_splits, partition_depth, accumulate, single_subtree, intermediate_weight, optimizer, momentum_beta, rmsprop_beta, lr_schedule, warmup_epochs, weight_decay, grad_clip_norm, save_every, curriculum, save_path, lightning);
