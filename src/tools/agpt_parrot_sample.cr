@@ -112,9 +112,10 @@ end
 def follow_directive(start : RadixTrieReader::LoadedRecord,
                      directive : Array(Int32),
                      child_by_token : Hash(Int32, Hash(Int32, RadixTrieReader::LoadedRecord))
-                     ) : Tuple(RadixTrieReader::LoadedRecord, Int32)
+                     ) : Tuple(RadixTrieReader::LoadedRecord, Int32, Array(Int32))
   current = start
   d_idx = 0
+  overshoot = [] of Int32  # chars from last kid's edge past where directive ran out
   while d_idx < directive.size
     kids = child_by_token[current.id]?
     break if kids.nil?
@@ -123,9 +124,10 @@ def follow_directive(start : RadixTrieReader::LoadedRecord,
     edge = kid.edge_tokens
     # "If radix compressed, follow." Match directive against kid's edge as
     # far as both have chars; if the matched prefix agrees, advance to kid
-    # in full — even if directive runs out partway through kid's compressed
-    # edge. The kid's full edge is logically traversed; remaining edge chars
-    # past the directive get absorbed into the position update.
+    # in full. If directive runs out partway through kid's compressed edge,
+    # we capture the unmatched suffix as `overshoot` for the caller to emit
+    # — those chars are corpus-grounded (they're on the trie path we walked)
+    # and should appear in output to extend naturally without phantom stitch.
     match_len = Math.min(edge.size, directive.size - d_idx)
     ok = true
     match_len.times do |i|
@@ -137,8 +139,13 @@ def follow_directive(start : RadixTrieReader::LoadedRecord,
     break unless ok
     d_idx += match_len
     current = kid
+    if match_len < edge.size
+      # Directive ran out before kid's edge ended. Capture the unmatched
+      # suffix so caller can emit it.
+      overshoot = edge[match_len..]
+    end
   end
-  {current, directive.size - d_idx}
+  {current, directive.size - d_idx, overshoot}
 end
 
 rng = Random.new(seed)
@@ -151,7 +158,19 @@ abort "trie has no depth-1 children" if init.nil?
 current = init
 init.edge_tokens.each { |t| output_tokens << t }
 
+no_progress_count = 0
+last_size = 0
 while output_tokens.size < n_chars
+  if output_tokens.size == last_size
+    no_progress_count += 1
+    if no_progress_count > 100
+      STDERR.puts "[parrot] aborting: 100 iterations without emission" if trace
+      break
+    end
+  else
+    no_progress_count = 0
+    last_size = output_tokens.size
+  end
   cur = current
   break if cur.nil?
   if trace
@@ -182,11 +201,30 @@ while output_tokens.size < n_chars
     if directive.empty?
       current = target
     else
-      ending, leftover = follow_directive(target, directive, child_by_token)
-      # No emission — directive walks chars already emitted via cap_edge.
-      # `ending` is the last fully-walked valid node. Resume mass-weighted
-      # branching from there.
+      ending, leftover, overshoot = follow_directive(target, directive, child_by_token)
+      overshoot.each { |t| output_tokens << t }
       current = ending
+    end
+    # Wormhole-loop detection: if directive walked back to the very cap we
+    # came from (happens when cap_edge is a unique-in-corpus substring
+    # whose only occurrence IS this cap's path), the wormhole hasn't
+    # redirected anywhere. Break the loop by emitting a sample from the
+    # cap's counts (the corpus's actual post-cap continuation) and
+    # wormhole to depth-1 root for that char — same handling as
+    # depth-limit-boundary.
+    if current.id == cur.id
+      if !cur.counts.empty?
+        idx = sample_index(cur.counts.map { |e| e[1].to_i64 }, rng)
+        next_tok = cur.counts[idx][0]
+        output_tokens << next_tok
+        nxt_target = (child_by_token[0]?.try &.[next_tok]?)
+        if nxt_target.nil?
+          break
+        end
+        current = nxt_target
+      else
+        break
+      end
     end
   else
     # Branching: pick child by mass.
