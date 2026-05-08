@@ -25,6 +25,7 @@ trie_dir = ""
 vocab_path = "data/input.txt"
 n_chars = 1000
 seed = 42_u64
+trace = false
 
 OptionParser.parse do |p|
   p.banner = "Usage: agpt_parrot_sample --trie DIR [options]"
@@ -32,6 +33,7 @@ OptionParser.parse do |p|
   p.on("--vocab PATH", "Vocab text (default data/input.txt)") { |v| vocab_path = v }
   p.on("--n N", "Number of chars to generate (default 1000)") { |v| n_chars = v.to_i }
   p.on("--seed N", "RNG seed (default 42)") { |v| seed = v.to_u64 }
+  p.on("--trace", "Per-step diagnostic to stderr") { trace = true }
   p.on("-h", "--help", "") { puts p; exit 0 }
 end
 
@@ -119,19 +121,21 @@ def follow_directive(start : RadixTrieReader::LoadedRecord,
     kid = kids[directive[d_idx]]?
     break if kid.nil?
     edge = kid.edge_tokens
-    full_match = true
-    if d_idx + edge.size > directive.size
-      full_match = false
-    else
-      edge.size.times do |i|
-        if edge[i] != directive[d_idx + i]
-          full_match = false
-          break
-        end
+    # "If radix compressed, follow." Match directive against kid's edge as
+    # far as both have chars; if the matched prefix agrees, advance to kid
+    # in full — even if directive runs out partway through kid's compressed
+    # edge. The kid's full edge is logically traversed; remaining edge chars
+    # past the directive get absorbed into the position update.
+    match_len = Math.min(edge.size, directive.size - d_idx)
+    ok = true
+    match_len.times do |i|
+      if edge[i] != directive[d_idx + i]
+        ok = false
+        break
       end
     end
-    break unless full_match
-    d_idx += edge.size
+    break unless ok
+    d_idx += match_len
     current = kid
   end
   {current, directive.size - d_idx}
@@ -150,13 +154,11 @@ init.edge_tokens.each { |t| output_tokens << t }
 while output_tokens.size < n_chars
   cur = current
   break if cur.nil?
+  if trace
+    last20 = output_tokens.size < 20 ? output_tokens : output_tokens[(output_tokens.size - 20)..]
+    STDERR.puts "[step] cur.id=#{cur.id} counts.size=#{cur.counts.size} edge=#{decode(cur.edge_tokens, chars).inspect} last=#{decode(last20, chars).inspect}"
+  end
   if cur.counts.size == 1
-    # Cap. Emit the cap edge (we are AT the cap, which is a node whose own
-    # edge_tokens[0..] is the unary tunnel — but those have already been
-    # emitted via the previous walk-into-cur step). The cap node's PRESENT
-    # state is at the end of the unary edge; the "cap-edge sequence" the
-    # user wants emitted is cur.edge_tokens. So we already emitted them when
-    # we walked into cur. Now: wormhole + directive-follow.
     cap_edge = cur.edge_tokens
     head = cap_edge[0]
     target = child_by_token[0]?.try &.[head]?
