@@ -167,11 +167,14 @@ while output_tokens.size < n_chars
     if target.nil?
       break
     end
-    # Walk into target = depth-1 root child whose edge starts with `head`.
+    # Move position to target = depth-1 root child whose edge starts with
+    # `head`. Do NOT emit target.edge_tokens — those chars are already in
+    # output as the leading chars of cap_edge (we just emitted those via
+    # the walk-into-cap above). Re-emitting them would produce phantom
+    # duplicates like "CapuleC" instead of the intended "Capule" position
+    # change. The directive is the cap_edge tail past whatever target's
+    # edge already conceptually "covers" (typically 1 char = cap_head).
     target_edge = target.edge_tokens
-    target_edge.each { |t| output_tokens << t }
-    # Now use cap_edge[target_edge.size..] as directive (we've covered the
-    # first |target_edge| chars of cap_edge by walking into target itself).
     skip = target_edge.size
     if skip <= cap_edge.size
       directive = cap_edge[skip..]
