@@ -26,6 +26,7 @@ vocab_path = "data/input.txt"
 n_chars = 1000
 seed = 42_u64
 trace = false
+use_cap_counts = false
 
 OptionParser.parse do |p|
   p.banner = "Usage: agpt_parrot_sample --trie DIR [options]"
@@ -34,6 +35,7 @@ OptionParser.parse do |p|
   p.on("--n N", "Number of chars to generate (default 1000)") { |v| n_chars = v.to_i }
   p.on("--seed N", "RNG seed (default 42)") { |v| seed = v.to_u64 }
   p.on("--trace", "Per-step diagnostic to stderr") { trace = true }
+  p.on("--use-cap-counts", "At every cap, emit a sample from cap.counts (the corpus's actual post-cap continuation char) and wormhole to depth-1 of that char instead of cap_head. Adds one corpus-grounded char per cap event.") { use_cap_counts = true }
   p.on("-h", "--help", "") { puts p; exit 0 }
 end
 
@@ -179,7 +181,18 @@ while output_tokens.size < n_chars
   end
   if cur.counts.size == 1
     cap_edge = cur.edge_tokens
-    head = cap_edge[0]
+    # Optional: emit a sample from cap.counts (the corpus's actual post-cap
+    # continuation) as a "free" extra char before the wormhole, and use that
+    # char as the wormhole target. This extends each cap event by one
+    # corpus-grounded char and routes the wormhole to a more contextually-
+    # relevant subtree (depth-1 of the post-cap char instead of cap_head).
+    head : Int32 = cap_edge[0]
+    if use_cap_counts && !cur.counts.empty?
+      idx = sample_index(cur.counts.map { |e| e[1].to_i64 }, rng)
+      next_post_cap = cur.counts[idx][0]
+      output_tokens << next_post_cap
+      head = next_post_cap
+    end
     target = child_by_token[0]?.try &.[head]?
     if target.nil?
       break
@@ -192,18 +205,25 @@ while output_tokens.size < n_chars
     # change. The directive is the cap_edge tail past whatever target's
     # edge already conceptually "covers" (typically 1 char = cap_head).
     target_edge = target.edge_tokens
-    skip = target_edge.size
-    if skip <= cap_edge.size
-      directive = cap_edge[skip..]
-    else
-      directive = [] of Int32
-    end
-    if directive.empty?
+    if use_cap_counts
+      # Wormhole target is depth-1 of post-cap char; cap_edge directive
+      # doesn't apply (it's keyed to cap_head, not next_post_cap). Position
+      # at target, skip directive walk, resume mass-weighted from there.
       current = target
     else
-      ending, leftover, overshoot = follow_directive(target, directive, child_by_token)
-      overshoot.each { |t| output_tokens << t }
-      current = ending
+      skip = target_edge.size
+      if skip <= cap_edge.size
+        directive = cap_edge[skip..]
+      else
+        directive = [] of Int32
+      end
+      if directive.empty?
+        current = target
+      else
+        ending, leftover, overshoot = follow_directive(target, directive, child_by_token)
+        overshoot.each { |t| output_tokens << t }
+        current = ending
+      end
     end
     # Wormhole-loop detection: if directive walked back to the very cap we
     # came from (happens when cap_edge is a unique-in-corpus substring
