@@ -81,6 +81,11 @@ build-agpt-parrot-sample: build-stubs
     mkdir -p bin
     timeout 3m crystal build src/tools/agpt_parrot_sample.cr -o bin/agpt_parrot_sample --release --link-flags="{{root}}/build/kernels.o -lstdc++"
 
+# Build distribution-similarity diagnostic for radix-trie nodes.
+build-agpt-dist-sim: build-stubs
+    mkdir -p bin
+    timeout 3m crystal build src/tools/agpt_dist_sim.cr -o bin/agpt_dist_sim --release --link-flags="{{root}}/build/kernels.o -lstdc++"
+
 # Build wormhole-table builder for the topological-navigation experiment.
 # Per cap, emits a re-entry edge to a prefix-trie node (depth-1 by default).
 # Variants:
