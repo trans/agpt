@@ -99,18 +99,18 @@ def pick_child(node : RadixTrieReader::LoadedRecord,
   kids[next_tok]?
 end
 
-# Walk into a subtree using `directive` chars as path. Emit chars walked.
-# Returns {emitted_tokens, ending_node, leftover_directive_count}.
+# Walk into a subtree using `directive` chars as path — POSITION UPDATE
+# ONLY, no emission. The directive chars correspond to a sequence already
+# emitted via the cap-edge walk; this function moves the trie position to
+# the corresponding node in the new subtree so subsequent mass-weighted
+# branching resumes from there.
 #
-# If we get stuck (no matching child, or partial mid-edge match), we DO NOT
-# emit phantom chars. We stop emission at the last valid trie node — that
-# node becomes the resumption point for mass-weighted walk in the caller.
-# This avoids producing chars that aren't a continuation of any corpus path.
+# If we get stuck (no matching child, or partial mid-edge match), we stop
+# at the last valid trie node — that node becomes the resumption point.
 def follow_directive(start : RadixTrieReader::LoadedRecord,
                      directive : Array(Int32),
                      child_by_token : Hash(Int32, Hash(Int32, RadixTrieReader::LoadedRecord))
-                     ) : Tuple(Array(Int32), RadixTrieReader::LoadedRecord, Int32)
-  emitted = [] of Int32
+                     ) : Tuple(RadixTrieReader::LoadedRecord, Int32)
   current = start
   d_idx = 0
   while d_idx < directive.size
@@ -119,10 +119,8 @@ def follow_directive(start : RadixTrieReader::LoadedRecord,
     kid = kids[directive[d_idx]]?
     break if kid.nil?
     edge = kid.edge_tokens
-    # Verify the entire kid's edge matches the upcoming directive chars.
     full_match = true
     if d_idx + edge.size > directive.size
-      # Directive too short to fully consume kid's edge — would land mid-edge.
       full_match = false
     else
       edge.size.times do |i|
@@ -133,12 +131,10 @@ def follow_directive(start : RadixTrieReader::LoadedRecord,
       end
     end
     break unless full_match
-    # Fully matched kid's edge. Advance.
-    edge.each { |t| emitted << t }
     d_idx += edge.size
     current = kid
   end
-  {emitted, current, directive.size - d_idx}
+  {current, directive.size - d_idx}
 end
 
 rng = Random.new(seed)
@@ -184,22 +180,33 @@ while output_tokens.size < n_chars
     if directive.empty?
       current = target
     else
-      emitted, ending, leftover = follow_directive(target, directive, child_by_token)
-      emitted.each { |t| output_tokens << t }
+      ending, leftover = follow_directive(target, directive, child_by_token)
+      # No emission — directive walks chars already emitted via cap_edge.
       # `ending` is the last fully-walked valid node. Resume mass-weighted
-      # branching from there — no phantom-char fresh-root restart.
+      # branching from there.
       current = ending
     end
   else
     # Branching: pick child by mass.
-    nxt = pick_child(cur, child_by_token, rng)
+    # If the sampled token has no child record (we're at a max-depth
+    # branching node whose counts point past the trie's depth), wormhole:
+    # emit the sampled token, position-update to depth-1 root for it (no
+    # extra emission — same overlap rule as cap-wormhole), continue.
+    break if cur.counts.empty?
+    toks = cur.counts.map { |e| e[0] }
+    cnts = cur.counts.map { |e| e[1].to_i64 }
+    idx = sample_index(cnts, rng)
+    next_tok = toks[idx]
+    kids = child_by_token[cur.id]?
+    nxt = (kids.nil? ? nil : kids[next_tok]?)
     if nxt.nil?
-      # No child for sampled token (depth-32 leaf-like). Fall back: pick fresh
-      # depth-1 root.
-      nxt2 = pick_depth1(child_by_token, rng)
-      break if nxt2.nil?
-      current = nxt2
-      nxt2.edge_tokens.each { |t| output_tokens << t }
+      # Max-depth branching boundary: emit the sampled char (it IS a corpus
+      # continuation per cur's counts), then wormhole to depth-1 root for it
+      # without re-emitting — overlapping node counts as one.
+      output_tokens << next_tok
+      target = (child_by_token[0]?.try &.[next_tok]?)
+      break if target.nil?
+      current = target
     else
       nxt.edge_tokens.each { |t| output_tokens << t }
       current = nxt
