@@ -4338,6 +4338,13 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
     float** sv_ff_mask = (float**)malloc(L_layers * sizeof(float*));
     float** sv_attn_out = (float**)malloc(L_layers * sizeof(float*));
     float** sv_attn_weights = (float**)malloc(L_layers * sizeof(float*));
+    // Per-layer saved post-RoPE Q/K and V from forward, so backward doesn't
+    // need to recompute the Q/K/V matmuls and RoPE rotations. Trades ~3 ×
+    // T_q_cap × D × 4B × L extra GPU memory for skipping ~6 matmuls + 4
+    // RoPE applies per chunk in backward.
+    float** sv_q = (float**)malloc(L_layers * sizeof(float*));
+    float** sv_k = (float**)malloc(L_layers * sizeof(float*));
+    float** sv_v = (float**)malloc(L_layers * sizeof(float*));
     for (int l = 0; l < L_layers; l++) {
         CUDA_CHECK(cudaMalloc(&sv_x_res1[l],      (long long)T_q_cap * D * sizeof(float)));
         CUDA_CHECK(cudaMalloc(&sv_ln1_norm[l],    (long long)T_q_cap * D * sizeof(float)));
@@ -4351,6 +4358,9 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
         CUDA_CHECK(cudaMalloc(&sv_ff_mask[l],     (long long)T_q_cap * F * sizeof(float)));
         CUDA_CHECK(cudaMalloc(&sv_attn_out[l],    (long long)T_q_cap * D * sizeof(float)));
         CUDA_CHECK(cudaMalloc(&sv_attn_weights[l],(long long)T_q_cap * H * max_kv_per_node * sizeof(float)));
+        CUDA_CHECK(cudaMalloc(&sv_q[l],           (long long)T_q_cap * D * sizeof(float)));
+        CUDA_CHECK(cudaMalloc(&sv_k[l],           (long long)T_q_cap * D * sizeof(float)));
+        CUDA_CHECK(cudaMalloc(&sv_v[l],           (long long)T_q_cap * D * sizeof(float)));
     }
 
     // Packed attention buffers
@@ -5729,6 +5739,13 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                         launch_rope_batched_scalar(d_k, current_shift, d_rope_cos, d_rope_sin, T_q * H, HD);
                     }
 
+                    // Save post-RoPE Q/K and V so backward can skip the Q/K/V
+                    // matmuls + RoPE recompute. The save buffers are sized
+                    // T_q_cap × D so any chunk fits.
+                    CUDA_CHECK(cudaMemcpy(sv_q[l], d_q, (long long)T_q * D * sizeof(float), cudaMemcpyDeviceToDevice));
+                    CUDA_CHECK(cudaMemcpy(sv_k[l], d_k, (long long)T_q * D * sizeof(float), cudaMemcpyDeviceToDevice));
+                    CUDA_CHECK(cudaMemcpy(sv_v[l], d_v, (long long)T_q * D * sizeof(float), cudaMemcpyDeviceToDevice));
+
                     // Build packed prefix: [ancestors from cache | own-edge from fresh d_k/d_v]
                     // Ancestors: gather from compact cache (all ancestors are mass>1 → slot>=0).
                     // When virtual-tree training is active (K>1), K gather uses delta-RoPE so
@@ -5955,38 +5972,14 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                     }
 
                     // Attention backward (L-queries)
-                    // Re-compute post-RoPE Q/K and V from saved ln1_out. We need
-                    // fresh fp32 K/V values for:
-                    //   - the own-edge portion of each query's prefix (mass=1
-                    //     positions aren't in the cache)
-                    //   - the attention-backward kernel's own K/V input
-                    // Ancestor K/V still comes from the compact cache.
-
-                    // Recompute Q (for attention backward)
-                    CUBLAS_CHECK(cublasSgemm(cublas, CUBLAS_OP_N, CUBLAS_OP_N, D, T_q, D,
-                                              &alpha, d_weights + wo.wq_w[l], D,
-                                              sv_ln1_out[l], D, &beta_zero, d_q, D));
-                    cuda_bias_add(d_q, d_weights + wo.wq_b[l], T_q, D);
-                    launch_rope_batched(d_q, d_rope_positions, d_rope_cos, d_rope_sin, T_q * H, HD);
-                    if (chunk_cycle_shift > 0) {
-                        launch_rope_batched_scalar(d_q, chunk_cycle_shift, d_rope_cos, d_rope_sin, T_q * H, HD);
-                    }
-
-                    // Recompute K (post-RoPE) — overwrites d_k with fresh values
-                    CUBLAS_CHECK(cublasSgemm(cublas, CUBLAS_OP_N, CUBLAS_OP_N, D, T_q, D,
-                                              &alpha, d_weights + wo.wk_w[l], D,
-                                              sv_ln1_out[l], D, &beta_zero, d_k, D));
-                    cuda_bias_add(d_k, d_weights + wo.wk_b[l], T_q, D);
-                    launch_rope_batched(d_k, d_rope_positions, d_rope_cos, d_rope_sin, T_q * H, HD);
-                    if (chunk_cycle_shift > 0) {
-                        launch_rope_batched_scalar(d_k, chunk_cycle_shift, d_rope_cos, d_rope_sin, T_q * H, HD);
-                    }
-
-                    // Recompute V (no RoPE) — overwrites d_v
-                    CUBLAS_CHECK(cublasSgemm(cublas, CUBLAS_OP_N, CUBLAS_OP_N, D, T_q, D,
-                                              &alpha, d_weights + wo.wv_w[l], D,
-                                              sv_ln1_out[l], D, &beta_zero, d_v, D));
-                    cuda_bias_add(d_v, d_weights + wo.wv_b[l], T_q, D);
+                    // Restore post-RoPE Q/K and V from forward-side save buffers.
+                    // Skips ~3 matmuls + 2 RoPE applies per layer per chunk that
+                    // the previous implementation did via recompute from sv_ln1_out.
+                    // d_q, d_k, d_v are reused as scratch for the attention-backward
+                    // kernel's own K/V input, so we need them in the d_* buffers.
+                    CUDA_CHECK(cudaMemcpy(d_q, sv_q[l], (long long)T_q * D * sizeof(float), cudaMemcpyDeviceToDevice));
+                    CUDA_CHECK(cudaMemcpy(d_k, sv_k[l], (long long)T_q * D * sizeof(float), cudaMemcpyDeviceToDevice));
+                    CUDA_CHECK(cudaMemcpy(d_v, sv_v[l], (long long)T_q * D * sizeof(float), cudaMemcpyDeviceToDevice));
 
                     // Gather packed K/V for backward: ancestors from compact cache,
                     // own-edge from freshly-recomputed d_k/d_v. Delta-RoPE K gather
@@ -6621,10 +6614,12 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
         cudaFree(sv_x_res1[l]); cudaFree(sv_ln1_norm[l]); cudaFree(sv_ln1_std_inv[l]); cudaFree(sv_ln1_out[l]);
         cudaFree(sv_x_res2[l]); cudaFree(sv_ln2_norm[l]); cudaFree(sv_ln2_std_inv[l]); cudaFree(sv_ln2_out[l]);
         cudaFree(sv_ff_h[l]); cudaFree(sv_ff_mask[l]); cudaFree(sv_attn_out[l]); cudaFree(sv_attn_weights[l]);
+        cudaFree(sv_q[l]); cudaFree(sv_k[l]); cudaFree(sv_v[l]);
     }
     free(sv_x_res1); free(sv_ln1_norm); free(sv_ln1_std_inv); free(sv_ln1_out);
     free(sv_x_res2); free(sv_ln2_norm); free(sv_ln2_std_inv); free(sv_ln2_out);
     free(sv_ff_h); free(sv_ff_mask); free(sv_attn_out); free(sv_attn_weights);
+    free(sv_q); free(sv_k); free(sv_v);
     cudaFree(d_q_pack_flat); cudaFree(d_kv_pack_k); cudaFree(d_kv_pack_v);
     cudaFree(d_dq_pack); cudaFree(d_dk_pack); cudaFree(d_dv_pack);
     cudaFree(d_radix_counts_offset); cudaFree(d_radix_counts_tok); cudaFree(d_radix_counts_val);
