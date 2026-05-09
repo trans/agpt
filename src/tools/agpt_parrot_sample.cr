@@ -27,6 +27,7 @@ n_chars = 1000
 seed = 42_u64
 trace = false
 use_cap_counts = false
+reanchor_mode = false
 
 OptionParser.parse do |p|
   p.banner = "Usage: agpt_parrot_sample --trie DIR [options]"
@@ -36,12 +37,14 @@ OptionParser.parse do |p|
   p.on("--seed N", "RNG seed (default 42)") { |v| seed = v.to_u64 }
   p.on("--trace", "Per-step diagnostic to stderr") { trace = true }
   p.on("--use-cap-counts", "At every cap, emit a sample from cap.counts (the corpus's actual post-cap continuation char) and wormhole to depth-1 of that char instead of cap_head. Adds one corpus-grounded char per cap event.") { use_cap_counts = true }
+  p.on("--reanchor", "After every wormhole, re-walk the trailing-N output chars from root (longest match wins) so resume position is corpus-true. Eliminates phantom chars at wormhole boundaries (e.g. 'an hour llegitimate' where 'an hour ll' is not in corpus).") { reanchor_mode = true }
   p.on("-h", "--help", "") { puts p; exit 0 }
 end
 
 abort "missing --trie" if trie_dir.empty?
 
 reader = RadixTrieReader.new(trie_dir, max_cached: 64)
+max_d = reader.depth_file_count - 1  # endpoints up to this depth
 n_radix = reader.radix_count
 
 # Index: parent_id × first_token → record
@@ -76,6 +79,67 @@ def sample_index(weights : Array(Int64), rng : Random) : Int32
     return i if cum > threshold
   end
   weights.size - 1
+end
+
+# Re-anchor to corpus-true context: walk the longest trailing suffix of
+# `output_tokens` from root that lands at a valid trie node, and return
+# that node. Tries lengths max_d, max_d-1, ..., 1; prefers longest match.
+# Falls back to depth-1 mass-weighted pick if even 1-char doesn't match.
+#
+# This eliminates phantom "char-level stitch" outputs at wormhole boundaries:
+# whenever the parrot would resume mass-weighted from a wormhole target that
+# is structurally orphaned from the prior emission, we instead resume from
+# the trie position whose path matches the actual emitted suffix. Then
+# mass-weighted resume can only produce corpus-grounded continuations.
+def reanchor(output_tokens : Array(Int32),
+             max_d : Int32,
+             child_by_token : Hash(Int32, Hash(Int32, RadixTrieReader::LoadedRecord)),
+             rng : Random) : RadixTrieReader::LoadedRecord?
+  return pick_depth1(child_by_token, rng) if output_tokens.empty?
+  # Try the longest trailing suffix first; shrink until we find a match.
+  start = Math.max(0, output_tokens.size - max_d)
+  while start < output_tokens.size
+    suffix_len = output_tokens.size - start
+    parent_id = 0
+    pos = 0
+    last_record : RadixTrieReader::LoadedRecord? = nil
+    matched_full = true
+    while pos < suffix_len
+      kids = child_by_token[parent_id]?
+      if kids.nil?
+        matched_full = false; break
+      end
+      kid = kids[output_tokens[start + pos]]?
+      if kid.nil?
+        matched_full = false; break
+      end
+      edge = kid.edge_tokens
+      remaining = suffix_len - pos
+      consume = Math.min(edge.size, remaining)
+      ok = true
+      consume.times do |i|
+        if edge[i] != output_tokens[start + pos + i]
+          ok = false
+          break
+        end
+      end
+      unless ok
+        matched_full = false; break
+      end
+      pos += consume
+      last_record = kid
+      # If we consumed all of kid's edge, advance into kid as parent for next iter.
+      # If we consumed only part (suffix ran out mid-edge), kid is still our anchor;
+      # mass-weighted resume from kid produces corpus-compatible continuations.
+      if consume < edge.size
+        break  # suffix exhausted mid-kid-edge; kid is the anchor
+      end
+      parent_id = kid.id
+    end
+    return last_record if matched_full && last_record
+    start += 1
+  end
+  pick_depth1(child_by_token, rng)
 end
 
 # Pick a depth-1 child by mass.
@@ -224,6 +288,14 @@ while output_tokens.size < n_chars
         overshoot.each { |t| output_tokens << t }
         current = ending
       end
+      # Re-anchor to corpus-true position based on trailing emitted output.
+      # Without this, the wormhole position (depth-1 cap_head subtree, possibly
+      # walked deeper via directive) carries no memory of prior emissions, so
+      # mass-weighted resume can produce phantom char sequences not in corpus.
+      if reanchor_mode
+        anchored = reanchor(output_tokens, max_d, child_by_token, rng)
+        current = anchored if anchored
+      end
     end
     # Wormhole-loop detection: if directive walked back to the very cap we
     # came from (happens when cap_edge is a unique-in-corpus substring
@@ -242,6 +314,10 @@ while output_tokens.size < n_chars
           break
         end
         current = nxt_target
+        if reanchor_mode
+          anchored = reanchor(output_tokens, max_d, child_by_token, rng)
+          current = anchored if anchored
+        end
       else
         break
       end
@@ -267,6 +343,10 @@ while output_tokens.size < n_chars
       target = (child_by_token[0]?.try &.[next_tok]?)
       break if target.nil?
       current = target
+      if reanchor_mode
+        anchored = reanchor(output_tokens, max_d, child_by_token, rng)
+        current = anchored if anchored
+      end
     else
       nxt.edge_tokens.each { |t| output_tokens << t }
       current = nxt
