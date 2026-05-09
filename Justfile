@@ -148,11 +148,11 @@ build-all: build-agpt-train build-agpt-build-index build-agpt-build-radix build-
 
 # Build µGPT reference binaries from the shard.
 # Used only for baseline comparison / parity tests, not for ordinary AGPT builds.
-build-microgpt-tools: build-stubs
-    mkdir -p bin
-    timeout 3m crystal build lib/microgpt/src/microgpt/main.cr -o bin/microgpt --release --link-flags="{{root}}/build/kernels.o -lstdc++"
+build-microgpt-tools:
+    mkdir -p bin build
     /opt/cuda/bin/nvcc -c -O2 lib/microgpt/src/cuda/kernels.cu -o build/kernels.o
-    timeout 3m crystal build lib/microgpt/src/tools/perplexity.cr -o bin/perplexity --release --link-flags="{{root}}/build/kernels.o -lstdc++"
+    timeout 3m crystal build lib/microgpt/src/microgpt/main.cr -o bin/microgpt --release --link-flags="{{root}}/build/kernels.o -L/opt/cuda/lib64 -lcudart -lcublas -lstdc++"
+    timeout 3m crystal build lib/microgpt/src/tools/perplexity.cr -o bin/perplexity --release --link-flags="{{root}}/build/kernels.o -L/opt/cuda/lib64 -lcudart -lcublas -lstdc++"
     cc -c -O2 lib/microgpt/src/cuda/stubs.c -o build/kernels.o
 
 # Alias to make the AGPT-vs-reference boundary explicit in local workflows.
