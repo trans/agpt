@@ -1,5 +1,10 @@
 # Wrap-around corpus synthesis
 
+**Trainer note**: not obviously trainer-dependent.
+
+The headline results here depend mainly on `synth_wrap_corpus` plus
+`bin/microgpt` training, not on pre-fix AGPT trainer performance.
+
 Sample arbitrary-length token sequences from a depth-D radix trie by walking
 root→leaf via mass-weighted child picks, then bridging back to the root via a
 token sampled from the leaf's endpoint distribution and continuing. Trains a

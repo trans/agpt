@@ -1,5 +1,11 @@
 # Gutenberg 5M — wrap-around scaling test
 
+**Trainer note**: not obviously trainer-dependent.
+
+The headline wrap-around result here depends mainly on the corpus/radix builder,
+the synth pipeline, and `bin/microgpt` training rather than on pre-fix AGPT
+trainer behavior.
+
 Goal: validate that the wrap-around-via-synth-corpus approach scales beyond
 Shakespeare to a 5M-character corpus.
 

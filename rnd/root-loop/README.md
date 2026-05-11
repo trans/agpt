@@ -2,6 +2,12 @@
 
 **Status**: complete — K=2 did not improve over K=1 baseline at d=16.
 
+**Trainer note**: pre-fix, needs reassessment.
+
+The negative result here was obtained on the pre-fix AGPT trainer. Keep the
+design and failure analysis, but treat the quantitative comparison as needing
+reassessment before using it as a current conclusion.
+
 **Code**: branch `agpt-root-loop` (never merged). Key commits: bbb090d..ce4cc3e.
 
 ## Hypothesis

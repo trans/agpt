@@ -2,6 +2,8 @@
 
 **Status**: complete — depth-by-depth sparsity profile measured.
 
+**Trainer note**: not obviously trainer-dependent.
+
 **Tool**: `bin/trie-profile <radix_dir>` (built from `src/tools/trie_profile.cr`).
 
 ## Hypothesis

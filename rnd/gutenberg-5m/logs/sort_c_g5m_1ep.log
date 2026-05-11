@@ -1,0 +1,31 @@
+AGPT CUDA Training Engine
+  Model: d=64 heads=4 layers=2 ff=256 vocab=65 seq=128 head_dim=16
+  Loaded 108481 weight floats (423.8 KB)
+Loading radix trie from /home/trans/agpt-tries/gutenberg_5m_d32_radix_corpus...
+  Radix trie: 7539820 nodes, 113838759 total edge chars, 33 endpoint depths
+  Radix loaded: 12528697 counts entries, 71685716 ancestor char entries
+  optimizer: rmsprop (lr=0.003)
+  entropy lambda: 1.000 (branching-endpoint icing enabled)
+  curriculum: flat (d=max each epoch)
+  max edge_len: 31, max ancestor chars: 31, max KV per node: 62, max endpoint depth: 32
+  mass=1 compaction: 108515875 / 113838759 chars are mass=1 (95.3%); cache holds 5322884 positions
+  loop points: 4462 (mass>1 leaves; 0.2% of 2556027 mass>1 nodes)
+  KV cache: 2725.3 MB unified memory (bf16 compact)
+  GPU memory: 5342.6 MB used, 2844.2 MB free, 8186.8 MB total
+  65 root-child subtrees: sizes min=3 max=1240260 avg=115997.2 (total=7539819 radix nodes)
+Epoch 1: loss=3.660773  (80.63 sec, 65 subtrees, 2313 chunks, 113838759 nodes)
+  residual top-10 (subtree_mass × max(avg_loss − 3.661, 0)):
+    rc   rootID   mass      avg_loss     score 
+    1    149117   8437323   5.0130       11409282.4
+    43   2772912  4409563   4.0713       1810226.7
+    0    1        838447    5.0717       1183004.7
+    6    1459997  769634    4.6663       773860.0
+    44   3492514  730731    4.5268       632848.0
+    46   3735982  2347985   3.9108       587042.8
+    5    1398435  353539    5.1994       543968.4
+    45   3616108  683047    4.1126       308598.7
+    8    1594128  400039    4.3568       278434.6
+    40   2301118  477385    3.8448       87856.0
+    top-10: 42.1% of mass, 98.4% of excess-loss
+Saved to /tmp/g5m_post_sort.model
+Done.

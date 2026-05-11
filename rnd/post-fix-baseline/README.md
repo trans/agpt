@@ -1,5 +1,7 @@
 # Post-Fix AGPT Baseline Re-establishment
 
+**Trainer note**: post-fix.
+
 **Context**: Commit `1c858c0` fixed a fundamental bug where Wk, Wv, and all
 7 biases (wq_b, wk_b, wv_b, wo_b, l1_b, l2_b, out_b) had been silently
 frozen at random initialization across the entire project's training

@@ -1,5 +1,10 @@
 # Mass-1 Unary-Path Pruning
 
+**Trainer note**: not obviously trainer-dependent.
+
+The quantitative results here depend mainly on `synth_wrap_corpus` variants
+plus `bin/microgpt` training, not on pre-fix AGPT trainer behavior.
+
 The d=32 Shakespeare radix trie has 1.1M leaves, **99.99% of them mass-1**
 — each represents a 32-char prefix that appeared exactly once in the corpus
 and continues with a single deterministic next char. Each mass-1 leaf

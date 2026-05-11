@@ -8,6 +8,14 @@ Plan: `cp -a microgpt agpt` to a new path, change agpt's origin to a fresh
 GitHub repo, then trim each side. This document is the working inventory we
 trim against.
 
+## Current priority (2026-04-28)
+
+The split is no longer just a one-time repo copy problem. The AGPT repo now
+exists, but the dependency boundary is still fuzzy in code, tooling, and docs.
+
+Use [notes/agpt/microgpt-separation.md](/home/trans/Projects/agpt/notes/agpt/microgpt-separation.md:1)
+for the current coupling map and phased cleanup order.
+
 ## µGPT-only (kept in microgpt/, removed from agpt/)
 
 ### Source

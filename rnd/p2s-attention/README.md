@@ -5,6 +5,8 @@
 > the structural matching gives a small +2% PPL boost as an inference-time
 > mask but doesn't work as a prediction backbone. See `findings.md` for the
 > full closeout. Artifacts retained for future reference.
+>
+> **Trainer note**: not obviously trainer-dependent.
 
 ## Hypothesis
 

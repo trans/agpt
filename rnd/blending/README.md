@@ -2,6 +2,12 @@
 
 **Status**: complete — helps at d=16, no effect at d=8, hurts at d=32.
 
+**Trainer note**: pre-fix, needs reassessment.
+
+The idea and implementation remain useful, but the reported gains were measured
+on the pre-fix AGPT trainer. Re-check before treating the d=16 improvement as a
+current project conclusion.
+
 **Code**: branch `agpt-root-loop` (shared with root-loop experiment).
 Key commits: 178e28d (initial), 6ebac06 (count-aware), ce4cc3e (endpoint-only).
 

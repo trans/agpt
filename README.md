@@ -27,13 +27,24 @@ sliding context windows. Built on top of the
 ## Building
 
 ```sh
-shards install         # resolves the µGPT shard dependency
-just build-all         # compiles every AGPT binary
-just build-microgpt-tools  # also build bin/microgpt + bin/perplexity from the shard
+shards install              # resolves the µGPT shard dependency
+just build-all              # AGPT-native binaries
+just build-microgpt-tools   # reference binaries from the µGPT shard
 ```
 
 CUDA kernels are sourced from the µGPT shard at `lib/microgpt/`. `nvcc`
 on `PATH` (or at `/opt/cuda/bin/nvcc`) is required for the GPU trainer.
+
+### Dependency boundary
+
+AGPT is its own repo, but it intentionally depends on the µGPT shard for:
+
+- model/runtime primitives (`Mat`, `MiniGPT`, backends, RoPE)
+- shared CUDA kernels / stubs
+- reference comparison tools (`bin/microgpt`, `bin/perplexity`)
+
+AGPT owns the trie/radix code, AGPT trainers, AGPT research tools, notes,
+and `rnd/` experiment history.
 
 ## Quick start (Shakespeare, depth 32)
 
@@ -61,9 +72,9 @@ bin/perplexity --model /tmp/run.model --file data/input.txt \
 ## Tests
 
 ```sh
-just test          # Crystal specs + foundational CUDA-trainer tests
-just test-crystal  # Crystal specs only
-just test-agpt     # foundational tests (gradient flow, build, NaN, PPL)
+just test          # AGPT-native specs + AGPT foundational parity tests
+just test-crystal  # AGPT-native Crystal specs
+just test-agpt     # AGPT foundational parity tests
 ```
 
 Foundational tests require `bin/microgpt` and `bin/perplexity` from the

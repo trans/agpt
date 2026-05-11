@@ -4,6 +4,8 @@
 > model size identified. Pivoting to prefix-to-suffix attention
 > (`rnd/p2s-attention/`). Re-open if revisiting the leaf-to-root wrapping
 > formulation.
+>
+> **Trainer note**: post-fix.
 
 ## Hypothesis
 

@@ -1,0 +1,34 @@
+AGPT CUDA Training Engine
+  Model: d=64 heads=4 layers=2 ff=256 vocab=65 seq=128 head_dim=16
+  Loaded 108481 weight floats (423.8 KB)
+Loading radix trie from /home/trans/agpt-tries/gutenberg_5m_d32_radix_corpus...
+  Radix trie: 7539820 nodes, 113838759 total edge chars, 33 endpoint depths
+  Radix loaded: 12528697 counts entries, 71685716 ancestor char entries
+  optimizer: adam (lr=0.0003)
+  lightning: l4-path (SGD-equivalent), 10000 samples/super-epoch, p_stop=0.30, seed=0x5c115e1
+           (stochastic per-sample optimizer steps; accumulate forced off)
+  curriculum: flat (d=max each epoch)
+  max edge_len: 31, max ancestor chars: 31, max KV per node: 62, max endpoint depth: 32
+  mass=1 compaction: 108515875 / 113838759 chars are mass=1 (95.3%); cache holds 5322884 positions
+  loop points: 4462 (mass>1 leaves; 0.2% of 2556027 mass>1 nodes)
+  KV cache: 2725.3 MB unified memory (bf16 compact)
+  GPU memory: 5342.6 MB used, 2844.2 MB free, 8186.8 MB total
+  65 root-child subtrees: sizes min=3 max=1240260 avg=115997.2 (total=7539819 radix nodes)
+  lightning: built adjacency (7539819 child edges total; root has 65 children)
+Epoch 1: loss=2.334144  (7.53 sec, 10000 subtrees, 10000 chunks, 320000 nodes)
+  residual top-10 (subtree_mass × max(avg_loss − 2.334, 0)):
+    rc   rootID   mass      avg_loss     score 
+    3794 149117   841407    4.8710       2134506.6
+    10   149117   871458    4.5473       1928708.0
+    1574 149117   886907    4.4678       1892313.4
+    33   149117   923149    4.1645       1689725.0
+    13   149117   940189    4.0823       1643555.4
+    6    149117   894235    4.1562       1629371.4
+    6429 2772912  619125    4.9157       1598336.3
+    27   149117   914961    4.0336       1554960.1
+    1443 149117   833133    4.1269       1493608.1
+    44   149117   885992    4.0012       1476965.2
+    top-10: 0.2% of mass, 3.4% of excess-loss
+  lightning depth histogram (sample endpoint depth): d32:10000  mean_size=9  mass[min=799 mean=376255 max=1112949]
+Saved to /home/trans/agpt-tries/g5m_l4_sgd_parity.model
+Done.

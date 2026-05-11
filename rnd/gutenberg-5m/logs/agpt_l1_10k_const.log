@@ -1,0 +1,35 @@
+AGPT CUDA Training Engine
+  Model: d=64 heads=4 layers=2 ff=256 vocab=65 seq=128 head_dim=16
+  Loaded 108481 weight floats (423.8 KB)
+Loading radix trie from /home/trans/agpt-tries/gutenberg_5m_d32_radix_corpus...
+  Radix trie: 7539820 nodes, 113838759 total edge chars, 33 endpoint depths
+  Radix loaded: 12528697 counts entries, 71685716 ancestor char entries
+  optimizer: rmsprop (lr=0.003)
+  entropy lambda: 1.000 (branching-endpoint icing enabled)
+  lightning: l1-uniform, 10000 samples/super-epoch, p_stop=0.30, seed=0x5c115e1
+           (stochastic per-sample optimizer steps; accumulate forced off)
+  curriculum: flat (d=max each epoch)
+  max edge_len: 31, max ancestor chars: 31, max KV per node: 62, max endpoint depth: 32
+  mass=1 compaction: 108515875 / 113838759 chars are mass=1 (95.3%); cache holds 5322884 positions
+  loop points: 4462 (mass>1 leaves; 0.2% of 2556027 mass>1 nodes)
+  KV cache: 2725.3 MB unified memory (bf16 compact)
+  GPU memory: 5342.4 MB used, 2844.5 MB free, 8186.8 MB total
+  65 root-child subtrees: sizes min=3 max=1240260 avg=115997.2 (total=7539819 radix nodes)
+  lightning: built adjacency (7539819 child edges total; root has 65 children)
+Epoch 1: loss=2.444543  (8.25 sec, 10000 subtrees, 10003 chunks, 1187252 nodes)
+  residual top-10 (subtree_mass × max(avg_loss − 2.445, 0)):
+    rc   rootID   mass      avg_loss     score 
+    3351 2772945  7438      2.5779       992.0 
+    6221 114361   235       6.3058       907.4 
+    1251 7143450  1934      2.5843       270.3 
+    672  4116557  1616      2.5939       241.4 
+    2678 1462612  7908      2.4739       232.2 
+    1354 2838181  1332      2.6067       216.0 
+    3253 5319795  4832      2.4881       210.6 
+    324  1962     792       2.7055       206.7 
+    409  4115995  806       2.6525       167.6 
+    1805 1468949  1361      2.5601       157.3 
+    top-10: 11.4% of mass, 34.1% of excess-loss
+  lightning depth histogram (sample endpoint depth): d2:3 d3:17 d4:56 d5:135 d6:280 d7:343 d8:393 d9:420 d10:376 d11:319 d12:272 d13:229 d14:156 d15:123 d16:101 d17:53 d18:53 d19:25 d20:24 d21:11 d22:7 d23:4 d24:3 d25:5 d26:1 d27:3 d28:1 d30:1 d31:1 d32:6585  mean_size=8  mass[min=1 mean=25 max=53615]
+Saved to /home/trans/agpt-tries/g5m_l1_10k_const.model
+Done.

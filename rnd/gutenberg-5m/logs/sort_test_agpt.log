@@ -1,0 +1,13 @@
+bash tests/test_agpt_fundamentals.sh
+AGPT fundamentals test
+  project: /home/trans/Projects/agpt
+  working: /tmp/agpt_fundamentals_3156850
+
+PASS  1. every weight matrix changes during training
+PASS  2. radix build from d=8 leveled trie produces valid output (radix_count=845540, 9 depth files)
+PASS  3. training loss stays finite
+PASS  4. post-training PPL far below random baseline (random=164.2786, post-train=17.7099, ratio=0.11)
+PASS  5. L4 path-sampling ≈ bin/microgpt SGD (within tolerance) (SGD=23.3603, L4=21.8523, ratio=1.07)
+
+============================================================
+ALL 5 PASSED

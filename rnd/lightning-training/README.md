@@ -1,5 +1,12 @@
 # Lightning Training — empirical
 
+**Trainer note**: pre-fix, needs reassessment.
+
+Most quantitative claims in this file were produced before the `Wk` / `Wv` /
+bias gradient fix in commit `1c858c0` (2026-04-23). The experiment ideas and
+failure modes remain useful, but the reported PPL rankings should be treated as
+provisional until rechecked on the corrected trainer.
+
 Design doc: `notes/agpt/lightning-training.md`.
 
 ## Hypothesis

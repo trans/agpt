@@ -6,6 +6,14 @@
 > This rewrites several earlier conclusions; see `findings.md` for the full
 > story. Recipe is unchanged from post-fix-baseline; only the epoch count
 > changed.
+>
+> **Update (2026-04-30):** further investigation showed pd=1 (root-child
+> partition) was even more under-stepped than just being under-epoched.
+> Setting `--partition-depth 6 --no-accumulate` (per-6-gram Adam steps)
+> drops PPL@32 to **3.95** at just 3 SE — 27% lower than this directory's
+> best of 5.39, in 1/8 the wall-clock. See `../partition-depth/` for the
+> follow-up finding. The "AGPT was undertrained" story here is correct
+> but partial — the deeper issue was Adam-step granularity.
 
 ## TL;DR
 

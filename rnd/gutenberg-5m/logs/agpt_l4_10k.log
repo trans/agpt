@@ -1,0 +1,36 @@
+AGPT CUDA Training Engine
+  Model: d=64 heads=4 layers=2 ff=256 vocab=65 seq=128 head_dim=16
+  Loaded 108481 weight floats (423.8 KB)
+Loading radix trie from /home/trans/agpt-tries/gutenberg_5m_d32_radix_corpus...
+  Radix trie: 7539820 nodes, 113838759 total edge chars, 33 endpoint depths
+  Radix loaded: 12528697 counts entries, 71685716 ancestor char entries
+  lr-schedule: warmup-cosine (peak=0.003, warmup_epochs=1)
+  optimizer: rmsprop (lr=0.003)
+  entropy lambda: 1.000 (branching-endpoint icing enabled)
+  lightning: l4-path (SGD-equivalent), 10000 samples/super-epoch, p_stop=0.30, seed=0x5c115e1
+           (stochastic per-sample optimizer steps; accumulate forced off)
+  curriculum: flat (d=max each epoch)
+  max edge_len: 31, max ancestor chars: 31, max KV per node: 62, max endpoint depth: 32
+  mass=1 compaction: 108515875 / 113838759 chars are mass=1 (95.3%); cache holds 5322884 positions
+  loop points: 4462 (mass>1 leaves; 0.2% of 2556027 mass>1 nodes)
+  KV cache: 2725.3 MB unified memory (bf16 compact)
+  GPU memory: 5342.4 MB used, 2844.5 MB free, 8186.8 MB total
+  65 root-child subtrees: sizes min=3 max=1240260 avg=115997.2 (total=7539819 radix nodes)
+  lightning: built adjacency (7539819 child edges total; root has 65 children)
+Epoch 1: loss=2.638902  (7.68 sec, 10000 subtrees, 10000 chunks, 320000 nodes)
+  residual top-10 (subtree_mass × max(avg_loss − 2.639, 0)):
+    rc   rootID   mass      avg_loss     score 
+    13   149117   940189    5.6900       2868580.7
+    10   149117   871458    5.8463       2795102.4
+    33   149117   923149    5.6350       2765839.0
+    27   149117   914961    5.5142       2630792.1
+    3170 149117   933466    5.4389       2613688.9
+    44   149117   885992    5.5068       2540936.6
+    6    149117   894235    5.2977       2377577.1
+    1574 149117   886907    5.1642       2239676.3
+    47   149117   848701    5.1712       2149155.1
+    24   149117   835401    5.0617       2023990.7
+    top-10: 0.2% of mass, 4.2% of excess-loss
+  lightning depth histogram (sample endpoint depth): d32:10000  mean_size=9  mass[min=799 mean=376255 max=1112949]
+Saved to /home/trans/agpt-tries/g5m_d32_l4_10k.model
+Done.

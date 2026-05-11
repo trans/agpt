@@ -2,6 +2,13 @@
 
 **Status**: in progress (branch: `main`).
 
+**Trainer note**: pre-fix, needs reassessment.
+
+This experiment's core question still stands, but the AGPT-side quantitative
+results were framed before the `Wk` / `Wv` / bias gradient fix in commit
+`1c858c0` (2026-04-23). Reassess the reported depth/PPL curve on the corrected
+trainer before treating the old numbers as current evidence.
+
 ## Hypothesis
 
 The radix trie has a hard asymptote: at d=32, 99.99% of cap endpoints are
