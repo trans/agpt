@@ -1,0 +1,32 @@
+Vocab: 65 unique chars from data/gutenberg_5m.txt
+Tokens: 5000000
+Arch: d_model=64 n_heads=4 n_layers=2 d_ff=256 ckpt_seq=128
+Model loaded
+  102/2048 (68.9/s, ETA 28s)
+  204/2048 (74.6/s, ETA 25s)
+  306/2048 (75.8/s, ETA 23s)
+  408/2048 (75.9/s, ETA 22s)
+  510/2048 (77.4/s, ETA 20s)
+  612/2048 (76.6/s, ETA 19s)
+  714/2048 (76.8/s, ETA 17s)
+  816/2048 (77.5/s, ETA 16s)
+  918/2048 (78.0/s, ETA 14s)
+  1020/2048 (77.7/s, ETA 13s)
+  1122/2048 (77.2/s, ETA 12s)
+  1224/2048 (76.3/s, ETA 11s)
+  1326/2048 (76.3/s, ETA 9s)
+  1428/2048 (76.6/s, ETA 8s)
+  1530/2048 (76.6/s, ETA 7s)
+  1632/2048 (76.7/s, ETA 5s)
+  1734/2048 (76.7/s, ETA 4s)
+  1836/2048 (76.2/s, ETA 3s)
+  1938/2048 (76.1/s, ETA 1s)
+  2040/2048 (75.8/s, ETA 0s)
+
+Pool mode:          depth_w
+d_window:           16
+Positions scored:   2048
+Mean per-token NLL: 2.252768 nats
+Perplexity:         9.5140
+Bits per char:      3.2501 bpc
+Elapsed:            27.0s (75.8 pos/sec)

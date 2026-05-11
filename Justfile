@@ -81,6 +81,16 @@ build-agpt-parrot-sample: build-stubs
     mkdir -p bin
     timeout 3m crystal build src/tools/agpt_parrot_sample.cr -o bin/agpt_parrot_sample --release --link-flags="{{root}}/build/kernels.o -lstdc++"
 
+# Build sliding-window perplexity prototype. v1 of sliding-window AGPT
+# inference (see notes/agpt/sliding_window_agpt.md, rnd/sliding-window-v1).
+# Logit-pooling perplexity: for each target position, runs d contributing
+# windows and pools their log-prob predictions.
+build-agpt-sliding-window-perplexity:
+    mkdir -p bin build
+    /opt/cuda/bin/nvcc --allow-unsupported-compiler -std=c++17 -c -O2 lib/microgpt/src/cuda/kernels.cu -o build/kernels.o
+    timeout 3m crystal build src/tools/agpt_sliding_window_perplexity.cr -o bin/agpt_sliding_window_perplexity --release --link-flags="{{root}}/build/kernels.o -L/opt/cuda/lib64 -lcudart -lcublas -lstdc++"
+    cc -c -O2 lib/microgpt/src/cuda/stubs.c -o build/kernels.o
+
 # Build position→node map tool. Phase 0 of seq_len decoupling: walks
 # each corpus position's d-window through the radix trie and reports
 # what nodes corpus positions land on. Optionally dumps a binary
