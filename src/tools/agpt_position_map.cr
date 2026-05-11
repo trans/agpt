@@ -85,115 +85,108 @@ if !out_path.empty?
 end
 
 # Statistics.
-landing_depth_hist = Hash(Int32, Int64).new(0_i64)
-landing_mass_hist = Hash(Int32, Int64).new(0_i64) # binned by log2(mass)
-node_position_count = Hash(Int32, Int32).new(0)   # full-contributions per node
-node_landing_count = Hash(Int32, Int32).new(0)    # only-leaf-landed
+node_position_count = Hash(Int32, Int32).new(0)   # node → distinct terminal-position contributions
 nodes_per_position_hist = Hash(Int32, Int64).new(0_i64)
 nodes_per_position_sum = 0_i64
 fall_off_count = 0_i64
 no_root_child_count = 0_i64
-processed = 0_i64
-verbose_left = verbose_samples
 
 t_start = Time.monotonic
 
-# Per-position contribution buffer (reused).
-contrib_buf = [] of Int32
+# Two-pass approach.
+# Pass 1: outer loop over starting positions s. For each, walk forward up to
+# d_max chars and emit (terminal_corpus_position, radix_node_id) contributions.
+# Aggregate per terminal corpus position.
+n_corpus = corpus_tokens.size
+n_terminal = sample_n > 0 && sample_n < n_corpus ? sample_n : n_corpus
+per_position_nodes = Array(Array(Int32)).new(n_terminal) { [] of Int32 }
+STDERR.puts "Pass 1: walking from each of #{n_corpus} starting positions, emitting (terminal_position, node) contributions"
 
-n_positions.times do |p|
-  contrib_buf.clear
+s = 0
+while s < n_corpus
   parent_id = 0
-  pos_in_window = 0
-  landed_id = -1
-  landed_depth = 0
-
-  while pos_in_window < d_max
-    next_char = corpus_tokens[p + pos_in_window]
+  pos_off = 0
+  while pos_off < d_max && (s + pos_off) < n_corpus
+    next_char = corpus_tokens[s + pos_off]
     kids = child_by_token[parent_id]?
     if kids.nil?
       no_root_child_count += 1 if parent_id == 0
       break
     end
     kid = kids[next_char]?
-    if kid.nil?
-      break
-    end
+    break if kid.nil?
     edge_len = kid.edge_tokens.size
-    max_consume = Math.min(edge_len, d_max - pos_in_window)
-    edge_match_len = 0
-    max_consume.times do |i|
-      if kid.edge_tokens[i] == corpus_tokens[p + pos_in_window + i]
-        edge_match_len += 1
+    max_can = Math.min(edge_len, Math.min(d_max - pos_off, n_corpus - (s + pos_off)))
+    match_len = 0
+    max_can.times do |i|
+      if kid.edge_tokens[i] == corpus_tokens[s + pos_off + i]
+        match_len += 1
       else
         break
       end
     end
-    if edge_match_len < max_consume
-      landed_id = kid.id
-      landed_depth = kid.first_char_depth + edge_match_len - 1
-      contrib_buf << kid.id  # partial-match still contributes to this node
-      pos_in_window += edge_match_len
-      fall_off_count += 1 if edge_match_len < edge_len
-      break
+    if match_len > 0
+      terminal_pos = s + pos_off + match_len - 1
+      # Attribute this radix node to its TERMINAL corpus position
+      # (where its path ends). Only record if within sample limit.
+      if terminal_pos < n_terminal
+        per_position_nodes[terminal_pos] << kid.id
+      end
     end
-    pos_in_window += max_consume
-    landed_id = kid.id
-    landed_depth = kid.first_char_depth + max_consume - 1
-    contrib_buf << kid.id
-    if max_consume < edge_len
+    pos_off += match_len
+    if match_len < edge_len
+      fall_off_count += 1
       break
     end
     parent_id = kid.id
   end
-
-  # Update inverse stats from all contributions (or just the leaf if --leaf-only).
-  if emit_full_contributions
-    contrib_buf.each { |nid| node_position_count[nid] += 1 }
-  else
-    node_position_count[landed_id] += 1 if landed_id >= 0
+  s += 1
+  if s % 500000 == 0
+    elapsed = (Time.monotonic - t_start).total_seconds
+    rate = s / elapsed
+    STDERR.puts "  walked from #{s}/#{n_corpus} starting positions (#{rate.round(0)} pos/s)"
   end
-  node_landing_count[landed_id] += 1 if landed_id >= 0
+end
 
-  k = contrib_buf.size
+t_walk = (Time.monotonic - t_start).total_seconds
+STDERR.puts "Pass 1 complete in #{t_walk.round(2)}s"
+
+# Pass 2: emit stats and optional binary output.
+STDERR.puts "Pass 2: aggregating stats and writing output"
+processed = 0_i64
+verbose_left = verbose_samples
+
+n_terminal.times do |p|
+  contribs = per_position_nodes[p]
+  k = contribs.size
   nodes_per_position_hist[k] += 1
   nodes_per_position_sum += k
-
-  landing_depth_hist[landed_depth] += 1
-  if landed_id >= 0
-    mass = record_by_id[landed_id].edge_mass
-    log2_bin = mass <= 0 ? -1 : Math.log2(mass.to_f).to_i32
-    landing_mass_hist[log2_bin] += 1
-  end
+  contribs.each { |nid| node_position_count[nid] += 1 }
 
   if verbose_left > 0
     snippet_len = Math.min(d_max, 24)
-    snippet = String.build do |s|
-      snippet_len.times do |i|
-        c = dataset.id_to_char[corpus_tokens[p + i]]
-        s << ((c.ord >= 32 && c.ord < 127) ? c : '?')
+    start_show = Math.max(0, p - snippet_len + 1)
+    snippet = String.build do |sb|
+      (start_show..p).each do |i|
+        c = dataset.id_to_char[corpus_tokens[i]]
+        sb << ((c.ord >= 32 && c.ord < 127) ? c : '?')
       end
     end
-    path_str = contrib_buf.map { |nid|
+    path_str = contribs.map { |nid|
       r = record_by_id[nid]
       "#{nid}(d#{r.endpoint_depth},m#{r.edge_mass})"
-    }.join(" → ")
-    STDERR.puts "  p=#{p} window=\"#{snippet}\" path: #{path_str}"
+    }.join(", ")
+    STDERR.puts "  p=#{p} context_ending_at_p=\"#{snippet}\" k=#{k} reps: #{path_str}"
     verbose_left -= 1
   end
 
   if oi = out_io
     # Per-position record: [k:int32] [nid_1, ..., nid_k : int32]
-    oi.write_bytes(contrib_buf.size.to_i32, IO::ByteFormat::LittleEndian)
-    contrib_buf.each { |nid| oi.write_bytes(nid, IO::ByteFormat::LittleEndian) }
+    oi.write_bytes(k.to_i32, IO::ByteFormat::LittleEndian)
+    contribs.each { |nid| oi.write_bytes(nid, IO::ByteFormat::LittleEndian) }
   end
 
   processed += 1
-  if processed % 500000 == 0
-    elapsed = (Time.monotonic - t_start).total_seconds
-    rate = processed / elapsed
-    STDERR.puts "  walked #{processed} positions (#{rate.round(0)} pos/s)"
-  end
 end
 
 if oi = out_io
@@ -206,44 +199,23 @@ STDERR.puts "Walked #{processed} positions in #{t_total.round(2)}s"
 # === Reports ===
 
 puts ""
-puts "## Landing depth distribution"
-puts "depth   count        pct"
-total = processed.to_f
-landing_depth_hist.to_a.sort_by(&.[0]).each do |depth, count|
-  pct = (count.to_f / total * 100)
-  bar = "*" * (pct * 0.5).to_i
-  puts "%5d  %10d  %5.2f%%  %s" % [depth, count, pct, bar]
-end
-
-puts ""
-puts "## Landing-node mass distribution (binned by log2)"
-puts "log2(mass)  bin_range            count        pct"
-landing_mass_hist.to_a.sort_by(&.[0]).each do |bin, count|
-  pct = (count.to_f / total * 100)
-  low = 1_i64 << bin
-  high = (1_i64 << (bin + 1)) - 1
-  bar = "*" * (pct * 0.5).to_i
-  puts "%10d  [%8d..%-8d]  %10d  %5.2f%%  %s" % [bin, low, high, count, pct, bar]
-end
-
-puts ""
-puts "## Nodes-per-position distribution (radix-tree depth)"
+puts "## Contributions-per-corpus-position distribution (radix-node count where path terminates at p)"
 puts "  k     count       pct"
+total = processed.to_f
 nodes_per_position_hist.to_a.sort_by(&.[0]).each do |k, count|
   pct = (count.to_f / total * 100)
   bar = "*" * (pct * 0.5).to_i
   puts "%5d  %10d  %5.2f%%  %s" % [k, count, pct, bar]
 end
-puts "  mean: %.2f nodes touched per position" % (nodes_per_position_sum.to_f / total)
+puts "  mean: %.2f radix nodes representing each corpus position" % (nodes_per_position_sum.to_f / total)
+puts "  upper bound (d_max): #{d_max}"
 
 puts ""
 puts "## Aggregates"
-puts "  total positions walked:      #{processed}"
-puts "  positions reaching depth=#{d_max}:  #{landing_depth_hist[d_max]} (#{(landing_depth_hist[d_max].to_f / total * 100).round(2)}%)"
-puts "  positions falling off mid-edge:    #{fall_off_count}"
-puts "  positions with no root child:      #{no_root_child_count}"
-puts "  unique leaf-landing nodes:        #{node_landing_count.size}"
-puts "  unique nodes touched (any depth): #{node_position_count.size}"
+puts "  total terminal positions counted: #{processed}"
+puts "  walks falling off mid-edge:       #{fall_off_count}"
+puts "  walks with no root child:         #{no_root_child_count}"
+puts "  unique nodes attributed:          #{node_position_count.size}"
 puts "  total (position, node) contributions: #{nodes_per_position_sum}"
 
 # Per-node: count of position-contributions must match trie's stored edge_mass.

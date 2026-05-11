@@ -1,0 +1,83 @@
+Corpus: data/gutenberg_5m.txt (5000000 tokens, vocab=65)
+Trie: /home/trans/agpt-tries/gutenberg_5m_d32_radix_corpus (7539820 nodes, vocab=65, depth_files=33)
+Indexed in 8.19s
+Max endpoint depth in trie: d=32
+Walking 4999968 corpus positions (window=32)
+Writing position→node_id binary to: rnd/seq-len-decouple/gutenberg_5m_d32_pos_to_node.bin
+Pass 1: walking from each of 5000000 starting positions, emitting (terminal_position, node) contributions
+  walked from 500000/5000000 starting positions (186196.0 pos/s)
+  walked from 1000000/5000000 starting positions (195638.0 pos/s)
+  walked from 1500000/5000000 starting positions (199440.0 pos/s)
+  walked from 2000000/5000000 starting positions (202133.0 pos/s)
+  walked from 2500000/5000000 starting positions (203566.0 pos/s)
+  walked from 3000000/5000000 starting positions (201955.0 pos/s)
+  walked from 3500000/5000000 starting positions (201577.0 pos/s)
+  walked from 4000000/5000000 starting positions (201202.0 pos/s)
+  walked from 4500000/5000000 starting positions (201781.0 pos/s)
+  walked from 5000000/5000000 starting positions (197220.0 pos/s)
+Pass 1 complete in 25.35s
+Pass 2: aggregating stats and writing output
+Walked 5000000 positions in 29.64s
+
+## Contributions-per-corpus-position distribution (radix-node count where path terminates at p)
+  k     count       pct
+    1           7   0.00%  
+    2        5094   0.10%  
+    3       49048   0.98%  
+    4      245316   4.91%  **
+    5      414781   8.30%  ****
+    6      476353   9.53%  ****
+    7      547376  10.95%  *****
+    8      584934  11.70%  *****
+    9      577385  11.55%  *****
+   10      511969  10.24%  *****
+   11      425385   8.51%  ****
+   12      337147   6.74%  ***
+   13      251687   5.03%  **
+   14      179782   3.60%  *
+   15      125306   2.51%  *
+   16       86014   1.72%  
+   17       58752   1.18%  
+   18       39703   0.79%  
+   19       26171   0.52%  
+   20       17808   0.36%  
+   21       11508   0.23%  
+   22        7633   0.15%  
+   23        5241   0.10%  
+   24        3515   0.07%  
+   25        2662   0.05%  
+   26        1946   0.04%  
+   27        1456   0.03%  
+   28         940   0.02%  
+   29         746   0.01%  
+   30         538   0.01%  
+   31         419   0.01%  
+   32        3378   0.07%  
+  mean: 9.24 radix nodes representing each corpus position
+  upper bound (d_max): 32
+
+## Aggregates
+  total terminal positions counted: 5000000
+  walks falling off mid-edge:       0
+  walks with no root child:         0
+  unique nodes attributed:          7539819
+  total (position, node) contributions: 46190558
+
+## Mass consistency check
+  sum of position-contributions: 46190558
+  sum of trie edge_mass for those nodes: 46190558
+  ratio (contributions / mass):             100.0%
+  per-node count mismatches (contribution != edge_mass): 0
+
+## Top 10 nodes by position count
+node_id    positions  mass     depth  edge_len
+149117     821687     821687   1      1
+2772912    477225     477225   1      1
+6552035    339827     339827   1      1
+1839620    306058     306058   1      1
+5318063    290452     290452   1      1
+4909219    270782     270782   1      1
+4108263    251235     251235   1      1
+3735982    246053     246053   1      1
+6187484    241819     241819   1      1
+5854785    221073     221073   1      1
