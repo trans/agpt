@@ -1,0 +1,54 @@
+Corpus: data/gutenberg_5m.txt (5000000 tokens, vocab=65)
+Trie: /home/trans/agpt-tries/gutenberg_5m_d32_radix_corpus (7539820 nodes, vocab=65, depth_files=33)
+Indexed in 7.92s
+Max endpoint depth in trie: d=32
+Walking 4999968 corpus positions (window=32)
+  walked 500000 positions (163926.0 pos/s)
+  walked 1000000 positions (170830.0 pos/s)
+  walked 1500000 positions (176262.0 pos/s)
+  walked 2000000 positions (177981.0 pos/s)
+  walked 2500000 positions (178622.0 pos/s)
+  walked 3000000 positions (178467.0 pos/s)
+  walked 3500000 positions (177530.0 pos/s)
+  walked 4000000 positions (177415.0 pos/s)
+  walked 4500000 positions (175464.0 pos/s)
+Walked 4999968 positions in 28.62s
+
+## Landing depth distribution
+depth   count        pct
+   32     4999968  100.00%  **************************************************
+
+## Landing-node mass distribution (binned by log2)
+log2(mass)  bin_range            count        pct
+         0  [       1..1       ]     4983792  99.68%  *************************************************
+         1  [       2..3       ]        8106   0.16%  
+         2  [       4..7       ]         969   0.02%  
+         3  [       8..15      ]        1912   0.04%  
+         4  [      16..31      ]        3624   0.07%  
+         5  [      32..63      ]         218   0.00%  
+        10  [    1024..2047    ]        1347   0.03%  
+
+## Aggregates
+  total positions walked:      4999968
+  positions reaching depth=32:  4999968 (100.0%)
+  positions falling off mid-edge:    0
+  positions with no root child:      0
+  unique landing nodes:        4988254
+
+## Mass consistency check
+  sum of positions across landing nodes: 4999968
+  sum of trie edge_mass for those nodes: 4999968
+  ratio (positions / mass):             100.0%
+
+## Top 10 nodes by position count
+node_id    positions  mass     depth  edge_len
+1389353    1347       1347     32     1
+1389355    63         63       32     1
+1389261    63         63       32     2
+1455852    52         52       32     1
+1389277    40         40       32     1
+1409808    29         29       32     27
+1611041    28         28       32     23
+1389361    25         25       32     1
+1389373    23         23       32     1
+1389286    23         23       32     2

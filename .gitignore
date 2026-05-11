@@ -20,3 +20,4 @@ data/synth_wrap_*.txt
 data/wormhole_*.txt
 data/gutenberg_5m_pgrouped.txt
 rnd/wrap-around/*.model
+rnd/seq-len-decouple/*.bin

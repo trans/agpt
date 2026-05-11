@@ -81,6 +81,15 @@ build-agpt-parrot-sample: build-stubs
     mkdir -p bin
     timeout 3m crystal build src/tools/agpt_parrot_sample.cr -o bin/agpt_parrot_sample --release --link-flags="{{root}}/build/kernels.o -lstdc++"
 
+# Build position→node map tool. Phase 0 of seq_len decoupling: walks
+# each corpus position's d-window through the radix trie and reports
+# what nodes corpus positions land on. Optionally dumps a binary
+# array `pos_to_node[p] = radix_id` for use by decoupled-attention
+# experiments.
+build-agpt-position-map: build-stubs
+    mkdir -p bin
+    timeout 3m crystal build src/tools/agpt_position_map.cr -o bin/agpt_position_map --release --link-flags="{{root}}/build/kernels.o -lstdc++"
+
 # Build distribution-similarity diagnostic for radix-trie nodes.
 build-agpt-dist-sim: build-stubs
     mkdir -p bin
