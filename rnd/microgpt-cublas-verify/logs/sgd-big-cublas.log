@@ -1,0 +1,166 @@
+MiniGPT ready.
+  Vocab: 65 chars
+  Params: 3192897
+  Config: d_model=256 n_layers=4 d_ff=1024 seq_len=128 lr=0.0003
+  Backend: cublas
+  Model: /tmp/sgd-big-cublas.model
+
+Step 0/1000 (epoch 0): loss = 5.1826 avg = 5.1826
+  seed: First Citizen:
+B
+  gen:  First Citizen:
+Ba:MeDNeXNXee t
+zeez Vhhex MhteNe$eAS.aee3Faee
+ ue  Weqeeee.'az  O eu Sqe,ee SAe,' xee&e,Ss:eueieez e
+
+Step 50/1000 (epoch 0): loss = 2.7243 avg = 4.3612
+  seed: up, that all
+Fro
+  gen:  up, that all
+Fro c
+u'eoro  bvisrither nane the teol ire
+rbe s boriaawa.n
+illrthgi g . d alenve le thero
+ g, iu, airo
+
+Step 100/1000 (epoch 0): loss = 2.6896 avg = 3.7636
+  seed:  goes
+Upon this 
+  gen:   goes
+Upon this me tnealln tI?n h ton'irden:
+
+
+
+Nbopus mito allathi?ipous tofe cche ancro CinaS:
+
+che jus, tSCind is
+
+Step 150/1000 (epoch 0): loss = 2.5958 avg = 3.3635
+  seed: ity Corioli; the
+  gen:  ity Corioli; thelels s.
+Ve y toow as s an n Htr t min ereser llilt mal-I fit yousowios four
+TIA llsin deals tous sou
+
+Step 200/1000 (epoch 0): loss = 2.4864 avg = 3.0373
+  seed: our own.
+
+MARCIU
+  gen:  our own.
+
+MARCIUS:
+
+ARLIUS:NIULINIUS:
+Wier cen yound coce oun or.
+
+Men anco I ooucrt IUSomeCoen nous oranger onIUCy 
+
+Step 250/1000 (epoch 0): loss = 2.3640 avg = 2.7824
+  seed: ore, be it known
+  gen:  ore, be it known,
+Hipicacalde yenr;
+Mof norc-eded I tho cotes yous vere-
+Mthe he thourserisk,
+Mant ien thay thare me
+
+Step 300/1000 (epoch 0): loss = 2.4515 avg = 2.6401
+  seed: hed with the col
+  gen:  hed with the coly ad lastceamonghe mere yoou wowr as wo ave the mee yome dothe meaf wouwitce shames you omer; ad ito
+
+Step 350/1000 (epoch 0): loss = 2.2651 avg = 2.5547
+  seed: t into his human
+  gen:  t into his humand veff sherilther fino that shar wthers powth he Tun shang the ly
+Carin that hase lat ofrse sare at 
+
+Step 400/1000 (epoch 0): loss = 2.5939 avg = 2.4559
+  seed: iefest virtue, a
+  gen:  iefest virtue, ary boust
+Yous hat hars, out them monll
+B halle yond sano who beplly cot ther thak, de lenthe Cose th
+
+Step 450/1000 (epoch 0): loss = 2.2631 avg = 2.3940
+  seed: eep their teeth 
+  gen:  eep their teeth bhe have
+Wher imin.
+
+
+MENENIUS:
+Sha she wire coes shay whean your yom se when hen theay him manm may
+
+Step 500/1000 (epoch 0): loss = 2.2276 avg = 2.3074
+  seed: t his contempt s
+  gen:  t his contempt sured woun high sore aicel ares
+hice grtour his coe haulesag ilie avild ourd souly
+Aem ham atis at di
+
+Step 550/1000 (epoch 0): loss = 1.7577 avg = 2.2369
+  seed: ch they have giv
+  gen:  ch they have give thes,
+Whed be terbom hos your puamoor, and.
+
+CORIOLANUS:
+COLANUS:
+Bf, Ore his anserdse tor son tou
+
+Step 600/1000 (epoch 0): loss = 2.3399 avg = 2.2214
+  seed:  authority,
+Or l
+  gen:   authority,
+Or lo pance yu eak' weiond yur of han, an of a lie a lly, fie pa cis! force alut? sod, pepre lous of wha
+
+Step 650/1000 (epoch 0): loss = 2.1991 avg = 2.1793
+  seed: me further, who 
+  gen:  me further, who the greang the mefol owil,
+Hen as bes on at fenen of onginsente
+Fon he the perepollencins matirs, to
+
+Step 700/1000 (epoch 0): loss = 2.0222 avg = 2.1471
+  seed: em accuse me by 
+  gen:  em accuse me by manteN
+Hrirt shat ane my to my mest wer.
+Fol the the my I preome mut them theem my minenchy
+Tou pold
+
+Step 750/1000 (epoch 0): loss = 2.1865 avg = 2.1125
+  seed: :
+There is a wor
+  gen:  :
+There is a woresh you, whave soveth hat mo shane sis,
+You shous: areel asse as! en ben conand benter mow powses, h
+
+Step 800/1000 (epoch 0): loss = 2.1409 avg = 2.0943
+  seed: man:
+The main bl
+  gen:  man:
+The main bly some mow wenerr's wome, beve: gome,
+Wist hath is hid efeors. past hay annge, is your sering, bat h
+
+Step 850/1000 (epoch 0): loss = 2.2695 avg = 2.0941
+  seed: hee, that wilt r
+  gen:  hee, that wilt reard wuak
+lole would nelas thy hous me sellusnd
+th eay hure mow ufl a the hour'furod whuves,
+Courd i
+
+Step 900/1000 (epoch 0): loss = 2.6052 avg = 2.0818
+  seed:  far as
+day does
+  gen:   far as
+day doest be ret othe shir
+dirve aserces third, a to this, ad,
+the owerl, se bf as, servingmand
+A't thirs ea
+
+Step 950/1000 (epoch 0): loss = 1.9584 avg = 2.0691
+  seed: e brought it.
+
+M
+  gen:  e brought it.
+
+MENENIUS:
+Yous hes selly nome mede and you but malis loust your,
+What yough the what the
+Woo he rever
+
+Final avg loss: 2.0547
+Model saved: /tmp/sgd-big-cublas.model
+Result logged: data/results.tsv

@@ -17,7 +17,7 @@ build-stubs:
 # Sources kernels.cu from the µGPT shard.
 build-agpt-train:
     mkdir -p bin
-    /opt/cuda/bin/nvcc -O2 src/cuda/agpt_train.cu lib/microgpt/src/cuda/kernels.cu -lcublas -o bin/agpt_train
+    /opt/cuda/bin/nvcc --allow-unsupported-compiler -std=c++17 -O2 src/cuda/agpt_train.cu lib/microgpt/src/cuda/kernels.cu -lcublas -o bin/agpt_train
 
 # Build the leveled-trie index builder.
 build-agpt-build-index: build-stubs
@@ -150,7 +150,7 @@ build-all: build-agpt-train build-agpt-build-index build-agpt-build-radix build-
 # Used only for baseline comparison / parity tests, not for ordinary AGPT builds.
 build-microgpt-tools:
     mkdir -p bin build
-    /opt/cuda/bin/nvcc -c -O2 lib/microgpt/src/cuda/kernels.cu -o build/kernels.o
+    /opt/cuda/bin/nvcc --allow-unsupported-compiler -std=c++17 -c -O2 lib/microgpt/src/cuda/kernels.cu -o build/kernels.o
     timeout 3m crystal build lib/microgpt/src/microgpt/main.cr -o bin/microgpt --release --link-flags="{{root}}/build/kernels.o -L/opt/cuda/lib64 -lcudart -lcublas -lstdc++"
     timeout 3m crystal build lib/microgpt/src/tools/perplexity.cr -o bin/perplexity --release --link-flags="{{root}}/build/kernels.o -L/opt/cuda/lib64 -lcudart -lcublas -lstdc++"
     cc -c -O2 lib/microgpt/src/cuda/stubs.c -o build/kernels.o

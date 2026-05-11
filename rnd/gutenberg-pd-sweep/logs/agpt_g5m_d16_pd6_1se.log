@@ -1,0 +1,35 @@
+AGPT CUDA Training Engine
+  Model: d=64 heads=4 layers=2 ff=256 vocab=65 seq=128 head_dim=16
+  Loaded 108481 weight floats (423.8 KB)
+Loading radix trie from /tmp/agpt_g5m_d16_radix...
+  Radix trie: 7073694 nodes, 34623339 total edge chars, 17 endpoint depths
+  Radix loaded: 11884367 counts entries, 63118178 ancestor char entries
+  d_split: 4570307/7073694 nodes have a mass=1 ancestor (mean depth 10.48)
+  lr-schedule: warmup-cosine (peak=0.003, warmup_epochs=0)
+  weight-decay: 0.01 (decoupled, AdamW-style)
+  optimizer: rmsprop (lr=0.003)
+  curriculum: flat (d=max each epoch)
+  max edge_len: 15, max ancestor chars: 15, max KV per node: 30, max endpoint depth: 16
+  mass=1 compaction: 29783005 / 34623339 chars are mass=1 (86.0%); cache holds 4840334 positions
+  loop points: 160826 (mass>1 leaves; 6.4% of 2503386 mass>1 nodes)
+  KV cache: 2478.3 MB unified memory (bf16 compact)
+  GPU memory: 3016.9 MB used, 5169.9 MB free, 8186.8 MB total
+  65 root-child subtrees: sizes min=3 max=1116592 avg=108826.0 (total=7073693 radix nodes)
+  partition-depth=6: 629392 groups, 1 Adam step per group per super-epoch
+  shuffle-order: per-SE Fisher-Yates over 629392 partition groups (seed=0xa17b1ed)
+Epoch 1: loss=1.799922  (379.52 sec, 629392 subtrees, 629395 chunks, 34623339 nodes)
+  residual top-10 (subtree_mass × max(avg_loss − 1.800, 0)):
+    rc   rootID   mass      avg_loss     score 
+    335986 1        23927037  2.2887       11694365.0
+    107971 412614   49689     2.6170       40600.6
+    4    462224   4037      7.1744       21696.9
+    80978 457658   68786     2.0637       18144.8
+    92014 474503   78877     1.9832       14453.6
+    433  849842   14005     2.7851       13797.7
+    231213 462211   49546     2.0592       12848.4
+    14464 135037   18402     2.4110       11244.7
+    25   515951   7024      3.3704       11031.1
+    3072 667046   8700      2.6439       7342.9
+    top-10: 53.1% of mass, 85.2% of excess-loss
+Saved to /tmp/agpt_g5m_d16_pd6_1se.model
+Done.

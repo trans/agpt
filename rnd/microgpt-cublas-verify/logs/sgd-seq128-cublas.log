@@ -1,0 +1,173 @@
+MiniGPT ready.
+  Vocab: 65 chars
+  Params: 108481
+  Config: d_model=64 n_layers=2 d_ff=256 seq_len=128 lr=0.0003
+  Backend: cublas
+  Model: /tmp/sgd-seq128-cublas.model
+
+Step 0/1000 (epoch 0): loss = 5.3129 avg = 5.3129
+  seed: First Citizen:
+B
+  gen:  First Citizen:
+BYGNK
+mynNGNesiGNebbhC
+NbGGnKbeCDMeCsNIGgGKzbYjNM
+NeYbCGKJneO ddY.gSCO:FKNeHN,Neb
+sSY,ogvSmMNYYYDtmMe
+
+Step 50/1000 (epoch 0): loss = 3.1474 avg = 4.6299
+  seed: up, that all
+Fro
+  gen:  up, that all
+Froa f  tho ytHeh arMded tna   t s
+sth   HtaY
+ a hlhe uDt
+ d   tyhinyc
+thepge ad rCi a?nye seIheos e l 
+
+Step 100/1000 (epoch 0): loss = 3.3058 avg = 4.0978
+  seed:  goes
+Upon this 
+  gen:   goes
+Upon this rde wso yigmqe
+
+ilryN desre moet 
+t Hs tD:ierereco s
+
+
+i:uoWltr t Hein
+usAlftho ,rlN
+d the s s m oot
+
+Step 150/1000 (epoch 0): loss = 2.9767 avg = 3.7373
+  seed: ity Corioli; the
+  gen:  ity Corioli; thein aGs ny m I se fhllmrmou:, nsmrr 
+lLT gsee as t t?nde
+
+oIRehe nu o
+r anns t reInsed ve leollmoumhe
+
+Step 200/1000 (epoch 0): loss = 2.9471 avg = 3.4697
+  seed: our own.
+
+MARCIU
+  gen:  our own.
+
+MARCIU?
+ hrouN mn s na d th 
+Ioh y pn,e:  O mrin b l
+dgremhites haMigsot n thans y  oohiud triis a r 
+
+
+ s
+
+Step 250/1000 (epoch 0): loss = 2.8076 avg = 3.2501
+  seed: ore, be it known
+  gen:  ore, be it knowneeiliueomawoudt leste lh m th tuet l cthicadieduoilewle?ndounlit d dUthadhird s
+u, h t the c td lin 
+
+Step 300/1000 (epoch 0): loss = 2.9069 avg = 3.1190
+  seed: hed with the col
+  gen:  hed with the coleton itEnI n re p d theCwoUrde
+
+tathe alygnd,
+$l feelll r ada'ous s thaneis at thauondowaneanle G to
+
+Step 350/1000 (epoch 0): loss = 2.8487 avg = 3.0327
+  seed: t into his human
+  gen:  t into his humane, IN condg ond thegees he t s thaat mOnd oI gla or dithe ls ce.un bmf thondon lesase an&h
+the cit t
+
+Step 400/1000 (epoch 0): loss = 2.7621 avg = 2.9011
+  seed: iefest virtue, a
+  gen:  iefest virtue, atoouregorif tSeunMito hit nltous voureRheno
+TaaNos ofaicit th!e fthenliasd ol anocot s f
+
+
+
+Top hino
+
+Step 450/1000 (epoch 0): loss = 2.5751 avg = 2.8271
+  seed: eep their teeth 
+  gen:  eep their teeth t arSromlgo ird wouOo h tmer. tor heule t rentooy,
+ wogt dool Thee oulatdoy beler stouoth ow t feate
+
+Step 500/1000 (epoch 0): loss = 2.5842 avg = 2.7655
+  seed: t his contempt s
+  gen:  t his contempt s: as parke cz s re me:sthe t.oueNhouacand h t Itouo he s t t s: ie Lee gdhartothe lave toureurs hit 
+
+Step 550/1000 (epoch 0): loss = 2.4039 avg = 2.7104
+  seed: ch they have giv
+  gen:  ch they have givis he fe t wothe t e thisadanos m awo t th lef bad thim
+Rathow;gelessschilee the cathe hilindoon.NIO
+
+Step 600/1000 (epoch 0): loss = 2.5972 avg = 2.6732
+  seed:  authority,
+Or l
+  gen:   authority,
+Or lle,  n, pesoure cere.
+Thehenpe t ut b we benhisorIUSre bece sis t bagen the hinsinth w daRono sheue 
+
+Step 650/1000 (epoch 0): loss = 2.5545 avg = 2.6224
+  seed: me further, who 
+  gen:  me further, who lete wat r in te r hase de'de woslendenor herg st blive's f
+MENtos tgipo pi'de wenn t bstit s mens?
+
+Step 700/1000 (epoch 0): loss = 2.3302 avg = 2.5846
+  seed: em accuse me by 
+  gen:  em accuse me by h r nonsg edind l,ucarE.
+
+
+NILe t wee t thard rend we aHe woful t nr
+
+OThinerd reshisor arenord ante
+
+Step 750/1000 (epoch 0): loss = 2.6653 avg = 2.5555
+  seed: :
+There is a wor
+  gen:  :
+There is a worl t te meenowelis
+ woners be ty n oueatrand pe te my, t muins ssindonelhor llnes I ten s le cenf ins
+
+Step 800/1000 (epoch 0): loss = 2.5953 avg = 2.5445
+  seed: man:
+The main bl
+  gen:  man:
+The main blos I t aane to be to uu we taberdey Iis hau theasond the: howe ble r!
+V he I warerandee woufy aigisu
+
+Step 850/1000 (epoch 0): loss = 2.6047 avg = 2.5463
+  seed: hee, that wilt r
+  gen:  hee, that wilt re s'de wefrsth he e hird,
+VObethethe owat opurder t fours?
+
+COf that ondy bthat the the pe f gu, heu
+
+Step 900/1000 (epoch 0): loss = 2.9853 avg = 2.5441
+  seed:  far as
+day does
+  gen:   far as
+day doesad thyher thot
+Se ar wyou bles,
+
+Thisthe hld h ounckersshe blerwy hetheaavin
+Whe't hareremarey.
+
+Wis
+
+Step 950/1000 (epoch 0): loss = 2.4754 avg = 2.5247
+  seed: e brought it.
+
+M
+  gen:  e brought it.
+
+MDR'y
+amy heangly itinoroues third sshe wENI isive,
+S:
+CIENUS:
+Theremas y ar aored de aoorad bed,
+Whi
+
+Final avg loss: 2.5055
+Model saved: /tmp/sgd-seq128-cublas.model
+Result logged: data/results.tsv
