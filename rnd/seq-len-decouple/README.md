@@ -182,6 +182,56 @@ rnd/seq-len-decouple/
     └── gutenberg_d32_terminal_attr.log             (v3: correct)
 ```
 
+## Phase 1A — Naive seq_len extension (FAILED, expected)
+
+Diagnostic test: take an existing d=16-trained AGPT model, evaluate
+perplexity at increasing seq_len, see whether the model can naturally
+use context past d=16 via standard transformer RoPE extrapolation.
+
+Model: `/tmp/agpt-gut-d16-pd1.model` (30 SE pd=1 d=16 Gutenberg,
+mass-weight=off, PPL@16 = 8.01). Eval on `data/gutenberg_5m.txt`.
+
+| seq | PPL | vs PPL@16 |
+|---:|---:|---:|
+| 8 | 8.64 | +7.8% |
+| **16** | **8.01** | matched, best |
+| 24 | 12.73 | +58.9% |
+| 32 | 13.15 | +64.1% |
+| 48 | 16.98 | +112% |
+| 64 | 20.94 | +161% |
+
+**Conclusion:** the d=16 model cannot use positions beyond seq=16
+through naive extrapolation. PPL rises monotonically with seq_len
+beyond d, doubling by seq=48. Standard RoPE extrapolation does not
+work at this scale — the model never saw those position rotations
+during training, and there's no latent capacity to read them.
+
+This rules out the cheapest hypothesis (A: extend seq_len with the
+existing architecture and hope) and establishes that breaking the
+d-shackle requires architectural change: option B, shared-key RoPE
+with explicit trie-derived identities per position, as described in
+`notes/agpt/shared_key_rope.md`.
+
+## Phase 1B — Shared-key RoPE architecture (next step)
+
+Required: at attention time for query position q, build K vectors for
+the seq_len positions in the window using the trie's per-node base keys
+plus per-position RoPE, instead of the model's W_K · residual.
+
+Components:
+- Per-radix-node learned key vectors (one per node, ~7M × D extra
+  parameters for d=16). Could be initialized from the trie's empirical
+  P_out distribution or randomly.
+- Inference path that, for each attention query, gathers the K vectors
+  via the position→node binary map (already built in Phase 0).
+- Training path that updates the per-node key vectors.
+
+Open questions for design:
+- Use which of the ~9 node identities per position? (always leaf,
+  shallow-best, stack-all, adaptive)
+- Share base keys between forward and backward direction? (unified DAG)
+- Train from scratch or fine-tune existing AGPT model?
+
 ## Followups
 
 - Confirm node 149117 is the unigram root for space (id 32 = ' ' in
