@@ -313,6 +313,76 @@ This means experiments can vary one knob while holding the other two:
 
 Currently every AGPT experiment varies all three at once, conflated.
 
+## The A=2 Extreme — Retrieval Attention
+
+Once A is independently chosen, nothing forces it to be large. A could
+be as small as 2 (or even 1) per layer, turning each attention step
+into "self + one retrieved position":
+
+```
+For each query at position q (in each layer):
+  K = [K_q (self),  K_p (one retrieved)]
+  V = [V_q,         V_p]
+  attention output = softmax-weighted mix of V_q and V_p
+```
+
+This makes attention **linear** in seq_len — O(seq_len × 2) per layer
+instead of O(seq_len²). For seq_len = 10 000 with L = 12 layers:
+- Full attention: 12 × 10 000² = 1.2 B ops
+- A = 2 attention: 12 × 10 000 × 2 = 240 K ops  (~5000× cheaper)
+
+### What you lose
+
+Each layer can read only 2 positions per query. To route information
+from an arbitrary past position to q, you need a chain of layers, each
+hopping the information forward by one retrieval. The effective
+receptive field of position q at layer L grows roughly as the union of
+2^L hop-paths — depth substitutes for width.
+
+### What you gain
+
+Compute that scales linearly with seq_len opens the door to corpus-long
+attention (seq_len in the tens of thousands or more) without
+prohibitive cost. This is structurally what RWKV / SSMs achieve via
+recurrence; this is the *attention* version of the same idea — with
+the difference that the selection rule for the retrieved position has
+direct trie-derived semantics.
+
+### Why this fits shared-key RoPE
+
+The retrieved position p has a node identity n_p in the trie. The
+"useful retrieval" decision can use this identity directly:
+
+- **Longest-matching-suffix retrieval**: pick p whose n_p shares the
+  deepest backward-suffix with n_q's path. This is the canonical
+  "find the most contextually similar prior point" rule.
+- **Node-embedding similarity retrieval**: pick p whose base key
+  k_{n_p} is closest (cosine, dot) to a learned query vector at q.
+  Same shape as standard attention, but the search space is the
+  trie's nodes rather than all corpus positions.
+- **Random retrieval (training noise)**: pick uniformly at random for
+  regularization.
+
+The trie gives this retrieval a natural index structure that flat
+attention lacks.
+
+### Family across A
+
+The choice of A puts us on a continuum:
+
+| A | per-layer cost | what it looks like |
+|---|---|---|
+| 1 | O(seq_len) | pure recurrence-style |
+| 2 | O(seq_len) | self + retrieval (this section) |
+| log(seq_len) | O(seq_len · log seq_len) | hierarchical sparse |
+| sqrt(seq_len) | O(seq_len^{1.5}) | BigBird-style |
+| seq_len | O(seq_len²) | full attention |
+
+The decoupling makes A a hyperparameter to tune, not a fixed
+architectural decision. Different layers could even use different A —
+shallow layers retrieve locally (A small), deep layers integrate
+globally (A larger), or vice versa.
+
 ## Multi-Layer Caveat
 
 Layer 1 input at every position p IS the node embedding at `n_p` —
