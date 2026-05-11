@@ -29,6 +29,7 @@ n_loops = 1
 seed = 42
 emit_text = false
 no_separator = false
+walk_tunnel = false
 
 OptionParser.parse do |p|
   p.banner = "Usage: agpt_wormhole_sample --trie DIR --wormhole-table PATH --out PATH [options]"
@@ -42,6 +43,7 @@ OptionParser.parse do |p|
   p.on("--seed N", "Random seed (default 42)") { |v| seed = v.to_i }
   p.on("--text", "Output as decoded text (one sample per line) instead of token IDs") { emit_text = true }
   p.on("--no-separator", "When emitting text, concatenate samples back-to-back with no newline between (so microgpt's stride=seq_len aligns with sample boundaries)") { no_separator = true }
+  p.on("--walk-tunnel", "Emit cap.edge_tokens (the unary tunnel) before wormholing. Density-matched control: makes path lengths ~32 chars, isolating the routing-rule effect from the wormhole-density confound.") { walk_tunnel = true }
   p.on("-h", "--help", "") { puts p; exit 0 }
 end
 
@@ -124,7 +126,8 @@ def sample_path(start : RadixTrieReader::LoadedRecord,
                 depth1_for_token : Hash(Int32, Int32),
                 child_by_token : Hash(Int32, Hash(Int32, RadixTrieReader::LoadedRecord)),
                 record_by_id : Hash(Int32, RadixTrieReader::LoadedRecord),
-                rng : Random) : {Array(Int32), Int32}
+                rng : Random,
+                walk_tunnel : Bool) : {Array(Int32), Int32}
   seq = [] of Int32
   current = start
   loops_used = 0
@@ -214,6 +217,13 @@ def sample_path(start : RadixTrieReader::LoadedRecord,
           cap_target = tid.nil? ? nil : record_by_id[tid]?
         end
         break if cap_target.nil?
+        # Optional control: walk through the cap's unary tunnel before
+        # wormholing. Matches synth_wrap path lengths (~32 chars). Pure
+        # density control — same routing rule applied at the same boundary
+        # node, but with the unary tunnel chars emitted instead of skipped.
+        if walk_tunnel
+          seq.concat(next_rec.edge_tokens)
+        end
         loops_used += 1
         seq.concat(cap_target.edge_tokens)
         current = cap_target
@@ -260,7 +270,8 @@ File.open(out_path, "w") do |out_file|
   total_loops = 0_i64
   n_samples.times do |i|
     path, loops_in_path = sample_path(root, max_len, n_loops, wormhole_targets,
-                                      depth1_for_token, child_by_token, record_by_id, rng)
+                                      depth1_for_token, child_by_token, record_by_id,
+                                      rng, walk_tunnel)
     if emit_text && (cb = chars_by_id)
       text_path = String.build { |io| path.each { |t| io << cb[t] } }
       if no_separator

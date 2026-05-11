@@ -21,7 +21,7 @@ set -u
 PROJECT_ROOT="${PROJECT_ROOT:-$PWD}"
 cd "$PROJECT_ROOT" || exit 2
 if [ ! -f Justfile ]; then
-    echo "FAIL: $PROJECT_ROOT is not the microgpt project root" >&2
+    echo "FAIL: $PROJECT_ROOT is not the AGPT project root" >&2
     exit 2
 fi
 

@@ -112,6 +112,11 @@ struct Config {
     bool shuffle_order = false;  // randomize partition-group visit order each super-epoch
     unsigned shuffle_seed = 0xa17b1edu;  // RNG seed for shuffle-order (independent of lightning seed)
     int lbfgs_k = 10;  // L-BFGS history size (K most-recent (s,y) pairs); 0 disables
+    int mini_batch_groups = 1;  // accumulate gradients across K consecutive partition groups before each
+                                 // optimizer step (only effective with --no-accumulate). 1 = current
+                                 // per-group behavior. Combined with --shuffle-order, K random groups
+                                 // are batched per step — addresses pd=2 memorization where few unique
+                                 // partitions get repeated solo many times.
 };
 
 // Curriculum modes: how subtrees are scheduled across an epoch.
@@ -5236,6 +5241,9 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
         double total_loss = 0.0;
         int nodes_trained = 0;
         int chunks_processed = 0;
+        int mb_groups_in_flight = 0;  // counter for --mini-batch-groups: number of partition groups
+                                       // whose gradients are currently accumulated since the last
+                                       // optimizer step (or since epoch start for the first batch).
 
         // Curriculum loop. Flat: one pass at d=max. Progressive: d=1, then d=2, ..., d=max.
         int subtrees_trained = 0;
@@ -5352,7 +5360,9 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
             // AGPT invariant: weights are fixed across all chunks of this sub-batch.
             // Zero gradients once at split start; accumulate across chunks.
             // In --accumulate mode, the zero happens once per-epoch above, not here.
-            if (!accumulate) {
+            // With --mini-batch-groups K, zero only at the start of each K-group batch
+            // (when no in-flight gradients from prior groups are accumulating).
+            if (!accumulate && mb_groups_in_flight == 0) {
                 CUDA_CHECK(cudaMemset(d_grads, 0, wo.total_floats * sizeof(float)));
             }
 
@@ -6139,7 +6149,14 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
             // via additive gradient accumulation).
             // In --accumulate mode, we skip the per-split/per-rc step and fire one
             // after all loops exit (see below).
-            if (!accumulate) {
+            // With --mini-batch-groups K, fire the step every K groups instead of
+            // every group; gradients keep accumulating for groups in between.
+            mb_groups_in_flight++;
+            bool fire_step = !accumulate && (mb_groups_in_flight >= cfg.mini_batch_groups);
+            if (fire_step) {
+                mb_groups_in_flight = 0;
+            }
+            if (fire_step) {
             adam_t++;
             // Apply LR schedule: `adam_t` counts total optimizer steps taken so
             // far (monotonically across epochs). We need total_steps to compute
@@ -6932,6 +6949,7 @@ int main(int argc, char** argv) {
     float hotspot_coverage = 0.0f;  // 0 disables; X>0 splits top subtrees covering top X of excess-loss between epochs
     int   lr_rule = 0;  // per-subtree LR multiplier rule (0=none, 1=inv-depth, 2=inv-sqrt-depth, 3=sqrt-batch, 4=residual)
     bool shuffle_order = false;     // --shuffle-order: random partition-group order per SE
+    int  mini_batch_groups = 1;     // --mini-batch-groups K: accumulate K partition groups per opt step
     unsigned shuffle_seed = 0xa17b1edu;  // --shuffle-seed: RNG seed for shuffle
     OptimizerKind optimizer = OptimizerKind::Adam;
     float momentum_beta = 0.9f;   // used by momentum + (via β₁) adam
@@ -6985,6 +7003,7 @@ int main(int argc, char** argv) {
         else if (strcmp(argv[i], "--ce-only") == 0) ce_only = true;
         else if (strcmp(argv[i], "--hotspot-coverage") == 0 && i + 1 < argc) hotspot_coverage = atof(argv[++i]);
         else if (strcmp(argv[i], "--shuffle-order") == 0) shuffle_order = true;
+        else if (strcmp(argv[i], "--mini-batch-groups") == 0 && i + 1 < argc) mini_batch_groups = atoi(argv[++i]);
         else if (strcmp(argv[i], "--shuffle-seed") == 0 && i + 1 < argc) shuffle_seed = (unsigned)strtoul(argv[++i], NULL, 0);
         else if (strcmp(argv[i], "--lr-rule") == 0 && i + 1 < argc) {
             const char* m = argv[++i];
@@ -7175,6 +7194,7 @@ int main(int argc, char** argv) {
     cfg.shuffle_order = shuffle_order;
     cfg.shuffle_seed = shuffle_seed;
     cfg.lbfgs_k = lbfgs_k;
+    cfg.mini_batch_groups = (mini_batch_groups < 1) ? 1 : mini_batch_groups;
     float* h_weights = load_model_weights(model_path, &cfg);
     WeightOffsets wo = compute_offsets(cfg);
 
