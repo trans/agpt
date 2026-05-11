@@ -375,3 +375,96 @@ chunk activations *before* committing to training infrastructure.
   combine forward-trie and backward-trie activations into one h_p?
   (Touches the unified-DAG line from
   `project_predictive_certainty_weighting.md`.)
+
+## Alternatives Considered
+
+Pooling is the simplest and most architecturally conservative way to
+combine d contributors into a single h_p that flows into existing
+W_K, W_V projections. Discussion 2026-05-11 noted why other approaches
+are deferrable, not preferred.
+
+### Why "standard AGPT over each sliding window" doesn't work
+
+Initial hope: just train standard AGPT chunks starting at every corpus
+position (not just trie-aligned chunks). More training data, same
+architecture. But each chunk's internal attention is still bounded
+by d, so the model never *learns* to attend beyond d. At inference,
+extending seq_len fails the same way Phase 1A failed. Adding more
+training data over short windows doesn't teach long-range attention.
+Pooling is needed because it constructs *seq-length-many* positions
+that the model can attend to in a single attention pass.
+
+### Selection-of-deepest-contributor is wrong here
+
+Picking only the deepest contributor per position (h_(p-d+1, d-1) —
+the activation from the window starting d-1 back, where the model
+saw the most backward context before producing p's activation)
+degenerates to "each position's representation = model state after
+seeing prior d-1 chars + p." That's *exactly* what standard
+transformer attention provides at training-time seq_len=d. So
+selection collapses sliding-window AGPT back to current AGPT
+semantically — no attention extension comes from it. Selection only
+makes sense for the *pooled* (h_p) — not for picking which
+contributor to use as h_p.
+
+### Stack-attention (multi-key per position)
+
+Keep all d contributors per position as separate K rows. Total K
+rows = seq_len × d (e.g., 32 × 16 = 512 keys per query at our
+test config). Most expressive (the model attends to "broad context
+view of position 5" separately from "narrow context view of position
+5"), but the K matrix grows by d×, and attention is quadratic in K
+count. Worth keeping as a v2 if uniform pooling underperforms
+PPL@d=16; the v1 implementation's pooling step is the only thing
+that has to change to support stack-attention later.
+
+### Cross-window attention
+
+Each chunk keeps its own internal attention; add a separate
+cross-attention layer that connects chunks at the sequence level.
+More machinery (extra attention layer, extra projection matrices) but
+more flexibility (cross-attention can be sparse, can have its own
+heads). Pooling is preferable for v1 because no new parameters are
+needed.
+
+### Recurrent / state-space (RWKV-style)
+
+Pass hidden state from window w to window w+1 explicitly; no pooling,
+no overlap. Closer to RNN / state-space models like Mamba. Loses the
+parallelism (windows can be processed independently under pooling;
+under recurrence they must be processed in sequence) and is a more
+significant architectural shift. Defer.
+
+### Hierarchical attention
+
+Build a tree of pooled representations at different scales (chunk →
+mid-level → top-level). Model attends at multiple granularities.
+Adds complexity. Defer.
+
+### Direct trie-node-derived K vectors (the "option B" path from
+shared_key_rope.md)
+
+Learn one base key vector per trie node, ~7M × D new parameters at
+d=32. Requires retraining from scratch with the new parameter set.
+Most theoretically principled but most expensive to develop. The
+sliding-window pooling approach achieves a similar effect (each
+position gets a context-rich representation) *without* the new
+parameter overhead — h_p is derived from existing W_K-equivalent
+forward passes, not from a separate per-node embedding table. This
+is the main reason sliding-window-with-pooling is the v1 choice.
+
+### Summary of where pooling sits
+
+| approach | new params? | reuses existing model? | attention shape |
+|---|---|---|---|
+| **Uniform pool** (v1) | none | yes | seq_len keys, std attention |
+| Depth-weighted pool | none | yes | seq_len keys, std attention |
+| Learned-gating pool | small | yes | seq_len keys, std attention |
+| Stack-attention | none | yes (re-uses W_K) | seq_len × d keys |
+| Cross-window | yes | mostly | extra layer |
+| Direct per-node K | ~7M × D | mostly (extra layer) | seq_len keys, std attention |
+| Recurrent | yes | no (new state machinery) | per-step recurrence |
+
+v1 pooling reuses the model wholesale, adds no parameters, and is
+the cheapest to implement. Worth doing first; later variants build
+on the same pooling-step infrastructure.
