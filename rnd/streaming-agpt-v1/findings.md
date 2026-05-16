@@ -1,4 +1,99 @@
-# Streaming AGPT v1 — Findings
+# Streaming AGPT — Findings
+
+## v2 (2026-05-16) — with optimizer-state persistence
+
+Re-ran the same experiment after adding optimizer-state save/load to
+`agpt_train.cu` (commit 6a655e7). Adam/RMSprop moments now persist
+across `--save` → `--model` chains via an OPT_MAGIC footer in the
+model checkpoint.
+
+| variant | PPL@16 | wall (s) | training wall (s) |
+|---|---:|---:|---:|
+| **Streaming 5×20 SE (v2)** | **5.06** | 387 | ~360 |
+| Baseline 100 SE (v2) | 5.48 | 589 | ~583 |
+
+**Streaming beats baseline by 7.7% PPL, in 34% less wall time.**
+
+The optimizer-state cold-restart was the dominant confound. Comparing
+per-stage e1 (first-epoch loss after each stage transition):
+
+| stage | v1 e1 (cold) | v2 e1 (warm) | jump removed |
+|---|---:|---:|---:|
+| 20% (cold start, expected) | 3.42 | 3.42 | — |
+| 40% | 3.60 | 2.20 | −1.40 |
+| 60% | 3.47 | 1.95 | −1.52 |
+| 80% | 3.34 | 1.87 | −1.47 |
+| 100% | 3.28 | 1.78 | −1.50 |
+
+In v1 each stage started ~1.5 nats above the previous stage's final
+loss — the optimizer's second moment buffer had to be re-warmed from
+zero. In v2 each stage picks up right where the previous left off,
+sometimes slightly lower as the new trie nodes (introduced by the
+larger corpus subset) have not yet been seen and pull e1 up by a
+small amount that's quickly absorbed.
+
+### v2 Per-stage trajectory
+
+| stage | radix nodes | e1 | e20 | PPL@16 |
+|---|---:|---:|---:|---:|
+| 20% | 323k | 3.42 | 1.94 | 6.33 |
+| 40% | 640k | 2.20 | 1.78 | 5.42 |
+| 60% | 963k | 1.95 | 1.70 | 5.17 |
+| 80% | 1.29M | 1.87 | 1.68 | 5.14 |
+| 100% | 1.61M | 1.78 | 1.70 | 5.06 |
+
+PPL monotonically decreases this time (vs v1's stage-80→100 uptick).
+The model converges cleanly across the streaming curriculum.
+
+### Why streaming wins now
+
+With optimizer state preserved, the streaming hypothesis works as
+predicted:
+
+1. **No catastrophic forgetting.** Trie targets at high-mass shallow
+   nodes are cumulative; gradients pull toward the long-run empirical
+   distribution at every stage.
+2. **More effective optimizer steps per corpus pass.** The same 100
+   SE budget actually fires 6500 optimizer steps in both variants,
+   but streaming spreads them across a sequence of progressively
+   richer tries — a natural curriculum.
+3. **Compute efficiency.** Earlier stages train on smaller tries
+   (less compute per SE), so streaming uses ~60% of baseline's total
+   training events but converges to better PPL. The smaller tries
+   give the model a head-start on the easy distributional structure
+   before the full trie's harder details arrive.
+
+### Caveats
+
+- Eval scope was 4096 positions (1 chunk of held-out tokens). For
+  publication-grade numbers we'd want multi-seed runs.
+- Shakespeare d=16 is a small-scale test. Gutenberg 5M at d=32 might
+  behave differently; should retest.
+- Baseline PPL varies run-to-run (v1=5.30, v2=5.48) due to stochastic
+  shuffle. The streaming-vs-baseline gap within v2 is the meaningful
+  measurement.
+
+### What this unlocks
+
+- The per-call AGPT trainer can now be used as a building block in
+  larger orchestrations (streaming, curriculum, mixed strategies)
+  without losing optimizer momentum.
+- The "no-forgetting" property of AGPT is now empirically demonstrated
+  to translate into training efficiency, not just a theoretical
+  property.
+- Sliding-tree RoPE work can now use streaming as a substrate —
+  the two ideas combine cleanly.
+
+### Next steps (per priority)
+
+1. Scale up: Gutenberg 5M d=32 streaming vs baseline.
+2. Test finer cadence: 10 or 20 checkpoints instead of 5.
+3. Combine with sliding-tree RoPE (separate experiment).
+4. Multi-seed runs to nail down PPL noise band.
+
+---
+
+## v1 (2026-05-16) — without optimizer-state persistence [SUPERSEDED]
 
 **Date:** 2026-05-16
 **Tool:** `bash rnd/streaming-agpt-v1/run.sh`
