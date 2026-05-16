@@ -3914,8 +3914,9 @@ struct TrainPersistence {
     float* h_adam_v_io = nullptr;
     int*   adam_t_io   = nullptr;  // read on entry as starting step, write on exit
     bool   quiet       = false;    // suppress banner + per-epoch lines
-    int    total_opt_steps_override = 0;  // for LR schedule when the caller knows the true horizon
+    int    total_opt_steps_override = 0;  // for LR schedule when the caller knows the true horizon (steps)
     int    warmup_steps_override    = 0;  // caller-known warmup length (0 = derive from warmup_epochs)
+    int    total_epochs_override    = 0;  // caller-known SE-budget for LR schedule (computed → total_opt_steps); 0 = derive from epochs arg
 };
 
 int run_radix_training(const Config& cfg, const WeightOffsets& wo,
@@ -6237,6 +6238,11 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
             int total_opt_steps_estimate;
             if (persist && persist->total_opt_steps_override > 0) {
                 total_opt_steps_estimate = persist->total_opt_steps_override;
+            } else if (persist && persist->total_epochs_override > 0) {
+                int per_epoch = n_root_children * subtree_splits;
+                if (curriculum == CurriculumMode::Progressive) per_epoch *= curriculum_max_depth;
+                total_opt_steps_estimate = per_epoch * persist->total_epochs_override;
+                if (total_opt_steps_estimate < 1) total_opt_steps_estimate = 1;
             } else {
                 int per_epoch = n_root_children * subtree_splits;
                 if (curriculum == CurriculumMode::Progressive) per_epoch *= curriculum_max_depth;
@@ -6315,6 +6321,9 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
             int total_opt_steps_estimate;
             if (persist && persist->total_opt_steps_override > 0) {
                 total_opt_steps_estimate = persist->total_opt_steps_override;
+            } else if (persist && persist->total_epochs_override > 0) {
+                total_opt_steps_estimate = persist->total_epochs_override;
+                if (total_opt_steps_estimate < 1) total_opt_steps_estimate = 1;
             } else {
                 total_opt_steps_estimate = epochs;
                 if (total_opt_steps_estimate < 1) total_opt_steps_estimate = 1;
@@ -7026,6 +7035,9 @@ int main(int argc, char** argv) {
     int   lbfgs_k = 10;           // L-BFGS history size
     LRSchedule lr_schedule = LRSchedule::Constant;
     int warmup_epochs = 0;
+    int total_epochs_budget = 0;  // 0 = use --epochs as the LR-schedule horizon. Streaming
+                                   // sets this to the full multi-call SE budget so each call's
+                                   // LR schedule references the global step horizon, not local.
     float weight_decay = 0.0f;
     float grad_clip_norm = 0.0f;  // 0 = disabled
     int save_every = 0;            // 0 = don't save intermediates
@@ -7103,6 +7115,7 @@ int main(int argc, char** argv) {
             else { fprintf(stderr, "Unknown lr-schedule '%s' (constant|cosine|warmup-cosine)\n", s); return 1; }
         }
         else if (strcmp(argv[i], "--warmup-epochs") == 0 && i + 1 < argc) warmup_epochs = atoi(argv[++i]);
+        else if (strcmp(argv[i], "--total-epochs-budget") == 0 && i + 1 < argc) total_epochs_budget = atoi(argv[++i]);
         else if (strcmp(argv[i], "--weight-decay") == 0 && i + 1 < argc) weight_decay = atof(argv[++i]);
         else if (strcmp(argv[i], "--grad-clip-norm") == 0 && i + 1 < argc) grad_clip_norm = atof(argv[++i]);
         else if (strcmp(argv[i], "--save-every") == 0 && i + 1 < argc) save_every = atoi(argv[++i]);
@@ -7287,6 +7300,13 @@ int main(int argc, char** argv) {
     persist.h_adam_m_io = h_adam_m;
     persist.h_adam_v_io = h_adam_v;
     persist.adam_t_io = &loaded_adam_t;
+    // For streaming / multi-call training, the user can specify a global SE
+    // budget so the LR schedule references the total horizon rather than
+    // each call's local --epochs. If unset, falls back to --epochs.
+    if (total_epochs_budget > 0) {
+        persist.total_epochs_override = total_epochs_budget;
+        printf("  LR schedule horizon: %d total SE (override; this call runs %d SE)\n", total_epochs_budget, epochs);
+    }
 
     // Detect trie format
     int format = detect_trie_format(trie_dir);

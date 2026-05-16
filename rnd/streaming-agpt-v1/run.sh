@@ -16,11 +16,14 @@ RND="${PROJ}/rnd/streaming-agpt-v1"
 LOGS="${RND}/logs"
 MODELS_DIR="${RND}/models"
 
-# Recipe (constant LR; see confounds section in README.md)
+# Recipe. With optimizer-state persistence (commit 6a655e7) and the global
+# LR-schedule horizon override (this commit), we can now run warmup-cosine
+# across the streaming sequence as a single coherent schedule.
 LR=3e-3
 PD=1
 PER_STAGE_SE=20
 BASELINE_SE=100
+TOTAL_BUDGET_SE=100   # = N_STAGES × PER_STAGE_SE; used by --total-epochs-budget
 D=16
 INIT_MODEL="${PROJ}/data/input.random.model"  # random-init checkpoint
 
@@ -80,8 +83,9 @@ for pct in "${CHECKPOINTS[@]}"; do
     --trie-dir "${trie_dir}" \
     --save "${out_model}" \
     --epochs "${PER_STAGE_SE}" \
+    --total-epochs-budget "${TOTAL_BUDGET_SE}" \
     --partition-depth "${PD}" --no-accumulate \
-    --lr "${LR}" --lr-schedule constant \
+    --lr "${LR}" --lr-schedule warmup-cosine --warmup-epochs 1 \
     --optimizer rmsprop --rmsprop-beta 0.999 \
     --mass-weight log --entropy-lambda 1.0 \
     > "${train_log}" 2>&1
@@ -133,7 +137,7 @@ cp "${INIT_MODEL}" "${baseline_model}"
   --save "${baseline_model}" \
   --epochs "${BASELINE_SE}" \
   --partition-depth "${PD}" --no-accumulate \
-  --lr "${LR}" --lr-schedule constant \
+  --lr "${LR}" --lr-schedule warmup-cosine --warmup-epochs 1 \
   --optimizer rmsprop --rmsprop-beta 0.999 \
   --mass-weight log --entropy-lambda 1.0 \
   > "${LOGS}/baseline_train.log" 2>&1

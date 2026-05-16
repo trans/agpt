@@ -1,5 +1,71 @@
 # Streaming AGPT — Findings
 
+## v3 (2026-05-16) — warmup-cosine + LR-schedule horizon override
+
+Added `--total-epochs-budget` flag to `agpt_train`: when streaming
+fires repeated runs each with `--epochs 20`, this flag tells the
+LR schedule "the global horizon is 100 SE, not 20". The schedule
+references `adam_t / total_steps` where total_steps = budget × fires/SE,
+so the cosine decay is one smooth curve across all 5 stages rather
+than 5 truncated curves.
+
+Same Shakespeare d=16 setup, recipe: rmsprop, lr=3e-3,
+**warmup-cosine** (warmup_epochs=1), mass-weight=log,
+entropy-lambda=1.0, --no-accumulate, --partition-depth 1.
+
+| variant | PPL@16 | wall (s) |
+|---|---:|---:|
+| **Streaming 5×20 SE (v3)** | **4.48** | 388 |
+| Baseline 100 SE (v3) | 4.74 | 596 |
+
+Streaming beats baseline by 5.4% PPL in 35% less wall time.
+
+### v3 vs v2 comparison
+
+| variant | v2 (constant LR) | v3 (warmup-cosine) | delta |
+|---|---:|---:|---:|
+| Streaming | 5.06 | 4.48 | −11.5% PPL |
+| Baseline | 5.48 | 4.74 | −13.5% PPL |
+| streaming-vs-baseline gap | +7.7% | +5.4% | narrows |
+
+Both variants got a meaningful PPL improvement from the LR schedule.
+Baseline benefited slightly more (its single training run gets the
+clean cosine annealing without any restart bookkeeping), which is why
+the relative streaming advantage shrunk from 7.7% to 5.4%.
+
+The headline conclusion stands: **streaming AGPT trains more
+efficiently than batch AGPT, in less wall time, at matched SE budget.**
+This holds across both the v2 (constant LR) and v3 (warmup-cosine)
+configurations.
+
+### v3 per-stage trajectory
+
+| stage | radix nodes | PPL@16 |
+|---|---:|---:|
+| 20% | 323k | 5.32 |
+| 40% | 640k | 4.80 |
+| 60% | 963k | 4.57 |
+| 80% | 1.29M | 4.47 |
+| 100% | 1.61M | 4.48 ← slight uptick |
+
+Stage 80 → 100 went up by 0.01 PPL (4.47 → 4.48) — within noise but
+the same direction as v2's similar uptick. Suggests Shakespeare 1M
+d=16 is near the plateau after ~80 SE on the full corpus equivalent
+of compute.
+
+### Implementation note: --total-epochs-budget
+
+New CLI flag added with this experiment. Without it, each streaming
+stage's `--epochs 20` would compute its own LR schedule with total=20,
+so stage 2's adam_t=1300 would already be past the schedule end at
+total=20 × 65 = 1300. Symptom would be LR ≈ 0 from stage 2 onward.
+
+With `--total-epochs-budget 100`, the schedule references the global
+horizon, and adam_t (persisted across stages) traces a single smooth
+cosine curve from step 0 to step 6500 spread across all 5 stages.
+
+---
+
 ## v2 (2026-05-16) — with optimizer-state persistence
 
 Re-ran the same experiment after adding optimizer-state save/load to

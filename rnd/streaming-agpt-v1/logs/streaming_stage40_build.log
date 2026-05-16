@@ -37,7 +37,7 @@
 [radix-corpus] subtree char=36 (7 positions): emitted 10 radix nodes  (cum total 193694, max_ep_depth=16, 0.1s)
 [radix-corpus] subtree char=37 (854 positions): emitted 1145 radix nodes  (cum total 194839, max_ep_depth=16, 0.1s)
 [radix-corpus] subtree char=38 (107 positions): emitted 147 radix nodes  (cum total 194986, max_ep_depth=16, 0.1s)
-[radix-corpus] subtree char=39 (21661 positions): emitted 31583 radix nodes  (cum total 226569, max_ep_depth=16, 0.2s)
+[radix-corpus] subtree char=39 (21661 positions): emitted 31583 radix nodes  (cum total 226569, max_ep_depth=16, 0.1s)
 [radix-corpus] subtree char=40 (4502 positions): emitted 6628 radix nodes  (cum total 233197, max_ep_depth=16, 0.2s)
 [radix-corpus] subtree char=41 (6370 positions): emitted 9293 radix nodes  (cum total 242490, max_ep_depth=16, 0.2s)
 [radix-corpus] subtree char=42 (13009 positions): emitted 18905 radix nodes  (cum total 261395, max_ep_depth=16, 0.2s)
@@ -48,14 +48,14 @@
 [radix-corpus] subtree char=47 (18181 positions): emitted 26359 radix nodes  (cum total 390203, max_ep_depth=16, 0.2s)
 [radix-corpus] subtree char=48 (262 positions): emitted 384 radix nodes  (cum total 390587, max_ep_depth=16, 0.2s)
 [radix-corpus] subtree char=49 (2770 positions): emitted 4020 radix nodes  (cum total 394607, max_ep_depth=16, 0.2s)
-[radix-corpus] subtree char=50 (13400 positions): emitted 19572 radix nodes  (cum total 414179, max_ep_depth=16, 0.3s)
+[radix-corpus] subtree char=50 (13400 positions): emitted 19572 radix nodes  (cum total 414179, max_ep_depth=16, 0.2s)
 [radix-corpus] subtree char=51 (8874 positions): emitted 12945 radix nodes  (cum total 427124, max_ep_depth=16, 0.3s)
 [radix-corpus] subtree char=52 (19490 positions): emitted 28547 radix nodes  (cum total 455671, max_ep_depth=16, 0.3s)
 [radix-corpus] subtree char=53 (26407 positions): emitted 38558 radix nodes  (cum total 494229, max_ep_depth=16, 0.3s)
 [radix-corpus] subtree char=54 (4390 positions): emitted 6530 radix nodes  (cum total 500759, max_ep_depth=16, 0.3s)
 [radix-corpus] subtree char=55 (213 positions): emitted 307 radix nodes  (cum total 501066, max_ep_depth=16, 0.3s)
-[radix-corpus] subtree char=56 (19838 positions): emitted 28872 radix nodes  (cum total 529938, max_ep_depth=16, 0.4s)
-[radix-corpus] subtree char=57 (19708 positions): emitted 28765 radix nodes  (cum total 558703, max_ep_depth=16, 0.4s)
+[radix-corpus] subtree char=56 (19838 positions): emitted 28872 radix nodes  (cum total 529938, max_ep_depth=16, 0.3s)
+[radix-corpus] subtree char=57 (19708 positions): emitted 28765 radix nodes  (cum total 558703, max_ep_depth=16, 0.3s)
 [radix-corpus] subtree char=58 (26504 positions): emitted 38812 radix nodes  (cum total 597515, max_ep_depth=16, 0.4s)
 [radix-corpus] subtree char=59 (10708 positions): emitted 15616 radix nodes  (cum total 613131, max_ep_depth=16, 0.4s)
 [radix-corpus] subtree char=60 (3155 positions): emitted 4605 radix nodes  (cum total 617736, max_ep_depth=16, 0.4s)
@@ -63,7 +63,7 @@
 [radix-corpus] subtree char=62 (197 positions): emitted 295 radix nodes  (cum total 627796, max_ep_depth=16, 0.4s)
 [radix-corpus] subtree char=63 (8159 positions): emitted 11843 radix nodes  (cum total 639639, max_ep_depth=16, 0.4s)
 [radix-corpus] subtree char=64 (212 positions): emitted 318 radix nodes  (cum total 639957, max_ep_depth=16, 0.4s)
-[radix-corpus] done: 639957 radix nodes, 3962507 total edge chars, 17 endpoint depths, 0.43s
+[radix-corpus] done: 639957 radix nodes, 3962507 total edge chars, 17 endpoint depths, 0.38s
   radix_count:        639957
   total_edge_chars:   3962507
   max_endpoint_depth: 16

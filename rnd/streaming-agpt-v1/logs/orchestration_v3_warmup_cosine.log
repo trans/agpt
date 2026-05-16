@@ -1,0 +1,36 @@
+Corpus: /home/trans/Projects/agpt/data/input.txt (1115394 bytes)
+
+===== STREAMING (5 checkpoints × 20 SE each = 100 SE total) =====
+
+--- Stage 20% ---
+  Stage 20%: final loss=1.812298 PPL@16=5.3163
+
+--- Stage 40% ---
+  Stage 40%: final loss=1.662684 PPL@16=4.8005
+
+--- Stage 60% ---
+  Stage 60%: final loss=1.587259 PPL@16=4.5659
+
+--- Stage 80% ---
+  Stage 80%: final loss=1.572378 PPL@16=4.4651
+
+--- Stage 100% ---
+  Stage 100%: final loss=1.581662 PPL@16=4.4811
+
+STREAMING total wall: 388s
+
+===== BASELINE (full corpus, 100 SE single run) =====
+
+===== SUMMARY =====
+
+variant                        PPL@16     wall (s)  
+------                         -----      ----      
+streaming 5 × 20 SE           4.4811     388       
+baseline 100 SE                4.7368     596       
+
+Per-stage streaming trajectory:
+  stage  20%  PPL=5.3163
+  stage  40%  PPL=4.8005
+  stage  60%  PPL=4.5659
+  stage  80%  PPL=4.4651
+  stage 100%  PPL=4.4811
