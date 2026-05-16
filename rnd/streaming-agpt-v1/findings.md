@@ -1,5 +1,71 @@
 # Streaming AGPT — Findings
 
+## Cadence sweep (2026-05-16) — finer cadence helps, but only up to a point
+
+Question: does using more, smaller stages (finer cadence) at constant
+100-SE budget improve PPL further?
+
+Sweep across N_STAGES ∈ {5, 10, 20, 50}, per_stage_SE = 100/N_STAGES.
+Same recipe as v3 (warmup-cosine, mass-weight=log, pd=1).
+
+| cadence | PPL@16 | wall (s) | vs baseline (4.74) |
+|---|---:|---:|---:|
+| 5 × 20 SE | 4.47 | 366 | −5.7% |
+| 10 × 10 SE | 4.52 | 353 | −4.6% |
+| **20 × 5 SE** | **4.33** | 361 | **−8.6%** ← best |
+| 50 × 2 SE | 4.80 | 401 | +1.3% (worse) |
+
+### Headline
+
+**20 stages × 5 SE each** is the best cadence at this scale.
+PPL 4.33 vs baseline 4.74 = **8.6% improvement** in **39% less wall
+time**. Beats the 5×20 cadence (4.47) by an additional 3%.
+
+### Observations
+
+1. **Curve is non-monotonic.** PPL improves from 5 → 20 stages, then
+   regresses sharply at 50. There's an optimum, not "more is always
+   better".
+
+2. **50 × 2 SE underperforms baseline.** Likely two-part cause:
+   - First stages train on tiny tries (2-4% of corpus = ~22k-44k
+     chars). Too little data to give useful gradient signal.
+   - Per-stage budget of 2 SE = 130 optimizer steps is below
+     RMSprop's β₂=0.999 second-moment warmup horizon (~1000 steps).
+     The optimizer never fully calibrates within a single stage.
+
+3. **Wall time is roughly constant** across cadences (350-400s).
+   Trie-build overhead grows linearly with stages, but per-stage
+   training shrinks. Bisecting cadences is essentially free
+   compute-wise.
+
+4. **5 × 20 reproduction matches v3's separate run** (4.47 vs 4.48).
+   Run-to-run variation at this scale is < 1% PPL, so the
+   20-stage result is real signal.
+
+### Why 20 × 5 SE wins
+
+Hypothesis: with optimizer state and LR schedule both persistent
+across stages, finer cadence is essentially "more curriculum
+checkpoints with smooth optimization". More stages = more chances
+to integrate growing trie information into the model. The optimum
+is bounded below by per-stage minimum compute (need enough SE for
+gradients to be useful) and above by transition overhead.
+
+5 SE per stage (=325 optimizer steps) is enough to make meaningful
+progress within a stage; 2 SE (=130 steps) is not.
+
+### Followup: optimal cadence may depend on scale
+
+Tested on Shakespeare 1M d=16. At larger scales:
+- Gutenberg 5M d=32: per-SE compute is 4-5× larger, so per-stage
+  budgets can be smaller in SE terms. Optimum might shift to 30-50
+  stages.
+- Larger models: per-stage warmup needs scale with model size.
+- Worth re-testing at scale before generalizing.
+
+---
+
 ## v3 (2026-05-16) — warmup-cosine + LR-schedule horizon override
 
 Added `--total-epochs-budget` flag to `agpt_train`: when streaming

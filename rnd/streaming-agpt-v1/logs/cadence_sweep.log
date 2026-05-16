@@ -1,0 +1,25 @@
+Corpus: /home/trans/Projects/agpt/data/input.txt (1115394 bytes), total budget 100 SE
+
+========== Cadence: 5 stages × 20 SE ==========
+  → 5 × 20 SE: PPL=4.4735, wall=366s
+
+========== Cadence: 10 stages × 10 SE ==========
+  → 10 × 10 SE: PPL=4.5184, wall=353s
+
+========== Cadence: 20 stages × 5 SE ==========
+  → 20 × 5 SE: PPL=4.3324, wall=361s
+
+========== Cadence: 50 stages × 2 SE ==========
+  → 50 × 2 SE: PPL=4.7990, wall=401s
+
+========== Cadence sweep summary ==========
+n_stages × se  PPL@16     wall (s)  
+--------------  ------     ----      
+5 × 20         4.4735     366       
+10 × 10        4.5184     353       
+20 × 5         4.3324     361       
+50 × 2         4.7990     401       
+
+For reference (from prior run):
+  5 × 20  (v3 streaming): PPL=4.48, wall=388s
+  baseline 100 SE:        PPL=4.74, wall=596s

@@ -1,0 +1,51 @@
+AGPT CUDA Training Engine
+  Model: d=64 heads=4 layers=2 ff=256 vocab=65 seq=128 head_dim=16
+  Loaded 108481 weight floats (423.8 KB)
+  Loaded optimizer state from checkpoint (adam_t=3098)
+  LR schedule horizon: 100 total SE (override; this call runs 2 SE)
+Loading radix trie from /tmp/shake_52pct_n50_d16_radix...
+  Radix trie: 835934 nodes, 5091401 total edge chars, 17 endpoint depths
+  Radix loaded: 1401328 counts entries, 6009372 ancestor char entries
+  d_split: 552201/835934 nodes have a mass=1 ancestor (mean depth 8.77)
+  lr-schedule: warmup-cosine (peak=0.003, warmup_epochs=1)
+  optimizer: rmsprop (lr=0.003)
+  entropy lambda: 1.000 (branching-endpoint icing enabled)
+  mass weighting: log (head-of-edge count restores corpus-frequency exposure)
+  curriculum: flat (d=max each epoch)
+  max edge_len: 15, max ancestor chars: 15, max KV per node: 30, max endpoint depth: 16
+  mass=1 compaction: 4546333 / 5091401 chars are mass=1 (89.3%); cache holds 545068 positions
+  loop points: 9311 (mass>1 leaves; 3.3% of 283732 mass>1 nodes)
+  KV cache: 279.1 MB unified memory (bf16 compact)
+  GPU memory: 2750.6 MB used, 5436.2 MB free, 8186.8 MB total
+  63 root-child subtrees: sizes min=3 max=128932 avg=13268.8 (total=835933 radix nodes)
+Epoch 1: loss=1.698219  (3.32 sec, 63 subtrees, 142 chunks, 5091401 nodes)
+  residual top-10 (subtree_mass × max(avg_loss − 1.698, 0)):
+    rc   rootID   mass      avg_loss     score 
+    57   780631   94527     2.2482       51988.0
+    58   800904   29096     2.0799       11104.7
+    59   806952   63390     1.8601       10259.7
+    37   255368   204083    1.7252       5505.9
+    56   729546   267148    1.7175       5155.7
+    5    160760   82067     1.7567       4801.2
+    42   414499   57204     1.7626       3680.1
+    38   297318   40297     1.7865       3556.0
+    61   820152   77677     1.7403       3271.8
+    52   646224   37303     1.7798       3043.8
+    top-10: 22.6% of mass, 96.9% of excess-loss
+Epoch 2: loss=1.679282  (3.13 sec, 63 subtrees, 142 chunks, 5091401 nodes)
+  residual top-10 (subtree_mass × max(avg_loss − 1.679, 0)):
+    rc   rootID   mass      avg_loss     score 
+    57   780631   94527     1.8518       16303.2
+    1    25408    729639    1.6975       13274.7
+    5    160760   82067     1.7754       7891.2
+    37   255368   204083    1.7098       6227.8
+    42   414499   57204     1.7431       3650.4
+    0    1        144376    1.7043       3608.0
+    58   800904   29096     1.7916       3269.2
+    59   806952   63390     1.7283       3108.2
+    4    155991   21659     1.8174       2991.7
+    56   729546   267148    1.6898       2821.3
+    top-10: 40.1% of mass, 90.4% of excess-loss
+Saved to /home/trans/Projects/agpt/rnd/streaming-agpt-v1/models/cadence_n50_stage26.model
+Done.
+  Appended optimizer state to /home/trans/Projects/agpt/rnd/streaming-agpt-v1/models/cadence_n50_stage26.model (adam_t=3224)
