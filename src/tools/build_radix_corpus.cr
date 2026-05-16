@@ -15,6 +15,7 @@ require "option_parser"
 require "../agpt"
 
 corpus_path = ""
+vocab_path = ""
 out_dir = ""
 max_depth = 0
 per_subtree = false
@@ -25,6 +26,7 @@ reverse = false
 OptionParser.parse do |parser|
   parser.banner = "Usage: bin/agpt_build_radix_corpus --corpus PATH --max-depth N [options]"
   parser.on("--corpus PATH", "Character-level corpus text file") { |v| corpus_path = v }
+  parser.on("--vocab-file PATH", "Build vocab from this file (defaults to --corpus). Use the full-corpus file when --corpus is a truncated subset to ensure consistent token IDs across builds.") { |v| vocab_path = v }
   parser.on("--out DIR", "Output radix directory (default: /tmp/agpt_<basename>_d<depth>[_suffix]_radix)") { |v| out_dir = v }
   parser.on("--max-depth N", "Trie max depth (required)") { |v| max_depth = v.to_i }
   parser.on("--per-subtree", "Also emit per-subtree files for memory-scoped training") { per_subtree = true }
@@ -49,8 +51,18 @@ if out_dir.empty?
 end
 
 text = File.read(corpus_path)
-dataset = MicroGPT::CharDataset.new(text)
-tokens = dataset.data
+# Build vocab from vocab_path if specified (allows truncated corpora to share a
+# vocab with the full corpus), otherwise from the corpus text itself.
+vocab_text = vocab_path.empty? ? text : File.read(vocab_path)
+dataset = MicroGPT::CharDataset.new(vocab_text)
+# Encode the (possibly truncated) corpus text using the shared vocab. Any chars
+# in the corpus but absent from the vocab raise (shouldn't happen if vocab_path
+# is a superset of corpus_path).
+tokens = text.chars.map do |c|
+  id = dataset.char_to_id[c]?
+  raise "Corpus char #{c.inspect} not in vocab from #{vocab_path.empty? ? corpus_path : vocab_path}" if id.nil?
+  id
+end
 # Reverse the token sequence to build a suffix radix tree. The same
 # CorpusRadixBuilder produces a prefix-radix-shaped output over reversed
 # input; semantically that's the suffix tree (paths read right-to-left
