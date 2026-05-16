@@ -1476,6 +1476,11 @@ TrieData load_trie(const char* dir) {
 // ============================================================================
 
 #define MGPT_MAGIC 0x4D475054u
+// Optimizer-state footer magic ("OPT1"). When present after the weights
+// section, the file contains: OPT_MAGIC (4B) + total_floats (i32) + adam_t (i32)
+// + adam_m (float32[total_floats]) + adam_v (float32[total_floats]).
+// Backward compat: files without this footer load normally (cold optimizer).
+#define OPT_MAGIC  0x31545056u  // "OPT1" little-endian
 
 float* load_model_weights(const char* path, Config* cfg) {
     FILE* f = fopen(path, "rb");
@@ -1561,6 +1566,70 @@ void save_model_weights(const char* path, const Config& cfg,
     }
     write_mat(wo.final_gamma, 1, D); write_mat(wo.final_beta, 1, D);
     write_mat(wo.out_w, D, V); write_mat(wo.out_b, 1, V);
+    fclose(f);
+}
+
+// Try to load optimizer-state footer from a model checkpoint.
+// Returns true if found and loaded; false if checkpoint is the older
+// weights-only format (or doesn't exist / has a malformed footer).
+// Buffers must be pre-allocated with total_floats floats each.
+bool load_optimizer_state(const char* path, int total_floats,
+                          float* h_adam_m, float* h_adam_v, int* adam_t) {
+    FILE* f = fopen(path, "rb");
+    if (!f) return false;
+
+    unsigned magic = read_u32(f);
+    if (magic != MGPT_MAGIC) { fclose(f); return false; }
+    int d_model_   = read_i32(f);
+    int n_heads_   = read_i32(f); (void)n_heads_;
+    int n_layers_  = read_i32(f);
+    int d_ff_      = read_i32(f); (void)d_ff_;
+    int vocab_size_ = read_i32(f); (void)vocab_size_;
+    int seq_len_   = read_i32(f); (void)seq_len_; (void)d_model_;
+
+    int n_mats = 1 + n_layers_ * 16 + 4;
+    for (int m = 0; m < n_mats; m++) {
+        int rows = read_i32(f);
+        int cols = read_i32(f);
+        long long bytes = (long long)rows * cols * sizeof(float);
+        if (fseek(f, bytes, SEEK_CUR) != 0) { fclose(f); return false; }
+    }
+
+    // Try OPT footer
+    unsigned opt_magic = 0;
+    if (fread(&opt_magic, 4, 1, f) != 1) { fclose(f); return false; }
+    if (opt_magic != OPT_MAGIC) { fclose(f); return false; }
+    int stored_total = read_i32(f);
+    if (stored_total != total_floats) {
+        fprintf(stderr, "  Warning: opt-state total_floats mismatch (file=%d, expected=%d); ignoring\n",
+                stored_total, total_floats);
+        fclose(f);
+        return false;
+    }
+    int stored_t = read_i32(f);
+    *adam_t = stored_t;
+    size_t got_m = fread(h_adam_m, sizeof(float), total_floats, f);
+    size_t got_v = fread(h_adam_v, sizeof(float), total_floats, f);
+    fclose(f);
+    if ((int)got_m != total_floats || (int)got_v != total_floats) {
+        fprintf(stderr, "  Warning: opt-state truncated; ignoring (got %zu/%zu floats)\n", got_m, got_v);
+        return false;
+    }
+    return true;
+}
+
+// Append optimizer-state footer to an existing model checkpoint.
+// Used after save_model_weights to make a streaming-compatible checkpoint.
+void append_optimizer_state(const char* path, int total_floats,
+                             const float* h_adam_m, const float* h_adam_v, int adam_t) {
+    FILE* f = fopen(path, "ab");
+    if (!f) { fprintf(stderr, "Cannot append optimizer state to %s\n", path); return; }
+    unsigned opt_magic = OPT_MAGIC;
+    fwrite(&opt_magic, 4, 1, f);
+    fwrite(&total_floats, 4, 1, f);
+    fwrite(&adam_t, 4, 1, f);
+    fwrite(h_adam_m, sizeof(float), total_floats, f);
+    fwrite(h_adam_v, sizeof(float), total_floats, f);
     fclose(f);
 }
 
@@ -7198,6 +7267,27 @@ int main(int argc, char** argv) {
     float* h_weights = load_model_weights(model_path, &cfg);
     WeightOffsets wo = compute_offsets(cfg);
 
+    // Optimizer-state persistence: allocate host buffers, try to load from the
+    // model checkpoint. If absent (older format), starts cold (zeros). The
+    // resulting TrainPersistence is threaded through run_radix_training so
+    // Adam/RMSProp moments survive across training invocations — essential
+    // for streaming / multi-stage training where save_path of one run feeds
+    // model_path of the next.
+    float* h_adam_m = (float*)calloc(wo.total_floats, sizeof(float));
+    float* h_adam_v = (float*)calloc(wo.total_floats, sizeof(float));
+    int loaded_adam_t = 0;
+    bool opt_loaded = load_optimizer_state(model_path, wo.total_floats,
+                                           h_adam_m, h_adam_v, &loaded_adam_t);
+    if (opt_loaded) {
+        printf("  Loaded optimizer state from checkpoint (adam_t=%d)\n", loaded_adam_t);
+    } else {
+        printf("  No optimizer state in checkpoint; starting cold\n");
+    }
+    TrainPersistence persist;
+    persist.h_adam_m_io = h_adam_m;
+    persist.h_adam_v_io = h_adam_v;
+    persist.adam_t_io = &loaded_adam_t;
+
     // Detect trie format
     int format = detect_trie_format(trie_dir);
     if (fold_table_path && format != 1) {
@@ -7232,6 +7322,7 @@ int main(int argc, char** argv) {
                                            lr_scale_by_steps,
                                            lightning);
         free(manifest.entries);
+        free(h_adam_m); free(h_adam_v);
         return rc;
     }
     if (format == 1) {
@@ -7245,7 +7336,15 @@ int main(int argc, char** argv) {
             load_virtual_tree(virtual_tree_path, radix_trie.radix_count, cfg.vocab_size);
         }
 
-        return run_radix_training(cfg, wo, h_weights, radix_trie, epochs, entropy_lambda, mass_weight, subtree_splits, partition_depth, accumulate, single_subtree, intermediate_weight, optimizer, momentum_beta, rmsprop_beta, lr_schedule, warmup_epochs, weight_decay, grad_clip_norm, save_every, curriculum, save_path, lightning);
+        int rc = run_radix_training(cfg, wo, h_weights, radix_trie, epochs, entropy_lambda, mass_weight, subtree_splits, partition_depth, accumulate, single_subtree, intermediate_weight, optimizer, momentum_beta, rmsprop_beta, lr_schedule, warmup_epochs, weight_decay, grad_clip_norm, save_every, curriculum, save_path, lightning, &persist);
+        // Append optimizer state to the saved checkpoint so the next training
+        // call can pick up Adam/RMSprop moments mid-stream.
+        if (rc == 0 && save_path) {
+            append_optimizer_state(save_path, wo.total_floats, h_adam_m, h_adam_v, loaded_adam_t);
+            printf("  Appended optimizer state to %s (adam_t=%d)\n", save_path, loaded_adam_t);
+        }
+        free(h_adam_m); free(h_adam_v);
+        return rc;
     }
 
     // Load leveled trie
@@ -7292,6 +7391,7 @@ int main(int argc, char** argv) {
 
     cublasDestroy(cublas);
     free(h_weights);
+    free(h_adam_m); free(h_adam_v);
     printf("Done.\n");
     return 0;
 }
