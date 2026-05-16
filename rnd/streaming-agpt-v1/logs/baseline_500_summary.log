@@ -1,0 +1,4 @@
+Baseline 500 SE: PPL@16=4.2579, wall=2900s
+
+For comparison:
+  Streaming 50 × 10 SE (500 SE): PPL=3.996, wall=1607s

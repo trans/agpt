@@ -13,8 +13,21 @@ fine cadence?
 ### Headline
 
 **Streaming 50 × 10 SE breaks below PPL 4.0 on Shakespeare d=16** at
-500 SE total budget — a 15.7% PPL improvement over the 100 SE baseline
-(4.74), with 27 minutes of wall time.
+500 SE total budget — PPL 3.996 in 27 min vs **matched-compute 500
+SE baseline at PPL 4.26 in 48 min** (added 2026-05-16 after request).
+
+| total SE | baseline | streaming (best) | streaming advantage |
+|---:|---:|---:|---:|
+| 100 | 4.74 | 4.33 (20 × 5) | −8.6% PPL |
+| 500 | **4.26** | **3.996** (50 × 10) | **−6.2% PPL, 45% less wall** |
+
+At matched-compute 500 SE, streaming wins by 6.2% PPL in 45% less
+wall time. Both higher budgets improve over their 100 SE counterparts;
+streaming retains the advantage at every budget tested.
+
+The relative streaming gap *narrows* with budget (8.6% → 6.2%) —
+baseline benefits more per added SE because streaming was already
+extracting more per unit. But streaming still wins absolutely.
 
 ### Compute-scaling trajectory
 
