@@ -1,0 +1,14 @@
+Corpus: /home/trans/Projects/agpt/data/input.txt (1115394 bytes)
+
+========== Cadence: 50 × 10 SE = 500 SE total ==========
+  → 50 × 10 SE (500 total): PPL=3.9958, wall=1607s
+
+========== Extended cadence summary ==========
+n × se (total)      PPL@16     wall (s)  
+--------------       ------     ----      
+50 × 10 (500)       3.9958     1607      
+
+For reference (100 SE total budget):
+  Baseline 100 SE:      PPL=4.74, wall=596s
+  Streaming 20 × 5 SE:  PPL=4.33, wall=361s ← best at 100 SE
+  Streaming  5 × 20 SE: PPL=4.47, wall=366s

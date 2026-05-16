@@ -1,0 +1,6 @@
+Corpus: /home/trans/Projects/agpt/data/input.txt (1115394 bytes)
+
+========== Cadence: 20 × 10 SE = 200 SE total ==========
+  → 20 × 10 SE (200 total): PPL=4.2142, wall=663s
+
+========== Cadence: 50 × 10 SE = 500 SE total ==========

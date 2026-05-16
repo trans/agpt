@@ -1,0 +1,163 @@
+AGPT CUDA Training Engine
+  Model: d=64 heads=4 layers=2 ff=256 vocab=65 seq=128 head_dim=16
+  Loaded 108481 weight floats (423.8 KB)
+  Loaded optimizer state from checkpoint (adam_t=18040)
+  LR schedule horizon: 500 total SE (override; this call runs 10 SE)
+Loading radix trie from /tmp/shake_60pct_n50_se10_d16_radix...
+  Radix trie: 963028 nodes, 5787686 total edge chars, 17 endpoint depths
+  Radix loaded: 1614902 counts entries, 7043068 ancestor char entries
+  d_split: 635954/963028 nodes have a mass=1 ancestor (mean depth 8.89)
+  lr-schedule: warmup-cosine (peak=0.003, warmup_epochs=1)
+  optimizer: rmsprop (lr=0.003)
+  entropy lambda: 1.000 (branching-endpoint icing enabled)
+  mass weighting: log (head-of-edge count restores corpus-frequency exposure)
+  curriculum: flat (d=max each epoch)
+  max edge_len: 16, max ancestor chars: 15, max KV per node: 31, max endpoint depth: 16
+  mass=1 compaction: 5154420 / 5787686 chars are mass=1 (89.1%); cache holds 633266 positions
+  loop points: 11243 (mass>1 leaves; 3.4% of 327073 mass>1 nodes)
+  KV cache: 324.2 MB unified memory (bf16 compact)
+  GPU memory: 2813.5 MB used, 5373.3 MB free, 8186.8 MB total
+  64 root-child subtrees: sizes min=1 max=148586 avg=15047.3 (total=963027 radix nodes)
+Epoch 1: loss=1.515400  (3.63 sec, 64 subtrees, 156 chunks, 5787686 nodes)
+  residual top-10 (subtree_mass × max(avg_loss − 1.515, 0)):
+    rc   rootID   mass      avg_loss     score 
+    58   899287   109515    1.6212       11586.6
+    38   294114   238833    1.5592       10451.4
+    5    184920   95961     1.5859       6761.0
+    53   744281   42893     1.6157       4301.9
+    39   342398   46781     1.6029       4092.9
+    59   922462   33413     1.6157       3350.2
+    4    179457   25322     1.6296       2892.9
+    60   929348   76040     1.5529       2852.2
+    43   477273   68221     1.5517       2476.0
+    40   352345   65473     1.5518       2380.9
+    top-10: 16.3% of mass, 91.3% of excess-loss
+Epoch 2: loss=1.497514  (3.54 sec, 64 subtrees, 156 chunks, 5787686 nodes)
+  residual top-10 (subtree_mass × max(avg_loss − 1.498, 0)):
+    rc   rootID   mass      avg_loss     score 
+    58   899287   109515    1.5900       10133.9
+    38   294114   238833    1.5357       9121.2
+    5    184920   95961     1.5602       6011.1
+    53   744281   42893     1.5909       4006.3
+    39   342398   46781     1.5703       3403.8
+    59   922462   33413     1.5899       3088.2
+    60   929348   76040     1.5347       2830.5
+    43   477273   68221     1.5374       2719.3
+    45   503205   240495    1.5088       2709.3
+    40   352345   65473     1.5329       2319.5
+    top-10: 20.6% of mass, 90.3% of excess-loss
+Epoch 3: loss=1.495232  (3.54 sec, 64 subtrees, 156 chunks, 5787686 nodes)
+  residual top-10 (subtree_mass × max(avg_loss − 1.495, 0)):
+    rc   rootID   mass      avg_loss     score 
+    58   899287   109515    1.6770       19902.3
+    38   294114   238833    1.5278       7770.6
+    5    184920   95961     1.5518       5428.7
+    53   744281   42893     1.6135       5074.5
+    59   922462   33413     1.6424       4917.7
+    60   929348   76040     1.5536       4436.0
+    57   840486   312347    1.5076       3857.5
+    39   342398   46781     1.5659       3305.7
+    43   477273   68221     1.5387       2968.1
+    45   503205   240495    1.5044       2212.1
+    top-10: 25.6% of mass, 92.3% of excess-loss
+Epoch 4: loss=1.485737  (3.55 sec, 64 subtrees, 156 chunks, 5787686 nodes)
+  residual top-10 (subtree_mass × max(avg_loss − 1.486, 0)):
+    rc   rootID   mass      avg_loss     score 
+    38   294114   238833    1.5245       9258.8
+    58   899287   109515    1.5701       9234.8
+    5    184920   95961     1.5488       6051.1
+    53   744281   42893     1.5799       4038.7
+    39   342398   46781     1.5592       3436.6
+    45   503205   240495    1.4997       3367.0
+    43   477273   68221     1.5321       3160.6
+    60   929348   76040     1.5260       3061.6
+    59   922462   33413     1.5691       2786.5
+    4    179457   25322     1.5752       2265.2
+    top-10: 19.8% of mass, 85.2% of excess-loss
+Epoch 5: loss=1.486930  (3.55 sec, 64 subtrees, 156 chunks, 5787686 nodes)
+  residual top-10 (subtree_mass × max(avg_loss − 1.487, 0)):
+    rc   rootID   mass      avg_loss     score 
+    58   899287   109515    1.6251       15130.2
+    38   294114   238833    1.5207       8060.5
+    5    184920   95961     1.5487       5930.4
+    53   744281   42893     1.6108       5314.0
+    60   929348   76040     1.5437       4316.7
+    59   922462   33413     1.6112       4151.6
+    57   840486   312347    1.4986       3639.2
+    39   342398   46781     1.5613       3479.2
+    43   477273   68221     1.5335       3175.3
+    45   503205   240495    1.4982       2705.1
+    top-10: 25.6% of mass, 88.6% of excess-loss
+Epoch 6: loss=1.493384  (3.54 sec, 64 subtrees, 156 chunks, 5787686 nodes)
+  residual top-10 (subtree_mass × max(avg_loss − 1.493, 0)):
+    rc   rootID   mass      avg_loss     score 
+    58   899287   109515    1.6292       14874.1
+    38   294114   238833    1.5346       9833.6
+    5    184920   95961     1.5683       7186.2
+    53   744281   42893     1.6284       5793.1
+    59   922462   33413     1.6186       4184.8
+    39   342398   46781     1.5782       3968.0
+    60   929348   76040     1.5445       3888.2
+    43   477273   68221     1.5402       3192.0
+    45   503205   240495    1.5060       3032.1
+    4    179457   25322     1.5989       2671.0
+    top-10: 19.8% of mass, 89.0% of excess-loss
+Epoch 7: loss=1.485686  (3.55 sec, 64 subtrees, 156 chunks, 5787686 nodes)
+  residual top-10 (subtree_mass × max(avg_loss − 1.486, 0)):
+    rc   rootID   mass      avg_loss     score 
+    58   899287   109515    1.5967       12152.6
+    38   294114   238833    1.5280       10097.6
+    5    184920   95961     1.5507       6243.0
+    60   929348   76040     1.5438       4420.0
+    59   922462   33413     1.6126       4242.1
+    53   744281   42893     1.5762       3883.4
+    39   342398   46781     1.5642       3672.2
+    43   477273   68221     1.5340       3296.6
+    45   503205   240495    1.4976       2873.5
+    40   352345   65473     1.5210       2312.2
+    top-10: 20.6% of mass, 89.9% of excess-loss
+Epoch 8: loss=1.493796  (3.55 sec, 64 subtrees, 156 chunks, 5787686 nodes)
+  residual top-10 (subtree_mass × max(avg_loss − 1.494, 0)):
+    rc   rootID   mass      avg_loss     score 
+    38   294114   238833    1.5435       11866.5
+    58   899287   109515    1.5830       9766.9
+    9    208294   45535     1.6674       7903.1
+    5    184920   95961     1.5469       5093.5
+    39   342398   46781     1.5778       3929.9
+    53   744281   42893     1.5765       3547.2
+    59   922462   33413     1.5765       2764.3
+    43   477273   68221     1.5338       2730.6
+    40   352345   65473     1.5311       2440.8
+    45   503205   240495    1.5038       2397.0
+    top-10: 20.0% of mass, 83.3% of excess-loss
+Epoch 9: loss=1.482620  (3.55 sec, 64 subtrees, 156 chunks, 5787686 nodes)
+  residual top-10 (subtree_mass × max(avg_loss − 1.483, 0)):
+    rc   rootID   mass      avg_loss     score 
+    58   899287   109515    1.5787       10518.8
+    38   294114   238833    1.5205       9046.3
+    5    184920   95961     1.5455       6029.6
+    53   744281   42893     1.6170       5763.2
+    39   342398   46781     1.5524       3263.6
+    59   922462   33413     1.5792       3227.2
+    45   503205   240495    1.4954       3066.8
+    43   477273   68221     1.5263       2980.6
+    60   929348   76040     1.5214       2945.3
+    4    179457   25322     1.5754       2350.5
+    top-10: 19.8% of mass, 88.0% of excess-loss
+Epoch 10: loss=1.483109  (3.55 sec, 64 subtrees, 156 chunks, 5787686 nodes)
+  residual top-10 (subtree_mass × max(avg_loss − 1.483, 0)):
+    rc   rootID   mass      avg_loss     score 
+    58   899287   109515    1.6495       18221.0
+    38   294114   238833    1.5165       7982.4
+    5    184920   95961     1.5487       6298.9
+    53   744281   42893     1.5963       4856.1
+    59   922462   33413     1.6218       4634.7
+    60   929348   76040     1.5400       4326.0
+    39   342398   46781     1.5526       3249.7
+    57   840486   312347    1.4925       2940.3
+    43   477273   68221     1.5237       2772.1
+    4    179457   25322     1.5746       2317.3
+    top-10: 21.3% of mass, 91.2% of excess-loss
+Saved to /home/trans/Projects/agpt/rnd/streaming-agpt-v1/models/cadence_n50_se10_stage30.model
+Done.
+  Appended optimizer state to /home/trans/Projects/agpt/rnd/streaming-agpt-v1/models/cadence_n50_se10_stage30.model (adam_t=18680)

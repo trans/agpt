@@ -1,5 +1,74 @@
 # Streaming AGPT — Findings
 
+## Extended cadence — 200/500 SE budget (2026-05-16)
+
+Question: how low can streaming push PPL with more compute at the same
+fine cadence?
+
+| variant | total SE | PPL@16 | wall (s) | improvement over baseline |
+|---|---:|---:|---:|---:|
+| 20 × 10 SE | 200 | 4.21 | 663 | −11.2% |
+| **50 × 10 SE** | **500** | **3.996** | 1607 | **−15.7%** |
+
+### Headline
+
+**Streaming 50 × 10 SE breaks below PPL 4.0 on Shakespeare d=16** at
+500 SE total budget — a 15.7% PPL improvement over the 100 SE baseline
+(4.74), with 27 minutes of wall time.
+
+### Compute-scaling trajectory
+
+| total SE | best variant | PPL@16 |
+|---:|---|---:|
+| 100 | 20 × 5 SE | 4.33 |
+| 200 | 20 × 10 SE | 4.21 |
+| 500 | 50 × 10 SE | 4.00 |
+
+Compute scaling on Shakespeare d=16:
+- 100 → 200 SE (2× compute): PPL 4.33 → 4.21 (−2.8%)
+- 200 → 500 SE (2.5× compute): PPL 4.21 → 4.00 (−5.0%)
+- 100 → 500 SE (5× compute): PPL 4.33 → 4.00 (−7.6%)
+
+Diminishing returns, but not flat — there's still room to push by
+investing more compute. The model is approaching but not at its
+Shakespeare d=16 ceiling.
+
+### Cadence × budget interaction
+
+The 50-stage cadence at 100 SE budget (50 × 2 SE) underperformed
+baseline (PPL 4.80 vs 4.74). At 500 SE budget (50 × 10 SE) the same
+50-stage cadence excels (PPL 4.00). The difference: per-stage budget.
+- 50 × 2 SE = 130 optimizer steps per stage — below RMSprop's
+  β₂=0.999 second-moment warmup horizon (~1000 steps)
+- 50 × 10 SE = 650 optimizer steps per stage — sufficient
+
+So the cadence ceiling at 100 SE total budget (around 20 stages) is
+about *per-stage compute*, not about diminishing returns from finer
+curriculum. At higher total budgets we can use finer cadence.
+
+### Compute efficiency
+
+Streaming gets ~2× lower wall-time-per-SE than baseline because early
+stages train on smaller tries (less data per SE):
+
+| variant | total SE | wall (s) | sec/SE |
+|---|---:|---:|---:|
+| Baseline 100 SE | 100 | 596 | 5.96 |
+| Streaming 50 × 10 SE | 500 | 1607 | 3.21 |
+
+This is "free" compute efficiency on top of the algorithmic win.
+
+### What we lost (and recovered)
+
+The 50 × 10 SE first attempt was cut off at stage 25 by a `/tmp` full
+condition (RAM-backed tmpfs on CachyOS). After clearing /tmp,
+re-ran cleanly. Captured the recovery procedure in
+`feedback_bash_outage.md`.
+
+---
+
+---
+
 ## Cadence sweep (2026-05-16) — finer cadence helps, but only up to a point
 
 Question: does using more, smaller stages (finer cadence) at constant
