@@ -1,0 +1,17 @@
+Generic multiseed: N_STAGES=250 PER_STAGE_SE=2 (total 500 SE)
+Seeds: 100 200 300
+Corpus: /home/trans/Projects/agpt/data/input.txt (1115394 bytes)
+
+===== SEED 100 — Streaming 250 × 2 SE =====
+  seed=100: PPL=4.0698, wall=1761s
+
+===== SEED 200 — Streaming 250 × 2 SE =====
+  seed=200: PPL=4.2634, wall=1769s
+
+===== SEED 300 — Streaming 250 × 2 SE =====
+  seed=300: PPL=4.1127, wall=1760s
+
+===== 250 × 2 SE multi-seed summary =====
+  per-seed PPL: 4.0698 4.2634 4.1127
+  PPL:  4.1486 ± 0.0830
+  wall: 1763.3333 ± 4.0277 s

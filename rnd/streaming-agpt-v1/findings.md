@@ -1,5 +1,48 @@
 # Streaming AGPT — Findings
 
+## Cadence sweep — 100×1, 250×2, 100×5 vs baseline (2026-05-17)
+
+Three multi-seed cadence comparisons at varying per-stage budgets.
+
+| variant | total SE | mean PPL ± std | wall (s) | p vs baseline |
+|---|---:|---|---:|---:|
+| Baseline 500 SE (3-seed) | 500 | 4.265 ± 0.018 | 2899 | — |
+| Streaming 50 × 10 SE (3-seed) | 500 | 4.228 ± 0.095 | 1571 | p > 0.5 (n.s.) |
+| **Streaming 100 × 5 SE (3-seed)** | 500 | **4.175 ± 0.025** | 1675 | **p < 0.01** |
+| Streaming 250 × 2 SE (3-seed) | 500 | 4.149 ± 0.083 | 1763 | p ≈ 0.07 (marginal) |
+| Streaming 100 × 1 SE (3-seed) | 100 | 4.558 ± 0.076 | 455 | — |
+
+Key observations:
+
+1. **100 × 5 SE is the headline winner.** Significantly better than
+   baseline (p < 0.01) AND tight variance comparable to baseline.
+
+2. **Mean PPL improves with finer cadence,** at constant 500 SE
+   budget: 50×10 → 100×5 → 250×2 = 4.228 → 4.175 → 4.149. But
+   variance varies non-monotonically.
+
+3. **Per-stage budget hits a variance sweet spot at ~325 fires.**
+
+| cadence | fires/stage | std |
+|---|---:|---:|
+| 50 × 10 | 650 | 0.095 (wide) |
+| **100 × 5** | **325** | **0.025 (tight)** |
+| 250 × 2 | 130 | 0.083 (wide) |
+| 100 × 1 (different budget) | 65 | 0.076 (wide) |
+
+Hypothesis: 325 fires/stage is enough for RMSprop second-moment
+stabilization within a stage AND short enough that the global cosine
+schedule dominates over per-stage trajectory drift. 50×10 has too
+much within-stage drift (long enough for divergent training paths);
+250×2 has too little within-stage settling. 100×5 is a balance.
+
+4. **100×1 (100 SE budget) confirms streaming wins even at minimum
+   per-stage budget.** PPL 4.558 ± 0.076 vs single-seed baseline 4.74
+   = 3.8% improvement. Worse than 20×5's 4.33 at the same budget,
+   but still beats baseline.
+
+---
+
 ## 100 × 5 SE multi-seed — decisive streaming win
 
 **Result (2026-05-17, 3 seeds with seeded inits):**
