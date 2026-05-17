@@ -17,7 +17,14 @@ build-stubs:
 # Sources kernels.cu from the µGPT shard.
 build-agpt-train:
     mkdir -p bin
-    /opt/cuda/bin/nvcc --allow-unsupported-compiler -std=c++17 -O2 src/cuda/agpt_train.cu lib/microgpt/src/cuda/kernels.cu -lcublas -o bin/agpt_train
+    # -O3 + --use_fast_math: modest speedup on attention softmax (exp/log).
+    # -gencode for sm_89 (Ada: RTX 40xx) and sm_90 (Hopper: H100/H200) emits
+    # native SASS for both — no JIT recompile delay on first run for either.
+    # If you have a 30xx (Ampere sm_86), add -gencode=arch=compute_86,code=sm_86.
+    /opt/cuda/bin/nvcc --allow-unsupported-compiler -std=c++17 -O3 --use_fast_math \
+        -gencode=arch=compute_89,code=sm_89 \
+        -gencode=arch=compute_90,code=sm_90 \
+        src/cuda/agpt_train.cu lib/microgpt/src/cuda/kernels.cu -lcublas -o bin/agpt_train
 
 # Build the leveled-trie index builder.
 build-agpt-build-index: build-stubs
@@ -87,7 +94,7 @@ build-agpt-parrot-sample: build-stubs
 # windows and pools their log-prob predictions.
 build-agpt-sliding-window-perplexity:
     mkdir -p bin build
-    /opt/cuda/bin/nvcc --allow-unsupported-compiler -std=c++17 -c -O2 lib/microgpt/src/cuda/kernels.cu -o build/kernels.o
+    /opt/cuda/bin/nvcc --allow-unsupported-compiler -std=c++17 -c -O3 --use_fast_math -gencode=arch=compute_89,code=sm_89 -gencode=arch=compute_90,code=sm_90 lib/microgpt/src/cuda/kernels.cu -o build/kernels.o
     timeout 3m crystal build src/tools/agpt_sliding_window_perplexity.cr -o bin/agpt_sliding_window_perplexity --release --link-flags="{{root}}/build/kernels.o -L/opt/cuda/lib64 -lcudart -lcublas -lstdc++"
     cc -c -O2 lib/microgpt/src/cuda/stubs.c -o build/kernels.o
 
@@ -169,7 +176,7 @@ build-all: build-agpt-train build-agpt-build-index build-agpt-build-radix build-
 # Used only for baseline comparison / parity tests, not for ordinary AGPT builds.
 build-microgpt-tools:
     mkdir -p bin build
-    /opt/cuda/bin/nvcc --allow-unsupported-compiler -std=c++17 -c -O2 lib/microgpt/src/cuda/kernels.cu -o build/kernels.o
+    /opt/cuda/bin/nvcc --allow-unsupported-compiler -std=c++17 -c -O3 --use_fast_math -gencode=arch=compute_89,code=sm_89 -gencode=arch=compute_90,code=sm_90 lib/microgpt/src/cuda/kernels.cu -o build/kernels.o
     timeout 3m crystal build lib/microgpt/src/microgpt/main.cr -o bin/microgpt --release --link-flags="{{root}}/build/kernels.o -L/opt/cuda/lib64 -lcudart -lcublas -lstdc++"
     timeout 3m crystal build lib/microgpt/src/tools/perplexity.cr -o bin/perplexity --release --link-flags="{{root}}/build/kernels.o -L/opt/cuda/lib64 -lcudart -lcublas -lstdc++"
     cc -c -O2 lib/microgpt/src/cuda/stubs.c -o build/kernels.o
