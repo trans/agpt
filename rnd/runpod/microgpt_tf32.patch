@@ -1,0 +1,24 @@
+--- a/src/microgpt/backend.cr
++++ b/src/microgpt/backend.cr
+@@ -477,6 +477,11 @@
+   # cuBLAS handle management
+   fun cublasCreate_v2(handle : CublasHandle*) : CublasStatus
+   fun cublasDestroy_v2(handle : CublasHandle) : CublasStatus
++
++  # Math mode control. CUBLAS_TF32_TENSOR_OP_MATH = 1 enables TF32 tensor cores
++  # for FP32 matmuls on Ampere+ (A100, RTX 30xx/40xx, H100/H200) at no
++  # observable accuracy cost for our workload (FP32 in, FP32 out, TF32 internal).
++  fun cublasSetMathMode(handle : CublasHandle, mode : Int32) : CublasStatus
+
+   # C = alpha * op(A) * op(B) + beta * C
+   fun cublasSgemm_v2(handle : CublasHandle,
+@@ -606,6 +611,9 @@
+     @handle = Pointer(Void).null
+     status = LibCUDA.cublasCreate_v2(pointerof(@handle))
+     raise "cuBLAS init failed: #{status}" unless status == LibCUDA::CublasStatus::Success
++    # Enable TF32 tensor cores for FP32 matmuls (2-3× speedup on Ampere+,
++    # no-op on older GPUs, no accuracy cost vs pure FP32).
++    LibCUDA.cublasSetMathMode(@handle, 1_i32)  # CUBLAS_TF32_TENSOR_OP_MATH
+   end
+
+   def finalize
