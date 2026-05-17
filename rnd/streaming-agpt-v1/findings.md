@@ -1,5 +1,48 @@
 # Streaming AGPT — Findings
 
+## 100 × 5 SE multi-seed — decisive streaming win
+
+**Result (2026-05-17, 3 seeds with seeded inits):**
+
+| variant | mean PPL ± std | wall (s) |
+|---|---|---:|
+| Baseline 500 SE (3 seeds) | 4.265 ± 0.018 | 2899 ± 17 |
+| Streaming 50 × 10 SE (3 seeds) | 4.228 ± 0.095 | 1571 ± 7 |
+| **Streaming 100 × 5 SE (3 seeds)** | **4.175 ± 0.025** | 1675 ± 25 |
+
+**Welch's t-test (100×5 vs baseline): t ≈ 5.1, p < 0.01** — decisively
+significant.
+
+100×5 beats baseline by **2.1% PPL** in **42% less wall time**, with
+**tight variance comparable to baseline** (0.025 vs 0.018).
+
+100×5 also beats 50×10 by 1.3% PPL and has 4× lower variance, despite
+having half the per-stage budget (325 fires/stage vs 650).
+
+### What this overturns
+
+- My earlier "needs ≥500 fires per stage" guess was wrong. 100×5 has
+  325 fires/stage and works better than 50×10's 650.
+- 50×2's failure (130 fires/stage) is a separate effect (very small
+  per-stage budget specifically), not a smooth-threshold curve.
+- The 50×10 multi-seed std of 0.095 may have been a 3-seed sampling
+  fluke — 100×5 reaches 0.025 with the same 3 seeds.
+
+### Streaming-vs-baseline status across all matched comparisons
+
+| budget | baseline | best streaming | gap |
+|---:|---:|---:|---:|
+| 100 SE (single-seed) | 4.74 | 4.33 (20×5) | -8.6% |
+| 500 SE (single-seed) | 4.26 | 3.996 (50×10) | -6.2% |
+| 500 SE (3-seed) | 4.265 ± 0.018 | 4.175 ± 0.025 (100×5) | **-2.1%, p<0.01** |
+| 500 SE (3-seed) | 4.265 ± 0.018 | 4.228 ± 0.095 (50×10) | -0.9%, n.s. |
+
+The single-seed runs were lucky — true mean gap is ~2%, not the 6-9%
+the lucky single-seeds suggested. But it's a *real* gap, and it's
+statistically clean at the 100×5 cadence.
+
+---
+
 ## Extended cadence — 200/500 SE budget (2026-05-16)
 
 Question: how low can streaming push PPL with more compute at the same

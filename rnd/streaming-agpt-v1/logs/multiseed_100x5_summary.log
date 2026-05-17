@@ -1,0 +1,17 @@
+===== SEED 100 — Streaming 100 × 5 SE =====
+  seed=100: PPL=4.2019, wall=1642s
+
+===== SEED 200 — Streaming 100 × 5 SE =====
+  seed=200: PPL=4.1411, wall=1704s
+
+===== SEED 300 — Streaming 100 × 5 SE =====
+  seed=300: PPL=4.1808, wall=1678s
+
+===== 100 × 5 SE multi-seed summary =====
+  per-seed PPL: 4.2019 4.1411 4.1808
+  PPL:  4.1746 ± 0.0252
+  wall: 1674.6667 ± 25.4209 s
+
+For comparison:
+  Streaming 50 × 10 SE: 4.2283 ± 0.0951 PPL, 1571 ± 7 s
+  Baseline 500 SE:      4.2651 ± 0.0181 PPL, 2899 ± 17 s
