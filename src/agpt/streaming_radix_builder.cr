@@ -29,7 +29,7 @@ module MicroGPT
       # used for corpus-mass-weighted training. Mass is preserved along pure unary
       # chains (no branching, no truncation), so the head count equals the true
       # prefix frequency — avoids truncation-reduced endpoint counts.
-      RADIX_VERSION = 2_i32
+      RADIX_VERSION = 3_i32  # v3: edge tokens + counts_tok stored as Int16 (was Int32)
 
       # per_subtree: when true, emit one file per subtree (radix_subtree_NNNNNN.bin)
       # + a manifest.bin listing them. Enables per-subtree loading for memory scaling
@@ -394,15 +394,16 @@ module MicroGPT
         edge_mass : Int32,
         entries : Array({Int32, Int32})
       )
+        # v3 format (2026-05-17): edge tokens + counts_tok narrowed to Int16.
         io.write_bytes(radix_id.to_i32, IO::ByteFormat::LittleEndian)
         io.write_bytes(parent_radix_id.to_i32, IO::ByteFormat::LittleEndian)
         io.write_bytes(first_char_depth.to_i32, IO::ByteFormat::LittleEndian)
         io.write_bytes(edge.size.to_i32, IO::ByteFormat::LittleEndian)
-        edge.each { |tok| io.write_bytes(tok.to_i32, IO::ByteFormat::LittleEndian) }
+        edge.each { |tok| io.write_bytes(tok.to_i16, IO::ByteFormat::LittleEndian) }
         io.write_bytes(edge_mass.to_i32, IO::ByteFormat::LittleEndian)
         io.write_bytes(entries.size.to_i32, IO::ByteFormat::LittleEndian)
         entries.each do |(token_id, count)|
-          io.write_bytes(token_id.to_i32, IO::ByteFormat::LittleEndian)
+          io.write_bytes(token_id.to_i16, IO::ByteFormat::LittleEndian)
           io.write_bytes(count.to_i32, IO::ByteFormat::LittleEndian)
         end
       end

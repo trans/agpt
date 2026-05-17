@@ -6,7 +6,12 @@ module MicroGPT
     # group of radix nodes whose edges END at that character depth.
     class RadixTrieReader
       MAGIC   = 0x52445841_u32  # 'RDXA'
-      VERSION = 2_i32
+      # Version 3 (2026-05-17): edge tokens and counts_tok stored as int16
+      # instead of int32. Cuts edge_tokens disk/RAM by 2×. Reader supports
+      # both v2 (int32 tokens) and v3 (int16 tokens) for backward compat
+      # with already-built tries.
+      VERSION = 3_i32
+      VERSION_INT16_TOKENS = 3_i32  # threshold version for narrow token storage
 
       struct LoadedRecord
         getter id : Int32
@@ -49,6 +54,7 @@ module MicroGPT
       @loaded : Hash(Int32, LoadedDepth)
       @lru : Array(Int32)
       @max_cached : Int32
+      @file_version : Int32  # actual version of files on disk; controls int16 vs int32 token reads
 
       def initialize(@dir : String, @max_cached : Int32 = 3)
         meta_path = File.join(@dir, "meta.bin")
@@ -61,12 +67,18 @@ module MicroGPT
         @vocab_size = 0
         @corpus_hash = 0_u64
         @tokenizer_tag = "unknown"
+        @file_version = 0
 
         File.open(meta_path, "rb") do |io|
           magic = io.read_bytes(UInt32, IO::ByteFormat::LittleEndian)
           raise "bad radix magic in #{meta_path}" unless magic == MAGIC
           version = io.read_bytes(Int32, IO::ByteFormat::LittleEndian)
-          raise "unsupported radix version #{version}" unless version == VERSION
+          # Accept v2 (int32 tokens) and v3 (int16 tokens). Versions older
+          # than 2 or future-newer-than-current are not understood.
+          unless version == 2 || version == 3
+            raise "unsupported radix version #{version} (supported: 2, 3)"
+          end
+          @file_version = version
           @radix_count = io.read_bytes(Int32, IO::ByteFormat::LittleEndian)
           @depth_file_count = io.read_bytes(Int32, IO::ByteFormat::LittleEndian)
           @total_edge_chars = io.read_bytes(Int64, IO::ByteFormat::LittleEndian)
@@ -108,18 +120,29 @@ module MicroGPT
           stored_depth = io.read_bytes(Int32, IO::ByteFormat::LittleEndian)
           raise "depth mismatch in #{path}: #{stored_depth} vs #{d}" unless stored_depth == d
           n = io.read_bytes(Int32, IO::ByteFormat::LittleEndian)
+          # In v3, edge tokens and counts_tok are int16 on disk. In v2, all int32.
+          # We promote both to Int32 in the in-memory LoadedRecord for API stability.
+          narrow_tokens = (@file_version >= VERSION_INT16_TOKENS)
           n.times do |i|
             rid = io.read_bytes(Int32, IO::ByteFormat::LittleEndian)
             parent = io.read_bytes(Int32, IO::ByteFormat::LittleEndian)
             fcd = io.read_bytes(Int32, IO::ByteFormat::LittleEndian)
             edge_len = io.read_bytes(Int32, IO::ByteFormat::LittleEndian)
             edge = Array(Int32).new(edge_len)
-            edge_len.times { edge << io.read_bytes(Int32, IO::ByteFormat::LittleEndian) }
+            if narrow_tokens
+              edge_len.times { edge << io.read_bytes(Int16, IO::ByteFormat::LittleEndian).to_i32 }
+            else
+              edge_len.times { edge << io.read_bytes(Int32, IO::ByteFormat::LittleEndian) }
+            end
             edge_mass = io.read_bytes(Int32, IO::ByteFormat::LittleEndian)
             ec = io.read_bytes(Int32, IO::ByteFormat::LittleEndian)
             entries = Array({Int32, Int32}).new(ec)
             ec.times do
-              tok = io.read_bytes(Int32, IO::ByteFormat::LittleEndian)
+              if narrow_tokens
+                tok = io.read_bytes(Int16, IO::ByteFormat::LittleEndian).to_i32
+              else
+                tok = io.read_bytes(Int32, IO::ByteFormat::LittleEndian)
+              end
               cnt = io.read_bytes(Int32, IO::ByteFormat::LittleEndian)
               entries << {tok, cnt}
             end

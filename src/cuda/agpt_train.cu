@@ -588,6 +588,12 @@ static int read_i32(FILE* f) {
     return v;
 }
 
+static int read_i16(FILE* f) {
+    int16_t v;
+    fread(&v, 2, 1, f);
+    return (int)v;  // sign-extend to int for storage compatibility
+}
+
 static unsigned read_u32(FILE* f) {
     unsigned v;
     fread(&v, 4, 1, f);
@@ -654,7 +660,7 @@ SubtreeManifest load_subtree_manifest(const char* dir) {
     unsigned magic = read_u32(f);
     if (magic != RADIX_MAGIC) { fprintf(stderr, "Bad manifest magic\n"); exit(1); }
     int version = read_i32(f);
-    if (version != 2) { fprintf(stderr, "Unsupported manifest version %d\n", version); exit(1); }
+    if (version != 2 && version != 3) { fprintf(stderr, "Unsupported manifest version %d (need 2 or 3)\n", version); exit(1); }
     m.n_subtrees = read_i32(f);
     m.entries = (SubtreeManifestEntry*)calloc(m.n_subtrees, sizeof(SubtreeManifestEntry));
     for (int i = 0; i < m.n_subtrees; i++) {
@@ -709,7 +715,10 @@ SubtreeData load_subtree(const SubtreeManifest& m, int manifest_index) {
     unsigned magic = read_u32(f);
     if (magic != RADIX_MAGIC) { fprintf(stderr, "Bad subtree magic in %s\n", path); exit(1); }
     int version = read_i32(f);
-    if (version != 2) { fprintf(stderr, "Bad subtree version in %s\n", path); exit(1); }
+    if (version != 2 && version != 3) { fprintf(stderr, "Bad subtree version %d in %s (need v2 or v3)\n", version, path); exit(1); }
+    const bool narrow_tokens = (version >= 3);
+    const int token_bytes = narrow_tokens ? 2 : 4;
+    const int counts_entry_bytes = narrow_tokens ? 6 : 8;
     int stored_rc = read_i32(f);
     if (stored_rc != e.root_child_id) { fprintf(stderr, "Subtree rc mismatch\n"); exit(1); }
     s.n_nodes = read_i32(f);
@@ -749,14 +758,14 @@ SubtreeData load_subtree(const SubtreeManifest& m, int manifest_index) {
         s.edge_lens[i] = elen;
         s.edge_first_char_depths[i] = fcd;
         for (int e2 = 0; e2 < elen; e2++) {
-            s.edge_tokens_flat[edge_fill_pos + e2] = read_i32(f);
+            s.edge_tokens_flat[edge_fill_pos + e2] = narrow_tokens ? read_i16(f) : read_i32(f);
         }
         edge_fill_pos += elen;
         s.edge_mass[i] = read_i32(f);
         int ec = read_i32(f);
         entry_counts_per_local[i] = ec;
         total_counts_local += ec;
-        fseek(f, ec * 8, SEEK_CUR);
+        fseek(f, ec * counts_entry_bytes, SEEK_CUR);
     }
     s.total_counts = (int)total_counts_local;
 
@@ -824,12 +833,12 @@ SubtreeData load_subtree(const SubtreeManifest& m, int manifest_index) {
         read_i32(f); read_i32(f); read_i32(f);                // rid, parent, fcd
         int elen = s.edge_lens[i];
         fseek(f, 4, SEEK_CUR);                                  // skip edge_len
-        fseek(f, elen * 4, SEEK_CUR);                           // skip edge tokens
+        fseek(f, elen * token_bytes, SEEK_CUR);                 // skip edge tokens (v2: 4B, v3: 2B)
         fseek(f, 4, SEEK_CUR);                                  // skip edge_mass
         int ec = read_i32(f);
         int out_off = s.counts_offset[i];
         for (int ee = 0; ee < ec; ee++) {
-            s.counts_tok[out_off + ee] = read_i32(f);
+            s.counts_tok[out_off + ee] = narrow_tokens ? read_i16(f) : read_i32(f);
             s.counts_val[out_off + ee] = read_i32(f);
         }
     }
@@ -984,7 +993,12 @@ RadixTrieData load_radix_trie(const char* dir) {
     unsigned magic = read_u32(f);
     if (magic != RADIX_MAGIC) { fprintf(stderr, "Bad radix magic\n"); exit(1); }
     int version = read_i32(f);
-    if (version != 2) { fprintf(stderr, "Radix format version %d unsupported (need v2). Rebuild index with --agpt-build-radix.\n", version); exit(1); }
+    if (version != 2 && version != 3) { fprintf(stderr, "Radix format version %d unsupported (need v2 or v3). Rebuild index.\n", version); exit(1); }
+    // v3 stores edge tokens and counts_tok as int16 on disk (was int32 in v2).
+    // We promote to int32 in memory for compatibility with existing kernels.
+    // Phase 2 will narrow in-memory storage; this phase only reads the new format.
+    const bool narrow_tokens = (version >= 3);
+    const int token_bytes = narrow_tokens ? 2 : 4;
     t.radix_count = read_i32(f);
     t.depth_file_count = read_i32(f);
     fread(&t.total_edge_chars, 8, 1, f);
@@ -1013,6 +1027,8 @@ RadixTrieData load_radix_trie(const char* dir) {
     long long edge_fill_pos = 0;
     long long total_counts_local = 0;
     int* entry_counts_per_node = (int*)calloc(t.radix_count, sizeof(int));
+    // v2: each counts entry is 8 bytes (i32 token + i32 count); v3: 6 bytes (i16 + i32)
+    const int counts_entry_bytes = narrow_tokens ? 6 : 8;
     for (int d = 0; d < t.depth_file_count; d++) {
         snprintf(path, sizeof(path), "%s/radix_depth_%03d.bin", dir, d);
         f = fopen(path, "rb");
@@ -1036,14 +1052,14 @@ RadixTrieData load_radix_trie(const char* dir) {
             t.edge_lens[rid] = elen;
             t.edge_first_char_depths[rid] = fcd;
             for (int e = 0; e < elen; e++) {
-                t.edge_tokens_flat[edge_fill_pos + e] = read_i32(f);
+                t.edge_tokens_flat[edge_fill_pos + e] = narrow_tokens ? read_i16(f) : read_i32(f);
             }
             edge_fill_pos += elen;
             t.edge_mass[rid] = read_i32(f);  // v2 prefix mass
             int ec = read_i32(f);
             entry_counts_per_node[rid] = ec;
             total_counts_local += ec;
-            fseek(f, ec * 8, SEEK_CUR);
+            fseek(f, ec * counts_entry_bytes, SEEK_CUR);
         }
         fclose(f);
     }
@@ -1080,12 +1096,12 @@ RadixTrieData load_radix_trie(const char* dir) {
             int rid = read_i32(f);
             fseek(f, 3 * 4, SEEK_CUR); // parent, fcd, edge_len
             int elen = t.edge_lens[rid];
-            fseek(f, elen * 4, SEEK_CUR); // skip edge tokens
-            fseek(f, 4, SEEK_CUR);         // skip edge_mass (v2)
+            fseek(f, elen * token_bytes, SEEK_CUR); // skip edge tokens (v2: 4B each; v3: 2B each)
+            fseek(f, 4, SEEK_CUR);                   // skip edge_mass (v2 + v3 both i32)
             int ec = read_i32(f);
             int out_off = t.counts_offset[rid];
             for (int e = 0; e < ec; e++) {
-                t.counts_tok[out_off + e] = read_i32(f);
+                t.counts_tok[out_off + e] = narrow_tokens ? read_i16(f) : read_i32(f);
                 t.counts_val[out_off + e] = read_i32(f);
             }
         }

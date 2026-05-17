@@ -15,7 +15,7 @@ module MicroGPT
     # subtrees/radix_subtree_NNNNNN.bin) when @per_subtree is true.
     class CorpusRadixBuilder
       RADIX_MAGIC   = 0x52445841_u32  # 'RDXA' — same as StreamingRadixBuilder
-      RADIX_VERSION = 2_i32
+      RADIX_VERSION = 3_i32  # v3: edge tokens + counts_tok stored as Int16 (was Int32)
 
       # Compact char-trie for one subtree, struct-of-arrays. Each node is
       # 4 × Int32 (token, count, first_child id, next_sibling id) = 16 bytes
@@ -399,15 +399,18 @@ module MicroGPT
         edge_mass : Int32,
         entries : Array({Int32, Int32}),
       )
+        # v3 format (2026-05-17): edge tokens + counts_tok stored as Int16.
+        # Vocab limit raised from 256 (uint8 would have allowed) to 32768 to
+        # accommodate BPE/SentencePiece tokenizers without changing format again.
         io.write_bytes(radix_id.to_i32, IO::ByteFormat::LittleEndian)
         io.write_bytes(parent_radix_id.to_i32, IO::ByteFormat::LittleEndian)
         io.write_bytes(first_char_depth.to_i32, IO::ByteFormat::LittleEndian)
         io.write_bytes(edge.size.to_i32, IO::ByteFormat::LittleEndian)
-        edge.each { |tok| io.write_bytes(tok.to_i32, IO::ByteFormat::LittleEndian) }
+        edge.each { |tok| io.write_bytes(tok.to_i16, IO::ByteFormat::LittleEndian) }
         io.write_bytes(edge_mass.to_i32, IO::ByteFormat::LittleEndian)
         io.write_bytes(entries.size.to_i32, IO::ByteFormat::LittleEndian)
         entries.each do |(token_id, count)|
-          io.write_bytes(token_id.to_i32, IO::ByteFormat::LittleEndian)
+          io.write_bytes(token_id.to_i16, IO::ByteFormat::LittleEndian)
           io.write_bytes(count.to_i32, IO::ByteFormat::LittleEndian)
         end
       end
