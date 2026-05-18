@@ -1,31 +1,31 @@
-Vocab source: /home/trans/Projects/agpt/data/input.txt → 65 unique chars
-Test file: /home/trans/Projects/agpt/data/input.txt (1115394 bytes)
+Vocab source: /home/trans/Projects/agpt/data/gutenberg_5m.txt → 65 unique chars
+Test file: /home/trans/Projects/agpt/data/gutenberg_5m.txt (5000000 bytes)
 Auto-detected architecture from checkpoint: d_model=64, n_heads=4, n_layers=2, d_ff=256 (ckpt seq_len=32, eval seq_len=16)
 Model loaded: /home/trans/Projects/agpt/rnd/streaming-agpt-v1/models/seed300_ms_n100_se1_stage100.model (d_model=64, n_layers=2, vocab=65, seq_len=16)
-Tokens: 1115394
-  204/4096 (1209.7/s, ETA 3s)
-  408/4096 (1301.0/s, ETA 3s)
-  612/4096 (1352.7/s, ETA 3s)
-  816/4096 (1405.1/s, ETA 2s)
-  1020/4096 (1427.6/s, ETA 2s)
-  1224/4096 (1409.0/s, ETA 2s)
-  1428/4096 (1427.3/s, ETA 2s)
-  1632/4096 (1441.3/s, ETA 2s)
-  1836/4096 (1454.1/s, ETA 2s)
-  2040/4096 (1436.8/s, ETA 1s)
-  2244/4096 (1403.5/s, ETA 1s)
-  2448/4096 (1390.0/s, ETA 1s)
-  2652/4096 (1387.7/s, ETA 1s)
-  2856/4096 (1396.9/s, ETA 1s)
-  3060/4096 (1405.4/s, ETA 1s)
-  3264/4096 (1413.8/s, ETA 1s)
-  3468/4096 (1418.3/s, ETA 0s)
-  3672/4096 (1427.1/s, ETA 0s)
-  3876/4096 (1433.3/s, ETA 0s)
-  4080/4096 (1424.2/s, ETA 0s)
+Tokens: 5000000
+  204/4096 (1451.0/s, ETA 3s)
+  408/4096 (1406.7/s, ETA 3s)
+  612/4096 (1457.0/s, ETA 2s)
+  816/4096 (1479.3/s, ETA 2s)
+  1020/4096 (1493.5/s, ETA 2s)
+  1224/4096 (1496.4/s, ETA 2s)
+  1428/4096 (1459.6/s, ETA 2s)
+  1632/4096 (1469.9/s, ETA 2s)
+  1836/4096 (1478.2/s, ETA 2s)
+  2040/4096 (1465.8/s, ETA 1s)
+  2244/4096 (1476.7/s, ETA 1s)
+  2448/4096 (1479.7/s, ETA 1s)
+  2652/4096 (1478.0/s, ETA 1s)
+  2856/4096 (1468.1/s, ETA 1s)
+  3060/4096 (1474.0/s, ETA 1s)
+  3264/4096 (1479.3/s, ETA 1s)
+  3468/4096 (1483.5/s, ETA 0s)
+  3672/4096 (1490.9/s, ETA 0s)
+  3876/4096 (1489.5/s, ETA 0s)
+  4080/4096 (1472.1/s, ETA 0s)
 
 Positions scored:  4096
-Mean per-token NLL: 1.539468 nats
-Perplexity:         4.6621
-Bits per character: 2.2210 bpc
-Elapsed:            2.9s (1428.1 pos/sec)
+Mean per-token NLL: 1.492698 nats
+Perplexity:         4.4491
+Bits per character: 2.1535 bpc
+Elapsed:            2.8s (1465.0 pos/sec)

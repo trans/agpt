@@ -171,7 +171,7 @@ enum class LRSchedule { Constant, Cosine, WarmupCosine };
 // Each super-epoch issues `steps` stochastic samples instead of the deterministic
 // 65-root-child sweep. Each sampled subtree is a bounded training unit: its own
 // d_grads zero, accumulated across chunks, one optimizer step. See
-// notes/agpt/lightning-training.md for design rationale.
+// notes/lightning-training.md for design rationale.
 enum class LightningSampler { L1_Uniform, L2_RcDepth, L3_MassWalk, L4_Path };
 struct LightningConfig {
     int               steps      = 0;          // 0 = disabled (deterministic sweep)
@@ -339,7 +339,7 @@ static void cuda_lbfgs_step(LBFGSState* st, cublasHandle_t cublas,
     // AGPT_LBFGS_GAMMA_ONE=1 env var forces γ=1.0 (identity H_0 init). This
     // is a diagnostic option for when the standard γ collapses to lr (which
     // happens when consecutive partition fires have orthogonal gradients —
-    // see notes/agpt/todo/l-bfgs.md).
+    // see notes/todo/l-bfgs.md).
     {
         static const bool gamma_one = (getenv("AGPT_LBFGS_GAMMA_ONE") != nullptr);
         if (!gamma_one) {
@@ -5388,7 +5388,7 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
             CUDA_CHECK(cudaMemset(d_grads, 0, wo.total_floats * sizeof(float)));
         }
 
-        // --- Per-subtree residual measurement (notes/agpt/measure-loss-during-training.md) ---
+        // --- Per-subtree residual measurement (notes/measure-loss-during-training.md) ---
         // During training, aggregate per-query loss into per-subtree sums.
         // At epoch end we print a "residual" ranking = count * max(avg_loss - global_avg, 0)
         // to identify hotspot subtrees that still need refinement.

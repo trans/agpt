@@ -215,7 +215,7 @@ specific one-hots harder than it has converged to the marginal.
 ### D.5 generation quality
 
 Sample seed `"First Citizen:\n"` at temp=0.8 (openblas backend;
-cuBLAS gen broken — see `notes/agpt/todo/cublas-generation-bug.md`).
+cuBLAS gen broken — see `notes/todo/cublas-generation-bug.md`).
 
 3 SE:
 - Baseline: `"But have imples of preat his monds! Une shaved, a kingedAndouform thal's menoffouresty thOf..."`

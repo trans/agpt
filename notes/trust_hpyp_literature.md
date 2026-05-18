@@ -138,7 +138,7 @@ trust weights from data.
 - `project_predictive_certainty_weighting.md` — the U-shape weighting
   intuition. Trust framework subsumes this: U-shape is what falls out
   when you derive trust from sample-size AND predictive-certainty.
-- `notes/agpt/shared_key_rope.md` — option B (per-node K-vectors) is
+- `notes/shared_key_rope.md` — option B (per-node K-vectors) is
   essentially (2) hidden-state interpolation. The "shared key" is the
   contextual representation at one scale; combining across scales is
   the trust step.

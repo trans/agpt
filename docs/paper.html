@@ -1,0 +1,1009 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>Prefix-Trie Factorization of Autoregressive Gradient Descent</title>
+  <style>
+    html {
+      color: #1a1a1a;
+      background-color: #fdfdfd;
+    }
+    body {
+      margin: 0 auto;
+      max-width: 36em;
+      padding-left: 50px;
+      padding-right: 50px;
+      padding-top: 50px;
+      padding-bottom: 50px;
+      hyphens: auto;
+      overflow-wrap: break-word;
+      text-rendering: optimizeLegibility;
+      font-kerning: normal;
+    }
+    @media (max-width: 600px) {
+      body {
+        font-size: 0.9em;
+        padding: 12px;
+      }
+      h1 {
+        font-size: 1.8em;
+      }
+    }
+    @media print {
+      html {
+        background-color: white;
+      }
+      body {
+        background-color: transparent;
+        color: black;
+        font-size: 12pt;
+      }
+      p, h2, h3 {
+        orphans: 3;
+        widows: 3;
+      }
+      h2, h3, h4 {
+        page-break-after: avoid;
+      }
+    }
+    p {
+      margin: 1em 0;
+    }
+    a {
+      color: #1a1a1a;
+    }
+    a:visited {
+      color: #1a1a1a;
+    }
+    img {
+      max-width: 100%;
+    }
+    svg {
+      height: auto;
+      max-width: 100%;
+    }
+    h1, h2, h3, h4, h5, h6 {
+      margin-top: 1.4em;
+    }
+    h5, h6 {
+      font-size: 1em;
+      font-style: italic;
+    }
+    h6 {
+      font-weight: normal;
+    }
+    ol, ul {
+      padding-left: 1.7em;
+      margin-top: 1em;
+    }
+    li > ol, li > ul {
+      margin-top: 0;
+    }
+    blockquote {
+      margin: 1em 0 1em 1.7em;
+      padding-left: 1em;
+      border-left: 2px solid #e6e6e6;
+      color: #606060;
+    }
+    code {
+      font-family: Menlo, Monaco, Consolas, 'Lucida Console', monospace;
+      font-size: 85%;
+      margin: 0;
+      hyphens: manual;
+    }
+    pre {
+      margin: 1em 0;
+      overflow: auto;
+    }
+    pre code {
+      padding: 0;
+      overflow: visible;
+      overflow-wrap: normal;
+    }
+    .sourceCode {
+     background-color: transparent;
+     overflow: visible;
+    }
+    hr {
+      background-color: #1a1a1a;
+      border: none;
+      height: 1px;
+      margin: 1em 0;
+    }
+    table {
+      margin: 1em 0;
+      border-collapse: collapse;
+      width: 100%;
+      overflow-x: auto;
+      display: block;
+      font-variant-numeric: lining-nums tabular-nums;
+    }
+    table caption {
+      margin-bottom: 0.75em;
+    }
+    tbody {
+      margin-top: 0.5em;
+      border-top: 1px solid #1a1a1a;
+      border-bottom: 1px solid #1a1a1a;
+    }
+    th {
+      border-top: 1px solid #1a1a1a;
+      padding: 0.25em 0.5em 0.25em 0.5em;
+    }
+    td {
+      padding: 0.125em 0.5em 0.25em 0.5em;
+    }
+    header {
+      margin-bottom: 4em;
+      text-align: center;
+    }
+    #TOC li {
+      list-style: none;
+    }
+    #TOC ul {
+      padding-left: 1.3em;
+    }
+    #TOC > ul {
+      padding-left: 0;
+    }
+    #TOC a:not(:hover) {
+      text-decoration: none;
+    }
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+  </style>
+</head>
+<body>
+<header id="title-block-header">
+<h1 class="title">Prefix-Trie Factorization of Autoregressive Gradient
+Descent</h1>
+</header>
+<h1
+id="prefix-trie-factorization-of-autoregressive-gradient-descent">Prefix-Trie
+Factorization of Autoregressive Gradient Descent</h1>
+<p><strong>Author:</strong> Thomas Sawyer  
+<code>transfire@gmail.com</code> <strong>Status:</strong> v1.0 preprint
+  ·   <strong>Date:</strong> 2026-04-19 <strong>Code:</strong>
+https://github.com/trans/microgpt</p>
+<h2 id="abstract">Abstract</h2>
+<p>Autoregressive language-model training draws random windows from the
+corpus and treats them as independent examples, requiring the optimizer
+to reconstruct — through stochastic sampling — a count-weighted sum of
+gradients that is already statically computable from the corpus. We
+reformulate training as forward-backward on a <strong>prefix
+trie</strong> representation of the corpus. Every unique prefix appears
+exactly once; the gradient factorization (shown in §5) makes the
+trie-based gradient mathematically equivalent to the expected gradient
+of full-window training, up to minibatch noise.</p>
+<p>This turns the optimizer loop into one gradient step per branching
+subtree, with the trie’s structure supplying the training schedule. On a
+1.1 MB Shakespeare corpus with a 108k-parameter transformer (§11),
+trie-based training at depth 32 reaches held-out perplexity
+<strong>13.17</strong> in <strong>195 Adam steps</strong>, versus
+<strong>14.51</strong> in <strong>2000 SGD steps</strong> for a
+step-sweep-tuned window baseline at matched context (seq_len=32) —
+<strong>9% lower PPL with 10× fewer optimizer updates</strong> at
+matched depth.</p>
+<p>The paper has two halves. §1–9 develops the factorization theorem,
+derives its computational-complexity implications, identifies valid
+training regimes (full-trie, bounded-subtrie, truncated-local-depth),
+and discusses systems considerations. §10–13 documents the
+implementation that validates the framework on a consumer GPU: radix
+compression of unary chains, a per-subtree KV-cache allocation strategy
+that brings d=32 training within a 15 GB RAM budget, a bigram subtree
+partition that brings peak memory 6× lower for deeper d, and an auto-LR
+scaler that preserves the winning recipe across subtree granularities.
+§12 states limitations honestly; §13 summarizes contributions.</p>
+<h2 id="introduction">1. Introduction</h2>
+<p>Modern autoregressive language models are trained by optimizing
+next-token prediction over large corpora using sliding token windows.
+While effective, this training paradigm introduces significant
+redundancy: identical prefixes are recomputed repeatedly across
+overlapping windows, and gradient contributions from shared contexts are
+accumulated independently.</p>
+<p>This redundancy is structural rather than incidental. Natural
+language exhibits strong prefix reuse, where many sequences share common
+initial segments before diverging. However, standard training methods
+fail to exploit this structure explicitly.</p>
+<p>In this work, we show that autoregressive training admits a
+reformulation over a <strong>prefix trie representation</strong> of the
+corpus. In this formulation, shared prefixes are represented once, and
+gradient computation factorizes by commuting aggregation with the chain
+rule. This yields a mathematically equivalent training objective in
+which redundant prefix transformations are eliminated and gradient
+contributions are aggregated at shared nodes.</p>
+<p>The resulting formulation exposes a different computational structure
+for training, in which updates are organized over a directed acyclic
+graph of prefixes rather than a multiset of independent token
+sequences.</p>
+<h2 id="from-sequences-to-prefix-trie">2. From Sequences to Prefix
+Trie</h2>
+<p>Let a corpus be represented as a collection of token sequences.
+Instead of treating each sequence independently, we construct a prefix
+trie
+<math display="inline" xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mi>𝒯</mi><annotation encoding="application/x-tex">\mathcal{T}</annotation></semantics></math>,
+where each node
+<math display="inline" xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>p</mi><mo>∈</mo><mi>𝒯</mi></mrow><annotation encoding="application/x-tex">p \in \mathcal{T}</annotation></semantics></math>
+represents a unique prefix.</p>
+<p>For each node
+<math display="inline" xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mi>p</mi><annotation encoding="application/x-tex">p</annotation></semantics></math>,
+define:</p>
+<ul>
+<li><math display="inline" xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>n</mi><mrow><mo stretchy="true" form="prefix">(</mo><mi>p</mi><mo>,</mo><mi>x</mi><mo stretchy="true" form="postfix">)</mo></mrow></mrow><annotation encoding="application/x-tex">n(p,x)</annotation></semantics></math>:
+the number of times token
+<math display="inline" xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mi>x</mi><annotation encoding="application/x-tex">x</annotation></semantics></math>
+follows prefix
+<math display="inline" xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mi>p</mi><annotation encoding="application/x-tex">p</annotation></semantics></math></li>
+<li><math display="inline" xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>N</mi><mi>p</mi></msub><mo>=</mo><msub><mo>∑</mo><mi>x</mi></msub><mi>n</mi><mrow><mo stretchy="true" form="prefix">(</mo><mi>p</mi><mo>,</mo><mi>x</mi><mo stretchy="true" form="postfix">)</mo></mrow></mrow><annotation encoding="application/x-tex">N_p = \sum_x n(p,x)</annotation></semantics></math>:
+the total number of continuations</li>
+</ul>
+<p>Model recurrence:</p>
+<p><math display="block" xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>h</mi><mrow><mi>p</mi><mo>⋅</mo><mi>x</mi></mrow></msub><mo>=</mo><msub><mi>f</mi><mi>θ</mi></msub><mrow><mo stretchy="true" form="prefix">(</mo><msub><mi>h</mi><mi>p</mi></msub><mo>,</mo><mi>x</mi><mo stretchy="true" form="postfix">)</mo></mrow></mrow><annotation encoding="application/x-tex">
+h_{p \cdot x} = f_\theta(h_p, x)
+</annotation></semantics></math></p>
+<p>Training objective:</p>
+<p><math display="block" xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>L</mi><mo>=</mo><mi>−</mi><munder><mo>∑</mo><mrow><mi>p</mi><mo>∈</mo><mi>𝒯</mi></mrow></munder><munder><mo>∑</mo><mi>x</mi></munder><mi>n</mi><mrow><mo stretchy="true" form="prefix">(</mo><mi>p</mi><mo>,</mo><mi>x</mi><mo stretchy="true" form="postfix">)</mo></mrow><mo>log</mo><msub><mi>π</mi><mi>θ</mi></msub><mrow><mo stretchy="true" form="prefix">(</mo><mi>x</mi><mo>∣</mo><msub><mi>h</mi><mi>p</mi></msub><mo stretchy="true" form="postfix">)</mo></mrow></mrow><annotation encoding="application/x-tex">
+L = -\sum_{p \in \mathcal{T}} \sum_x n(p,x)\log \pi_\theta(x \mid h_p)
+</annotation></semantics></math></p>
+<p>This objective is equivalent to standard next-token training, but
+expressed over <strong>unique prefixes</strong> rather than token
+positions.</p>
+<h2 id="gradient-at-a-node-local-form">3. Gradient at a Node (Local
+Form)</h2>
+<p>Define the error at node
+<math display="inline" xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mi>p</mi><annotation encoding="application/x-tex">p</annotation></semantics></math>:</p>
+<p><math display="block" xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>e</mi><mrow><mi>p</mi><mo>,</mo><mi>x</mi></mrow></msub><mo>=</mo><msub><mi>π</mi><mrow><mi>p</mi><mo>,</mo><mi>x</mi></mrow></msub><msub><mi>N</mi><mi>p</mi></msub><mo>−</mo><msub><mi>n</mi><mrow><mi>p</mi><mo>,</mo><mi>x</mi></mrow></msub></mrow><annotation encoding="application/x-tex">
+e_{p,x} = \pi_{p,x} N_p - n_{p,x}
+</annotation></semantics></math></p>
+<p>Local gradient:</p>
+<p><math display="block" xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msubsup><mi>g</mi><mi>p</mi><mtext mathvariant="normal">local</mtext></msubsup><mo>=</mo><munder><mo>∑</mo><mi>x</mi></munder><msub><mi>e</mi><mrow><mi>p</mi><mo>,</mo><mi>x</mi></mrow></msub><msub><mi>W</mi><mi>x</mi></msub></mrow><annotation encoding="application/x-tex">
+g_p^{\text{local}} = \sum_x e_{p,x} W_x
+</annotation></semantics></math></p>
+<p>This represents the discrepancy between predicted and empirical
+next-token distributions at the node.</p>
+<h2 id="recursive-backpropagation-over-the-trie">4. Recursive
+Backpropagation over the Trie</h2>
+<p>Gradients propagate through the trie as:</p>
+<p><math display="block" xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>G</mi><mi>p</mi></msub><mo>=</mo><msubsup><mi>g</mi><mi>p</mi><mtext mathvariant="normal">local</mtext></msubsup><mo>+</mo><munder><mo>∑</mo><mi>x</mi></munder><msub><mi>J</mi><mrow><mi>p</mi><mo>→</mo><mi>p</mi><mo>⋅</mo><mi>x</mi></mrow></msub><mo>⋅</mo><msub><mi>G</mi><mrow><mi>p</mi><mo>⋅</mo><mi>x</mi></mrow></msub></mrow><annotation encoding="application/x-tex">
+G_p = g_p^{\text{local}} + \sum_x J_{p\to p\cdot x} \cdot G_{p\cdot x}
+</annotation></semantics></math></p>
+<p>where:</p>
+<p><math display="block" xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>J</mi><mrow><mi>p</mi><mo>→</mo><mi>p</mi><mo>⋅</mo><mi>x</mi></mrow></msub><mo>=</mo><mfrac><mrow><mi>∂</mi><msub><mi>h</mi><mrow><mi>p</mi><mo>⋅</mo><mi>x</mi></mrow></msub></mrow><mrow><mi>∂</mi><msub><mi>h</mi><mi>p</mi></msub></mrow></mfrac></mrow><annotation encoding="application/x-tex">
+J_{p\to p\cdot x} = \frac{\partial h_{p\cdot x}}{\partial h_p}
+</annotation></semantics></math></p>
+<p>This defines a backward pass over a <strong>shared prefix
+DAG</strong>, rather than independent sequences.</p>
+<h2 id="core-identity-gradient-factorization-over-the-prefix-trie">5.
+Core Identity: Gradient Factorization over the Prefix Trie</h2>
+<p>This section presents the central structural result underlying the
+prefix-trie formulation of autoregressive training. It formalizes how
+gradient computation over repeated token sequences can be factorized by
+exploiting shared prefix structure.</p>
+<h3 id="setup">5.1 Setup</h3>
+<p>Let
+<math display="inline" xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>p</mi><mo>∈</mo><mi>𝒯</mi></mrow><annotation encoding="application/x-tex">p \in \mathcal{T}</annotation></semantics></math>
+be a prefix node in the trie.</p>
+<p>Let: -
+<math display="inline" xmlns="http://www.w3.org/1998/Math/MathML"><semantics><msub><mi>h</mi><mi>p</mi></msub><annotation encoding="application/x-tex">h_p</annotation></semantics></math>
+denote the hidden state at node
+<math display="inline" xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mi>p</mi><annotation encoding="application/x-tex">p</annotation></semantics></math>
+-
+<math display="inline" xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>p</mi><mo>⋅</mo><mi>x</mi></mrow><annotation encoding="application/x-tex">p \cdot x</annotation></semantics></math>
+denote extension of prefix
+<math display="inline" xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mi>p</mi><annotation encoding="application/x-tex">p</annotation></semantics></math>
+by token
+<math display="inline" xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mi>x</mi><annotation encoding="application/x-tex">x</annotation></semantics></math>
+-
+<math display="inline" xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mi>s</mi><annotation encoding="application/x-tex">s</annotation></semantics></math>
+index suffix paths descending from
+<math display="inline" xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mi>p</mi><annotation encoding="application/x-tex">p</annotation></semantics></math>
+-
+<math display="inline" xmlns="http://www.w3.org/1998/Math/MathML"><semantics><msub><mi>g</mi><mi>s</mi></msub><annotation encoding="application/x-tex">g_s</annotation></semantics></math>
+denote the gradient contribution to
+<math display="inline" xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mfrac><mrow><mi>∂</mi><mi>L</mi></mrow><mrow><mi>∂</mi><msub><mi>h</mi><mrow><mi>p</mi><mi>′</mi></mrow></msub></mrow></mfrac><annotation encoding="application/x-tex">\frac{\partial L}{\partial h_{p&#39;}}</annotation></semantics></math>
+arising from a suffix path
+<math display="inline" xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mi>s</mi><annotation encoding="application/x-tex">s</annotation></semantics></math></p>
+<p>Define the <strong>prefix Jacobian</strong>:</p>
+<p><math display="block" xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>J</mi><mi>p</mi></msub><mo>:=</mo><munder><mo>∏</mo><mrow><mi>k</mi><mo>∈</mo><mtext mathvariant="normal">prefix</mtext><mrow><mo stretchy="true" form="prefix">(</mo><mi>p</mi><mo stretchy="true" form="postfix">)</mo></mrow></mrow></munder><mfrac><mrow><mi>∂</mi><msub><mi>h</mi><mrow><mi>k</mi><mo>+</mo><mn>1</mn></mrow></msub></mrow><mrow><mi>∂</mi><msub><mi>h</mi><mi>k</mi></msub></mrow></mfrac></mrow><annotation encoding="application/x-tex">
+J_p := \prod_{k \in \text{prefix}(p)} \frac{\partial h_{k+1}}{\partial h_k}
+</annotation></semantics></math></p>
+<p>This represents the total derivative mapping from the root state
+<math display="inline" xmlns="http://www.w3.org/1998/Math/MathML"><semantics><msub><mi>h</mi><mi>ϵ</mi></msub><annotation encoding="application/x-tex">h_\epsilon</annotation></semantics></math>
+to the state
+<math display="inline" xmlns="http://www.w3.org/1998/Math/MathML"><semantics><msub><mi>h</mi><mi>p</mi></msub><annotation encoding="application/x-tex">h_p</annotation></semantics></math>,
+or more generally from any ancestor to
+<math display="inline" xmlns="http://www.w3.org/1998/Math/MathML"><semantics><msub><mi>h</mi><mi>p</mi></msub><annotation encoding="application/x-tex">h_p</annotation></semantics></math>
+depending on context.</p>
+<h3 id="per-path-gradient-formulation">5.2 Per-Path Gradient
+Formulation</h3>
+<p>In the standard (sequence-based) formulation, the total gradient at
+prefix
+<math display="inline" xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mi>p</mi><annotation encoding="application/x-tex">p</annotation></semantics></math>
+is expressed as a sum over all suffix paths:</p>
+<p><math display="block" xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mfrac><mrow><mi>∂</mi><mi>L</mi></mrow><mrow><mi>∂</mi><msub><mi>h</mi><mi>p</mi></msub></mrow></mfrac><mo>=</mo><munder><mo>∑</mo><mrow><mi>s</mi><mo>∈</mo><mtext mathvariant="normal">subtree</mtext><mrow><mo stretchy="true" form="prefix">(</mo><mi>p</mi><mo stretchy="true" form="postfix">)</mo></mrow></mrow></munder><mrow><mo stretchy="true" form="prefix">(</mo><msub><mi>J</mi><mi>p</mi></msub><mo>⋅</mo><msub><mi>g</mi><mi>s</mi></msub><mo stretchy="true" form="postfix">)</mo></mrow></mrow><annotation encoding="application/x-tex">\frac{\partial L}{\partial h_p} = \sum_{s \in \text{subtree}(p)} \left( J_p \cdot g_s \right)</annotation></semantics></math></p>
+<p>Here, each suffix path contributes independently, and the shared
+prefix Jacobian
+<math display="inline" xmlns="http://www.w3.org/1998/Math/MathML"><semantics><msub><mi>J</mi><mi>p</mi></msub><annotation encoding="application/x-tex">J_p</annotation></semantics></math>
+is applied repeatedly.</p>
+<h3 id="aggregated-gradient-formulation">5.3 Aggregated Gradient
+Formulation</h3>
+<p>In the trie formulation, suffix contributions are first
+aggregated:</p>
+<p><math display="block" xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>G</mi><mtext mathvariant="normal">suffix</mtext></msub><mrow><mo stretchy="true" form="prefix">(</mo><mi>p</mi><mo stretchy="true" form="postfix">)</mo></mrow><mo>:=</mo><munder><mo>∑</mo><mrow><mi>s</mi><mo>∈</mo><mtext mathvariant="normal">subtree</mtext><mrow><mo stretchy="true" form="prefix">(</mo><mi>p</mi><mo stretchy="true" form="postfix">)</mo></mrow></mrow></munder><msub><mi>g</mi><mi>s</mi></msub></mrow><annotation encoding="application/x-tex">G_{\text{suffix}}(p) := \sum_{s \in \text{subtree}(p)} g_s</annotation></semantics></math></p>
+<p>The total gradient is then:</p>
+<p><math display="block" xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mfrac><mrow><mi>∂</mi><mi>L</mi></mrow><mrow><mi>∂</mi><msub><mi>h</mi><mi>p</mi></msub></mrow></mfrac><mo>=</mo><msub><mi>J</mi><mi>p</mi></msub><mo>⋅</mo><msub><mi>G</mi><mtext mathvariant="normal">suffix</mtext></msub><mrow><mo stretchy="true" form="prefix">(</mo><mi>p</mi><mo stretchy="true" form="postfix">)</mo></mrow></mrow><annotation encoding="application/x-tex">\frac{\partial L}{\partial h_p} = J_p \cdot G_{\text{suffix}}(p)</annotation></semantics></math></p>
+<h3 id="core-identity">5.4 Core Identity</h3>
+<p>Combining the above expressions yields the fundamental identity:</p>
+<p><math display="block" xmlns="http://www.w3.org/1998/Math/MathML"><semantics><menclose notation="box"><mrow><msub><mi>J</mi><mi>p</mi></msub><mo>⋅</mo><mrow><mo stretchy="true" form="prefix">(</mo><munder><mo>∑</mo><mi>s</mi></munder><msub><mi>g</mi><mi>s</mi></msub><mo stretchy="true" form="postfix">)</mo></mrow><mo>=</mo><munder><mo>∑</mo><mi>s</mi></munder><mrow><mo stretchy="true" form="prefix">(</mo><msub><mi>J</mi><mi>p</mi></msub><mo>⋅</mo><msub><mi>g</mi><mi>s</mi></msub><mo stretchy="true" form="postfix">)</mo></mrow></mrow></menclose><annotation encoding="application/x-tex">\boxed{J_p \cdot \left(\sum_{s} g_s\right) = \sum_{s} \left(J_p \cdot g_s\right)}</annotation></semantics></math></p>
+<p>This follows from linearity of multiplication over summation, but its
+implications are structural in the context of gradient computation.</p>
+<h3 id="interpretation">5.5 Interpretation</h3>
+<p>The identity shows that:</p>
+<ul>
+<li>Gradient accumulation over suffixes <strong>commutes</strong> with
+application of the shared prefix Jacobian</li>
+<li>Shared prefix transformations can be applied <strong>once per
+node</strong>, rather than once per path</li>
+<li>The trie formulation is mathematically equivalent to the standard
+formulation, but computationally factorized</li>
+</ul>
+<p>Thus:</p>
+<ul>
+<li>Right-hand side corresponds to <strong>standard training</strong>,
+where each sequence contributes independently</li>
+<li>Left-hand side corresponds to <strong>trie training</strong>, where
+contributions are aggregated before transformation</li>
+</ul>
+<h3 id="consequence-factorization-of-gradient-flow">5.6 Consequence:
+Factorization of Gradient Flow</h3>
+<p>The identity implies that gradient computation can be reorganized
+as:</p>
+<ul>
+<li>aggregate suffix gradients at each node</li>
+<li>apply shared prefix transformations once</li>
+</ul>
+<p>This yields the recursive form:</p>
+<p><math display="block" xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mfrac><mrow><mi>∂</mi><mi>L</mi></mrow><mrow><mi>∂</mi><msub><mi>h</mi><mi>p</mi></msub></mrow></mfrac><mo>=</mo><msub><mi>J</mi><mi>p</mi></msub><mo>⋅</mo><mrow><mo stretchy="true" form="prefix">(</mo><munder><mo>∑</mo><mrow><mi>s</mi><mo>∈</mo><mtext mathvariant="normal">subtree</mtext><mrow><mo stretchy="true" form="prefix">(</mo><mi>p</mi><mo stretchy="true" form="postfix">)</mo></mrow></mrow></munder><msub><mi>g</mi><mi>s</mi></msub><mo stretchy="true" form="postfix">)</mo></mrow></mrow><annotation encoding="application/x-tex">\frac{\partial L}{\partial h_p} = J_p \cdot \left(\sum_{s \in \text{subtree}(p)} g_s\right)</annotation></semantics></math></p>
+<p>which replaces:</p>
+<p><math display="block" xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><munder><mo>∑</mo><mi>s</mi></munder><mrow><mo stretchy="true" form="prefix">(</mo><msub><mi>J</mi><mi>p</mi></msub><mo>⋅</mo><msub><mi>g</mi><mi>s</mi></msub><mo stretchy="true" form="postfix">)</mo></mrow></mrow><annotation encoding="application/x-tex">\sum_{s} \left(J_p \cdot g_s\right)</annotation></semantics></math></p>
+<h3 id="significance">5.7 Significance</h3>
+<p>Although algebraically simple, this identity enables:</p>
+<ul>
+<li>elimination of redundant Jacobian applications</li>
+<li>aggregation of gradient signal prior to transformation</li>
+<li>restructuring of training as computation over a shared prefix
+DAG</li>
+</ul>
+<p>This constitutes the core mechanism by which the prefix-trie
+formulation achieves:</p>
+<ul>
+<li>reduced computational complexity</li>
+<li>improved gradient efficiency</li>
+<li>lower-variance updates</li>
+</ul>
+<h3 id="summary">5.8 Summary</h3>
+<p>The central result of this section is:</p>
+<blockquote>
+<p>The chain rule is compatible with aggregation over shared prefix
+structure, allowing gradient computation to be factorized over the
+prefix trie.</p>
+</blockquote>
+<p>This identity provides the mathematical foundation for the trie-based
+reformulation of autoregressive training.</p>
+<h2 id="computational-implications-and-complexity">6. Computational
+Implications and Complexity</h2>
+<p>This section translates the gradient factorization identity
+established in Section 5 into concrete computational and statistical
+consequences. The prefix-trie formulation reorganizes training from a
+path-based process into a node-based computation, eliminating redundancy
+and concentrating gradient signal.</p>
+<h3 id="redundant-computation-in-sequence-based-training">6.1 Redundant
+Computation in Sequence-Based Training</h3>
+<p>In the standard sequence-based formulation, training proceeds over
+token positions. Each occurrence of a prefix is treated independently,
+even when identical prefixes appear multiple times across the
+corpus.</p>
+<p>As a result:</p>
+<ul>
+<li>identical prefix states are recomputed repeatedly</li>
+<li>identical Jacobians are applied multiple times</li>
+<li>gradient contributions are accumulated independently per
+occurrence</li>
+</ul>
+<p>This implicitly expands the prefix structure of the corpus into a
+multiset of paths, duplicating shared computation.</p>
+<h3 id="trie-factorization-as-common-subexpression-elimination">6.2 Trie
+Factorization as Common Subexpression Elimination</h3>
+<p>The prefix-trie formulation collapses identical prefixes into single
+nodes. Computation is performed once per unique prefix and reused across
+all occurrences.</p>
+<p>This is analogous to:</p>
+<ul>
+<li>common subexpression elimination in compilers</li>
+<li>dynamic programming over shared subproblems</li>
+<li>evaluation of a directed acyclic graph (DAG)</li>
+</ul>
+<p>Key observation:</p>
+<blockquote>
+<p>The corpus induces a computation graph with shared structure, and the
+trie formulation evaluates this graph directly.</p>
+</blockquote>
+<h3 id="complexity-shift">6.3 Complexity Shift</h3>
+<p>Let:</p>
+<ul>
+<li><math display="inline" xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mi>T</mi><annotation encoding="application/x-tex">T</annotation></semantics></math>
+denote the total number of token occurrences in the corpus</li>
+<li><math display="inline" xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mi>P</mi><annotation encoding="application/x-tex">P</annotation></semantics></math>
+denote the number of unique prefixes</li>
+</ul>
+<p>Then:</p>
+<ul>
+<li>Standard training complexity scales with
+<math display="inline" xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>O</mi><mrow><mo stretchy="true" form="prefix">(</mo><mi>T</mi><mo stretchy="true" form="postfix">)</mo></mrow></mrow><annotation encoding="application/x-tex">O(T)</annotation></semantics></math></li>
+<li>Trie-based training scales with
+<math display="inline" xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>O</mi><mrow><mo stretchy="true" form="prefix">(</mo><mi>P</mi><mo stretchy="true" form="postfix">)</mo></mrow></mrow><annotation encoding="application/x-tex">O(P)</annotation></semantics></math></li>
+</ul>
+<p>In realistic corpora:</p>
+<p><math display="block" xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>P</mi><mo>≪</mo><mi>T</mi></mrow><annotation encoding="application/x-tex">
+P \ll T
+</annotation></semantics></math></p>
+<p>due to repeated prefixes across sequences.</p>
+<p>Thus, the trie formulation reduces the number of distinct forward and
+backward computations required.</p>
+<h3 id="gradient-efficiency">6.4 Gradient Efficiency</h3>
+<p>From Section 5, the gradient at a prefix node can be written as:</p>
+<p><math display="block" xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mfrac><mrow><mi>∂</mi><mi>L</mi></mrow><mrow><mi>∂</mi><msub><mi>h</mi><mi>p</mi></msub></mrow></mfrac><mo>=</mo><msub><mi>J</mi><mi>p</mi></msub><mo>⋅</mo><mrow><mo stretchy="true" form="prefix">(</mo><munder><mo>∑</mo><mrow><mi>s</mi><mo>∈</mo><mtext mathvariant="normal">subtree</mtext><mrow><mo stretchy="true" form="prefix">(</mo><mi>p</mi><mo stretchy="true" form="postfix">)</mo></mrow></mrow></munder><msub><mi>g</mi><mi>s</mi></msub><mo stretchy="true" form="postfix">)</mo></mrow></mrow><annotation encoding="application/x-tex">\frac{\partial L}{\partial h_p} = J_p \cdot \left(\sum_{s \in \text{subtree}(p)} g_s\right)</annotation></semantics></math></p>
+<p>Rather than applying the prefix Jacobian
+<math display="inline" xmlns="http://www.w3.org/1998/Math/MathML"><semantics><msub><mi>J</mi><mi>p</mi></msub><annotation encoding="application/x-tex">J_p</annotation></semantics></math>
+separately for each suffix path, the trie formulation aggregates suffix
+gradients first.</p>
+<p>Consequences:</p>
+<ul>
+<li>a single Jacobian application per prefix</li>
+<li>larger, aggregated gradient signals</li>
+<li>elimination of repeated transformation of identical
+contributions</li>
+</ul>
+<p>This results in effectively larger gradient steps per update.</p>
+<h3 id="variance-reduction">6.5 Variance Reduction</h3>
+<p>In sequence-based training:</p>
+<ul>
+<li>gradient estimates are computed per occurrence</li>
+<li>updates are stochastic and high variance</li>
+</ul>
+<p>In trie-based training:</p>
+<ul>
+<li>gradient contributions are aggregated over all occurrences of a
+prefix</li>
+<li>updates reflect full empirical counts at that node</li>
+</ul>
+<p>Thus:</p>
+<ul>
+<li>gradient variance is reduced</li>
+<li>updates are more stable</li>
+<li>convergence may require fewer iterations</li>
+</ul>
+<p>Each prefix update incorporates all observed continuations
+simultaneously.</p>
+<h3 id="memorycompute-tradeoff">6.6 Memory–Compute Tradeoff</h3>
+<p>The trie formulation introduces additional memory requirements:</p>
+<ul>
+<li>storage of prefix nodes</li>
+<li>storage of hidden states per prefix</li>
+</ul>
+<p>Memory scales with
+<math display="inline" xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mi>P</mi><annotation encoding="application/x-tex">P</annotation></semantics></math>,
+the number of unique prefixes.</p>
+<p>However:</p>
+<ul>
+<li>compute is reduced due to shared evaluation</li>
+<li>repeated forward and backward passes are eliminated</li>
+<li>reuse of prefix states increases efficiency</li>
+</ul>
+<p>This represents a tradeoff between memory usage and computational
+cost.</p>
+<h3 id="summary-1">6.7 Summary</h3>
+<p>The prefix-trie formulation transforms training from a path-based
+computation to a node-based computation.</p>
+<p>This yields:</p>
+<ul>
+<li>elimination of redundant forward and backward passes</li>
+<li>factorization of shared Jacobians</li>
+<li>aggregation of gradient signal prior to transformation</li>
+<li>reduced computational complexity</li>
+<li>improved gradient efficiency and stability</li>
+</ul>
+<p>In combination with the identity established in Section 5, these
+properties form the basis for accelerated and structurally simplified
+training of autoregressive language models.</p>
+<h2 id="training-regimes">7. Training Regimes</h2>
+<p>The prefix-trie formulation admits multiple valid training procedures
+depending on how the computation graph is partitioned.</p>
+<h3 id="full-trie-training">7.1 Full-Trie Training</h3>
+<p>A full traversal of the trie computes the exact gradient of the
+objective:</p>
+<ul>
+<li>forward pass over all nodes<br />
+</li>
+<li>backward pass over entire trie<br />
+</li>
+<li>single update</li>
+</ul>
+<p>This corresponds to full-batch gradient descent.</p>
+<h3 id="bounded-subtrie-training">7.2 Bounded Subtrie Training</h3>
+<p>In practice, updates can be performed over <strong>bounded
+subtries</strong>:</p>
+<ul>
+<li>select a subset of roots<br />
+</li>
+<li>include all descendants up to depth
+<math display="inline" xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mi>d</mi><annotation encoding="application/x-tex">d</annotation></semantics></math><br />
+</li>
+<li>compute forward and backward over this subgraph<br />
+</li>
+<li>update once per subtrie</li>
+</ul>
+<p>This preserves gradient consistency within each subgraph while
+allowing multiple updates per epoch.</p>
+<h3 id="truncated-local-depth-training">7.3 Truncated (Local-Depth)
+Training</h3>
+<p>To reduce computational cost, gradient propagation can be
+truncated:</p>
+<ul>
+<li>reuse cached prefix states<br />
+</li>
+<li>compute forward only for current depth<br />
+</li>
+<li>backpropagate only through current-depth operations</li>
+</ul>
+<p>This is analogous to truncated BPTT in recurrent models and provides
+a practical tradeoff between accuracy and efficiency.</p>
+<h2 id="systems-considerations">8. Systems Considerations</h2>
+<p>The efficiency of the prefix-trie formulation depends heavily on
+implementation.</p>
+<h3 id="attention-bottleneck">8.1 Attention Bottleneck</h3>
+<p>While projections and feedforward layers can be batched across nodes,
+attention depends on prefix history and is often implemented per node.
+This can dominate runtime if not optimized.</p>
+<h3 id="prefix-structure">8.2 Prefix Structure</h3>
+<p>The trie naturally decomposes into:</p>
+<ul>
+<li><strong>branching regions</strong>, where multiple continuations
+exist<br />
+</li>
+<li><strong>unary chains</strong>, where no further sharing occurs</li>
+</ul>
+<p>This structure suggests hybrid execution strategies.</p>
+<h3 id="kv-reconstruction">8.3 KV Reconstruction</h3>
+<p>Naïve implementations reconstruct key-value histories per node,
+leading to repeated work. Incremental propagation and prefix-based
+storage reduce this cost.</p>
+<h3 id="batching-strategies">8.4 Batching Strategies</h3>
+<p>Efficient implementations batch operations across nodes sharing
+prefixes, while treating unary chains as contiguous sequences.</p>
+<h3 id="implementation-sensitivity">8.5 Implementation Sensitivity</h3>
+<p>Performance depends strongly on:</p>
+<ul>
+<li>attention scheduling<br />
+</li>
+<li>memory layout<br />
+</li>
+<li>device synchronization</li>
+</ul>
+<p>Thus, computational advantages of the formulation are contingent on
+system-level design.</p>
+<h2 id="structural-extensions">9. Structural Extensions</h2>
+<p>The trie representation exposes structural information unavailable in
+window-based training.</p>
+<h3 id="entropy-based-weighting">9.1 Entropy-Based Weighting</h3>
+<p>Each node has an empirical entropy:</p>
+<p><math display="block" xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>H</mi><mrow><mo stretchy="true" form="prefix">(</mo><mi>p</mi><mo stretchy="true" form="postfix">)</mo></mrow><mo>=</mo><mi>−</mi><munder><mo>∑</mo><mi>x</mi></munder><mi>q</mi><mrow><mo stretchy="true" form="prefix">(</mo><mi>x</mi><mo stretchy="false" form="prefix">|</mo><mi>p</mi><mo stretchy="true" form="postfix">)</mo></mrow><mo>log</mo><mi>q</mi><mrow><mo stretchy="true" form="prefix">(</mo><mi>x</mi><mo stretchy="false" form="prefix">|</mo><mi>p</mi><mo stretchy="true" form="postfix">)</mo></mrow></mrow><annotation encoding="application/x-tex">
+H(p) = -\sum_x q(x|p)\log q(x|p)
+</annotation></semantics></math></p>
+<p>Loss can be weighted:</p>
+<p><math display="block" xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msubsup><mi>L</mi><mi>p</mi><mrow><mi>w</mi><mi>e</mi><mi>i</mi><mi>g</mi><mi>h</mi><mi>t</mi><mi>e</mi><mi>d</mi></mrow></msubsup><mo>=</mo><mrow><mo stretchy="true" form="prefix">(</mo><mn>1</mn><mo>+</mo><mi>λ</mi><mi>H</mi><mrow><mo stretchy="true" form="prefix">(</mo><mi>p</mi><mo stretchy="true" form="postfix">)</mo></mrow><mo stretchy="true" form="postfix">)</mo></mrow><mo>⋅</mo><msub><mi>L</mi><mi>p</mi></msub></mrow><annotation encoding="application/x-tex">
+L_p^{weighted} = (1 + \lambda H(p)) \cdot L_p
+</annotation></semantics></math></p>
+<p>This emphasizes ambiguous contexts and reduces overtraining on
+deterministic chains.</p>
+<h3 id="branching-aware-learning">9.2 Branching-Aware Learning</h3>
+<p>Nodes with higher branching factors represent more diverse futures
+and may warrant stronger gradient signal.</p>
+<p>These extensions are optional and do not alter the core
+formulation.</p>
+<h2 id="implementation-and-memory-scaling">10. Implementation and Memory
+Scaling</h2>
+<p>The factorization of §5 and the bounded-subtrie regime of §7.2
+determine what the optimizer must see. This section documents what it
+took to make that regime run on commodity hardware.</p>
+<h3 id="radix-compression">10.1 Radix compression</h3>
+<p>Build a character-level prefix trie of the corpus to depth d. Every
+branching endpoint (≥ 2 distinct next-tokens observed) is a training
+example; every unary chain (exactly one next-token observed) contributes
+no training signal and can be collapsed into a single multi-character
+edge. The resulting <strong>radix trie</strong> stores:</p>
+<pre><code>radix_id, parent_radix_id, first_char_depth,
+edge_len L, edge_tokens[L],
+edge_mass (prefix count at head of edge),
+entries[] (next-token counts at endpoint)</code></pre>
+<p>Radix compression is lossless: the expanded character sequence is
+identical to the original trie. At d=32 on Shakespeare, the radix trie
+has 1.67M nodes representing a 27M-node uncompressed leveled trie — a
+<strong>16.2× reduction in node count</strong>. However, radix
+compression preserves <code>total_edge_chars</code> (the sum over edges
+of their lengths equals the original trie’s node count), which is what
+bounds the KV-cache budget at training time.</p>
+<h3 id="per-subtree-kv-cache-allocation">10.2 Per-subtree KV-cache
+allocation</h3>
+<p>A transformer’s K/V cache must cover every character position
+attended to by any query. The global cache size for the whole trie
+is:</p>
+<pre><code>KV_bytes = total_edge_chars × d_model × 2 (K+V) × n_layers × bytes</code></pre>
+<p>At Shakespeare d=32: 27M × 64 × 2 × 2 × 4 B = 27.6 GB. This exceeds
+the 15 GB RAM + 15 GB swap available on the commodity workstation used
+for these experiments.</p>
+<p>The per-subtree insight: attention at a query position only reaches
+that position’s <em>ancestors</em>. Different root-child subtrees share
+no character positions — the ‘A’-tree and the ‘B’-tree never look at
+each other’s KV slots. So the KV cache can be <strong>scoped to one
+subtree at a time</strong>: allocate KV sized to the current subtree’s
+<code>total_edge_chars</code>, run forward-backward over that subtree,
+take one optimizer step, free the KV, move on.</p>
+<p>At Shakespeare d=32, peak per-subtree KV drops from 27.6 GB (global)
+to <strong>4.0 GB</strong> (largest subtree, rc=’ ’) — a 6.9× reduction
+that brings training within the hardware budget.</p>
+<h3 id="bigram-subtree-partition">10.3 Bigram subtree partition</h3>
+<p>The unigram per-subtree scheme bottlenecks on the largest root-child.
+In Shakespeare that is the space character, responsible for ~30% of
+corpus occurrences. At d=48+ the space subtree alone would exceed
+available RAM.</p>
+<p><strong>Bigram partitioning</strong> splits each root-child subtree
+by the second character of the path. For vocabulary size V, there are up
+to V² partitions. At Shakespeare d=32 this produces 1,465 bigram
+subtrees (vs. 65 unigram), with peak per-subtree KV 677 MB (vs. 4 GB
+unigram — a further 6× reduction).</p>
+<p>Each bigram subtree is self-contained (it carries its own ancestor
+chain for every endpoint in it), so no cross-subtree coordination is
+required at training time — bigram partitioning is trivially
+parallelizable across a cluster. The extension to trigram and beyond is
+the same pattern applied recursively.</p>
+<h3 id="auto-lr-scaling-across-granularities">10.4 Auto-LR scaling
+across granularities</h3>
+<p>More, smaller subtrees means more optimizer steps per pass over the
+data. Naive <code>lr</code> at bigram granularity overshoots, because
+the product <code>lr × steps_per_super_epoch</code> is approximately
+invariant at a fixed depth (a well-calibrated per-step update magnitude
+does not change when you split the batch finer). We therefore scale:</p>
+<pre><code>lr_effective = base_lr × (REFERENCE_STEPS / steps_per_super_epoch)</code></pre>
+<p>with REFERENCE_STEPS = 65 (calibrated at unigram d=16). This lets a
+single <code>base_lr = 3e-3</code> hold across unigram, bigram, and
+deeper partitions without per-config retuning. Empirically, bigram d=32
+with auto-LR reaches PPL 13.30 in one super-epoch, essentially matching
+unigram’s 13.17 (§11.2).</p>
+<h3 id="frequency-based-pruning">10.5 Frequency-based pruning</h3>
+<p>At large d, the majority of paths near the depth cap have prefix mass
+1 (appear exactly once in the corpus) and contribute negligible gradient
+signal under count-weighted loss. A <code>(min_mass, min_depth)</code>
+threshold drops these paths at trie-build time:</p>
+<pre><code>if edge_mass &lt; min_mass and first_char_depth &gt;= min_depth: drop</code></pre>
+<p>Because corpus-path mass is monotonically non-increasing with depth,
+this operation only prunes tails — never mid-trie branches that lead to
+high-mass paths deeper down. At Shakespeare d=32 with
+<code>min_mass=2, min_depth=4</code>, the trie shrinks from 27M to 1.17M
+edge chars (23× reduction), peak per-subtree KV from 4 GB to 175 MB. The
+quality cost is 3 PPL on this corpus; at billion-token scale the long
+tail of mass=1 paths is closer to noise, and the tradeoff should
+improve.</p>
+<h3 id="data-structure-note">10.6 Data-structure note</h3>
+<p>The radix trie in this paper is a reference implementation. For
+billion-token BPE corpora, a suffix array + LCP gives O(N) storage (8
+bytes/token, depth-independent) and enables streaming enumeration of
+branching events without ever materializing the trie. The radix
+implementation’s virtue is that it fits comfortably alongside existing
+transformer training code; the SA-based implementation is the natural
+step for scaling the framework to larger corpora.</p>
+<h2 id="empirical-evaluation">11. Empirical Evaluation</h2>
+<h3 id="setup-1">11.1 Setup</h3>
+<ul>
+<li><strong>Corpus</strong>: Shakespeare <code>input.txt</code>, 1.12
+MB, 65-character vocabulary.</li>
+<li><strong>Model</strong>: 2-layer transformer, d_model=64, 4 heads ×
+16 head-dim, d_ff=256, seq_len=128. 108,481 parameters.</li>
+<li><strong>Hardware</strong>: single 8 GB consumer GPU + 15 GB system
+RAM + 15 GB swap.</li>
+<li><strong>Evaluation</strong>: held-out perplexity measured on the
+corpus tail, 32,768 positions scored with a sliding seq_len=128
+window.</li>
+</ul>
+<h3 id="comparison-vs.-standard-window-training">11.2 Comparison
+vs. standard window training</h3>
+<p>All numbers from the same codebase, same model architecture, same
+corpus. For each window-training seq_len we swept step counts {1k, 2k,
+3k, 5k, 10k} and report the saturated best. Trie-based results use the
+recipe of §10.</p>
+<table>
+<colgroup>
+<col style="width: 20%" />
+<col style="width: 26%" />
+<col style="width: 26%" />
+<col style="width: 26%" />
+</colgroup>
+<thead>
+<tr>
+<th>Model</th>
+<th style="text-align: right;">Context</th>
+<th style="text-align: right;">Optimizer steps</th>
+<th style="text-align: right;">Held-out PPL</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Random init</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">144.2</td>
+</tr>
+<tr>
+<td>Window seq=16 (saturated)</td>
+<td style="text-align: right;">16</td>
+<td style="text-align: right;">2,000</td>
+<td style="text-align: right;">16.92</td>
+</tr>
+<tr>
+<td><strong>Trie d=16</strong>, RMSProp+warmup-cosine</td>
+<td style="text-align: right;">16</td>
+<td style="text-align: right;">50</td>
+<td style="text-align: right;"><strong>15.28</strong></td>
+</tr>
+<tr>
+<td>Window seq=32 (saturated)</td>
+<td style="text-align: right;">32</td>
+<td style="text-align: right;">2,000</td>
+<td style="text-align: right;">14.51</td>
+</tr>
+<tr>
+<td><strong>Trie d=32</strong>, per-subtree, 3 super-epochs</td>
+<td style="text-align: right;">32</td>
+<td style="text-align: right;">195</td>
+<td style="text-align: right;"><strong>13.17</strong></td>
+</tr>
+<tr>
+<td><strong>Trie d=32 bigram</strong>, auto-LR, 1 super-epoch</td>
+<td style="text-align: right;">32</td>
+<td style="text-align: right;">1,465</td>
+<td style="text-align: right;"><strong>13.30</strong></td>
+</tr>
+<tr>
+<td>Window seq=128 (saturated)</td>
+<td style="text-align: right;">128</td>
+<td style="text-align: right;">10,000</td>
+<td style="text-align: right;">7.00</td>
+</tr>
+<tr>
+<td>Window seq=512 (saturated)</td>
+<td style="text-align: right;">512</td>
+<td style="text-align: right;">10,000</td>
+<td style="text-align: right;">7.13</td>
+</tr>
+<tr>
+<td>Window seq=1024 (saturated)</td>
+<td style="text-align: right;">1024</td>
+<td style="text-align: right;">10,000</td>
+<td style="text-align: right;">6.30</td>
+</tr>
+</tbody>
+</table>
+<p><strong>At matched context, trie-based training wins by ~10%</strong>
+in PPL with 40× (at d=16) or 10× (at d=32) fewer optimizer steps.</p>
+<p><strong>At longer context, window training wins overall</strong> —
+the 108k-parameter window model absorbs substantially more context
+(seq=1024 reaches PPL 6.30, well below trie d=32). This is the natural
+scaling boundary: the trie formulation’s per-step efficiency is
+per-depth, and extending depth costs memory in a way that extending
+window context does not. Scaling the trie formulation to d ≥ 128 is the
+natural next experiment; the per-subtree + bigram + pruning
+infrastructure of §10 was built for exactly this.</p>
+<h3 id="super-epoch-sensitivity-d32-unigram">11.3 Super-epoch
+sensitivity (d=32 unigram)</h3>
+<table>
+<thead>
+<tr>
+<th style="text-align: right;">Super-epochs</th>
+<th style="text-align: right;">Adam steps</th>
+<th style="text-align: right;">Held-out PPL</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">65</td>
+<td style="text-align: right;">13.71</td>
+</tr>
+<tr>
+<td style="text-align: right;">2</td>
+<td style="text-align: right;">130</td>
+<td style="text-align: right;">13.18</td>
+</tr>
+<tr>
+<td style="text-align: right;"><strong>3</strong></td>
+<td style="text-align: right;"><strong>195</strong></td>
+<td style="text-align: right;"><strong>13.17</strong></td>
+</tr>
+<tr>
+<td style="text-align: right;">5</td>
+<td style="text-align: right;">325</td>
+<td style="text-align: right;">14.84</td>
+</tr>
+<tr>
+<td style="text-align: right;">10</td>
+<td style="text-align: right;">650</td>
+<td style="text-align: right;">18.27</td>
+</tr>
+<tr>
+<td style="text-align: right;">50</td>
+<td style="text-align: right;">3,250</td>
+<td style="text-align: right;">37.34</td>
+</tr>
+</tbody>
+</table>
+<p>The trie-based objective converges faster than window training and is
+correspondingly easier to over-train — 50 super-epochs catastrophically
+overfits on this small corpus. An external best-checkpoint wrapper
+(<code>agpt_train_best.sh</code> in the repository) writes a checkpoint
+per super-epoch and selects the best by held-out PPL, removing the need
+to hand-tune the super-epoch count.</p>
+<h3 id="radix-compression-pruning-numbers">11.4 Radix compression +
+pruning numbers</h3>
+<table>
+<thead>
+<tr>
+<th>Config</th>
+<th style="text-align: right;">radix nodes</th>
+<th style="text-align: right;">total edge chars</th>
+<th style="text-align: right;">Peak KV (d=32)</th>
+<th style="text-align: right;">PPL</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Uncompressed leveled trie</td>
+<td style="text-align: right;">27.0 M</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">n/a</td>
+<td style="text-align: right;">n/a</td>
+</tr>
+<tr>
+<td>Radix compression</td>
+<td style="text-align: right;">1.67 M</td>
+<td style="text-align: right;">27.0 M</td>
+<td style="text-align: right;">4.0 GB</td>
+<td style="text-align: right;">13.17</td>
+</tr>
+<tr>
+<td>Radix + prune <code>m&lt;2, d≥4</code></td>
+<td style="text-align: right;">0.55 M</td>
+<td style="text-align: right;">1.17 M</td>
+<td style="text-align: right;">175 MB</td>
+<td style="text-align: right;">16.07</td>
+</tr>
+</tbody>
+</table>
+<h2 id="limitations">12. Limitations</h2>
+<p>Stated without hedging:</p>
+<ol type="1">
+<li><p><strong>Scale</strong>. All results are on a 1.1 MB char-level
+corpus with a 108k-parameter model. Modern LLM training is ~9 orders of
+magnitude larger. This paper’s claims are that trie-based training beats
+window training <em>on a small corpus at matched context</em>; whether
+the advantage holds at BPE vocabularies and billion-token corpora is an
+open empirical question.</p></li>
+<li><p><strong>KV-cache scaling to frontier-scale models</strong>. At
+Opus-family hyperparameters (d_model ≈ 16k, layers ≈ 100) a 1B-token BPE
+corpus would require petabytes of aggregate KV memory across subtree
+files. Per-subtree training makes this distributable; aggressive pruning
+and trigram/n-gram partitions are likely needed to keep per-node budgets
+feasible on current hardware.</p></li>
+<li><p><strong>Pruning at scale</strong>. §11.4’s pruning result cost 3
+PPL on Shakespeare. On a billion-token corpus the long tail of mass=1
+paths is closer to noise and pruning should approach free — but this is
+unvalidated at scale.</p></li>
+<li><p><strong>Generation quality</strong>. This paper reports PPL only;
+qualitative comparison of generated text is not systematically
+done.</p></li>
+<li><p><strong>Compute-matched comparison</strong>. Our baseline is
+step-saturated at each context length; trie-based training uses ~10×
+fewer optimizer steps but each step covers a whole subtree, so
+wall-clock cost per step is higher. On the same 108k-param model + 8 GB
+GPU, trie d=32 at best-PPL = 21 minutes, window seq=32 at best-PPL ≈ 45
+seconds. Trie-based training spent more wall-clock compute per PPL-unit
+here, which tilts the honest framing from “faster” toward “different
+operating point.”</p></li>
+<li><p><strong>Peer comparison</strong>. No head-to-head with
+tokenizer-free neighbors (ByT5, MambaByte, etc.) has been run. These are
+the natural peer group and a proper comparison requires running them on
+the same corpus at the same model scale.</p></li>
+<li><p><strong>Representation scalability</strong>. The radix trie
+representation is a reference implementation; it does not itself scale
+to billion-token BPE. A suffix-array-based builder is the clear
+engineering path to compact storage + streaming enumeration at
+scale.</p></li>
+</ol>
+<p>The natural next validation is <strong>WikiText-103 scale with a real
+BPE tokenizer on cluster-grade hardware</strong> — approximately 2
+orders of magnitude larger than the present experiment, achievable on a
+single A100 for &lt; $100 of cloud compute. This would establish whether
+the trie-based advantage holds at BPE vocabularies and 100M-token
+corpora, which would be the meaningful first step toward frontier
+scale.</p>
+<h2 id="summary-of-contributions">13. Summary of Contributions</h2>
+<ol type="1">
+<li><p><strong>Gradient-factorization theorem</strong> (§5): a rigorous
+demonstration that autoregressive next-token training admits
+reformulation over a prefix trie, with the trie gradient mathematically
+equivalent to the count-weighted sum of standard-training
+gradients.</p></li>
+<li><p><strong>Bounded-subtrie training regime</strong> (§7.2): the AGPT
+training unit — one forward-backward-step per root-child subtree —
+preserves gradient consistency by holding parameters fixed through the
+subtree, avoiding the K/V-staleness problem that finer-grained updates
+introduce.</p></li>
+<li><p><strong>Radix-compressed, per-subtree-file trie format</strong>
+(§10.1–10.2): collapses unary chains and scopes KV-cache allocation to
+one subtree at a time, making d=32 training fit in a 15 GB consumer RAM
+budget.</p></li>
+<li><p><strong>Bigram subtree partition</strong> (§10.3): splits
+root-child subtrees by second-character of path, attacking the
+dominant-root-child memory ceiling (the space character’s subtree in
+English). 6× further peak-memory reduction at Shakespeare d=32 and a
+clear path to trigram/n-gram partitioning for deeper d.</p></li>
+<li><p><strong>Auto-LR scaling across subtree granularities</strong>
+(§10.4): the empirical invariant
+<code>lr × steps_per_super_epoch ≈ constant</code> lets a single base LR
+hold across unigram, bigram, and deeper partitions without
+per-configuration retuning.</p></li>
+<li><p><strong>Frequency-pruned trie construction</strong> (§10.5): a
+(min_mass, min_depth) threshold gates out the mass=1 long tail at large
+d. Provably safe (monotonicity); modest quality cost on small corpus;
+expected to approach free at scale.</p></li>
+<li><p><strong>Empirical validation at char-level Shakespeare</strong>
+(§11): matched- context PPL improvement of 9% at d=32 and 10% at d=16
+over step-saturated window baselines, in 10× and 40× fewer optimizer
+steps respectively.</p></li>
+</ol>
+<p>Full code is published at the referenced repository under an MIT
+license.</p>
+<h2 id="conclusion">14. Conclusion</h2>
+<p>We have shown that autoregressive language-model training admits a
+reformulation over a prefix trie, in which gradient computation
+factorizes through shared prefixes by commuting aggregation with the
+chain rule. The resulting objective eliminates redundant prefix
+computation and aggregates gradient contributions at shared nodes,
+exposing a different computational structure for training.</p>
+<p>The empirical validation on a 1.1 MB corpus demonstrates that the
+factorization translates to a real per-step efficiency advantage at
+matched context (9-10% lower PPL in 10-40× fewer optimizer steps).
+Per-subtree training and bigram partitioning make the approach practical
+on commodity hardware at depth 32; the same mechanisms extend naturally
+to deeper d.</p>
+<p>The open question — whether the per-step efficiency advantage
+persists at BPE vocabularies and billion-token corpora — is the natural
+follow-on experiment. The infrastructure in this paper was built with
+that scaling path in mind.</p>
+<p><em>Corrections, discussion, and collaboration inquiries
+welcome.</em></p>
+</body>
+</html>

@@ -195,7 +195,7 @@ For trie node n at firing event in partition group:
    Total disk + RAM impact: ~50 MB.
 
 3. **Embedding parameterization**: same options as
-   `notes/agpt/trie-node-attention.md` — per-cluster, factorized,
+   `notes/trie-node-attention.md` — per-cluster, factorized,
    or hybrid.
 
 4. **Training stability**: introducing position variance per firing

@@ -24,8 +24,8 @@ prefix" rather than "guess the next character". This gives:
    ~1-10, avoiding the combinatorial blowup of naive every-prefix-attends-
    every-suffix
 
-Connects to `notes/agpt/prefix-to-suffix-attention.md` (design proposal) and
-`notes/agpt/bayesian-bloom.md` §8 (dual-tree loop) — but **does not require
+Connects to `notes/prefix-to-suffix-attention.md` (design proposal) and
+`notes/bayesian-bloom.md` §8 (dual-tree loop) — but **does not require
 the corpus-walk** of §8. Matching is purely structural over the two radix
 trees.
 

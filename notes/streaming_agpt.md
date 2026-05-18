@@ -177,7 +177,7 @@ or extra steps on growing tries don't help in the way we expect.
 ## Files
 
 ```
-notes/agpt/streaming_agpt.md             — this file
+notes/streaming_agpt.md             — this file
 rnd/streaming-agpt-v1/
 ├── README.md                             — experiment plan
 ├── findings.md                           — results once we have them
@@ -203,7 +203,7 @@ negative, root-cause investigation (vocab, optimizer state, etc.).
 
 ## Followup: Combine with sliding-tree
 
-Streaming and sliding-tree (`notes/agpt/sliding_tree_rope.md`) are
+Streaming and sliding-tree (`notes/sliding_tree_rope.md`) are
 orthogonal:
 
 - Streaming: more optimizer steps via growing trie

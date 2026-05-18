@@ -130,7 +130,7 @@ just build-agpt-build-radix-corpus
 
 - `rnd/cap-folding/README.md` — the cap-folding work that motivated this
   measurement
-- `notes/agpt/prefix-suffix-fold-architecture.md` — the broader proposed
+- `notes/prefix-suffix-fold-architecture.md` — the broader proposed
   dual-model architecture
 - `rnd/prefix-suffix-bayes/` — the underlying corpus-level math
   validation (KL=0 for trie distributions)

@@ -26,7 +26,8 @@ experiments, and pull results back — without manually maintaining the env.
 ## Provisioning a pod
 
 In RunPod's UI:
-1. Pick a GPU: H200 (141GB, ~$3.59/hr), H100 SXM (~$2.49/hr), A100 (~$1.29/hr)
+1. Pick a GPU: A100 SXM 80GB (~$1.89/hr, recommended — usually available),
+   H100 SXM (~$2.49/hr, when in stock), H200 (141GB, ~$3.59/hr, often gone)
 2. Pick a CUDA image: their default `runpod/pytorch` works fine — we just
    need CUDA + nvcc. Avoid images that pin a specific PyTorch version we
    don't need.
@@ -65,7 +66,7 @@ you want to leave the pod running and fire off multiple experiments.
 - `data/input.txt`, `data/gutenberg_5m.txt` (corpora)
 - `data/input.random.model` (random init checkpoint)
 - `/tmp/init_seed{100,200,300}.model` (seeded init checkpoints)
-- Notes (`notes/agpt/*.md`)
+- Notes (`notes/*.md`)
 
 **Excluded (not sent):**
 - `bin/`, `build/`, `lib/` — rebuilt fresh on the pod
@@ -80,16 +81,19 @@ you want to leave the pod running and fire off multiple experiments.
 
 ## Cost estimate per session
 
-| GPU | $/hr | typical experiment | wall on H200 | cost |
+| GPU | $/hr | typical experiment | wall time | cost |
 |---|---:|---|---:|---:|
-| H200 | $3.59 | 2 Gutenberg baseline seeds | ~1.5 hr | ~$5 |
-| H200 | $3.59 | 3 streaming + 3 baseline seeds (1000 SE each) | ~6 hr | ~$22 |
+| A100 SXM 80GB | $1.89 | 2 Gutenberg baseline seeds | ~3 hr | ~$6 |
+| A100 SXM 80GB | $1.89 | 3 streaming + 3 baseline seeds (1000 SE each) | ~12 hr | ~$23 |
 | H100 SXM | $2.49 | Same as above | ~7 hr | ~$18 |
-| A100 80GB | $1.29 | Same as above | ~10 hr | ~$13 |
+| H200 | $3.59 | Same as above | ~6 hr | ~$22 |
 
-H200 is the most expensive but its HBM3e bandwidth (4.8 TB/s vs A100's
-2 TB/s) really helps AGPT's KV gather workload. For our small models the
-matmul speedup is limited; the memory bandwidth speedup is the bigger win.
+A100 SXM is the most available tier. Bandwidth-bound AGPT workload
+(KV gather) sees ~2× speedup on H200 over A100 thanks to HBM3e
+(4.8 TB/s) vs HBM2e (1.94 TB/s). For our small models the matmul
+speedup is limited; memory bandwidth is the bigger win when we can
+get it. But total cost differences are within noise once you account
+for availability — A100 SXM is the practical default.
 
 ## Notes on building on the pod
 

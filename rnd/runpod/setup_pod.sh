@@ -15,18 +15,36 @@ set -euo pipefail
 
 PROJ="${PROJ:-$(pwd)}"
 
+# Crystal 1.20+ default_workers_count overflows on container hosts that
+# expose 100+ vCPUs (RunPod). Cap to a sensible value for both this
+# script and any subsequent Crystal binary invoked on the pod.
+export CRYSTAL_WORKERS=8
+echo 'export CRYSTAL_WORKERS=8' > /etc/profile.d/crystal_workers.sh
+chmod 0644 /etc/profile.d/crystal_workers.sh
+# Also append to root's bashrc so non-login interactive shells get it.
+if ! grep -q CRYSTAL_WORKERS /root/.bashrc 2>/dev/null; then
+    echo 'export CRYSTAL_WORKERS=8' >> /root/.bashrc
+fi
+
 echo "=========================================="
 echo "AGPT pod setup"
 echo "=========================================="
 echo "PROJ=${PROJ}"
 echo ""
 
+# Justfile uses Arch-style /opt/cuda path; bridge it to Ubuntu's
+# /usr/local/cuda which is where the RunPod PyTorch image installs CUDA.
+if [ ! -e /opt/cuda ] && [ -d /usr/local/cuda ]; then
+    ln -sf /usr/local/cuda /opt/cuda
+fi
+
 # 1. System deps
 echo "--- 1/5 Installing system deps ---"
 apt-get update -qq
-apt-get install -y -qq build-essential cmake git curl pkg-config \
+apt-get install -y -qq rsync build-essential cmake git curl pkg-config \
     libssl-dev libbsd-dev libpcre2-dev libevent-dev libgmp-dev \
-    libz-dev libxml2-dev libyaml-dev libreadline-dev libffi-dev || true
+    libz-dev libxml2-dev libyaml-dev libreadline-dev libffi-dev \
+    libopenblas-dev libopenblas64-dev || true
 
 # 2. Crystal compiler
 echo "--- 2/5 Installing Crystal compiler ---"

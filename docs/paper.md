@@ -4,7 +4,7 @@
 **Status:** v1.0 preprint &nbsp; · &nbsp; **Date:** 2026-04-19
 **Code:** https://github.com/trans/microgpt
 
----
+
 
 ## Abstract
 
@@ -38,7 +38,7 @@ d, and an auto-LR scaler that preserves the winning recipe across
 subtree granularities. §12 states limitations honestly; §13 summarizes
 contributions.
 
----
+
 
 ## 1. Introduction
 
@@ -50,7 +50,7 @@ In this work, we show that autoregressive training admits a reformulation over a
 
 The resulting formulation exposes a different computational structure for training, in which updates are organized over a directed acyclic graph of prefixes rather than a multiset of independent token sequences.
 
----
+
 
 ## 2. From Sequences to Prefix Trie
 
@@ -75,7 +75,7 @@ $$
 
 This objective is equivalent to standard next-token training, but expressed over **unique prefixes** rather than token positions.
 
----
+
 
 ## 3. Gradient at a Node (Local Form)
 
@@ -93,7 +93,7 @@ $$
 
 This represents the discrepancy between predicted and empirical next-token distributions at the node.
 
----
+
 
 ## 4. Recursive Backpropagation over the Trie
 
@@ -111,13 +111,13 @@ $$
 
 This defines a backward pass over a **shared prefix DAG**, rather than independent sequences.
 
----
+
 
 ## 5. Core Identity: Gradient Factorization over the Prefix Trie
 
 This section presents the central structural result underlying the prefix-trie formulation of autoregressive training. It formalizes how gradient computation over repeated token sequences can be factorized by exploiting shared prefix structure.
 
----
+
 
 ### 5.1 Setup
 
@@ -137,7 +137,7 @@ $$
 
 This represents the total derivative mapping from the root state $h_\epsilon$ to the state $h_p$, or more generally from any ancestor to $h_p$ depending on context.
 
----
+
 
 ### 5.2 Per-Path Gradient Formulation
 
@@ -147,7 +147,7 @@ $$\frac{\partial L}{\partial h_p} = \sum_{s \in \text{subtree}(p)} \left( J_p \c
 
 Here, each suffix path contributes independently, and the shared prefix Jacobian $J_p$ is applied repeatedly.
 
----
+
 
 ### 5.3 Aggregated Gradient Formulation
 
@@ -159,7 +159,7 @@ The total gradient is then:
 
 $$\frac{\partial L}{\partial h_p} = J_p \cdot G_{\text{suffix}}(p)$$
 
----
+
 
 ### 5.4 Core Identity
 
@@ -169,7 +169,7 @@ $$\boxed{J_p \cdot \left(\sum_{s} g_s\right) = \sum_{s} \left(J_p \cdot g_s\righ
 
 This follows from linearity of multiplication over summation, but its implications are structural in the context of gradient computation.
 
----
+
 
 ### 5.5 Interpretation
 
@@ -184,7 +184,7 @@ Thus:
 - Right-hand side corresponds to **standard training**, where each sequence contributes independently
 - Left-hand side corresponds to **trie training**, where contributions are aggregated before transformation
 
----
+
 
 ### 5.6 Consequence: Factorization of Gradient Flow
 
@@ -201,7 +201,7 @@ which replaces:
 
 $$\sum_{s} \left(J_p \cdot g_s\right)$$
 
----
+
 
 ### 5.7 Significance
 
@@ -217,7 +217,7 @@ This constitutes the core mechanism by which the prefix-trie formulation achieve
 - improved gradient efficiency
 - lower-variance updates
 
----
+
 
 ### 5.8 Summary
 
@@ -227,12 +227,12 @@ The central result of this section is:
 
 This identity provides the mathematical foundation for the trie-based reformulation of autoregressive training.
 
----
+
 ## 6. Computational Implications and Complexity
 
 This section translates the gradient factorization identity established in Section 5 into concrete computational and statistical consequences. The prefix-trie formulation reorganizes training from a path-based process into a node-based computation, eliminating redundancy and concentrating gradient signal.
 
----
+
 
 ### 6.1 Redundant Computation in Sequence-Based Training
 
@@ -246,7 +246,7 @@ As a result:
 
 This implicitly expands the prefix structure of the corpus into a multiset of paths, duplicating shared computation.
 
----
+
 
 ### 6.2 Trie Factorization as Common Subexpression Elimination
 
@@ -262,7 +262,7 @@ Key observation:
 
 > The corpus induces a computation graph with shared structure, and the trie formulation evaluates this graph directly.
 
----
+
 
 ### 6.3 Complexity Shift
 
@@ -286,7 +286,7 @@ due to repeated prefixes across sequences.
 
 Thus, the trie formulation reduces the number of distinct forward and backward computations required.
 
----
+
 
 ### 6.4 Gradient Efficiency
 
@@ -304,7 +304,7 @@ Consequences:
 
 This results in effectively larger gradient steps per update.
 
----
+
 
 ### 6.5 Variance Reduction
 
@@ -326,7 +326,7 @@ Thus:
 
 Each prefix update incorporates all observed continuations simultaneously.
 
----
+
 
 ### 6.6 Memory–Compute Tradeoff
 
@@ -345,7 +345,7 @@ However:
 
 This represents a tradeoff between memory usage and computational cost.
 
----
+
 
 ### 6.7 Summary
 
@@ -361,7 +361,7 @@ This yields:
 
 In combination with the identity established in Section 5, these properties form the basis for accelerated and structurally simplified training of autoregressive language models.
 
----
+
 
 ## 7. Training Regimes
 
@@ -377,7 +377,7 @@ A full traversal of the trie computes the exact gradient of the objective:
 
 This corresponds to full-batch gradient descent.
 
----
+
 
 ### 7.2 Bounded Subtrie Training
 
@@ -390,7 +390,7 @@ In practice, updates can be performed over **bounded subtries**:
 
 This preserves gradient consistency within each subgraph while allowing multiple updates per epoch.
 
----
+
 
 ### 7.3 Truncated (Local-Depth) Training
 
@@ -402,7 +402,7 @@ To reduce computational cost, gradient propagation can be truncated:
 
 This is analogous to truncated BPTT in recurrent models and provides a practical tradeoff between accuracy and efficiency.
 
----
+
 
 ## 8. Systems Considerations
 
@@ -421,19 +421,19 @@ The trie naturally decomposes into:
 
 This structure suggests hybrid execution strategies.
 
----
+
 
 ### 8.3 KV Reconstruction
 
 Naïve implementations reconstruct key-value histories per node, leading to repeated work. Incremental propagation and prefix-based storage reduce this cost.
 
----
+
 
 ### 8.4 Batching Strategies
 
 Efficient implementations batch operations across nodes sharing prefixes, while treating unary chains as contiguous sequences.
 
----
+
 
 ### 8.5 Implementation Sensitivity
 
@@ -445,7 +445,7 @@ Performance depends strongly on:
 
 Thus, computational advantages of the formulation are contingent on system-level design.
 
----
+
 
 ## 9. Structural Extensions
 
@@ -467,17 +467,17 @@ $$
 
 This emphasizes ambiguous contexts and reduces overtraining on deterministic chains.
 
----
+
 
 ### 9.2 Branching-Aware Learning
 
 Nodes with higher branching factors represent more diverse futures and may warrant stronger gradient signal.
 
----
+
 
 These extensions are optional and do not alter the core formulation.
 
----
+
 
 ## 10. Implementation and Memory Scaling
 
@@ -599,7 +599,7 @@ implementation's virtue is that it fits comfortably alongside existing
 transformer training code; the SA-based implementation is the natural
 step for scaling the framework to larger corpora.
 
----
+
 
 ## 11. Empirical Evaluation
 
@@ -670,7 +670,7 @@ to hand-tune the super-epoch count.
 | Radix compression | 1.67 M | 27.0 M | 4.0 GB | 13.17 |
 | Radix + prune `m<2, d≥4` | 0.55 M | 1.17 M | 175 MB | 16.07 |
 
----
+
 
 ## 12. Limitations
 
@@ -725,7 +725,7 @@ A100 for < $100 of cloud compute. This would establish whether the
 trie-based advantage holds at BPE vocabularies and 100M-token corpora,
 which would be the meaningful first step toward frontier scale.
 
----
+
 
 ## 13. Summary of Contributions
 
@@ -769,7 +769,7 @@ which would be the meaningful first step toward frontier scale.
 Full code is published at the referenced repository under an MIT
 license.
 
----
+
 
 ## 14. Conclusion
 
@@ -792,6 +792,6 @@ persists at BPE vocabularies and billion-token corpora — is the
 natural follow-on experiment. The infrastructure in this paper was
 built with that scaling path in mind.
 
----
+
 
 *Corrections, discussion, and collaboration inquiries welcome.*

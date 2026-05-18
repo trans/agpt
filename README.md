@@ -8,7 +8,7 @@ sliding context windows. Built on top of the
 
 ## What's here
 
-- **[Paper](notes/agpt/paper.md)** — the gradient-factorization theorem,
+- **[Paper](notes/paper.md)** — the gradient-factorization theorem,
   memory-scalable implementation, and empirical results on Shakespeare.
 - **CUDA training engine** (`src/cuda/agpt_train.cu`, `bin/agpt_train`) —
   the GPU trainer. Radix-compressed trie input, per-subtree KV-cache
@@ -88,7 +88,7 @@ src/cuda/        agpt_train.cu (GPU trainer; kernels.cu lives in µGPT)
 src/tools/       Crystal CLIs (builders, synthesis, diagnostics)
 spec/            Crystal specs for AGPT-only modules
 tests/           Foundational shell tests
-notes/agpt/      Design notes, paper drafts, status
+notes/      Design notes, paper drafts, status
 notes/grants/    Grant pitch
 rnd/             Research logs (per-experiment subdirectories)
 ```

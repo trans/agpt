@@ -1,7 +1,7 @@
 # Seq_len decoupling — Phase 0: position → contributing-nodes map
 
 **Goal:** build the bookkeeping needed for the decoupled-attention work
-in `notes/agpt/shared_key_rope.md`. For each corpus position p, find
+in `notes/shared_key_rope.md`. For each corpus position p, find
 the radix-trie nodes whose path *terminates at* corpus position p.
 Equivalently: position p has a representation at every node R where
 R's path-from-root spells out a backward-suffix of length 1 to d
@@ -210,7 +210,7 @@ This rules out the cheapest hypothesis (A: extend seq_len with the
 existing architecture and hope) and establishes that breaking the
 d-shackle requires architectural change: option B, shared-key RoPE
 with explicit trie-derived identities per position, as described in
-`notes/agpt/shared_key_rope.md`.
+`notes/shared_key_rope.md`.
 
 ## Phase 1B — Shared-key RoPE architecture (next step)
 

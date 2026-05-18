@@ -13,7 +13,7 @@ Both predict the same target c_p. They're coupled by a symmetric
 stop-gradient KL consistency loss that pulls each toward the other's
 prediction. The experiment measures whether explicit cross-direction
 coupling can shrink the **2.38-nat per-position F-vs-B divergence**
-measured in `notes/agpt/prefix-suffix-model-divergence.md`.
+measured in `notes/prefix-suffix-model-divergence.md`.
 
 ## What this experiment is NOT
 
@@ -317,9 +317,9 @@ from "the KL term acts like dropout."
 
 ## Pointers
 
-- `notes/agpt/prefix-suffix-fold-architecture.md` — original design,
+- `notes/prefix-suffix-fold-architecture.md` — original design,
   §3.1 and §3.3 specify the dual-model architecture
-- `notes/agpt/prefix-suffix-model-divergence.md` — the 2.38-nat
+- `notes/prefix-suffix-model-divergence.md` — the 2.38-nat
   measurement this experiment targets
 - `rnd/cap-folding/README.md` — the target-substitution fold work
   that motivated this; the dual-model approach is structurally

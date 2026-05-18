@@ -53,21 +53,28 @@ fi
 # --- helper: rsync code (no /tmp, no models, no logs, no build artifacts) ---
 push_code() {
     echo "→ rsync code to pod..."
-    rsync -avzP --delete \
+    # Whitelist approach for rnd/: only ship the experiment scripts we
+    # actually run on the pod. The convergence archives and old research
+    # subdirs are local-only and would otherwise add ~4GB to the push.
+    rsync -avzP --no-owner --no-group --no-perms --delete \
+        --include='rnd/' \
+        --include='rnd/streaming-agpt-v1/' \
+        --exclude='rnd/streaming-agpt-v1/models/' \
+        --exclude='rnd/streaming-agpt-v1/logs/' \
+        --include='rnd/streaming-agpt-v1/**' \
+        --include='rnd/runpod/' \
+        --include='rnd/runpod/**' \
+        --exclude='rnd/*' \
         --exclude='/tmp/' \
+        --exclude='.git/' \
         --exclude='bin/' \
         --exclude='build/' \
         --exclude='lib/' \
         --exclude='.shards/' \
-        --exclude='rnd/streaming-agpt-v1/models/' \
-        --exclude='rnd/streaming-agpt-v1/logs/' \
-        --exclude='rnd/seq-len-decouple/*.bin' \
-        --exclude='data/gutenberg_5m.txt' \
-        --exclude='data/*.model' \
-        --exclude='data/wormhole_*.txt' \
+        --exclude='data/' \
         --exclude='*.dwarf' \
         --exclude='.claude/' \
-        --exclude='notes/agpt/paper.html' \
+        --exclude='notes/paper.html' \
         --rsh="${RSYNC_RSH}" \
         "${PROJ}/" "${SSH_HOST}:${REMOTE_BASE}/"
 }
@@ -76,17 +83,17 @@ push_code() {
 push_data() {
     echo "→ rsync corpora + init models..."
     # Corpora
-    rsync -avzP --rsh="${RSYNC_RSH}" \
+    rsync -avzP --no-owner --no-group --no-perms --rsh="${RSYNC_RSH}" \
         "${PROJ}/data/input.txt" \
         "${PROJ}/data/gutenberg_5m.txt" \
         "${SSH_HOST}:${REMOTE_BASE}/data/"
     # Init models (random + seeded)
-    rsync -avzP --rsh="${RSYNC_RSH}" \
+    rsync -avzP --no-owner --no-group --no-perms --rsh="${RSYNC_RSH}" \
         "${PROJ}/data/input.random.model" \
         "${SSH_HOST}:${REMOTE_BASE}/data/" 2>/dev/null || true
     # Seeded init models (in /tmp on laptop)
     if ls /tmp/init_seed*.model &>/dev/null; then
-        rsync -avzP --rsh="${RSYNC_RSH}" \
+        rsync -avzP --no-owner --no-group --no-perms --rsh="${RSYNC_RSH}" \
             /tmp/init_seed*.model "${SSH_HOST}:/tmp/"
     fi
 }
@@ -95,17 +102,19 @@ push_data() {
 pod_run() {
     local cmd=$1
     echo "→ ssh: cd ${REMOTE_BASE} && ${cmd}"
-    ssh ${SSH_PORT_ARG} "${SSH_HOST}" "cd ${REMOTE_BASE} && ${cmd}"
+    # CRYSTAL_WORKERS prevents Crystal 1.20+ thread-init overflow on
+    # high-vCPU container hosts (RunPod sees host's full core count).
+    ssh ${SSH_PORT_ARG} "${SSH_HOST}" "export CRYSTAL_WORKERS=8 && cd ${REMOTE_BASE} && ${cmd}"
 }
 
 # --- helper: pull results ---
 pull_results() {
     echo "→ rsync logs back to laptop..."
-    rsync -avzP --rsh="${RSYNC_RSH}" \
+    rsync -avzP --no-owner --no-group --no-perms --rsh="${RSYNC_RSH}" \
         "${SSH_HOST}:${REMOTE_BASE}/rnd/streaming-agpt-v1/logs/" \
         "${PROJ}/rnd/streaming-agpt-v1/logs/"
     # Also pull any findings.md updates
-    rsync -avzP --rsh="${RSYNC_RSH}" \
+    rsync -avzP --no-owner --no-group --no-perms --rsh="${RSYNC_RSH}" \
         "${SSH_HOST}:${REMOTE_BASE}/rnd/streaming-agpt-v1/findings.md" \
         "${PROJ}/rnd/streaming-agpt-v1/findings.md" 2>/dev/null || true
 }

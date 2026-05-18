@@ -50,7 +50,7 @@ next token. From the model's perspective:
   specific memorization, not learning generalizable patterns
 
 This validates the K=decision/V=identity framing
-(`notes/agpt/trie-attention-framing.md`): past identity-depth (~21),
+(`notes/trie-attention-framing.md`): past identity-depth (~21),
 nodes are position-pointers with no shared-pattern structure to learn.
 
 ### 1.2 Forward and suffix tries are duals
@@ -430,10 +430,10 @@ the question is whether they compound or interfere.
 
 ## 6. Connections to other notes
 
-- `notes/agpt/invariants.md` — the bounded-subtree training object;
+- `notes/invariants.md` — the bounded-subtree training object;
   this architecture preserves it (each AGPT subtree fires a single
   Adam step including all three KL terms)
-- `notes/agpt/trie-attention-framing.md` — K=decision/V=identity
+- `notes/trie-attention-framing.md` — K=decision/V=identity
   framing that motivates the cap-fold idea
 - `notes/meaning-as-suffix-distribution.md` — semantic foundation
   for why the suffix tree carries equivalent information to the

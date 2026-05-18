@@ -66,7 +66,7 @@ you weight the contributors, the deepest-context one is the best
 single predictor.
 
 **Not ruled out:** the actual sliding-window AGPT design from
-`notes/agpt/sliding_window_agpt.md`. That design pools *residuals*
+`notes/sliding_window_agpt.md`. That design pools *residuals*
 (intermediate activations), not logits, and then runs a *sequence-
 level attention layer* over the pooled sequence. The hypothesis there
 is fundamentally different:

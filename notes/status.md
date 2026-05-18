@@ -125,4 +125,4 @@ Not yet explored: using entropy or other metrics at branching points to weight t
 | `src/agpt/incremental_backward.cr` | Single-node backward (kept for gradient verification) |
 | `src/agpt/weighted_loss.cr` | Weighted next-token cross-entropy against empirical distribution |
 | `src/cuda/kernels.cu` | CUDA kernels including batched varlen attention |
-| `notes/agpt/prefix-memory.md` | Design spec for depth-layered storage + checkpointed vectors |
+| `notes/prefix-memory.md` | Design spec for depth-layered storage + checkpointed vectors |

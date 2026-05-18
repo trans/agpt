@@ -3,7 +3,7 @@
 **Applicant:** Thomas Sawyer &nbsp;·&nbsp; `transfire@gmail.com`
 **Draft:** 2026-04-19
 **Repo:** https://github.com/trans/microgpt
-**Paper (preprint):** https://github.com/trans/microgpt/blob/main/notes/agpt/paper.md
+**Paper (preprint):** https://github.com/trans/microgpt/blob/main/notes/paper.md
 
 ---
 

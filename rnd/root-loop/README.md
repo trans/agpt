@@ -67,5 +67,5 @@ prior rarely forms real corpus D-grams at the segment boundary.
 
 ## Related docs
 
-- [notes/agpt/root-loop-implementation-plan.md](../../notes/agpt/root-loop-implementation-plan.md) — Phase 2 spec
-- [notes/agpt/full-d-state-continuation.md](../../notes/agpt/full-d-state-continuation.md) — alternative design (not yet built)
+- [notes/root-loop-implementation-plan.md](../../notes/root-loop-implementation-plan.md) — Phase 2 spec
+- [notes/full-d-state-continuation.md](../../notes/full-d-state-continuation.md) — alternative design (not yet built)

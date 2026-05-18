@@ -13,7 +13,7 @@ trim against.
 The split is no longer just a one-time repo copy problem. The AGPT repo now
 exists, but the dependency boundary is still fuzzy in code, tooling, and docs.
 
-Use [notes/agpt/microgpt-separation.md](/home/trans/Projects/agpt/notes/agpt/microgpt-separation.md:1)
+Use [notes/microgpt-separation.md](/home/trans/Projects/agpt/notes/microgpt-separation.md:1)
 for the current coupling map and phased cleanup order.
 
 ## µGPT-only (kept in microgpt/, removed from agpt/)
@@ -71,7 +71,7 @@ for the current coupling map and phased cleanup order.
 `test-agpt`, `compare-agpt`
 
 ### Notes / data
-- `notes/agpt/` — design notes
+- `notes/` — design notes
 - Most of `notes/TODO.md` (AGPT-related)
 - `data/input.agpt.model` — trained AGPT checkpoint
 - `data/synth_wrap_*.txt` — synthesized wrap-around corpora
