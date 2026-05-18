@@ -9,6 +9,17 @@ require "option_parser"
 # Backs off to shorter context when the deepest match has zero count
 # for the target. Unigram fallback if everything backs off to root.
 #
+# KNOWN LIMITATION (2026-05-18): The backoff is naive — it stops at the
+# first context where the target has ANY non-zero count, even if that
+# context is so deep that the target is very rare there. A proper
+# Kneser-Ney interpolation across multiple context lengths would give
+# substantially lower PPL on held-out (current implementation inflates
+# PPL ~5-10x vs proper KN). See rnd/heldout-tree-vs-model/findings.md
+# for impact discussion. The QUALITATIVE finding (model >> trie on
+# held-out generalization) is robust to this issue; the QUANTITATIVE
+# magnitude is overstated. Fix: either implement KN backoff here, or
+# use KenLM (paru -S kenlm) as a proper baseline.
+#
 # Output format mirrors lib/microgpt's perplexity tool so the numbers
 # are directly comparable to your trained-model PPLs.
 #

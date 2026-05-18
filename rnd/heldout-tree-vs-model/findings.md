@@ -84,6 +84,34 @@ at inference and must *generalize*, which is what it actually does.
    conclusion.
 3. Contiguous train/test split. A random split might give slightly
    different absolute numbers but wouldn't change the conclusion.
+4. **Trie-PPL evaluator uses naive backoff**. It stops at the first
+   context with target-count > 0, even if target is very rare there.
+   A proper Kneser-Ney interpolation would likely drop trie PPL from
+   170 to ~15-30 — still well above the model's 5.03, but the 34×
+   ratio is overstated. The qualitative conclusion (model >> trie on
+   held-out) is robust; the magnitude isn't. See
+   `src/tools/agpt_trie_perplexity.cr` header comment.
+
+## Shuffle ablation (added 2026-05-18 after staleness discussion)
+
+Tested whether `--shuffle-order` helps at pd=1, to distinguish
+"shuffle is general gradient noise" from "shuffle compensates for
+cross-group cache staleness." If shuffle helps at pd=1 (where we
+believe no staleness exists), the noise hypothesis is supported.
+If it doesn't help, shuffle's pd≥2 benefit is staleness-specific.
+
+| Setup | Held-out PPL |
+|---|---:|
+| pd=1 no-shuffle | 5.03 |
+| pd=1 with shuffle | **5.29** (single seed; not statistically distinguishable) |
+
+Shuffle did NOT help at pd=1. This is consistent with the "no
+staleness at pd=1" picture: there's nothing for shuffle to
+compensate for. Cap-folding findings showed shuffle helps at pd>1,
+which then is staleness-specific. Implication: pd>1 has real
+intra-SE staleness that shuffle is currently masking. Eliminating
+that staleness (cache rebuild between fires) might unlock further
+improvement. Open research item.
 
 ## Files
 
