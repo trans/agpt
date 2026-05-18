@@ -117,6 +117,16 @@ struct Config {
                                  // per-group behavior. Combined with --shuffle-order, K random groups
                                  // are batched per step — addresses pd=2 memorization where few unique
                                  // partitions get repeated solo many times.
+    bool per_rc_adam = false;   // Stage 1 of topological optimizer state: per-root-child
+                                 // Adam/RMSprop moments. Each rc subtree gets its own m, v, t
+                                 // instead of sharing global state. Tests whether topological
+                                 // localization of optimizer state matters at all. Per-rc state
+                                 // is not persisted across runs (one-shot experimental flag).
+                                 // Memory cost: n_root_children * total_floats * 8 bytes (two
+                                 // float arrays). Requires --no-accumulate.
+    const char* per_rc_v_dump_path = nullptr;  // when set, dump per-rc v buffer to this path at
+                                                // end of training for offline diagnostic analysis
+                                                // (per-bucket norms, cosine similarities, etc.)
 };
 
 // Curriculum modes: how subtrees are scheduled across an epoch.
@@ -4818,6 +4828,37 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
     }
 
     // ------------------------------------------------------------
+    // Per-rc Adam state (Stage 1 of topological optimizer state).
+    // When cfg.per_rc_adam is set, each root-child / partition-group has its
+    // own (m, v, t) instead of sharing global state. Used in place of
+    // d_adam_m, d_adam_v at the fire site. Memory: n_root_children *
+    // total_floats * 8 bytes (two float arrays).
+    // ------------------------------------------------------------
+    float* d_adam_m_per_rc = NULL;
+    float* d_adam_v_per_rc = NULL;
+    int*   h_adam_t_per_rc = NULL;
+    if (cfg.per_rc_adam) {
+        size_t per_rc_bytes = (size_t)n_root_children * (size_t)wo.total_floats * sizeof(float);
+        const size_t budget_bytes = (size_t)2 * 1024 * 1024 * 1024;  // 2 GB per buffer
+        if (per_rc_bytes > budget_bytes) {
+            fprintf(stderr,
+                "ERROR: --per-rc-adam memory budget exceeded: %.2f GB per moment buffer (limit 2 GB).\n"
+                "       n_root_children=%d, total_floats=%d. Try a smaller partition-depth.\n",
+                (double)per_rc_bytes / 1.0e9, n_root_children, wo.total_floats);
+            return 1;
+        }
+        CUDA_CHECK(cudaMalloc(&d_adam_m_per_rc, per_rc_bytes));
+        CUDA_CHECK(cudaMalloc(&d_adam_v_per_rc, per_rc_bytes));
+        CUDA_CHECK(cudaMemset(d_adam_m_per_rc, 0, per_rc_bytes));
+        CUDA_CHECK(cudaMemset(d_adam_v_per_rc, 0, per_rc_bytes));
+        h_adam_t_per_rc = (int*)calloc(n_root_children, sizeof(int));
+        if (!quiet) {
+            printf("  per-rc-adam: %d buckets x %d params = %.1f MB per moment buffer\n",
+                   n_root_children, wo.total_floats, (double)per_rc_bytes / 1.0e6);
+        }
+    }
+
+    // ------------------------------------------------------------
     // Lightning Training adjacency precompute.
     // We build an inverted parents[] → children adjacency table once, plus
     // cumulative child weights used by L3's mass-weighted descent.
@@ -6300,21 +6341,34 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                                         d_clip_partials, d_clip_norm);
             }
 
+            // Per-rc Adam state: redirect m/v pointers and step counter to
+            // this rc's bucket when --per-rc-adam is on. Otherwise use the
+            // shared global moments as before.
+            float* opt_m = d_adam_m;
+            float* opt_v = d_adam_v;
+            int    opt_t = adam_t;
+            if (cfg.per_rc_adam && d_adam_m_per_rc) {
+                long long off = (long long)rc_idx * (long long)wo.total_floats;
+                opt_m = d_adam_m_per_rc + off;
+                opt_v = d_adam_v_per_rc + off;
+                h_adam_t_per_rc[rc_idx]++;
+                opt_t = h_adam_t_per_rc[rc_idx];
+            }
             switch (optimizer) {
                 case OptimizerKind::Adam:
-                    cuda_adam_bulk(d_weights, d_grads, d_adam_m, d_adam_v,
+                    cuda_adam_bulk(d_weights, d_grads, opt_m, opt_v,
                                     step_lr, momentum_beta, rmsprop_beta, 1e-8f,
-                                    adam_t, wo.total_floats);
+                                    opt_t, wo.total_floats);
                     break;
                 case OptimizerKind::SGD:
                     cuda_sgd_bulk(d_weights, d_grads, step_lr, wo.total_floats);
                     break;
                 case OptimizerKind::Momentum:
-                    cuda_momentum_bulk(d_weights, d_grads, d_adam_m,
+                    cuda_momentum_bulk(d_weights, d_grads, opt_m,
                                        step_lr, momentum_beta, wo.total_floats);
                     break;
                 case OptimizerKind::RMSProp:
-                    cuda_rmsprop_bulk(d_weights, d_grads, d_adam_v,
+                    cuda_rmsprop_bulk(d_weights, d_grads, opt_v,
                                       step_lr, rmsprop_beta, 1e-8f, wo.total_floats);
                     break;
                 case OptimizerKind::LBFGS:
@@ -6701,7 +6755,37 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
 
     // --- GPU cleanup (required so the per-subtree wrapper can call us
     //     repeatedly without OOMing). Order mirrors allocation. ---
+    // Dump per-rc v buffer for offline diagnostic analysis (per-bucket norms,
+    // cosine similarities, etc.) before freeing.
+    if (cfg.per_rc_v_dump_path && d_adam_v_per_rc) {
+        size_t bytes = (size_t)n_root_children * (size_t)wo.total_floats * sizeof(float);
+        float* h_v = (float*)malloc(bytes);
+        if (h_v) {
+            CUDA_CHECK(cudaMemcpy(h_v, d_adam_v_per_rc, bytes, cudaMemcpyDeviceToHost));
+            FILE* fp = fopen(cfg.per_rc_v_dump_path, "wb");
+            if (fp) {
+                const char magic[4] = {'P','R','V','D'};
+                fwrite(magic, 1, 4, fp);
+                int n_rc = n_root_children;
+                int tf   = wo.total_floats;
+                fwrite(&n_rc, sizeof(int), 1, fp);
+                fwrite(&tf,   sizeof(int), 1, fp);
+                fwrite(h_adam_t_per_rc, sizeof(int), n_rc, fp);  // per-bucket step counts
+                fwrite(h_v, sizeof(float), (size_t)n_rc * (size_t)tf, fp);
+                fclose(fp);
+                printf("  per-rc v dumped to %s (%d buckets x %d params)\n",
+                       cfg.per_rc_v_dump_path, n_rc, tf);
+            } else {
+                fprintf(stderr, "WARN: could not open %s for write\n", cfg.per_rc_v_dump_path);
+            }
+            free(h_v);
+        }
+    }
+
     cudaFree(d_weights); cudaFree(d_grads); cudaFree(d_adam_m); cudaFree(d_adam_v);
+    if (d_adam_m_per_rc) cudaFree(d_adam_m_per_rc);
+    if (d_adam_v_per_rc) cudaFree(d_adam_v_per_rc);
+    if (h_adam_t_per_rc) free(h_adam_t_per_rc);
     if (d_clip_partials) cudaFree(d_clip_partials);
     if (d_clip_norm)     cudaFree(d_clip_norm);
 
@@ -7048,6 +7132,8 @@ int main(int argc, char** argv) {
     int   lr_rule = 0;  // per-subtree LR multiplier rule (0=none, 1=inv-depth, 2=inv-sqrt-depth, 3=sqrt-batch, 4=residual)
     bool shuffle_order = false;     // --shuffle-order: random partition-group order per SE
     int  mini_batch_groups = 1;     // --mini-batch-groups K: accumulate K partition groups per opt step
+    bool per_rc_adam = false;       // --per-rc-adam: per-root-child Adam/RMSprop state (Stage 1 topological optimizer)
+    const char* per_rc_v_dump_path = nullptr;  // --dump-per-rc-v PATH: write per-rc v buffer at end of training
     unsigned shuffle_seed = 0xa17b1edu;  // --shuffle-seed: RNG seed for shuffle
     OptimizerKind optimizer = OptimizerKind::Adam;
     float momentum_beta = 0.9f;   // used by momentum + (via β₁) adam
@@ -7105,6 +7191,8 @@ int main(int argc, char** argv) {
         else if (strcmp(argv[i], "--hotspot-coverage") == 0 && i + 1 < argc) hotspot_coverage = atof(argv[++i]);
         else if (strcmp(argv[i], "--shuffle-order") == 0) shuffle_order = true;
         else if (strcmp(argv[i], "--mini-batch-groups") == 0 && i + 1 < argc) mini_batch_groups = atoi(argv[++i]);
+        else if (strcmp(argv[i], "--per-rc-adam") == 0) per_rc_adam = true;
+        else if (strcmp(argv[i], "--dump-per-rc-v") == 0 && i + 1 < argc) per_rc_v_dump_path = argv[++i];
         else if (strcmp(argv[i], "--shuffle-seed") == 0 && i + 1 < argc) shuffle_seed = (unsigned)strtoul(argv[++i], NULL, 0);
         else if (strcmp(argv[i], "--lr-rule") == 0 && i + 1 < argc) {
             const char* m = argv[++i];
@@ -7297,6 +7385,16 @@ int main(int argc, char** argv) {
     cfg.shuffle_seed = shuffle_seed;
     cfg.lbfgs_k = lbfgs_k;
     cfg.mini_batch_groups = (mini_batch_groups < 1) ? 1 : mini_batch_groups;
+    cfg.per_rc_adam = per_rc_adam;
+    cfg.per_rc_v_dump_path = per_rc_v_dump_path;
+    if (cfg.per_rc_adam && accumulate) {
+        fprintf(stderr, "ERROR: --per-rc-adam requires --no-accumulate (per-rc Adam state is only meaningful in per-group fire mode)\n");
+        return 1;
+    }
+    if (cfg.per_rc_adam) {
+        fprintf(stderr, "WARNING: --per-rc-adam: per-rc Adam/RMSprop state is NOT persisted across runs.\n");
+        fprintf(stderr, "         Streaming/multi-stage training will start each invocation cold.\n");
+    }
     float* h_weights = load_model_weights(model_path, &cfg);
     WeightOffsets wo = compute_offsets(cfg);
 
