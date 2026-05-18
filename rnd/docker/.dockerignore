@@ -1,0 +1,32 @@
+# Keep Docker build context small. The Dockerfile COPYs specific paths;
+# anything outside those COPY statements is effectively excluded, but
+# the build context still tar-streams what's not ignored. Excluding the
+# big stuff here speeds up `podman build` substantially.
+
+# Data and corpora (4+ GB).
+data/
+
+# Build artifacts (rebuilt fresh in the image).
+bin/
+build/
+lib/
+.shards/
+
+# Experimental artifacts (corpora, models, logs).
+rnd/*/models/
+rnd/*/logs/
+rnd/*/results.csv
+rnd/*/no_mw_results.csv
+rnd/convergence/
+rnd/seq-len-decouple/*.bin
+
+# Git history (large).
+.git/
+
+# Misc.
+*.dwarf
+.claude/
+.codex
+tags
+docs/api/
+notes/agpt/paper.html
