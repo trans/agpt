@@ -1,0 +1,13 @@
+Trie: /tmp/gut_train_d16_radix
+Corpus: /tmp/gut_test.txt (500000 tokens)
+Vocab: 65, seq-len: 16, scoring 4096 positions (stride 122.07)
+Positions scored:   4096
+Mean per-token NLL: 5.13811 nats
+Perplexity:         170.3934
+Bits per character: 7.4127 bpc
+Elapsed:            0.01s (392359.0 pos/sec)
+
+Diagnostics:
+  Backoff invocations: 21279
+  Mid-edge positions:  28  (forced-next-char regime)
+  Root-only fallback:  349  (no walk possible)

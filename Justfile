@@ -109,6 +109,14 @@ build-agpt-position-map: build-stubs
     mkdir -p bin
     timeout 10m crystal build src/tools/agpt_position_map.cr -o bin/agpt_position_map --release --link-flags="{{root}}/build/kernels.o -lstdc++"
 
+# Build trie-only perplexity evaluator (model-free PPL baseline).
+# Walks the radix trie with held-out context, scores log-prob from
+# empirical count distributions at the deepest matching node with
+# backoff. Direct comparison baseline for trained-model PPLs.
+build-agpt-trie-perplexity: build-stubs
+    mkdir -p bin
+    timeout 10m crystal build src/tools/agpt_trie_perplexity.cr -o bin/agpt_trie_perplexity --release --link-flags="{{root}}/build/kernels.o -lstdc++"
+
 # Build distribution-similarity diagnostic for radix-trie nodes.
 build-agpt-dist-sim: build-stubs
     mkdir -p bin
