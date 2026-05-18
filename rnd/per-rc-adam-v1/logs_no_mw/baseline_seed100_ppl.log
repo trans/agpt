@@ -1,0 +1,31 @@
+Vocab source: /home/trans/Projects/agpt/data/input.txt → 65 unique chars
+Test file: /home/trans/Projects/agpt/data/input.txt (1115394 bytes)
+Auto-detected architecture from checkpoint: d_model=64, n_heads=4, n_layers=2, d_ff=256 (ckpt seq_len=32, eval seq_len=16)
+Model loaded: /home/trans/Projects/agpt/rnd/per-rc-adam-v1/models_no_mw/baseline_seed100.model (d_model=64, n_layers=2, vocab=65, seq_len=16)
+Tokens: 1115394
+  204/4096 (1129.0/s, ETA 3s)
+  408/4096 (1239.7/s, ETA 3s)
+  612/4096 (1253.1/s, ETA 3s)
+  816/4096 (1262.0/s, ETA 3s)
+  1020/4096 (1232.7/s, ETA 2s)
+  1224/4096 (1173.3/s, ETA 2s)
+  1428/4096 (1200.2/s, ETA 2s)
+  1632/4096 (1220.9/s, ETA 2s)
+  1836/4096 (1184.9/s, ETA 2s)
+  2040/4096 (1172.7/s, ETA 2s)
+  2244/4096 (1178.1/s, ETA 2s)
+  2448/4096 (1170.1/s, ETA 1s)
+  2652/4096 (1144.1/s, ETA 1s)
+  2856/4096 (1132.0/s, ETA 1s)
+  3060/4096 (1128.3/s, ETA 1s)
+  3264/4096 (1139.2/s, ETA 1s)
+  3468/4096 (1140.5/s, ETA 1s)
+  3672/4096 (1125.3/s, ETA 0s)
+  3876/4096 (1127.9/s, ETA 0s)
+  4080/4096 (1125.4/s, ETA 0s)
+
+Positions scored:  4096
+Mean per-token NLL: 1.704106 nats
+Perplexity:         5.4965
+Bits per character: 2.4585 bpc
+Elapsed:            3.6s (1128.8 pos/sec)

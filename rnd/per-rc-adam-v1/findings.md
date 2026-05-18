@@ -139,9 +139,42 @@ construction. Stage 1 served its purpose as the cheap precursor: it
 confirmed the localization signal is real and the right way to extract it
 is spatially, not temporally.
 
+## Ablation: removing mass-weighting
+
+The original experiment used `--mass-weight log`, which multiplicatively
+amplifies gradients at high-mass nodes (~5× across the rc range, squared
+to ~25× in v). Hypothesis: mass-weighting was inflating per-rc's
+cold-start instability via differential amplification of low-fire-count
+buckets. Ablation removes mass-weighting; entropy-lambda kept on.
+
+**Result:**
+
+| Setting | baseline | per_rc | gap |
+|---|---:|---:|---:|
+| With mass-weight | 5.460 ± 0.103 | 6.509 ± 0.265 | +19.2% |
+| No mass-weight   | 5.591 ± 0.122 | 6.735 ± 0.114 | +20.5% |
+
+**Interpretation:**
+
+- Per-rc gap is essentially unchanged (19.2% → 20.5%). Mass-weighting was
+  *not* the dominant driver of the regression. Per-rc Adam fails
+  intrinsically at 50 SE under RMSprop, regardless of loss reweighting.
+- Per-rc variance dropped 2.3× (0.265 → 0.114) without mass-weighting.
+  Mass-weighting was injecting variance specifically into the per-rc
+  path via amplification of rare-bucket gradient spikes hitting
+  under-warmed v.
+- Baseline benefits modestly from mass-weighting (~2.4% PPL improvement).
+  Consistent with prior findings — mass-weighting helps the shared path
+  but doesn't differentially help per-rc.
+
+The dump diagnostic conclusion holds: structural localization signal is
+real, but the wrong instrument is being used to extract it. The fix is
+spatial F (Stage 2), not parameter tuning of Stage 1.
+
 ## Files
 
-- `run_compare.sh` — 6-run experiment script
+- `run_compare.sh` — 6-run main experiment script
+- `run_ablation_no_mw.sh` — 6-run no-mass-weighting ablation
 - `analyze_dump.py` — offline dump analyzer
-- `logs/` — per-run training and PPL logs
-- `results.csv` — flat CSV of per-run PPL/wall
+- `logs/`, `logs_no_mw/` — per-run training and PPL logs
+- `results.csv`, `no_mw_results.csv` — flat CSVs of per-run PPL/wall

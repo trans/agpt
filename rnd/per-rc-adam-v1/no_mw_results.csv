@@ -1,0 +1,7 @@
+variant,seed,ppl,wall_sec
+baseline,100,5.4965,285
+per_rc,100,6.8080,278
+baseline,200,5.5481,279
+per_rc,200,6.6034,277
+baseline,300,5.7291,279
+per_rc,300,6.7939,277
