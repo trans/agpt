@@ -57,22 +57,22 @@ Decide between Docker Hub vs GHCR:
 **Docker Hub** (simpler):
 ```sh
 podman login docker.io
-podman tag agpt:latest docker.io/transfire/agpt:latest
-podman push docker.io/transfire/agpt:latest
+podman tag agpt:latest docker.io/7rans/agpt:latest
+podman push docker.io/7rans/agpt:latest
 ```
 
 **GitHub Container Registry**:
 ```sh
-echo $GH_TOKEN | podman login ghcr.io -u transfire --password-stdin
-podman tag agpt:latest ghcr.io/transfire/agpt:latest
-podman push ghcr.io/transfire/agpt:latest
+echo $GH_TOKEN | podman login ghcr.io -u 7rans --password-stdin
+podman tag agpt:latest ghcr.io/7rans/agpt:latest
+podman push ghcr.io/7rans/agpt:latest
 ```
 
 ## Use on RunPod
 
 Once pushed:
 1. Create a new pod with **Custom Container Image** set to
-   `docker.io/transfire/agpt:latest` (or `ghcr.io/...`)
+   `docker.io/7rans/agpt:latest` (or `ghcr.io/...`)
 2. SSH in — no apt-get, no Crystal install, no symlinks. Binaries
    already at `bin/`.
 3. Use the existing `launch.sh` for code/data rsync. Now ~30 sec to

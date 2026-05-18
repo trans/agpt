@@ -9,11 +9,11 @@
 # Usage:
 #   bash rnd/docker/push.sh [USERNAME]
 #
-# Default username: transfire.
+# Default username: 7rans.
 
 set -euo pipefail
 
-USERNAME="${1:-transfire}"
+USERNAME="${1:-7rans}"
 LOCAL_TAG="${LOCAL_TAG:-agpt:latest}"
 REMOTE_TAG="docker.io/${USERNAME}/agpt:latest"
 
