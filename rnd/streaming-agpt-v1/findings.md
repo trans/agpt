@@ -1,5 +1,59 @@
 # Streaming AGPT — Findings
 
+## Cross-corpus validation: Gutenberg 5M (2026-05-18)
+
+Streaming-AGPT (100 × 5 SE) on Gutenberg 5M d=16, 3 seeds vs 3-seed
+baseline at matched compute (500 SE total).
+
+| variant | mean PPL ± std | per-seed (100/200/300) |
+|---|---|---|
+| Baseline 500 SE | 4.3652 ± 0.0829 | 4.3323 / 4.3037 / 4.4595 |
+| **Streaming 100 × 5 SE** | **4.0831 ± 0.1353** | 4.2380 / 4.0236 / 3.9878 |
+| Δ | **-6.46%** | — |
+
+Welch's t = -3.078 at df=3.3 (p between 0.05 and 0.01).
+
+**Streaming wins at every seed** (-2.18%, -6.51%, -10.58%). Not a
+single-seed fluke.
+
+### Three observations
+
+1. **~3× the Shakespeare gap** (-6.46% Gutenberg vs -2.1% Shakespeare).
+   Hypothesis: longer-range / more-redundant corpora benefit more from
+   streaming's incremental fresh-warmup pattern. Worth a third-corpus
+   validation (Twain) to confirm.
+
+2. **New project-best Gutenberg PPL: 3.99** (seed 300, single best);
+   **4.08 mean**. Previous best was 4.56 single-seed AGPT
+   (project_gutenberg5m_validation memory).
+
+3. **Streaming variance is 5× higher on Gutenberg than Shakespeare**
+   (0.135 vs 0.025). Seed-sensitive but every seed still wins. The
+   variance increase is itself an open question — stage-boundary
+   effects, initial-trie effects, or genuine corpus heterogeneity?
+
+### Setup
+
+Same as Shakespeare experiment except corpus. Specifically:
+RMSprop β₂=0.999, mass-weight=log, entropy-lambda=1.0, warmup-cosine
+LR=3e-3 warmup-epochs=1 (per stage in streaming, once for baseline).
+Trie d=16 over the full corpus.
+
+Baseline seeds 200, 300 ran on RunPod A100 SXM 2026-05-17 (see
+`rnd/streaming-agpt-v1/logs/ms_baseline_gutenberg_5m_se500_seed*`).
+Streaming seeds 100, 200, 300 and baseline seed 100 ran on laptop
+RTX 4070 mobile overnight 2026-05-17/18 (see
+`rnd/overnight-2026-05-18/`).
+
+### Open questions
+
+1. **Twain validation.** Third independent corpus needed before
+   declaring this a corpus-scale pattern.
+2. **Streaming variance source.** Why 5× on Gutenberg vs Shakespeare?
+3. **Wall-clock comparison.** Shakespeare streaming was 42% less wall
+   than baseline. Gutenberg streaming wall (~1.75 hr/seed on laptop)
+   vs Gutenberg baseline wall (need apples-to-apples laptop number).
+
 ## Cadence sweep — 100×1, 250×2, 100×5 vs baseline (2026-05-17)
 
 Three multi-seed cadence comparisons at varying per-stage budgets.

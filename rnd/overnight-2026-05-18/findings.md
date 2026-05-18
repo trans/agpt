@@ -1,5 +1,9 @@
 # Streaming-AGPT × Gutenberg validation (overnight 2026-05-18)
 
+**Canonical writeup:** see `rnd/streaming-agpt-v1/findings.md` § "Cross-corpus
+validation: Gutenberg 5M (2026-05-18)". This file retains the experiment-specific
+artifacts (driver script, summary script, raw logs reference).
+
 ## TL;DR
 
 Streaming-AGPT (100 × 5 SE) **beats baseline (500 SE single-stage) by 6.46% PPL
