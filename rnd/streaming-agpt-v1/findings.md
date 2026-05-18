@@ -28,9 +28,38 @@ single-seed fluke.
    (project_gutenberg5m_validation memory).
 
 3. **Streaming variance is 5× higher on Gutenberg than Shakespeare**
-   (0.135 vs 0.025). Seed-sensitive but every seed still wins. The
-   variance increase is itself an open question — stage-boundary
-   effects, initial-trie effects, or genuine corpus heterogeneity?
+   (0.135 vs 0.025). Seed-sensitive but every seed still wins.
+
+   Normalizing by baseline variance shows the 5× growth is almost
+   entirely a corpus property, not a streaming-specific effect:
+
+   | Corpus | Baseline σ | Streaming σ | Streaming/Baseline |
+   |---|---:|---:|---:|
+   | Shakespeare 1M | 0.018 | 0.025 | 1.39× |
+   | Gutenberg 5M | 0.083 | 0.135 | 1.63× |
+
+   Streaming adds ~50% to whatever baseline noise the corpus has; the
+   absolute jump from Shakespeare to Gutenberg is driven by Gutenberg
+   being intrinsically ~4.6× noisier at baseline.
+
+   **AGPT-specific lens on corpus heterogeneity**: SGD sees one
+   supervision signal per token; AGPT sees a dense distribution at
+   every interior node of the trie. At d=16 that's ~16 levels of
+   supervision per path, each with its own count distribution to fit.
+   Corpus diversity therefore multiplies through the depth dimension —
+   each additional path through the trie adds depth-many distinct
+   training signals to seed-sensitivity calculations.
+
+   **Open prediction for 10M / 50M Gutenberg scaling**:
+   - Variance could shrink (law-of-large-numbers smooths each
+     distribution as mass increases per node)
+   - Variance could grow (more distinct paths → more degrees of
+     seed-dependent specialization, especially mid-depth)
+   - Variance could plateau (saturates once all paths well-supported)
+
+   This is worth measuring directly when we scale up. The scaling
+   curve of variance is itself an informative signal about AGPT's
+   relationship to corpus structure.
 
 ### Setup
 
