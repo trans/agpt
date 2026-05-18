@@ -1,0 +1,31 @@
+Vocab source: /home/trans/Projects/agpt/data/gutenberg_5m.txt → 65 unique chars
+Test file: /home/trans/Projects/agpt/data/gutenberg_5m.txt (5000000 bytes)
+Auto-detected architecture from checkpoint: d_model=64, n_heads=4, n_layers=2, d_ff=256 (ckpt seq_len=32, eval seq_len=16)
+Model loaded: /home/trans/Projects/agpt/rnd/streaming-agpt-v1/models/seed300_ms_n100_se5_stage100.model (d_model=64, n_layers=2, vocab=65, seq_len=16)
+Tokens: 5000000
+  204/4096 (1537.3/s, ETA 3s)
+  408/4096 (1555.7/s, ETA 2s)
+  612/4096 (1544.4/s, ETA 2s)
+  816/4096 (1525.7/s, ETA 2s)
+  1020/4096 (1517.8/s, ETA 2s)
+  1224/4096 (1497.8/s, ETA 2s)
+  1428/4096 (1467.7/s, ETA 2s)
+  1632/4096 (1482.4/s, ETA 2s)
+  1836/4096 (1441.0/s, ETA 2s)
+  2040/4096 (1406.0/s, ETA 1s)
+  2244/4096 (1394.1/s, ETA 1s)
+  2448/4096 (1400.6/s, ETA 1s)
+  2652/4096 (1389.6/s, ETA 1s)
+  2856/4096 (1382.9/s, ETA 1s)
+  3060/4096 (1376.4/s, ETA 1s)
+  3264/4096 (1376.0/s, ETA 1s)
+  3468/4096 (1384.3/s, ETA 0s)
+  3672/4096 (1393.6/s, ETA 0s)
+  3876/4096 (1395.9/s, ETA 0s)
+  4080/4096 (1403.4/s, ETA 0s)
+
+Positions scored:  4096
+Mean per-token NLL: 1.383234 nats
+Perplexity:         3.9878
+Bits per character: 1.9956 bpc
+Elapsed:            2.9s (1395.8 pos/sec)

@@ -1,0 +1,44 @@
+==========================================
+Overnight 2026-05-18T02:05:49-04:00: streaming vs baseline @ Gutenberg
+==========================================
+
+--- Phase 1/2: streaming-AGPT × Gutenberg × 3 seeds @ 100×5 SE ---
+Started: 2026-05-18T02:05:49-04:00
+Generic multiseed: N_STAGES=100 PER_STAGE_SE=5 (total 500 SE)
+Seeds: 100 200 300
+Corpus: /home/trans/Projects/agpt/data/gutenberg_5m.txt (5000000 bytes)
+
+===== SEED 100 — Streaming 100 × 5 SE =====
+  seed=100: PPL=4.2380, wall=6350s
+
+===== SEED 200 — Streaming 100 × 5 SE =====
+  seed=200: PPL=4.0236, wall=6292s
+
+===== SEED 300 — Streaming 100 × 5 SE =====
+  seed=300: PPL=3.9878, wall=6293s
+
+===== 100 × 5 SE multi-seed summary =====
+  per-seed PPL: 4.2380 4.0236 3.9878
+  PPL:  4.0831 ± 0.1105
+  wall: 6311.6667 ± 27.1088 s
+
+--- Phase 2/2: extra Gutenberg baseline seed (100) @ 500 SE ---
+Started: 2026-05-18T07:21:34-04:00
+Baseline 500 SE on /home/trans/Projects/agpt/data/gutenberg_5m.txt
+Seeds: 100
+
+===== SEED 100 — Baseline 500 SE =====
+  seed=100: PPL=4.3323, wall=10771s
+
+===== Baseline 500 SE summary on /home/trans/Projects/agpt/data/gutenberg_5m.txt =====
+  per-seed PPL: 4.3323
+  PPL:  4.3323 ± 0.0000
+  wall: 10771.0000 ± 0.0000 s
+
+==========================================
+Done: 2026-05-18T10:21:09-04:00
+==========================================
+
+Results to compare:
+  Streaming:  rnd/streaming-agpt-v1/logs/ms_n100_se5_*
+  Baseline:   rnd/streaming-agpt-v1/logs/ms_baseline_gutenberg_5m_se500_*
