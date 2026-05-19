@@ -4713,6 +4713,30 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
             }
             if (n_in_subtree == 0) continue;
 
+            // --anc-grad: per-subtree-fire state init
+            //   - Zero the K/V/h_subtree accumulator buffers (only the portion
+            //     we'll write to: [n_in_subtree, D] per layer).
+            //   - Populate the global→subtree-local lookup table for this
+            //     subtree's nodes; entries for other nodes are -1 (sentinel
+            //     for "not in current subtree").
+            if (cfg.anc_grad) {
+                size_t fire_bytes = (size_t)n_in_subtree * D * sizeof(float);
+                for (int l = 0; l < L_layers; l++) {
+                    CUDA_CHECK(cudaMemset(d_dkv_subtree_k[l], 0, fire_bytes));
+                    CUDA_CHECK(cudaMemset(d_dkv_subtree_v[l], 0, fire_bytes));
+                    CUDA_CHECK(cudaMemset(h_subtree[l],       0, fire_bytes));
+                }
+                static int* h_anc_lookup = NULL;
+                if (!h_anc_lookup) h_anc_lookup = (int*)malloc(trie.radix_count * sizeof(int));
+                memset(h_anc_lookup, 0xFF, trie.radix_count * sizeof(int));  // -1 sentinel
+                for (int i = 0; i < n_in_subtree; i++) {
+                    h_anc_lookup[radix_list[i]] = i;
+                }
+                CUDA_CHECK(cudaMemcpy(d_global_to_subtree_idx, h_anc_lookup,
+                                       (size_t)trie.radix_count * sizeof(int),
+                                       cudaMemcpyHostToDevice));
+            }
+
         // Split this subtree into `subtree_splits` sub-batches. Each sub-batch
         // is a bounded training unit: its own d_grads zero, chunk-accumulated
         // forward/backward, one Adam step. Setting subtree_splits=1 preserves
