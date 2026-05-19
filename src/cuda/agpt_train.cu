@@ -3171,6 +3171,11 @@ struct TrainPersistence {
     int    total_epochs_override    = 0;  // caller-known SE-budget for LR schedule (computed → total_opt_steps); 0 = derive from epochs arg
 };
 
+#include "agpt_chunk_metadata.cuh"
+#include "agpt_chunk_upload_runtime.cuh"
+#include "agpt_cache_runtime.cuh"
+#include "agpt_transformer_chunk_runtime.cuh"
+
 int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                         float* h_weights, RadixTrieData& trie,
                         int epochs, float entropy_lambda, MassWeightMode mass_weight,
@@ -3527,11 +3532,6 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
     }
     if (n_compact_chars == 0) n_compact_chars = 1;  // avoid zero-size allocation
 
-    int* d_compact_slot;
-    CUDA_CHECK(cudaMalloc(&d_compact_slot, (long long)trie.total_edge_chars * sizeof(int)));
-    CUDA_CHECK(cudaMemcpy(d_compact_slot, compact_slot,
-                          (long long)trie.total_edge_chars * sizeof(int), cudaMemcpyHostToDevice));
-
     // Loop-point catalog (Phase 1 of virtual-tree): a radix node r is
     // "loop-eligible" for virtual-tree attachment iff it has edge_mass > 1
     // (so K/V is in the compact cache) AND is a leaf in the radix trie (no
@@ -3588,11 +3588,6 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
             real_pos_of_char[start + j] = pos;
         }
     }
-    int* d_real_pos_of_char;
-    CUDA_CHECK(cudaMalloc(&d_real_pos_of_char, (long long)trie.total_edge_chars * sizeof(int)));
-    CUDA_CHECK(cudaMemcpy(d_real_pos_of_char, real_pos_of_char,
-                          (long long)trie.total_edge_chars * sizeof(int), cudaMemcpyHostToDevice));
-
     long long kv_bytes = n_compact_chars * (long long)D * (long long)sizeof(__nv_bfloat16);
     long long total_kv_bytes = kv_bytes * 2 * L_layers;
     {
@@ -3607,12 +3602,10 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
             }
         }
     }
-    __nv_bfloat16** d_kv_keys = (__nv_bfloat16**)malloc(L_layers * sizeof(__nv_bfloat16*));
-    __nv_bfloat16** d_kv_values = (__nv_bfloat16**)malloc(L_layers * sizeof(__nv_bfloat16*));
-    for (int l = 0; l < L_layers; l++) {
-        CUDA_CHECK(cudaMallocManaged(&d_kv_keys[l],   kv_bytes));
-        CUDA_CHECK(cudaMallocManaged(&d_kv_values[l], kv_bytes));
-    }
+    CacheRuntime cache_runtime;
+    init_cache_runtime(cache_runtime, L_layers, kv_bytes,
+                       compact_slot, (long long)trie.total_edge_chars,
+                       real_pos_of_char, (long long)trie.total_edge_chars);
     if (!quiet) printf("  KV cache: %.1f MB unified memory (bf16 compact)\n", total_kv_bytes / 1e6);
 
     // RoPE cache
@@ -3622,89 +3615,30 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
     // Per-chunk working buffers. Sized to T_q_cap queries, T_kv_cap packed KV.
     int N_cap = CHUNK_QUERIES;  // worst-case radix count per chunk when edge_len=1
 
-    // Query-side buffers (one row per query position)
-    float *d_x, *d_x_res1, *d_x_res2, *d_ln_out, *d_q, *d_k, *d_v, *d_attn_out, *d_ff_h, *d_ff_mask, *d_ff_out;
-    CUDA_CHECK(cudaMalloc(&d_x,         (long long)T_q_cap * D * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&d_x_res1,    (long long)T_q_cap * D * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&d_x_res2,    (long long)T_q_cap * D * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&d_ln_out,    (long long)T_q_cap * D * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&d_q,         (long long)T_q_cap * D * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&d_k,         (long long)T_q_cap * D * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&d_v,         (long long)T_q_cap * D * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&d_attn_out,  (long long)T_q_cap * D * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&d_ff_h,      (long long)T_q_cap * F * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&d_ff_mask,   (long long)T_q_cap * F * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&d_ff_out,    (long long)T_q_cap * D * sizeof(float)));
-
-    // Endpoint-side buffers (one row per radix node = N)
-    float *d_final_out, *d_final_norm_save, *d_final_std_inv_save, *d_logits, *d_d_logits, *d_loss, *d_d_final_out;
-    CUDA_CHECK(cudaMalloc(&d_final_out,          (long long)N_cap * D * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&d_final_norm_save,    (long long)N_cap * D * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&d_final_std_inv_save, (long long)N_cap * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&d_logits,             (long long)N_cap * V * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&d_d_logits,           (long long)N_cap * V * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&d_loss,               (long long)N_cap * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&d_d_final_out,        (long long)N_cap * D * sizeof(float)));
-
-    // Scratch buffers for own-edge K/V gradient extraction (bias/weight backward).
-    // Sized to T_q_cap so they can hold any chunk's worth of per-query K/V grads.
-    float *d_dk_own = NULL, *d_dv_own = NULL;
-    CUDA_CHECK(cudaMalloc(&d_dk_own,             (long long)T_q_cap * D * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&d_dv_own,             (long long)T_q_cap * D * sizeof(float)));
-
-    // Per-layer saved state (for backward)
-    float** sv_x_res1 = (float**)malloc(L_layers * sizeof(float*));
-    float** sv_ln1_norm = (float**)malloc(L_layers * sizeof(float*));
-    float** sv_ln1_std_inv = (float**)malloc(L_layers * sizeof(float*));
-    float** sv_ln1_out = (float**)malloc(L_layers * sizeof(float*));
-    float** sv_x_res2 = (float**)malloc(L_layers * sizeof(float*));
-    float** sv_ln2_norm = (float**)malloc(L_layers * sizeof(float*));
-    float** sv_ln2_std_inv = (float**)malloc(L_layers * sizeof(float*));
-    float** sv_ln2_out = (float**)malloc(L_layers * sizeof(float*));
-    float** sv_ff_h = (float**)malloc(L_layers * sizeof(float*));
-    float** sv_ff_mask = (float**)malloc(L_layers * sizeof(float*));
-    float** sv_attn_out = (float**)malloc(L_layers * sizeof(float*));
-    float** sv_attn_weights = (float**)malloc(L_layers * sizeof(float*));
-    // Per-layer saved post-RoPE Q/K and V from forward, so backward doesn't
-    // need to recompute the Q/K/V matmuls and RoPE rotations. Trades ~3 ×
-    // T_q_cap × D × 4B × L extra GPU memory for skipping ~6 matmuls + 4
-    // RoPE applies per chunk in backward.
-    float** sv_q = (float**)malloc(L_layers * sizeof(float*));
-    float** sv_k = (float**)malloc(L_layers * sizeof(float*));
-    float** sv_v = (float**)malloc(L_layers * sizeof(float*));
-    for (int l = 0; l < L_layers; l++) {
-        CUDA_CHECK(cudaMalloc(&sv_x_res1[l],      (long long)T_q_cap * D * sizeof(float)));
-        CUDA_CHECK(cudaMalloc(&sv_ln1_norm[l],    (long long)T_q_cap * D * sizeof(float)));
-        CUDA_CHECK(cudaMalloc(&sv_ln1_std_inv[l], (long long)T_q_cap * sizeof(float)));
-        CUDA_CHECK(cudaMalloc(&sv_ln1_out[l],     (long long)T_q_cap * D * sizeof(float)));
-        CUDA_CHECK(cudaMalloc(&sv_x_res2[l],      (long long)T_q_cap * D * sizeof(float)));
-        CUDA_CHECK(cudaMalloc(&sv_ln2_norm[l],    (long long)T_q_cap * D * sizeof(float)));
-        CUDA_CHECK(cudaMalloc(&sv_ln2_std_inv[l], (long long)T_q_cap * sizeof(float)));
-        CUDA_CHECK(cudaMalloc(&sv_ln2_out[l],     (long long)T_q_cap * D * sizeof(float)));
-        CUDA_CHECK(cudaMalloc(&sv_ff_h[l],        (long long)T_q_cap * F * sizeof(float)));
-        CUDA_CHECK(cudaMalloc(&sv_ff_mask[l],     (long long)T_q_cap * F * sizeof(float)));
-        CUDA_CHECK(cudaMalloc(&sv_attn_out[l],    (long long)T_q_cap * D * sizeof(float)));
-        CUDA_CHECK(cudaMalloc(&sv_attn_weights[l],(long long)T_q_cap * H * max_kv_per_node * sizeof(float)));
-        CUDA_CHECK(cudaMalloc(&sv_q[l],           (long long)T_q_cap * D * sizeof(float)));
-        CUDA_CHECK(cudaMalloc(&sv_k[l],           (long long)T_q_cap * D * sizeof(float)));
-        CUDA_CHECK(cudaMalloc(&sv_v[l],           (long long)T_q_cap * D * sizeof(float)));
-    }
-
-    // Packed attention buffers
-    float *d_q_pack_flat, *d_kv_pack_k, *d_kv_pack_v;
-    // T_kv = max packed KV positions per chunk (upper bound)
-    long long T_kv_max = (long long)T_q_cap * max_kv_per_node; // very generous
-    // Clamp with available memory
-    if (T_kv_max > (long long)T_q_cap * 2000) T_kv_max = (long long)T_q_cap * 2000;
-    CUDA_CHECK(cudaMalloc(&d_q_pack_flat, (long long)T_q_cap * H * HD * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&d_kv_pack_k,   T_kv_max * H * HD * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&d_kv_pack_v,   T_kv_max * H * HD * sizeof(float)));
-
-    // dQ/dK/dV packed
-    float *d_dq_pack, *d_dk_pack, *d_dv_pack;
-    CUDA_CHECK(cudaMalloc(&d_dq_pack, (long long)T_q_cap * H * HD * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&d_dk_pack, T_kv_max * H * HD * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&d_dv_pack, T_kv_max * H * HD * sizeof(float)));
+    TransformerChunkRuntime transformer_runtime;
+    init_transformer_chunk_runtime(transformer_runtime, T_q_cap, N_cap, D, F, V, L_layers, H, HD, max_kv_per_node);
+    float *d_x = transformer_runtime.d_x, *d_ln_out = transformer_runtime.d_ln_out;
+    float *d_q = transformer_runtime.d_q, *d_k = transformer_runtime.d_k, *d_v = transformer_runtime.d_v, *d_attn_out = transformer_runtime.d_attn_out, *d_ff_h = transformer_runtime.d_ff_h, *d_ff_out = transformer_runtime.d_ff_out;
+    float *d_final_out = transformer_runtime.d_final_out, *d_final_norm_save = transformer_runtime.d_final_norm_save, *d_final_std_inv_save = transformer_runtime.d_final_std_inv_save, *d_logits = transformer_runtime.d_logits, *d_d_logits = transformer_runtime.d_d_logits, *d_loss = transformer_runtime.d_loss, *d_d_final_out = transformer_runtime.d_d_final_out;
+    float *d_dk_own = transformer_runtime.d_dk_own, *d_dv_own = transformer_runtime.d_dv_own;
+    float** sv_x_res1 = transformer_runtime.sv_x_res1;
+    float** sv_ln1_norm = transformer_runtime.sv_ln1_norm;
+    float** sv_ln1_std_inv = transformer_runtime.sv_ln1_std_inv;
+    float** sv_ln1_out = transformer_runtime.sv_ln1_out;
+    float** sv_x_res2 = transformer_runtime.sv_x_res2;
+    float** sv_ln2_norm = transformer_runtime.sv_ln2_norm;
+    float** sv_ln2_std_inv = transformer_runtime.sv_ln2_std_inv;
+    float** sv_ln2_out = transformer_runtime.sv_ln2_out;
+    float** sv_ff_h = transformer_runtime.sv_ff_h;
+    float** sv_ff_mask = transformer_runtime.sv_ff_mask;
+    float** sv_attn_out = transformer_runtime.sv_attn_out;
+    float** sv_attn_weights = transformer_runtime.sv_attn_weights;
+    float** sv_q = transformer_runtime.sv_q;
+    float** sv_k = transformer_runtime.sv_k;
+    float** sv_v = transformer_runtime.sv_v;
+    float *d_kv_pack_k = transformer_runtime.d_kv_pack_k, *d_kv_pack_v = transformer_runtime.d_kv_pack_v;
+    float *d_dq_pack = transformer_runtime.d_dq_pack, *d_dk_pack = transformer_runtime.d_dk_pack, *d_dv_pack = transformer_runtime.d_dv_pack;
+    long long T_kv_max = transformer_runtime.T_kv_max;
 
     // Trie upload
     int *d_radix_counts_offset, *d_radix_counts_tok, *d_radix_counts_val;
@@ -3724,14 +3658,16 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
     int *d_token_ids;         // [T_q_cap] for embedding gather
     int *d_rope_positions;    // [T_q_cap * H] for RoPE (per-query, replicated per head)
     int *d_char_pos;          // [T_q_cap] global character position per query (for KV scatter)
-    CUDA_CHECK(cudaMalloc(&d_radix_ids,      N_cap * sizeof(int)));
-    CUDA_CHECK(cudaMalloc(&d_query_to_node,  T_q_cap * sizeof(int)));
-    CUDA_CHECK(cudaMalloc(&d_query_offsets,  (N_cap + 1) * sizeof(int)));
-    CUDA_CHECK(cudaMalloc(&d_kv_offsets,     (N_cap + 1) * sizeof(int)));
-    CUDA_CHECK(cudaMalloc(&d_kv_lengths,     N_cap * sizeof(int)));
-    CUDA_CHECK(cudaMalloc(&d_token_ids,      T_q_cap * sizeof(int)));
-    CUDA_CHECK(cudaMalloc(&d_rope_positions, T_q_cap * H * sizeof(int)));
-    CUDA_CHECK(cudaMalloc(&d_char_pos,       T_q_cap * sizeof(int)));
+    ChunkUploadRuntime chunk_upload_runtime;
+    init_chunk_upload_runtime(chunk_upload_runtime, N_cap, T_q_cap, H);
+    d_radix_ids = chunk_upload_runtime.d_radix_ids;
+    d_query_to_node = chunk_upload_runtime.d_query_to_node;
+    d_query_offsets = chunk_upload_runtime.d_query_offsets;
+    d_kv_offsets = chunk_upload_runtime.d_kv_offsets;
+    d_kv_lengths = chunk_upload_runtime.d_kv_lengths;
+    d_token_ids = chunk_upload_runtime.d_token_ids;
+    d_rope_positions = chunk_upload_runtime.d_rope_positions;
+    d_char_pos = chunk_upload_runtime.d_char_pos;
 
     // Per-query mass weight buffer. Allocated unconditionally so it's
     // available for ancestor-loss-masking (Lightning prepends ancestors to
@@ -4299,10 +4235,7 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
         }
 
         // Zero KV caches
-        for (int l = 0; l < L_layers; l++) {
-            CUDA_CHECK(cudaMemset(d_kv_keys[l],   0, kv_bytes));
-            CUDA_CHECK(cudaMemset(d_kv_values[l], 0, kv_bytes));
-        }
+        zero_cache_runtime(cache_runtime);
 
         // ------------------------------------------------------------
         // Lightning resampling: generate N stochastic samples for this
@@ -4726,226 +4659,48 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
             // Chunk by total queries ≤ CHUNK_QUERIES
             int chunk_start = 0;
             while (chunk_start < n_at_depth) {
-                // Accumulate radix nodes until total queries exceeds CHUNK_QUERIES or we hit N_cap.
-                // Branch-dropout: skip masked nodes (advance chunk_end past them without counting).
-                int chunk_end = chunk_start;
-                int T_q = 0;
-                while (chunk_end < n_at_depth) {
-                    int r = radix_list[subtree_offset + chunk_end];
-                    if (branch_drop_mask && branch_drop_mask[r]) {
-                        chunk_end++;
-                        continue;
-                    }
-                    int L = trie.edge_lens[r];
-                    if (T_q + L > T_q_cap || chunk_end - chunk_start >= N_cap) break;
-                    T_q += L;
-                    chunk_end++;
-                }
-                if (chunk_end == chunk_start) {
-                    // One node too big — skip (shouldn't happen at sane CHUNK_QUERIES)
-                    chunk_start++;
-                    continue;
-                }
-                // Count unmasked nodes in [chunk_start, chunk_end). With branch-dropout
-                // off, this equals chunk_end - chunk_start.
-                int N;
-                if (branch_drop_mask) {
-                    N = 0;
-                    for (int k = chunk_start; k < chunk_end; k++) {
-                        int r = radix_list[subtree_offset + k];
-                        if (!branch_drop_mask[r]) N++;
-                    }
-                    if (N == 0) {
-                        // Whole chunk range was masked — advance and try next.
-                        chunk_start = chunk_end;
-                        continue;
-                    }
-                } else {
-                    N = chunk_end - chunk_start;
-                }
-
-                // Build per-chunk host arrays
-                int* h_radix_ids      = (int*)malloc(N * sizeof(int));
-                int* h_query_offsets  = (int*)malloc((N + 1) * sizeof(int));
-                int* h_kv_offsets     = (int*)malloc((N + 1) * sizeof(int));
-                int* h_kv_lengths     = (int*)malloc(N * sizeof(int));
-                int* h_query_to_node  = (int*)malloc(T_q * sizeof(int));
-                int* h_token_ids      = (int*)malloc(T_q * sizeof(int));
-                int* h_rope_positions = (int*)malloc(T_q * H * sizeof(int));
-                int* h_char_pos       = (int*)malloc(T_q * sizeof(int));
-                int* h_query_depth    = (int*)malloc(T_q * sizeof(int));  // per-query trie depth
-                int* h_query_d_split  = (int*)malloc(T_q * sizeof(int));  // per-query leaf d* (per-leaf routing)
-
-                int q_fill = 0;
-                int kv_fill = 0;
-                int i = 0;
-                int k_iter = chunk_start;
-                while (i < N) {
-                    int r = radix_list[subtree_offset + k_iter];
-                    k_iter++;
-                    if (branch_drop_mask && branch_drop_mask[r]) continue;  // skip masked
-                    h_radix_ids[i] = r;
-                    int L = trie.edge_lens[r];
-                    int anc_len = trie.ancestor_char_offsets[r + 1] - trie.ancestor_char_offsets[r];
-                    int K_i = anc_len + L;
-                    h_query_offsets[i] = q_fill;
-                    h_kv_offsets[i] = kv_fill;
-                    h_kv_lengths[i] = K_i;
-
-                    int edge_start = trie.edge_starts[r];
-                    int fcd = trie.edge_first_char_depths[r];
-                    int node_d_split = trie.d_split ? trie.d_split[r] : INT_MAX;
-                    for (int j = 0; j < L; j++) {
-                        h_query_to_node[q_fill + j] = i;
-                        h_token_ids[q_fill + j] = trie.edge_tokens_flat[edge_start + j];
-                        int pos = fcd + j - 1;  // position = absolute depth - 1 (matches leveled)
-                        if (pos < 0) pos = 0;
-                        if (pos >= cfg.seq_len) pos = cfg.seq_len - 1;
-                        for (int h = 0; h < H; h++)
-                            h_rope_positions[(q_fill + j) * H + h] = pos;
-                        h_char_pos[q_fill + j] = edge_start + j;
-                        h_query_depth[q_fill + j] = fcd + j;  // 1-based char depth for routing
-                        h_query_d_split[q_fill + j] = node_d_split;  // shared by all queries within this radix node
-                    }
-                    q_fill += L;
-                    kv_fill += K_i;
-                    i++;
-                }
-                // Advance chunk_start past the consumed range (works for both
-                // standard and branch-dropout paths; k_iter has already walked
-                // the full [chunk_start, chunk_end) range).
-                h_query_offsets[N] = q_fill;
-                h_kv_offsets[N] = kv_fill;
-                int T_kv = kv_fill;
-
-                // Guard against T_kv overflow of packed buffers
-                if ((long long)T_kv > T_kv_max) {
-                    fprintf(stderr, "Chunk T_kv=%d exceeds T_kv_max=%lld; skip\n", T_kv, T_kv_max);
-                    free(h_radix_ids); free(h_query_offsets); free(h_kv_offsets); free(h_kv_lengths);
-                    free(h_query_to_node); free(h_token_ids); free(h_rope_positions); free(h_char_pos);
-                    free(h_query_depth); free(h_query_d_split);
-                    chunk_start = chunk_end;
-                    continue;
-                }
-
-                // Find max prefix length for this chunk (for kernel smem)
-                int max_kv_len = 0;
-                for (int i = 0; i < N; i++) if (h_kv_lengths[i] > max_kv_len) max_kv_len = h_kv_lengths[i];
-
-                // --- Ancestor + own-edge split for compact-cache gather ---
-                // Build flat ancestor ids (cache side) + per-query anc/own lengths.
-                // Own-edge K/V is copied from the fresh d_k/d_v buffer; ancestors
-                // come from the compact cache (mass=1 positions skipped).
-                int T_anc = 0;
-                for (int i = 0; i < N; i++) {
-                    int r = h_radix_ids[i];
-                    T_anc += trie.ancestor_char_offsets[r + 1] - trie.ancestor_char_offsets[r];
-                }
-                int* h_anc_ids      = (int*)malloc((T_anc > 0 ? T_anc : 1) * sizeof(int));
-                int* h_anc_offsets  = (int*)malloc((N + 1) * sizeof(int));
-                int* h_anc_lengths  = (int*)malloc(N * sizeof(int));
-                int* h_own_lengths  = (int*)malloc(N * sizeof(int));
-                // Per-slot target read position used by the delta-RoPE K gather.
-                // Phase 0 (K=1): read_pos == real_pos, delta = 0 (kernel is
-                // bit-identical to a plain gather). Phase 2+ (virtual) will
-                // populate this with virtual-cycle-shifted positions so the
-                // same cache entries serve K*D effective context.
-                int* h_read_pos_flat = (int*)malloc((T_anc > 0 ? T_anc : 1) * sizeof(int));
-                // Capture current sample's cycle shift for this chunk. All queries
-                // in the chunk share the shift (they belong to the same sample).
                 int chunk_cycle_shift = 0;
                 if (lightning_active && lightning_cycle_shift && lightning.virtual_cycles > 1) {
                     chunk_cycle_shift = lightning_cycle_shift[rc_idx];
                 }
-                {
-                    int fill = 0;
-                    for (int i = 0; i < N; i++) {
-                        h_anc_offsets[i] = fill;
-                        int r = h_radix_ids[i];
-                        int anc_off = trie.ancestor_char_offsets[r];
-                        int anc_len = trie.ancestor_char_offsets[r + 1] - anc_off;
-                        for (int a = 0; a < anc_len; a++) {
-                            int char_pos = trie.ancestor_char_ids[anc_off + a];
-                            h_anc_ids[fill] = char_pos;
-                            int vr = real_pos_of_char[char_pos] + chunk_cycle_shift;
-                            if (vr >= cfg.seq_len) vr = cfg.seq_len - 1;
-                            h_read_pos_flat[fill] = vr;
-                            fill++;
-                        }
-                        h_anc_lengths[i] = anc_len;
-                        h_own_lengths[i] = trie.edge_lens[r];
-                    }
-                    h_anc_offsets[N] = fill;
+                ChunkBuildContext chunk_ctx{
+                    cfg,
+                    trie,
+                    radix_list,
+                    subtree_offset,
+                    n_at_depth,
+                    chunk_start,
+                    T_q_cap,
+                    N_cap,
+                    H,
+                    branch_drop_mask,
+                    chunk_cycle_shift,
+                    real_pos_of_char,
+                    T_kv_max
+                };
+                ChunkMetadata chunk_meta;
+                if (!build_chunk_metadata(chunk_ctx, chunk_meta)) {
+                    chunk_start = chunk_meta.next_chunk_start;
+                    continue;
                 }
-                static int* d_anc_ids_cache       = NULL; static int d_anc_ids_cap       = 0;
-                static int* d_anc_offsets_cache   = NULL; static int d_anc_offsets_cap   = 0;
-                static int* d_anc_lengths_cache   = NULL; static int d_anc_lengths_cap   = 0;
-                static int* d_own_lengths_cache   = NULL; static int d_own_lengths_cap   = 0;
-                static int* d_read_pos_flat_cache = NULL; static int d_read_pos_flat_cap = 0;
-                if (T_anc > d_anc_ids_cap) {
-                    if (d_anc_ids_cache) cudaFree(d_anc_ids_cache);
-                    CUDA_CHECK(cudaMalloc(&d_anc_ids_cache, (T_anc > 0 ? T_anc : 1) * sizeof(int)));
-                    d_anc_ids_cap = T_anc;
-                }
-                if (N + 1 > d_anc_offsets_cap) {
-                    if (d_anc_offsets_cache) cudaFree(d_anc_offsets_cache);
-                    CUDA_CHECK(cudaMalloc(&d_anc_offsets_cache, (N + 1) * sizeof(int)));
-                    d_anc_offsets_cap = N + 1;
-                }
-                if (N > d_anc_lengths_cap) {
-                    if (d_anc_lengths_cache) cudaFree(d_anc_lengths_cache);
-                    CUDA_CHECK(cudaMalloc(&d_anc_lengths_cache, N * sizeof(int)));
-                    d_anc_lengths_cap = N;
-                }
-                if (N > d_own_lengths_cap) {
-                    if (d_own_lengths_cache) cudaFree(d_own_lengths_cache);
-                    CUDA_CHECK(cudaMalloc(&d_own_lengths_cache, N * sizeof(int)));
-                    d_own_lengths_cap = N;
-                }
-                if (T_anc > d_read_pos_flat_cap) {
-                    if (d_read_pos_flat_cache) cudaFree(d_read_pos_flat_cache);
-                    CUDA_CHECK(cudaMalloc(&d_read_pos_flat_cache, (T_anc > 0 ? T_anc : 1) * sizeof(int)));
-                    d_read_pos_flat_cap = T_anc;
-                }
-                if (T_anc > 0) {
-                    CUDA_CHECK(cudaMemcpy(d_anc_ids_cache, h_anc_ids, T_anc * sizeof(int), cudaMemcpyHostToDevice));
-                    CUDA_CHECK(cudaMemcpy(d_read_pos_flat_cache, h_read_pos_flat, T_anc * sizeof(int), cudaMemcpyHostToDevice));
-                }
-                CUDA_CHECK(cudaMemcpy(d_anc_offsets_cache, h_anc_offsets, (N + 1) * sizeof(int), cudaMemcpyHostToDevice));
-                CUDA_CHECK(cudaMemcpy(d_anc_lengths_cache, h_anc_lengths, N * sizeof(int), cudaMemcpyHostToDevice));
-                CUDA_CHECK(cudaMemcpy(d_own_lengths_cache, h_own_lengths, N * sizeof(int), cudaMemcpyHostToDevice));
-                free(h_anc_ids); free(h_anc_offsets); free(h_anc_lengths); free(h_own_lengths); free(h_read_pos_flat);
 
-                // Upload
-                CUDA_CHECK(cudaMemcpy(d_radix_ids,      h_radix_ids,      N * sizeof(int), cudaMemcpyHostToDevice));
-                CUDA_CHECK(cudaMemcpy(d_query_offsets,  h_query_offsets,  (N + 1) * sizeof(int), cudaMemcpyHostToDevice));
-                CUDA_CHECK(cudaMemcpy(d_kv_offsets,     h_kv_offsets,     (N + 1) * sizeof(int), cudaMemcpyHostToDevice));
-                CUDA_CHECK(cudaMemcpy(d_kv_lengths,     h_kv_lengths,     N * sizeof(int), cudaMemcpyHostToDevice));
-                CUDA_CHECK(cudaMemcpy(d_query_to_node,  h_query_to_node,  T_q * sizeof(int), cudaMemcpyHostToDevice));
-                CUDA_CHECK(cudaMemcpy(d_token_ids,      h_token_ids,      T_q * sizeof(int), cudaMemcpyHostToDevice));
-                CUDA_CHECK(cudaMemcpy(d_rope_positions, h_rope_positions, T_q * H * sizeof(int), cudaMemcpyHostToDevice));
-                CUDA_CHECK(cudaMemcpy(d_char_pos,       h_char_pos,       T_q * sizeof(int), cudaMemcpyHostToDevice));
+                int chunk_end = chunk_meta.chunk_end;
+                int N = chunk_meta.N;
+                int T_q = chunk_meta.T_q;
+                int T_kv = chunk_meta.T_kv;
+                int max_kv_len = chunk_meta.max_kv_len;
+                int* h_radix_ids = chunk_meta.h_radix_ids;
+                int* h_query_offsets = chunk_meta.h_query_offsets;
+                int* h_query_to_node = chunk_meta.h_query_to_node;
+                int* h_char_pos = chunk_meta.h_char_pos;
+                int* h_query_depth = chunk_meta.h_query_depth;
 
-                // Per-query depth (for depth-routed K/V gradient).
-                // Allocated once, grown as needed across chunks.
-                static int* d_query_depth_cache = NULL;
-                static int  d_query_depth_cap   = 0;
-                if (T_q > d_query_depth_cap) {
-                    if (d_query_depth_cache) cudaFree(d_query_depth_cache);
-                    CUDA_CHECK(cudaMalloc(&d_query_depth_cache, T_q * sizeof(int)));
-                    d_query_depth_cap = T_q;
-                }
-                CUDA_CHECK(cudaMemcpy(d_query_depth_cache, h_query_depth, T_q * sizeof(int), cudaMemcpyHostToDevice));
-
-                // Per-query d_split (for per-leaf depth routing).
-                static int* d_query_d_split_cache = NULL;
-                static int  d_query_d_split_cap   = 0;
-                if (T_q > d_query_d_split_cap) {
-                    if (d_query_d_split_cache) cudaFree(d_query_d_split_cache);
-                    CUDA_CHECK(cudaMalloc(&d_query_d_split_cache, T_q * sizeof(int)));
-                    d_query_d_split_cap = T_q;
-                }
-                CUDA_CHECK(cudaMemcpy(d_query_d_split_cache, h_query_d_split, T_q * sizeof(int), cudaMemcpyHostToDevice));
+                ChunkDeviceMetadata device_chunk_meta =
+                    upload_chunk_metadata_to_device(chunk_meta, chunk_upload_runtime);
+                int* d_anc_lengths_cache = device_chunk_meta.d_anc_lengths;
+                int* d_own_lengths_cache = device_chunk_meta.d_own_lengths;
+                int* d_query_depth_cache = device_chunk_meta.d_query_depth;
+                int* d_query_d_split_cache = device_chunk_meta.d_query_d_split;
 
                 // Corpus-mass weighting. Raw edge_mass varies by 5+ orders of
                 // magnitude in natural-language tries (common letters vs rare
@@ -5089,8 +4844,7 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                     // Scatter K/V into compact cache (mass=1 char positions are
                     // skipped — they're never queried as ancestors).
                     TIME_K(t_us_scatter_fwd, {
-                        launch_kv_scatter_compact_bf16(d_k, d_char_pos, d_compact_slot, d_kv_keys[l],   T_q, D);
-                        launch_kv_scatter_compact_bf16(d_v, d_char_pos, d_compact_slot, d_kv_values[l], T_q, D);
+                        scatter_layer_kv_to_cache(cache_runtime, l, d_k, d_v, d_char_pos, T_q, D);
                     });
 
                     // Virtual-tree shift: if this sample's cycle shift > 0, rotate
@@ -5119,26 +4873,13 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                     // the same cache entry can serve a virtual read position; otherwise the
                     // plain gather is used (faster, no extra trig). V has no RoPE.
                     TIME_K(t_us_gather_fwd, {
-                        if (lightning.virtual_cycles > 1) {
-                            launch_kv_gather_k_anc_delta_rope(d_kv_keys[l], d_anc_ids_cache, d_anc_offsets_cache,
-                                                              d_kv_offsets, d_anc_lengths_cache, d_compact_slot,
-                                                              d_read_pos_flat_cache, d_real_pos_of_char,
-                                                              d_rope_cos, d_rope_sin,
-                                                              d_kv_pack_k, N, H, HD);
-                        } else {
-                            launch_kv_gather_anc_compact_bf16(d_kv_keys[l], d_anc_ids_cache, d_anc_offsets_cache,
-                                                              d_kv_offsets, d_anc_lengths_cache, d_compact_slot,
-                                                              d_kv_pack_k, N, H, HD);
-                        }
-                        launch_kv_gather_anc_compact_bf16(d_kv_values[l], d_anc_ids_cache, d_anc_offsets_cache,
-                                                          d_kv_offsets, d_anc_lengths_cache, d_compact_slot,
-                                                          d_kv_pack_v, N, H, HD);
-                        launch_kv_copy_own_edge(d_k, d_query_offsets, d_kv_offsets,
-                                                 d_anc_lengths_cache, d_own_lengths_cache,
-                                                 d_kv_pack_k, N, H, HD);
-                        launch_kv_copy_own_edge(d_v, d_query_offsets, d_kv_offsets,
-                                                 d_anc_lengths_cache, d_own_lengths_cache,
-                                                 d_kv_pack_v, N, H, HD);
+                        gather_layer_packed_kv(cache_runtime, l, device_chunk_meta,
+                                               d_query_offsets, d_kv_offsets,
+                                               d_k, d_v,
+                                               d_kv_pack_k, d_kv_pack_v,
+                                               d_rope_cos, d_rope_sin,
+                                               N, H, HD,
+                                               lightning.virtual_cycles > 1);
                     });
 
                     // L-query varlen attention
@@ -5352,26 +5093,13 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                     // own-edge from freshly-recomputed d_k/d_v. Delta-RoPE K gather
                     // only when virtual-tree mode is active.
                     TIME_K(t_us_gather_bwd, {
-                        if (lightning.virtual_cycles > 1) {
-                            launch_kv_gather_k_anc_delta_rope(d_kv_keys[l], d_anc_ids_cache, d_anc_offsets_cache,
-                                                              d_kv_offsets, d_anc_lengths_cache, d_compact_slot,
-                                                              d_read_pos_flat_cache, d_real_pos_of_char,
-                                                              d_rope_cos, d_rope_sin,
-                                                              d_kv_pack_k, N, H, HD);
-                        } else {
-                            launch_kv_gather_anc_compact_bf16(d_kv_keys[l], d_anc_ids_cache, d_anc_offsets_cache,
-                                                              d_kv_offsets, d_anc_lengths_cache, d_compact_slot,
-                                                              d_kv_pack_k, N, H, HD);
-                        }
-                        launch_kv_gather_anc_compact_bf16(d_kv_values[l], d_anc_ids_cache, d_anc_offsets_cache,
-                                                          d_kv_offsets, d_anc_lengths_cache, d_compact_slot,
-                                                          d_kv_pack_v, N, H, HD);
-                        launch_kv_copy_own_edge(d_k, d_query_offsets, d_kv_offsets,
-                                                 d_anc_lengths_cache, d_own_lengths_cache,
-                                                 d_kv_pack_k, N, H, HD);
-                        launch_kv_copy_own_edge(d_v, d_query_offsets, d_kv_offsets,
-                                                 d_anc_lengths_cache, d_own_lengths_cache,
-                                                 d_kv_pack_v, N, H, HD);
+                        gather_layer_packed_kv(cache_runtime, l, device_chunk_meta,
+                                               d_query_offsets, d_kv_offsets,
+                                               d_k, d_v,
+                                               d_kv_pack_k, d_kv_pack_v,
+                                               d_rope_cos, d_rope_sin,
+                                               N, H, HD,
+                                               lightning.virtual_cycles > 1);
                     });
 
                     // Zero dK/dV packed buffers
@@ -5492,9 +5220,7 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                 // NOTE: no Adam step here — gradients accumulate in d_grads
                 // across all chunks of this root-child subtree; one step at subtree end.
 
-                free(h_radix_ids); free(h_query_offsets); free(h_kv_offsets); free(h_kv_lengths);
-                free(h_query_to_node); free(h_token_ids); free(h_rope_positions); free(h_char_pos);
-                free(h_query_depth); free(h_query_d_split);
+                free_chunk_metadata(chunk_meta);
 
                 chunks_processed++;
                 chunk_start = chunk_end;
@@ -6008,6 +5734,8 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
         }
     }
 
+    free_chunk_upload_runtime(chunk_upload_runtime);
+
     cudaFree(d_weights); cudaFree(d_grads); cudaFree(d_adam_m); cudaFree(d_adam_v);
     if (d_adam_m_per_rc) cudaFree(d_adam_m_per_rc);
     if (d_adam_v_per_rc) cudaFree(d_adam_v_per_rc);
@@ -6023,34 +5751,10 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
     if (lbfgs_state.d_q)      cudaFree(lbfgs_state.d_q);
     if (lbfgs_state.rho_hist) free(lbfgs_state.rho_hist);
     if (lbfgs_state.alpha)    free(lbfgs_state.alpha);
-    for (int l = 0; l < L_layers; l++) {
-        cudaFree(d_kv_keys[l]); cudaFree(d_kv_values[l]);
-    }
-    free(d_kv_keys); free(d_kv_values);
+    free_cache_runtime(cache_runtime);
     cudaFree(d_rope_cos); cudaFree(d_rope_sin);
-    cudaFree(d_x); cudaFree(d_x_res1); cudaFree(d_x_res2); cudaFree(d_ln_out);
-    cudaFree(d_q); cudaFree(d_k); cudaFree(d_v); cudaFree(d_attn_out);
-    cudaFree(d_ff_h); cudaFree(d_ff_mask); cudaFree(d_ff_out);
-    cudaFree(d_final_out); cudaFree(d_final_norm_save); cudaFree(d_final_std_inv_save);
-    cudaFree(d_logits); cudaFree(d_d_logits); cudaFree(d_loss); cudaFree(d_d_final_out);
-    if (d_dk_own) cudaFree(d_dk_own);
-    if (d_dv_own) cudaFree(d_dv_own);
-    for (int l = 0; l < L_layers; l++) {
-        cudaFree(sv_x_res1[l]); cudaFree(sv_ln1_norm[l]); cudaFree(sv_ln1_std_inv[l]); cudaFree(sv_ln1_out[l]);
-        cudaFree(sv_x_res2[l]); cudaFree(sv_ln2_norm[l]); cudaFree(sv_ln2_std_inv[l]); cudaFree(sv_ln2_out[l]);
-        cudaFree(sv_ff_h[l]); cudaFree(sv_ff_mask[l]); cudaFree(sv_attn_out[l]); cudaFree(sv_attn_weights[l]);
-        cudaFree(sv_q[l]); cudaFree(sv_k[l]); cudaFree(sv_v[l]);
-    }
-    free(sv_x_res1); free(sv_ln1_norm); free(sv_ln1_std_inv); free(sv_ln1_out);
-    free(sv_x_res2); free(sv_ln2_norm); free(sv_ln2_std_inv); free(sv_ln2_out);
-    free(sv_ff_h); free(sv_ff_mask); free(sv_attn_out); free(sv_attn_weights);
-    free(sv_q); free(sv_k); free(sv_v);
-    cudaFree(d_q_pack_flat); cudaFree(d_kv_pack_k); cudaFree(d_kv_pack_v);
-    cudaFree(d_dq_pack); cudaFree(d_dk_pack); cudaFree(d_dv_pack);
+    free_transformer_chunk_runtime(transformer_runtime);
     cudaFree(d_radix_counts_offset); cudaFree(d_radix_counts_tok); cudaFree(d_radix_counts_val);
-    cudaFree(d_radix_ids); cudaFree(d_query_to_node); cudaFree(d_query_offsets);
-    cudaFree(d_kv_offsets); cudaFree(d_kv_lengths); cudaFree(d_token_ids);
-    cudaFree(d_rope_positions); cudaFree(d_char_pos);
     if (d_mass_weights) cudaFree(d_mass_weights);
     free(root_child_of); free(root_children);
     for (int i = 0; i < n_root_children; i++) free(subtree_nodes[i]);
@@ -6059,9 +5763,7 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
     if (lightning_children_offsets) free(lightning_children_offsets);
     if (lightning_children_flat)    free(lightning_children_flat);
     if (compact_slot)       free(compact_slot);
-    if (d_compact_slot)     cudaFree(d_compact_slot);
     if (real_pos_of_char)   free(real_pos_of_char);
-    if (d_real_pos_of_char) cudaFree(d_real_pos_of_char);
     if (is_loop_point)      free(is_loop_point);
     if (d_is_loop_point)    cudaFree(d_is_loop_point);
     if (depth_limit) {
