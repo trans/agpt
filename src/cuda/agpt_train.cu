@@ -117,6 +117,15 @@ struct Config {
                                  // per-group behavior. Combined with --shuffle-order, K random groups
                                  // are batched per step — addresses pd=2 memorization where few unique
                                  // partitions get repeated solo many times.
+    bool anc_grad = false;      // Descendant→ancestor gradient flow for Wk/Wv.
+                                 // When set, the ANCESTOR slice of d_dk_pack/d_dv_pack
+                                 // (currently dropped) gets scatter-added into per-subtree
+                                 // accumulators, and the eventual dW_k/dW_v update at
+                                 // subtree-fire end consumes those accumulators along
+                                 // with the existing own-edge contribution. Requires
+                                 // pd=1 (cross-group cache staleness at pd>1 would
+                                 // confound the new gradient flow). See
+                                 // todo/descendant-ancestor-scatter.md.
     bool per_rc_adam = false;   // Stage 1 of topological optimizer state: per-root-child
                                  // Adam/RMSprop moments. Each rc subtree gets its own m, v, t
                                  // instead of sharing global state. Tests whether topological
@@ -4041,6 +4050,55 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
     }
 
     // ------------------------------------------------------------
+    // Descendant→ancestor gradient buffers (--anc-grad).
+    // Per-subtree-scoped accumulators sized to the largest subtree.
+    // Reused across subtree fires (zeroed at start of each fire).
+    //
+    // Per layer:
+    //   d_dkv_subtree_k[l]: [max_n_in_subtree, D]   K-grad accumulator
+    //   d_dkv_subtree_v[l]: [max_n_in_subtree, D]   V-grad accumulator
+    //   h_subtree[l]:       [max_n_in_subtree, D]   saved ln1_out per node
+    //
+    // Global (one buffer, not per-layer):
+    //   d_global_to_subtree_idx: [total_nodes] int  global trie-id → subtree-local
+    //                                                index, -1 for nodes outside
+    //                                                current subtree
+    //
+    // SCAFFOLDING ONLY at this commit — buffers allocated, not yet used.
+    // Subsequent commits will wire the scatter + chain-rule reduction.
+    // ------------------------------------------------------------
+    float** d_dkv_subtree_k = NULL;     // [L_layers] of device pointers
+    float** d_dkv_subtree_v = NULL;
+    float** h_subtree       = NULL;
+    int*    d_global_to_subtree_idx = NULL;
+    int     max_n_in_subtree = 0;
+    if (cfg.anc_grad) {
+        // Largest subtree size determines buffer size; reuse across fires.
+        for (int i = 0; i < n_root_children; i++) {
+            if (subtree_sizes[i] > max_n_in_subtree) max_n_in_subtree = subtree_sizes[i];
+        }
+        size_t per_layer_bytes = (size_t)max_n_in_subtree * (size_t)D * sizeof(float);
+        d_dkv_subtree_k = (float**)malloc(L_layers * sizeof(float*));
+        d_dkv_subtree_v = (float**)malloc(L_layers * sizeof(float*));
+        h_subtree       = (float**)malloc(L_layers * sizeof(float*));
+        for (int l = 0; l < L_layers; l++) {
+            CUDA_CHECK(cudaMalloc(&d_dkv_subtree_k[l], per_layer_bytes));
+            CUDA_CHECK(cudaMalloc(&d_dkv_subtree_v[l], per_layer_bytes));
+            CUDA_CHECK(cudaMalloc(&h_subtree[l],       per_layer_bytes));
+        }
+        CUDA_CHECK(cudaMalloc(&d_global_to_subtree_idx, (size_t)trie.radix_count * sizeof(int)));
+        size_t total_bytes = 3 * L_layers * per_layer_bytes
+                           + (size_t)trie.radix_count * sizeof(int);
+        if (!quiet) {
+            printf("  anc-grad: max_n_in_subtree=%d, %d layers x 3 buffers x %.2f MB + %.2f MB lookup = %.2f MB total\n",
+                   max_n_in_subtree, L_layers,
+                   (double)per_layer_bytes / 1.0e6,
+                   (double)(trie.radix_count * sizeof(int)) / 1.0e6,
+                   (double)total_bytes / 1.0e6);
+        }
+    }
+
+    // ------------------------------------------------------------
     // Lightning Training adjacency precompute.
     // We build an inverted parents[] → children adjacency table once, plus
     // cumulative child weights used by L3's mass-weighted descent.
@@ -5757,6 +5815,17 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
     free_chunk_upload_runtime(chunk_upload_runtime);
 
     cudaFree(d_weights); cudaFree(d_grads); cudaFree(d_adam_m); cudaFree(d_adam_v);
+    if (d_dkv_subtree_k) {
+        for (int l = 0; l < L_layers; l++) {
+            if (d_dkv_subtree_k[l]) cudaFree(d_dkv_subtree_k[l]);
+            if (d_dkv_subtree_v[l]) cudaFree(d_dkv_subtree_v[l]);
+            if (h_subtree[l])       cudaFree(h_subtree[l]);
+        }
+        free(d_dkv_subtree_k);
+        free(d_dkv_subtree_v);
+        free(h_subtree);
+    }
+    if (d_global_to_subtree_idx) cudaFree(d_global_to_subtree_idx);
     if (d_adam_m_per_rc) cudaFree(d_adam_m_per_rc);
     if (d_adam_v_per_rc) cudaFree(d_adam_v_per_rc);
     if (h_adam_t_per_rc) free(h_adam_t_per_rc);
@@ -5830,6 +5899,7 @@ int main(int argc, char** argv) {
     bool shuffle_order = false;     // --shuffle-order: random partition-group order per SE
     int  mini_batch_groups = 1;     // --mini-batch-groups K: accumulate K partition groups per opt step
     bool per_rc_adam = false;       // --per-rc-adam: per-root-child Adam/RMSprop state (Stage 1 topological optimizer)
+    bool anc_grad = false;          // --anc-grad: descendant→ancestor gradient flow for Wk/Wv
     const char* per_rc_v_dump_path = nullptr;  // --dump-per-rc-v PATH: write per-rc v buffer at end of training
     unsigned shuffle_seed = 0xa17b1edu;  // --shuffle-seed: RNG seed for shuffle
     OptimizerKind optimizer = OptimizerKind::Adam;
@@ -5889,6 +5959,7 @@ int main(int argc, char** argv) {
         else if (strcmp(argv[i], "--shuffle-order") == 0) shuffle_order = true;
         else if (strcmp(argv[i], "--mini-batch-groups") == 0 && i + 1 < argc) mini_batch_groups = atoi(argv[++i]);
         else if (strcmp(argv[i], "--per-rc-adam") == 0) per_rc_adam = true;
+        else if (strcmp(argv[i], "--anc-grad") == 0) anc_grad = true;
         else if (strcmp(argv[i], "--dump-per-rc-v") == 0 && i + 1 < argc) per_rc_v_dump_path = argv[++i];
         else if (strcmp(argv[i], "--shuffle-seed") == 0 && i + 1 < argc) shuffle_seed = (unsigned)strtoul(argv[++i], NULL, 0);
         else if (strcmp(argv[i], "--lr-rule") == 0 && i + 1 < argc) {
@@ -6083,6 +6154,18 @@ int main(int argc, char** argv) {
     cfg.lbfgs_k = lbfgs_k;
     cfg.mini_batch_groups = (mini_batch_groups < 1) ? 1 : mini_batch_groups;
     cfg.per_rc_adam = per_rc_adam;
+    cfg.anc_grad = anc_grad;
+    if (cfg.anc_grad && partition_depth != 1) {
+        fprintf(stderr, "ERROR: --anc-grad requires --partition-depth 1 (cross-group cache staleness at pd>1 would confound the new gradient flow)\n");
+        return 1;
+    }
+    if (cfg.anc_grad && accumulate) {
+        fprintf(stderr, "ERROR: --anc-grad requires --no-accumulate (gradient flow is per-subtree-fire)\n");
+        return 1;
+    }
+    if (cfg.anc_grad) {
+        fprintf(stderr, "INFO: --anc-grad: per-subtree descendant→ancestor gradient flow enabled (Wk/Wv get full gradient instead of own-edge-only)\n");
+    }
     cfg.per_rc_v_dump_path = per_rc_v_dump_path;
     if (cfg.per_rc_adam && accumulate) {
         fprintf(stderr, "ERROR: --per-rc-adam requires --no-accumulate (per-rc Adam state is only meaningful in per-group fire mode)\n");
