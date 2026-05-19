@@ -3176,6 +3176,95 @@ struct TrainPersistence {
 #include "agpt_cache_runtime.cuh"
 #include "agpt_transformer_chunk_runtime.cuh"
 
+// ============================================================================
+// Experimental flags
+// ============================================================================
+//
+// Environment-variable-driven knobs for active experiments. Consolidates the
+// scattered getenv() calls into one place so `grep ExperimentalFlags` shows
+// every experimental control surface at a glance.
+//
+// Promote to CLI flags when an experiment graduates from "is this worth
+// keeping?" to "yes, this is a documented option."
+//
+struct ExperimentalFlags {
+    // AGPT_TIMING_BREAKDOWN: per-kernel cudaEvent timing breakdown each epoch.
+    // ~5-10% overhead. Diagnostic only.
+    bool timing_breakdown = false;
+
+    // AGPT_DEPTH_ROUTE_K: depth threshold for K/V gradient routing.
+    // Shallow queries (d ≤ d_k) feed dWk only; deep queries feed dWv only.
+    // 0 disables (default). Mutually exclusive with depth_route_perleaf.
+    int depth_route_k = 0;
+
+    // AGPT_DEPTH_ROUTE_PERLEAF: per-leaf d* routing — each query's threshold
+    // is its node's d_split (depth at which path becomes mass=1) instead of
+    // the static depth_route_k. Takes precedence over depth_route_k when set.
+    int depth_route_perleaf = 0;
+
+    // AGPT_DECISION_ONLY: skip loss + gradient at queries where depth > d_split.
+    // Trains only on decision events; deterministic-tail events contribute
+    // neither loss nor gradient.
+    int decision_only = 0;
+
+    // AGPT_DECISION_BUFFER: chars past d_split to keep before zeroing.
+    // 0 = strict decision-only; larger = less aggressive cut. Relevant when
+    // decision_only=1.
+    int decision_buffer = 0;
+
+    // AGPT_JOINT_MASS: multiply mass weight by complementary-depth suffix
+    // factor. Two implementations:
+    //   1. Aggregate proxy (default): suffix_factor = mean_edge_mass[D_max - d_q]
+    //   2. Per-position table (when char_suffix_mass_path is set):
+    //      suffix_factor = char_suffix_mass[char_pos]
+    // Effective only when --mass-weight is set to log/sqrt/linear.
+    int joint_mass = 0;
+
+    // AGPT_SUBTREE_DROPOUT: per super-epoch, randomly drop each rc with prob p.
+    // Clamped to [0, 0.99]. 0 disables (default).
+    double subtree_dropout = 0.0;
+    // AGPT_SUBTREE_DROPOUT_SEED: RNG seed for the dropout sampling.
+    unsigned int subtree_dropout_seed = 0xA9F71E13u;
+
+    // AGPT_BRANCH_DROPOUT_DEPTH: when > 0, dropout sampling happens at radix
+    // nodes whose first-char-depth equals this value (default depth=1 root-children).
+    // E.g., depth=3 masks bigram/trigram subtrees → many more candidate masks per epoch.
+    int branch_dropout_depth = 0;
+
+    // AGPT_CHAR_SUFFIX_MASS_PATH: path to binary table of per-char-position
+    // suffix mass values (used by joint_mass mode 2). Loaded at function entry
+    // if joint_mass > 0 and path is set. Buffer owned by caller; freed at exit.
+    const char* char_suffix_mass_path = nullptr;
+};
+
+static ExperimentalFlags read_experimental_flags() {
+    ExperimentalFlags f;
+    auto envi = [](const char* name, int dflt) -> int {
+        const char* s = getenv(name);
+        return s ? atoi(s) : dflt;
+    };
+    f.timing_breakdown    = (getenv("AGPT_TIMING_BREAKDOWN") != nullptr);
+    f.depth_route_k       = envi("AGPT_DEPTH_ROUTE_K", 0);
+    f.depth_route_perleaf = envi("AGPT_DEPTH_ROUTE_PERLEAF", 0);
+    f.decision_only       = envi("AGPT_DECISION_ONLY", 0);
+    f.decision_buffer     = envi("AGPT_DECISION_BUFFER", 0);
+    f.joint_mass          = envi("AGPT_JOINT_MASS", 0);
+    f.branch_dropout_depth = envi("AGPT_BRANCH_DROPOUT_DEPTH", 0);
+    if (f.branch_dropout_depth < 0) f.branch_dropout_depth = 0;
+    {
+        const char* s = getenv("AGPT_SUBTREE_DROPOUT");
+        if (s) f.subtree_dropout = atof(s);
+        if (f.subtree_dropout < 0.0)  f.subtree_dropout = 0.0;
+        if (f.subtree_dropout > 0.99) f.subtree_dropout = 0.99;
+    }
+    {
+        const char* s = getenv("AGPT_SUBTREE_DROPOUT_SEED");
+        if (s) f.subtree_dropout_seed = (unsigned int)atoll(s);
+    }
+    f.char_suffix_mass_path = getenv("AGPT_CHAR_SUFFIX_MASS_PATH");
+    return f;
+}
+
 int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                         float* h_weights, RadixTrieData& trie,
                         int epochs, float entropy_lambda, MassWeightMode mass_weight,
@@ -3190,11 +3279,19 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
 {
     const bool quiet = persist && persist->quiet;
 
-    // ---- Per-kernel timing instrumentation (diagnostic) ----
-    // Set AGPT_TIMING_BREAKDOWN=1 to enable. Per-kernel cudaEventSynchronize
-    // adds ~5-10% overhead but produces a per-section breakdown at end of
-    // each epoch so we can see where time actually goes.
-    bool t_enabled = (getenv("AGPT_TIMING_BREAKDOWN") != NULL);
+    // ---- Experimental flags (env-var-driven; see ExperimentalFlags struct above) ----
+    ExperimentalFlags flags = read_experimental_flags();
+    // Local aliases preserve existing names throughout the function body.
+    bool         t_enabled            = flags.timing_breakdown;
+    int          depth_route_k        = flags.depth_route_k;
+    int          depth_route_perleaf  = flags.depth_route_perleaf;
+    int          decision_only        = flags.decision_only;
+    int          decision_buffer      = flags.decision_buffer;
+    int          joint_mass           = flags.joint_mass;
+    double       subtree_dropout      = flags.subtree_dropout;
+    unsigned int subtree_dropout_seed = flags.subtree_dropout_seed;
+    int          branch_dropout_depth = flags.branch_dropout_depth;
+
     cudaEvent_t te_start = NULL, te_stop = NULL;
     if (t_enabled) {
         cudaEventCreate(&te_start);
@@ -3204,106 +3301,29 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
     double t_us_attn_fwd = 0,   t_us_attn_bwd   = 0;
     double t_us_scatter_fwd = 0;
 
-    // Depth-routed K/V gradient. d_k threshold: shallow queries (d ≤ d_k) feed
-    // dWk only; deep queries (d > d_k) feed dWv only. 0 disables (default).
-    int depth_route_k = 0;
-    {
-        const char* env = getenv("AGPT_DEPTH_ROUTE_K");
-        if (env) depth_route_k = atoi(env);
-    }
-    // Per-leaf d* routing: instead of the static depth_route_k threshold above,
-    // each query uses its node's d_split (depth at which path becomes mass=1)
-    // as the threshold. Set AGPT_DEPTH_ROUTE_PERLEAF=1 to enable. Mutually
-    // exclusive with the static threshold (per-leaf takes precedence).
-    int depth_route_perleaf = 0;
-    {
-        const char* env = getenv("AGPT_DEPTH_ROUTE_PERLEAF");
-        if (env) depth_route_perleaf = atoi(env);
-    }
-    // Decision-only loss: skip loss + gradient at queries where depth > d_split.
-    // Trains only on decision events (depths up through where path becomes
-    // mass=1). Deterministic-tail events contribute neither loss nor gradient.
-    int decision_only = 0;
-    {
-        const char* env = getenv("AGPT_DECISION_ONLY");
-        if (env) decision_only = atoi(env);
-    }
-    // Buffer past d_split to keep before zeroing. 0 = strict decision-only
-    // (drops ALL deterministic-tail events). Larger buffer keeps more events
-    // for a few chars into the cap, less aggressive cut. Mostly relevant
-    // when AGPT_DECISION_ONLY=1.
-    int decision_buffer = 0;
-    {
-        const char* env = getenv("AGPT_DECISION_BUFFER");
-        if (env) decision_buffer = atoi(env);
-    }
-    // Joint mass weighting: when set, per-query mass weight is
-    //   compress(edge_mass[r] * suffix_factor(query)).
-    // Multiplies the existing prefix-mass weighting by a complementary-depth
-    // factor. Two implementations:
-    //   1. Aggregate proxy (default): suffix_factor = mean_edge_mass[D_max - d_q]
-    //      from the prefix tree (suffix tree has identical per-depth distribution
-    //      by corpus symmetry, so prefix-side mean serves as a good proxy).
-    //   2. Per-position table (when AGPT_CHAR_SUFFIX_MASS_PATH is set):
-    //      suffix_factor = char_suffix_mass[char_pos], precomputed offline by
-    //      walking the corpus + suffix tree.
-    // Effective only when --mass-weight is set to log/sqrt/linear.
-    int joint_mass = 0;
-    {
-        const char* env = getenv("AGPT_JOINT_MASS");
-        if (env) joint_mass = atoi(env);
-    }
-    // Subtree dropout: per super-epoch, randomly skip a fraction of root-child
-    // subtrees. AGPT_SUBTREE_DROPOUT=p (e.g., 0.3) drops each rc with prob p.
-    // Different subset each epoch → more "effective epochs" of distinct trajectories.
-    // 0 = disabled (default); 1 = drop everything (degenerate).
-    double subtree_dropout = 0.0;
-    {
-        const char* env = getenv("AGPT_SUBTREE_DROPOUT");
-        if (env) subtree_dropout = atof(env);
-        if (subtree_dropout < 0.0) subtree_dropout = 0.0;
-        if (subtree_dropout > 0.99) subtree_dropout = 0.99;
-    }
-    unsigned int subtree_dropout_seed = 0xA9F71E13;
-    {
-        const char* env = getenv("AGPT_SUBTREE_DROPOUT_SEED");
-        if (env) subtree_dropout_seed = (unsigned int)atoll(env);
-    }
-    // Branch dropout depth: when > 0, the dropout sampling happens at radix
-    // nodes whose first-char-depth is exactly this value (instead of depth=1
-    // root-children). All descendants of a masked node are also skipped.
-    // E.g., depth=3 masks bigram/trigram-rooted subtrees → many more candidate
-    // masks per epoch (~10k vs 65 at depth=1), giving much more per-epoch variety.
-    // depth=0 (default) is the root-child masking behavior.
-    int branch_dropout_depth = 0;
-    {
-        const char* env = getenv("AGPT_BRANCH_DROPOUT_DEPTH");
-        if (env) branch_dropout_depth = atoi(env);
-        if (branch_dropout_depth < 0) branch_dropout_depth = 0;
-    }
+    // char_suffix_mass: special — loads a binary table from disk (not a flag value).
+    // Only loaded if joint_mass mode 2 is active.
     double* char_suffix_mass = NULL;
     long long char_suffix_mass_n = 0;
-    {
-        const char* path = getenv("AGPT_CHAR_SUFFIX_MASS_PATH");
-        if (path && joint_mass > 0) {
-            FILE* f = fopen(path, "rb");
-            if (!f) {
-                fprintf(stderr, "AGPT_CHAR_SUFFIX_MASS_PATH=%s: cannot open\n", path);
-                exit(1);
-            }
-            long long n;
-            if (fread(&n, 8, 1, f) != 1) {
-                fprintf(stderr, "AGPT_CHAR_SUFFIX_MASS_PATH=%s: header read failed\n", path);
-                exit(1);
-            }
-            char_suffix_mass = (double*)malloc(n * sizeof(double));
-            if (fread(char_suffix_mass, sizeof(double), n, f) != (size_t)n) {
-                fprintf(stderr, "AGPT_CHAR_SUFFIX_MASS_PATH=%s: data read failed (expected %lld doubles)\n", path, n);
-                exit(1);
-            }
-            fclose(f);
-            char_suffix_mass_n = n;
+    if (flags.char_suffix_mass_path && joint_mass > 0) {
+        const char* path = flags.char_suffix_mass_path;
+        FILE* f = fopen(path, "rb");
+        if (!f) {
+            fprintf(stderr, "AGPT_CHAR_SUFFIX_MASS_PATH=%s: cannot open\n", path);
+            exit(1);
         }
+        long long n;
+        if (fread(&n, 8, 1, f) != 1) {
+            fprintf(stderr, "AGPT_CHAR_SUFFIX_MASS_PATH=%s: header read failed\n", path);
+            exit(1);
+        }
+        char_suffix_mass = (double*)malloc(n * sizeof(double));
+        if (fread(char_suffix_mass, sizeof(double), n, f) != (size_t)n) {
+            fprintf(stderr, "AGPT_CHAR_SUFFIX_MASS_PATH=%s: data read failed (expected %lld doubles)\n", path, n);
+            exit(1);
+        }
+        fclose(f);
+        char_suffix_mass_n = n;
     }
     if (!quiet) {
         if (decision_only > 0) {
