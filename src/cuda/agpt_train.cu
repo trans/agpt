@@ -4051,18 +4051,20 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
 
     // ------------------------------------------------------------
     // Descendant→ancestor gradient buffers (--anc-grad).
-    // Per-subtree-scoped accumulators sized to the largest subtree.
-    // Reused across subtree fires (zeroed at start of each fire).
+    // Per-subtree-scoped, indexed by COMPACT-CACHE CHARACTER POSITION
+    // (not by radix node). The K/V cache itself is per-compact-char,
+    // with mass=1 caps skipped. Descendant gradients flow back to
+    // specific compact-char slots, so our accumulators mirror that.
     //
     // Per layer:
-    //   d_dkv_subtree_k[l]: [max_n_in_subtree, D]   K-grad accumulator
-    //   d_dkv_subtree_v[l]: [max_n_in_subtree, D]   V-grad accumulator
-    //   h_subtree[l]:       [max_n_in_subtree, D]   saved ln1_out per node
+    //   d_dkv_subtree_k[l]: [max_n_subtree_compact_chars, D]  K-grad accumulator
+    //   d_dkv_subtree_v[l]: [max_n_subtree_compact_chars, D]  V-grad accumulator
+    //   h_subtree[l]:       [max_n_subtree_compact_chars, D]  saved ln1_out
     //
-    // Global (one buffer, not per-layer):
-    //   d_global_to_subtree_idx: [total_nodes] int  global trie-id → subtree-local
-    //                                                index, -1 for nodes outside
-    //                                                current subtree
+    // Global lookup (one buffer):
+    //   d_compact_to_subtree_idx: [n_compact_chars] int
+    //     map global compact-cache index → subtree-local index
+    //     (-1 sentinel for chars not in current subtree)
     //
     // SCAFFOLDING ONLY at this commit — buffers allocated, not yet used.
     // Subsequent commits will wire the scatter + chain-rule reduction.
@@ -4070,14 +4072,23 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
     float** d_dkv_subtree_k = NULL;     // [L_layers] of device pointers
     float** d_dkv_subtree_v = NULL;
     float** h_subtree       = NULL;
-    int*    d_global_to_subtree_idx = NULL;
-    int     max_n_in_subtree = 0;
+    int*    d_compact_to_subtree_idx = NULL;
+    int     max_n_subtree_compact_chars = 0;
     if (cfg.anc_grad) {
-        // Largest subtree size determines buffer size; reuse across fires.
-        for (int i = 0; i < n_root_children; i++) {
-            if (subtree_sizes[i] > max_n_in_subtree) max_n_in_subtree = subtree_sizes[i];
+        // Compute max compact-chars per subtree: for each subtree, sum
+        // own_len across its mass>1 nodes (mass=1 nodes have no cache slots).
+        for (int s = 0; s < n_root_children; s++) {
+            int* radix_list_s = subtree_nodes[s];
+            int n_s = subtree_sizes[s];
+            int count = 0;
+            for (int i = 0; i < n_s; i++) {
+                int r = radix_list_s[i];
+                if (trie.edge_mass[r] == 1) continue;  // mass=1 cap: no cache slot
+                count += trie.edge_lens[r];
+            }
+            if (count > max_n_subtree_compact_chars) max_n_subtree_compact_chars = count;
         }
-        size_t per_layer_bytes = (size_t)max_n_in_subtree * (size_t)D * sizeof(float);
+        size_t per_layer_bytes = (size_t)max_n_subtree_compact_chars * (size_t)D * sizeof(float);
         d_dkv_subtree_k = (float**)malloc(L_layers * sizeof(float*));
         d_dkv_subtree_v = (float**)malloc(L_layers * sizeof(float*));
         h_subtree       = (float**)malloc(L_layers * sizeof(float*));
@@ -4086,14 +4097,14 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
             CUDA_CHECK(cudaMalloc(&d_dkv_subtree_v[l], per_layer_bytes));
             CUDA_CHECK(cudaMalloc(&h_subtree[l],       per_layer_bytes));
         }
-        CUDA_CHECK(cudaMalloc(&d_global_to_subtree_idx, (size_t)trie.radix_count * sizeof(int)));
-        size_t total_bytes = 3 * L_layers * per_layer_bytes
-                           + (size_t)trie.radix_count * sizeof(int);
+        CUDA_CHECK(cudaMalloc(&d_compact_to_subtree_idx, (size_t)n_compact_chars * sizeof(int)));
+        size_t lookup_bytes = (size_t)n_compact_chars * sizeof(int);
+        size_t total_bytes = 3 * L_layers * per_layer_bytes + lookup_bytes;
         if (!quiet) {
-            printf("  anc-grad: max_n_in_subtree=%d, %d layers x 3 buffers x %.2f MB + %.2f MB lookup = %.2f MB total\n",
-                   max_n_in_subtree, L_layers,
+            printf("  anc-grad: max_n_subtree_compact_chars=%d, %d layers x 3 buffers x %.2f MB + %.2f MB lookup = %.2f MB total\n",
+                   max_n_subtree_compact_chars, L_layers,
                    (double)per_layer_bytes / 1.0e6,
-                   (double)(trie.radix_count * sizeof(int)) / 1.0e6,
+                   (double)lookup_bytes / 1.0e6,
                    (double)total_bytes / 1.0e6);
         }
     }
@@ -4714,26 +4725,39 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
             if (n_in_subtree == 0) continue;
 
             // --anc-grad: per-subtree-fire state init
-            //   - Zero the K/V/h_subtree accumulator buffers (only the portion
-            //     we'll write to: [n_in_subtree, D] per layer).
-            //   - Populate the global→subtree-local lookup table for this
-            //     subtree's nodes; entries for other nodes are -1 (sentinel
-            //     for "not in current subtree").
+            // Per the corrected design (see todo/descendant-ancestor-scatter.md),
+            // accumulators are indexed by compact-cache character position, not
+            // by radix node. Walk this subtree's mass>1 nodes; for each char in
+            // each node, assign the next subtree-local index and write into the
+            // lookup at the global compact-cache slot.
+            int n_subtree_compact_chars = 0;  // declared here, used by later anc-grad
+                                                // steps (forward save, backward scatter,
+                                                // fire-end reduction). Counter is per fire.
             if (cfg.anc_grad) {
-                size_t fire_bytes = (size_t)n_in_subtree * D * sizeof(float);
+                static int* h_anc_lookup = NULL;
+                if (!h_anc_lookup) h_anc_lookup = (int*)malloc((size_t)n_compact_chars * sizeof(int));
+                memset(h_anc_lookup, 0xFF, (size_t)n_compact_chars * sizeof(int));  // -1 sentinel
+                for (int i = 0; i < n_in_subtree; i++) {
+                    int r = radix_list[i];
+                    if (trie.edge_mass[r] == 1) continue;  // mass=1 cap: no cache slot
+                    int start_pos = trie.edge_starts[r];
+                    int len       = trie.edge_lens[r];
+                    for (int c = 0; c < len; c++) {
+                        int slot = compact_slot[start_pos + c];
+                        if (slot >= 0) {
+                            h_anc_lookup[slot] = n_subtree_compact_chars;
+                            n_subtree_compact_chars++;
+                        }
+                    }
+                }
+                size_t fire_bytes = (size_t)n_subtree_compact_chars * D * sizeof(float);
                 for (int l = 0; l < L_layers; l++) {
                     CUDA_CHECK(cudaMemset(d_dkv_subtree_k[l], 0, fire_bytes));
                     CUDA_CHECK(cudaMemset(d_dkv_subtree_v[l], 0, fire_bytes));
                     CUDA_CHECK(cudaMemset(h_subtree[l],       0, fire_bytes));
                 }
-                static int* h_anc_lookup = NULL;
-                if (!h_anc_lookup) h_anc_lookup = (int*)malloc(trie.radix_count * sizeof(int));
-                memset(h_anc_lookup, 0xFF, trie.radix_count * sizeof(int));  // -1 sentinel
-                for (int i = 0; i < n_in_subtree; i++) {
-                    h_anc_lookup[radix_list[i]] = i;
-                }
-                CUDA_CHECK(cudaMemcpy(d_global_to_subtree_idx, h_anc_lookup,
-                                       (size_t)trie.radix_count * sizeof(int),
+                CUDA_CHECK(cudaMemcpy(d_compact_to_subtree_idx, h_anc_lookup,
+                                       (size_t)n_compact_chars * sizeof(int),
                                        cudaMemcpyHostToDevice));
             }
 
@@ -5849,7 +5873,7 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
         free(d_dkv_subtree_v);
         free(h_subtree);
     }
-    if (d_global_to_subtree_idx) cudaFree(d_global_to_subtree_idx);
+    if (d_compact_to_subtree_idx) cudaFree(d_compact_to_subtree_idx);
     if (d_adam_m_per_rc) cudaFree(d_adam_m_per_rc);
     if (d_adam_v_per_rc) cudaFree(d_adam_v_per_rc);
     if (h_adam_t_per_rc) free(h_adam_t_per_rc);
