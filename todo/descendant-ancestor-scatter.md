@@ -58,32 +58,55 @@ because nobody got around to revisiting it.
 
 In `run_radix_training`:
 
-1. Add per-layer K-grad and V-grad accumulators at the global trie
-   level (same shape as the K/V cache itself): `d_dkv_global_keys[l]`,
-   `d_dkv_global_values[l]` of shape `[total_nodes, D]`.
+1. Add per-layer K-grad and V-grad accumulators **scoped to the current
+   subtree** (NOT global trie). Shape `[n_in_subtree, D]` per layer.
+   - `d_dkv_subtree_k[l]`, `d_dkv_subtree_v[l]`, `h_subtree[l]` (saved
+     ln1_out per node for the chain-rule step)
+   - Plus a `[total_nodes]` int lookup `d_global_to_subtree_idx`
+     mapping global trie node ID → subtree-local index (-1 for nodes
+     not in current subtree)
+   - All allocated/zeroed at subtree fire start, freed/reused per fire
 
-2. After varlen attention backward produces `d_dk_pack` and
+2. In each chunk's forward, save ln1_out per query into `h_subtree[l]`
+   at the query's subtree-local index. (K/V cache scatter stays as-is.)
+
+3. After varlen attention backward produces `d_dk_pack` and
    `d_dv_pack`, scatter-add the ANCESTOR slice (positions 0 to anc_len
-   per query) into `d_dkv_global_*` indexed by ancestor node ID.
-   (Equivalent to `launch_kv_scatter_add` in train_epoch.)
+   per query) into `d_dkv_subtree_*[l]` indexed by
+   `d_global_to_subtree_idx[ancestor_id]`. Uses atomic-add because
+   multiple descendants can contribute to the same ancestor.
 
-3. The OWN-EDGE slice is still extracted for the current chunk's Wk
-   update (existing code path).
+4. The OWN-EDGE slice continues to feed Wk via the existing chunk-local
+   path (don't break what works). Both contributions sum into
+   `dW_kw` correctly because they're additive in the chain rule.
 
-4. After all chunks of a subtree are done (before optimizer step), the
-   `d_dkv_global_*` accumulators contain accumulated grad-at-K-position
-   from descendants attending to ancestors in THIS subtree's nodes.
+5. At end of subtree fire (before optimizer step), for each ancestor a
+   that has non-zero accumulated grad:
+   ```
+   dW_kw += grad_scale * d_dkv_subtree_k[l][a]^T · h_subtree[l][a]
+   dW_kb += col-sum(d_dkv_subtree_k[l][a]) (scaled)
+   ```
+   Same for V. Apply RoPE-inverse on K-side before the matmul (mirrors
+   the own-edge path).
 
-5. Convert those per-position gradients to per-parameter gradients via
-   the chain rule: for each ancestor a, `dW_k += d_dkv_global_keys[a]^T
-   · h_a`. Requires knowing each ancestor's saved h, which means we
-   need to save h per node during forward (already done as part of
-   `saved_ln1_out`?).
+6. Optimizer fires with `d_grads` now containing the full gradient.
 
-6. Apply rotational inverse for RoPE on K-side before the Wk gradient
-   step (mirrors what's already done for own-edge).
+**Memory budget (per-subtree-scoped):**
+- Shakespeare d=16: ~15K nodes × 64 × 4 × 3 buffers (K grad, V grad,
+  ln1_out) = ~12 MB per layer
+- Gutenberg d=16: ~75K × 64 × 4 × 3 = ~58 MB per layer
+- WikiText d=32 BPE (hypothetical): ~800K × 256 × 4 × 3 = ~2.5 GB per layer
 
-Estimated effort: ~1-2 days.
+Manageable at our scales. The `[total_nodes]` lookup table is one
+int per node — 4 MB at 1M nodes, trivial.
+
+**Restrict to pd=1 initially.** At pd>1 there's cross-group cache
+staleness (the shuffle ablation confirmed it); adding descendant→ancestor
+flow on top of that would compound. pd=1 is cache-disjoint per subtree
+so the new gradient flow is on clean K/V values.
+
+Estimated effort: ~2-3 days for first working implementation +
+gradient parity test + 6-run experiment.
 
 ## Watch-outs
 
