@@ -213,3 +213,19 @@ docs: docs-api
 
 docs-api:
     crystal doc -o docs/api
+
+# Simple sanity run
+quick-test:
+    cp data/input.random.model /tmp/quick.model && \
+    bin/agpt_train \
+        --model /tmp/quick.model --trie-dir /tmp/shake_baseline_d16_radix \
+        --save /tmp/quick.model --epochs 5 \
+        --partition-depth 1 --no-accumulate \
+        --lr 3e-3 --lr-schedule warmup-cosine --warmup-epochs 1 \
+        --optimizer rmsprop --rmsprop-beta 0.999 \
+        --mass-weight log --entropy-lambda 1.0 \
+        | tail -5 && \
+    bin/perplexity --model /tmp/quick.model --file data/input.txt \
+        --seq-len 16 --backend openblas --max-positions 4096 \
+        | tail -4
+
