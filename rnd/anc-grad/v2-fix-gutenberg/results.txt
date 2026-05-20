@@ -1,0 +1,6 @@
+seed=1 mode=off epoch10_loss=2.119397  held-out PPL=10.0308
+seed=1 mode=on epoch10_loss=2.097653  held-out PPL=9.8706
+seed=2 mode=off epoch10_loss=2.092737  held-out PPL=9.3108
+seed=2 mode=on epoch10_loss=2.065897  held-out PPL=9.3300
+seed=3 mode=off epoch10_loss=2.118866  held-out PPL=9.7968
+seed=3 mode=on epoch10_loss=2.056450  held-out PPL=9.3079
