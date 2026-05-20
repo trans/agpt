@@ -1,0 +1,6 @@
+shakespeare seed=1 mode=off heldout_PPL=9.5257
+shakespeare seed=1 mode=on heldout_PPL=8.4212
+shakespeare seed=2 mode=off heldout_PPL=8.8594
+shakespeare seed=2 mode=on heldout_PPL=8.6419
+shakespeare seed=3 mode=off heldout_PPL=9.0690
+shakespeare seed=3 mode=on heldout_PPL=8.6703

@@ -1,0 +1,6 @@
+gutenberg seed=1 mode=off heldout_PPL=9.3938
+gutenberg seed=1 mode=on heldout_PPL=9.2342
+gutenberg seed=2 mode=off heldout_PPL=9.0336
+gutenberg seed=2 mode=on heldout_PPL=8.5849
+gutenberg seed=3 mode=off heldout_PPL=8.9179
+gutenberg seed=3 mode=on heldout_PPL=8.7745

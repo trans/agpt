@@ -31,7 +31,23 @@ Anc-grad delta is robust across regimes:
 | Shakespeare | -6.4% | -6.4% | -3.6% |
 | Gutenberg | -3.6% | -3.8% | -5.7% |
 
-(Notes: anc-grad held-out PPL was measured only under the per-chunk regime — see `rnd/anc-grad/`. The held-out delta from that work doesn't change conceptually with the normalizer switch, but the absolute held-out numbers will shift if re-measured under per-fire.)
+### Held-out PPL re-measured under per-fire (2026-05-20)
+
+After the default switch, the anc-grad held-out PPL was re-measured
+against the per-fire-trained models in `rnd/per-fire-norm/{shakespeare,gutenberg}/`
+(sliding-window evaluator, d=16, 10k positions; same holdout files as
+the pre-609e7ab measurement in `rnd/anc-grad/`).
+
+| corpus | per-chunk OFF | per-chunk ON | per-chunk Δ | per-fire OFF | per-fire ON | per-fire Δ |
+|---|---|---|---|---|---|---|
+| Shakespeare 1M | 8.65 | 8.20 | -5.2% | **9.15** | **8.58** | **-6.3%** |
+| Gutenberg 5M  | 9.71 | 9.50 | -2.2% | **9.12** | **8.86** | **-2.8%** |
+
+Both deltas survive and are slightly stronger under per-fire. Absolute
+baseline moved as predicted (Shakespeare PPL up because the accidental
+deep-node up-weighting is gone; Gutenberg PPL down for the same reason).
+The anc-grad ON-vs-OFF improvement is the load-bearing finding and it's
+intact.
 
 ## The mechanism — what per-chunk averaging was actually doing
 

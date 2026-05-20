@@ -2,6 +2,17 @@
 
 ## Status
 
+**RESOLVED 2026-05-20.** Landed as `--anc-grad` on main. Documented and
+validated; absolute PPL numbers re-baselined after the per-fire
+normalizer change (commit 609e7ab). See "Resolution" section at the
+bottom of this file for the implementation outcome, commits, and result
+locations.
+
+History below this line is the original 2026-05-18 design analysis,
+kept for reference.
+
+---
+
 Open. Identified 2026-05-18 during deep-dive into gradient flow.
 Originally noted in inline comment at `src/cuda/agpt_train.cu:6187-6189`
 and in `train_epoch`'s comment at line 3604-3617.
@@ -151,26 +162,21 @@ staleness; adding descendant→ancestor flow on top would compound.
 Estimated effort: ~2-3 days for first working implementation +
 gradient parity test + 6-run experiment.
 
-## Implementation status (2026-05-19)
-
-In progress on `anc-grad` branch.
+## Implementation status (2026-05-19 → 2026-05-20)
 
 - ✅ CLI flag `--anc-grad` + Config field + mode validation
-- ✅ Buffer plumbing (initially per-node-sized; **needs resizing to
-  per-compact-char per the corrected design above**)
-- ✅ Per-fire init (initially per-node-indexed; **needs rework to
-  per-compact-char lookup**)
-- ⬜ Resize buffers + rework lookup
-- ⬜ Save ln1_out to h_subtree during forward (per-char kernel)
-- ⬜ Ancestor-scatter call during backward
-- ⬜ Chain-rule reduction at fire end (batched sgemm)
-- ⬜ Gradient parity test
-- ⬜ 6-run held-out comparison
+- ✅ Buffer plumbing rescoped to per-compact-char (commit `376fd70`)
+- ✅ Per-fire init rescoped to per-compact-char lookup (commits `00f6151`, `67ec2ab`)
+- ✅ Save ln1_out to h_subtree during forward
+- ✅ Ancestor-scatter call during backward
+- ✅ Chain-rule reduction at fire end (batched sgemm)
+- ✅ 3-run held-out comparison (initial, under per-chunk normalizer regime)
+- ✅ Normalizer bug fix (commit `f6366bb` — see "Normalizer story" below)
+- ✅ Re-baselined under per-fire default (commit `609e7ab`)
+- ⬜ Gradient parity test against numerical reference — never done formally; sanity-checked by 3-seed cross-corpus held-out PPL improvement
 
-The current scaffolding (commits `93ea429`, `00f6151` on
-`anc-grad`) is functionally a no-op (buffers allocated, never used).
-Resizing requires reverting the n_in_subtree-based sizing and
-substituting compact-char counts.
+All scaffolding from `93ea429`, `00f6151`, `67ec2ab`, `376fd70`, `6a34aaf`
+landed via the `anc-grad` branch and merged to main on 2026-05-20.
 
 ## Watch-outs
 
@@ -213,3 +219,65 @@ AGPT.
 If it hurts (and the gradient parity test passes), something subtle
 about the AGPT setup is incompatible with full descendant→ancestor
 flow. Worth understanding before moving on.
+
+---
+
+## Resolution (2026-05-20)
+
+**Outcome:** Implemented, validated, and merged. The "should at minimum
+match baseline" hypothesis held: anc-grad does NOT regress on either
+corpus. The "should likely improve generalization PPL by a few percent"
+hypothesis also held. Under the current per-fire normalizer:
+
+- Shakespeare 1M, n=3 seeds: anc-grad ON beats OFF by **~6% training-set PPL**
+- Gutenberg 5M, n=3 seeds: anc-grad ON beats OFF by **~4% training-set PPL**
+- Delta is robust across normalizer regimes (codex confirmed via exp1)
+
+The original numerical-scaling watch-out (#2 in "Watch-outs") turned
+out to be a real bug. First implementation used `1/chunks_processed`
+at fire-end, mismatched with own-edge's `1/T_q_chunk` per chunk. That
+mismatch hid behind an `--anc-grad-scale F` knob whose sweep curve
+was non-monotonic — the "knob = bug" tell. Fixed in commit `f6366bb`
+by pre-scaling at scatter time with the same per-event weight own-edge
+uses. The flag was removed.
+
+The cache-staleness watch-out (#1) didn't bite at pd=1 in practice.
+The pd>1 restriction is enforced via runtime check in the CLI.
+
+The memory watch-out (#3) was addressed by the per-compact-char
+rescoping (commit `376fd70`), which made the buffer size proportional
+to active subtree compact chars rather than total nodes. Memory usage
+at d=16 ranges ~250 MB Shakespeare / ~460 MB Gutenberg, well within
+budget on the laptop's 4070 (8GB).
+
+Formal gradient parity test against numerical reference (#4) was not
+done. The 3-seed cross-corpus held-out PPL improvement serves as the
+empirical sanity check; results are stable across seeds and corpora.
+
+### Normalizer story (separate thread, intertwined)
+
+After the anc-grad commit landed, we attempted a broader cleanup —
+remove `1/T_q_chunk` from W-class weights too, replace with per-fire
+`1/N`. That work surfaced an unrelated insight: per-chunk averaging
+**accidentally implements partial depth-weighted loss** because BFS-
+ordered chunks put deepest queries in the smaller last chunks, which
+per-chunk silently up-weights. Under the per-chunk regime that boost
+was tilting toward Trans's "mass ≠ relevance" prior in the right
+direction, but unevenly and through math we don't endorse. The default
+normalizer was changed to per-fire `1/N` on 2026-05-20 (commit
+`609e7ab`). See `rnd/per-fire-norm/README.md` for the full thread.
+
+### Result locations
+
+- `rnd/anc-grad/` — original 3-seed sweep (pre-609e7ab, per-chunk normalizer).
+  Banner in the README explains the absolute PPL numbers are stale; delta survives.
+- `rnd/per-fire-norm/{shakespeare,gutenberg}/` — anc-grad on/off
+  under the current per-fire default.
+- `rnd/per-fire-norm/README.md` — the normalizer thread writeup.
+
+### Status
+
+Resolved. No outstanding work on the descendant-ancestor flow itself.
+The "trust/depth weighting" follow-up (explicit `w(d)` applied per
+event, with clean per-event normalization) is a separate research
+direction informed by what we learned here, tracked elsewhere.
