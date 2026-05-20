@@ -28,6 +28,17 @@ build-agpt-train:
         -gencode=arch=compute_90,code=sm_90 \
         src/cuda/agpt_train.cu lib/microgpt/src/cuda/kernels.cu -lcublas -o bin/agpt_train
 
+# Build AGPT CUDA training engine v2 skeleton.
+# This is a separate trainer-core rewrite path; keep it independent of the
+# current agpt_train baseline until parity is established.
+build-agpt-train-v2:
+    mkdir -p bin
+    /opt/cuda/bin/nvcc --allow-unsupported-compiler -std=c++17 -O3 --use_fast_math \
+        -gencode=arch=compute_80,code=sm_80 \
+        -gencode=arch=compute_89,code=sm_89 \
+        -gencode=arch=compute_90,code=sm_90 \
+        src/cuda/v2/agpt_train_v2.cu lib/microgpt/src/cuda/kernels.cu -lcublas -o bin/agpt_train_v2
+
 # Build the leveled-trie index builder.
 build-agpt-build-index: build-stubs
     mkdir -p bin
@@ -228,4 +239,3 @@ quick-test:
     bin/perplexity --model /tmp/quick.model --file data/input.txt \
         --seq-len 16 --backend openblas --max-positions 4096 \
         | tail -4
-
