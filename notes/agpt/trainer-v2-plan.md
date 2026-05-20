@@ -2,7 +2,7 @@
 
 ## Decision
 
-Build a new CUDA trainer core in `src/cuda/v2/` instead of continuing to layer
+Build a new CUDA trainer core in `src/cudax/` instead of continuing to layer
 feature work into `src/cuda/agpt_train.cu`.
 
 This is a trainer-engine rewrite, not an AGPT/model rewrite.
@@ -35,7 +35,7 @@ That is the signal to stop patching the old execution core.
 ## What changes
 
 - new standalone trainer binary: `bin/agpt_train_v2`
-- new CUDA-side source tree: `src/cuda/v2/`
+- new CUDA-side source tree: `src/cudax/`
 - explicit contracts for cache space, backward space, and training-unit scope
 
 ## First milestone
