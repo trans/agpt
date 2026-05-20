@@ -1,0 +1,6 @@
+shakespeare seed=1 mode=off epoch10_loss=2.105946
+shakespeare seed=1 mode=on epoch10_loss=2.042734
+shakespeare seed=2 mode=off epoch10_loss=2.074633
+shakespeare seed=2 mode=on epoch10_loss=1.979289
+shakespeare seed=3 mode=off epoch10_loss=2.044339
+shakespeare seed=3 mode=on epoch10_loss=2.020269

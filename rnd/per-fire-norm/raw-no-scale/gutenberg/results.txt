@@ -1,0 +1,6 @@
+gutenberg seed=1 mode=off epoch10_loss=2.096931  (rerun cold 2026-05-20, prior 2.304810 was contaminated by adam_t=130 load)
+gutenberg seed=1 mode=on  epoch10_loss=2.058834  (rerun cold 2026-05-20, prior 2.309466 was contaminated)
+gutenberg seed=2 mode=off epoch10_loss=2.135236
+gutenberg seed=2 mode=on  epoch10_loss=2.063235
+gutenberg seed=3 mode=off epoch10_loss=2.165600
+gutenberg seed=3 mode=on  epoch10_loss=2.102329

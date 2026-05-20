@@ -14,6 +14,19 @@ Results layout:
 > "Comparison to prior buggy-normalizer result" below for the
 > historical numbers and what was wrong.
 
+> **2026-05-20 note on absolute PPL numbers below.** The 3-seed sweeps
+> documented here were run under the per-chunk gradient normalizer
+> (1/T_q_chunk applied per chunk) which was the default at the time.
+> That default changed on 2026-05-20 (commit **609e7ab**) to per-fire
+> (1/N applied via cublasSscal at fire-end). The **anc-grad delta**
+> (ON vs OFF, ~5% Shakespeare and ~3% Gutenberg held-out) is robust to
+> the normalizer choice — codex's exp1 confirmed this. But the
+> **absolute PPL numbers** in the tables below will not reproduce on
+> current HEAD. New runs against current HEAD will land at different
+> absolute PPL (Shakespeare slightly worse, Gutenberg better). The
+> anc-grad findings are still valid; the absolute numbers are pre-609e7ab.
+> See `rnd/per-fire-norm/README.md` for the full normalizer thread.
+
 ## What
 
 `--anc-grad` enables descendant→ancestor gradient flow for Wk/Wv. Without

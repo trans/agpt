@@ -1,0 +1,6 @@
+shakespeare seed=1 mode=off epoch10_loss=2.057074  (rerun cold 2026-05-20, prior 2.262289 was contaminated by adam_t=130 load)
+shakespeare seed=1 mode=on  epoch10_loss=2.021825  (rerun cold 2026-05-20, prior 2.246518 was contaminated)
+shakespeare seed=2 mode=off epoch10_loss=2.123207
+shakespeare seed=2 mode=on  epoch10_loss=2.049218
+shakespeare seed=3 mode=off epoch10_loss=2.082484
+shakespeare seed=3 mode=on  epoch10_loss=2.081896

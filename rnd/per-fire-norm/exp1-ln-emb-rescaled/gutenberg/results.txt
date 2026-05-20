@@ -1,0 +1,6 @@
+gutenberg seed=1 mode=off epoch10_loss=2.177529
+gutenberg seed=1 mode=on epoch10_loss=2.124733
+gutenberg seed=2 mode=off epoch10_loss=2.107207
+gutenberg seed=2 mode=on epoch10_loss=2.124502
+gutenberg seed=3 mode=off epoch10_loss=2.135442
+gutenberg seed=3 mode=on epoch10_loss=2.051948
