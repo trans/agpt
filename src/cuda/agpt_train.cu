@@ -4732,6 +4732,14 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
         double total_loss = 0.0;
         int nodes_trained = 0;
         int chunks_processed = 0;
+        // Per-fire (per-Adam-step) total event count. The principled denominator
+        // for the LM-update unit. Resets to 0 wherever d_grads is zeroed and
+        // increments by chunk_trained per chunk. d_grads is rescaled by
+        // 1/fire_events right before each optimizer step, so the gradient the
+        // optimizer sees is the per-event mean — the same gradient an
+        // unlimited-memory single-chunk run would produce. Independent of how
+        // memory chunked the work.
+        int fire_events = 0;
         int mb_groups_in_flight = 0;  // counter for --mini-batch-groups: number of partition groups
                                        // whose gradients are currently accumulated since the last
                                        // optimizer step (or since epoch start for the first batch).
@@ -4746,6 +4754,7 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
         // same buffer. A single optimizer step fires after all loops below.
         if (accumulate) {
             CUDA_CHECK(cudaMemset(d_grads, 0, wo.total_floats * sizeof(float)));
+            fire_events = 0;
         }
 
         // --- Per-subtree residual measurement (notes/measure-loss-during-training.md) ---
@@ -4902,6 +4911,7 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
             // (when no in-flight gradients from prior groups are accumulating).
             if (!accumulate && mb_groups_in_flight == 0) {
                 CUDA_CHECK(cudaMemset(d_grads, 0, wo.total_floats * sizeof(float)));
+                fire_events = 0;
             }
 
             // --anc-grad: per-split (= per Adam fire) accumulator zero. The actual
@@ -5259,12 +5269,23 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                 subtree_loss_sum[rc_idx] += chunk_loss_sum;
                 subtree_tokens[rc_idx]   += chunk_trained;
                 nodes_trained += chunk_trained;
+                fire_events += chunk_trained;  // per-fire LM-update-unit event count
                 free(h_loss);
 
                 // ---------- BACKWARD ----------
-                // Scale by 1/chunk_trained where chunk_trained is now the number of
-                // per-query loss terms (≈ T_q, not N).
-                float grad_scale = (chunk_trained > 0) ? (1.0f / (float)chunk_trained) : 0.0f;
+                // Per-chunk accumulation is RAW (grad_scale = 1.0): each event
+                // contributes its raw gradient to d_grads. The per-fire 1/N
+                // normalization happens once at fire-end (just before Adam) as
+                // a cublasSscal on the whole d_grads buffer. This makes the
+                // optimizer see the canonical per-event mean gradient — the
+                // same answer an unlimited-memory single-chunk run would give.
+                // Empty chunks (chunk_trained == 0) zero out the gradient to
+                // preserve the no-trained-events-no-update semantic.
+                // Historical note: earlier this was 1.0f/chunk_trained, which
+                // produced a chunking-induced bias (over-weighting events in
+                // small partial chunks). Switched to per-fire 2026-05-20; see
+                // rnd/per-fire-norm/.
+                float grad_scale = (chunk_trained > 0) ? 1.0f : 0.0f;
 
                 // Output projection backward — all T_q rows.
                 float* dG_out = d_grads + wo.out_w;
@@ -5626,6 +5647,14 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                 step_lr *= (float)subtree_lr_mult[rc_idx];
             }
 
+            // Per-fire normalization: d_grads holds the raw sum across all
+            // chunks of this split (= the LM-update unit). Scale by 1/fire_events
+            // once so the optimizer sees the canonical per-event mean gradient.
+            if (fire_events > 0) {
+                float inv_n = 1.0f / (float)fire_events;
+                CUBLAS_CHECK(cublasSscal(cublas, wo.total_floats, &inv_n, d_grads, 1));
+            }
+
             // Grad clipping (applies to the accumulated chunk-gradient sum for this
             // subtree-split before the optimizer uses it).
             if (grad_clip_norm > 0.0f) {
@@ -5702,6 +5731,13 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
             }
             float step_lr = compute_lr(cfg.lr, adam_t - 1, total_opt_steps_estimate,
                                        warmup_steps_acc, lr_schedule);
+            // Per-fire normalization: same as the --no-accumulate fire site
+            // above. d_grads holds the epoch-wide raw event sum; scale by
+            // 1/fire_events once before Adam.
+            if (fire_events > 0) {
+                float inv_n = 1.0f / (float)fire_events;
+                CUBLAS_CHECK(cublasSscal(cublas, wo.total_floats, &inv_n, d_grads, 1));
+            }
             if (grad_clip_norm > 0.0f) {
                 cuda_grad_clip_by_norm(d_grads, grad_clip_norm, wo.total_floats,
                                         d_clip_partials, d_clip_norm);
