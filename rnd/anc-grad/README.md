@@ -1,4 +1,18 @@
-# anc-grad — corrected normalizer (no knob)
+# anc-grad — descendant→ancestor gradient flow for Wk/Wv
+
+Results layout:
+- `shakespeare/seed{1,2,3}_{off,on}/` — Shakespeare 1M, 3 seeds × {anc-grad off, on}
+- `gutenberg/seed{1,2,3}_{off,on}/` — Gutenberg 5M, same
+
+> **2026-05-20 note on prior results.** Earlier runs of `--anc-grad`
+> shipped with a broken normalizer and a `--anc-grad-scale F` knob to
+> compensate. The non-monotonic sweep curves and apparent
+> Shakespeare/Gutenberg "corpus dependence" from those runs were
+> artifacts, not real findings. Those result dirs (run1/, scale-sweep/,
+> multi-seed/, gutenberg-10se/, gutenberg-scale-sweep/, smoke/) have
+> been removed from the tree; this README is the canonical record. See
+> "Comparison to prior buggy-normalizer result" below for the
+> historical numbers and what was wrong.
 
 ## What
 
