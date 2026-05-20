@@ -2217,6 +2217,101 @@ void launch_kv_uncopy_own_edge(const float* packed_grad,
                                                     N, n_heads, head_dim);
 }
 
+// --- --anc-grad: scatter-add packed ANCESTOR gradient slice into subtree buffer ---
+// For each node n_idx in the chunk and each ancestor slot p ∈ [0, anc_lengths[n_idx]),
+// the packed K-grad at (kv_offsets[n_idx] + p) is dL/dK_post_rope at that
+// ancestor's char_pos. We accumulate it into d_dkv_subtree_k[sub_idx], where
+// sub_idx = d_compact_to_subtree_idx[compact_slot[ancestor_char_pos]].
+// Multiple descendants may contribute to the same ancestor → atomic-add.
+// Same kernel handles V (no RoPE), just pass d_dv_pack / d_dkv_subtree_v.
+// Skipped slots: sub_idx < 0 (ancestor not in current subtree — shouldn't
+// happen at pd=1 since all ancestors are in the subtree, but kernel is safe).
+__global__ void scatter_anc_dkv_to_subtree_kernel(const float* packed_grad,
+                                                    const int* ancestor_ids,
+                                                    const int* ancestor_offsets,
+                                                    const int* kv_offsets,
+                                                    const int* anc_lengths,
+                                                    const int* compact_slot,
+                                                    const int* compact_to_subtree,
+                                                    float* dkv_subtree,
+                                                    int N, int n_heads, int head_dim) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    int d_model = n_heads * head_dim;
+    int nidx = idx / d_model;
+    int col = idx % d_model;
+    if (nidx >= N) return;
+
+    int anc_off = ancestor_offsets[nidx];
+    int kv_off  = kv_offsets[nidx];
+    int len     = anc_lengths[nidx];
+    int head = col / head_dim;
+    int hcol = col % head_dim;
+
+    for (int p = 0; p < len; p++) {
+        int char_pos = ancestor_ids[anc_off + p];
+        int slot = compact_slot[char_pos];
+        if (slot < 0) continue;
+        int sub_idx = compact_to_subtree[slot];
+        if (sub_idx < 0) continue;
+        float g = packed_grad[((kv_off + p) * n_heads + head) * head_dim + hcol];
+        atomicAdd(&dkv_subtree[(long long)sub_idx * d_model + col], g);
+    }
+}
+
+void launch_scatter_anc_dkv_to_subtree(const float* packed_grad,
+                                        const int* ancestor_ids,
+                                        const int* ancestor_offsets,
+                                        const int* kv_offsets,
+                                        const int* anc_lengths,
+                                        const int* compact_slot,
+                                        const int* compact_to_subtree,
+                                        float* dkv_subtree,
+                                        int N, int n_heads, int head_dim) {
+    int d_model = n_heads * head_dim;
+    int total = N * d_model;
+    int threads = 256;
+    int blocks = (total + threads - 1) / threads;
+    scatter_anc_dkv_to_subtree_kernel<<<blocks, threads>>>(packed_grad, ancestor_ids,
+                                                             ancestor_offsets, kv_offsets,
+                                                             anc_lengths, compact_slot,
+                                                             compact_to_subtree, dkv_subtree,
+                                                             N, n_heads, head_dim);
+}
+
+// --- --anc-grad: per-query save of ln1_out into the subtree-scoped buffer ---
+// For each query in the current chunk, look up its compact_slot, then
+// d_compact_to_subtree_idx, and copy ln1_out[q] into h_subtree[sub_idx].
+// Queries whose char is mass=1 (slot < 0) or not in the current subtree
+// (sub_idx < 0) are skipped.
+__global__ void save_ln1_to_subtree_kernel(const float* ln1_out,
+                                            const int* char_pos,
+                                            const int* compact_slot,
+                                            const int* compact_to_subtree,
+                                            float* h_subtree,
+                                            int T_q, int D) {
+    int q = blockIdx.x;
+    if (q >= T_q) return;
+    int cp = char_pos[q];
+    int slot = compact_slot[cp];
+    if (slot < 0) return;
+    int sub_idx = compact_to_subtree[slot];
+    if (sub_idx < 0) return;
+    for (int j = threadIdx.x; j < D; j += blockDim.x) {
+        h_subtree[(long long)sub_idx * D + j] = ln1_out[(long long)q * D + j];
+    }
+}
+
+void launch_save_ln1_to_subtree(const float* ln1_out,
+                                 const int* char_pos,
+                                 const int* compact_slot,
+                                 const int* compact_to_subtree,
+                                 float* h_subtree,
+                                 int T_q, int D) {
+    int threads = (D < 256) ? D : 256;
+    save_ln1_to_subtree_kernel<<<T_q, threads>>>(ln1_out, char_pos, compact_slot,
+                                                  compact_to_subtree, h_subtree, T_q, D);
+}
+
 // --- Mask the per-query gradient buffer (own-edge dK or dV) by query depth ---
 // Used to implement depth-routed gradient: K-weight gradient takes only
 // shallow queries (depth ≤ d_k); V-weight gradient takes only deep queries
@@ -4073,6 +4168,9 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
     float** d_dkv_subtree_v = NULL;
     float** h_subtree       = NULL;
     int*    d_compact_to_subtree_idx = NULL;
+    int*    d_subtree_real_pos = NULL;  // [max_n_subtree_compact_chars] — RoPE position
+                                        // per subtree-local slot, used by fire-end RoPE-inverse
+                                        // on the K-grad accumulator.
     int     max_n_subtree_compact_chars = 0;
     if (cfg.anc_grad) {
         // Compute max compact-chars per subtree: for each subtree, sum
@@ -4098,8 +4196,13 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
             CUDA_CHECK(cudaMalloc(&h_subtree[l],       per_layer_bytes));
         }
         CUDA_CHECK(cudaMalloc(&d_compact_to_subtree_idx, (size_t)n_compact_chars * sizeof(int)));
+        // d_subtree_real_pos sized [max_n × H]: existing launch_rope_batched_inverse
+        // expects one position per (row = slot*H + head) entry. Same pos repeats
+        // across heads of the same slot.
+        CUDA_CHECK(cudaMalloc(&d_subtree_real_pos, (size_t)max_n_subtree_compact_chars * H * sizeof(int)));
         size_t lookup_bytes = (size_t)n_compact_chars * sizeof(int);
-        size_t total_bytes = 3 * L_layers * per_layer_bytes + lookup_bytes;
+        size_t pos_bytes    = (size_t)max_n_subtree_compact_chars * H * sizeof(int);
+        size_t total_bytes = 3 * L_layers * per_layer_bytes + lookup_bytes + pos_bytes;
         if (!quiet) {
             printf("  anc-grad: max_n_subtree_compact_chars=%d, %d layers x 3 buffers x %.2f MB + %.2f MB lookup = %.2f MB total\n",
                    max_n_subtree_compact_chars, L_layers,
@@ -4735,7 +4838,9 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                                                 // fire-end reduction). Counter is per fire.
             if (cfg.anc_grad) {
                 static int* h_anc_lookup = NULL;
-                if (!h_anc_lookup) h_anc_lookup = (int*)malloc((size_t)n_compact_chars * sizeof(int));
+                static int* h_subtree_pos = NULL;
+                if (!h_anc_lookup)  h_anc_lookup  = (int*)malloc((size_t)n_compact_chars * sizeof(int));
+                if (!h_subtree_pos) h_subtree_pos = (int*)malloc((size_t)max_n_subtree_compact_chars * H * sizeof(int));
                 memset(h_anc_lookup, 0xFF, (size_t)n_compact_chars * sizeof(int));  // -1 sentinel
                 for (int i = 0; i < n_in_subtree; i++) {
                     int r = radix_list[i];
@@ -4746,6 +4851,13 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                         int slot = compact_slot[start_pos + c];
                         if (slot >= 0) {
                             h_anc_lookup[slot] = n_subtree_compact_chars;
+                            int pos = real_pos_of_char[start_pos + c];
+                            // Replicate the same position across all heads so the
+                            // existing launch_rope_batched_inverse — which reads
+                            // positions[row] with row = slot*H + h — works directly.
+                            for (int h = 0; h < H; h++) {
+                                h_subtree_pos[n_subtree_compact_chars * H + h] = pos;
+                            }
                             n_subtree_compact_chars++;
                         }
                     }
@@ -4758,6 +4870,9 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                 }
                 CUDA_CHECK(cudaMemcpy(d_compact_to_subtree_idx, h_anc_lookup,
                                        (size_t)n_compact_chars * sizeof(int),
+                                       cudaMemcpyHostToDevice));
+                CUDA_CHECK(cudaMemcpy(d_subtree_real_pos, h_subtree_pos,
+                                       (size_t)n_subtree_compact_chars * H * sizeof(int),
                                        cudaMemcpyHostToDevice));
             }
 
@@ -4951,6 +5066,18 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                     // LN1
                     cuda_layer_norm_forward(d_x, d_ln_out, sv_ln1_norm[l], sv_ln1_std_inv[l], G1, B1, T_q, D);
                     CUDA_CHECK(cudaMemcpy(sv_ln1_out[l], d_ln_out, (long long)T_q * D * sizeof(float), cudaMemcpyDeviceToDevice));
+
+                    // --anc-grad: stash ln1_out per compact-char into the subtree
+                    // buffer. The fire-end chain rule needs ln1_out at each
+                    // ancestor's position to compute dW_kw/dW_vw += d_dkv^T · ln1_out.
+                    // Same write-once per slot regardless of how many descendants
+                    // attend to that ancestor.
+                    if (cfg.anc_grad) {
+                        launch_save_ln1_to_subtree(d_ln_out, d_char_pos,
+                                                    cache_runtime.d_compact_slot,
+                                                    d_compact_to_subtree_idx,
+                                                    h_subtree[l], T_q, D);
+                    }
 
                     // Q/K/V
                     CUBLAS_CHECK(cublasSgemm(cublas, CUBLAS_OP_N, CUBLAS_OP_N, D, T_q, D,
@@ -5241,6 +5368,33 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                             T_q, H, HD, max_kv_len, scale);
                     });
 
+                    // --anc-grad: scatter ancestor-slice of d_dk_pack/d_dv_pack into
+                    // the subtree-scoped accumulator. Each ancestor slot's gradient
+                    // (one slot per descendant→ancestor read during attention) is
+                    // atomic-added at the ancestor's compact-cache subtree index.
+                    // Gradient stays POST-RoPE here; the fire-end chain rule applies
+                    // RoPE-inverse on the accumulator using d_subtree_real_pos.
+                    if (cfg.anc_grad) {
+                        launch_scatter_anc_dkv_to_subtree(d_dk_pack,
+                                                          device_chunk_meta.d_anc_ids,
+                                                          device_chunk_meta.d_anc_offsets,
+                                                          d_kv_offsets,
+                                                          d_anc_lengths_cache,
+                                                          cache_runtime.d_compact_slot,
+                                                          d_compact_to_subtree_idx,
+                                                          d_dkv_subtree_k[l],
+                                                          N, H, HD);
+                        launch_scatter_anc_dkv_to_subtree(d_dv_pack,
+                                                          device_chunk_meta.d_anc_ids,
+                                                          device_chunk_meta.d_anc_offsets,
+                                                          d_kv_offsets,
+                                                          d_anc_lengths_cache,
+                                                          cache_runtime.d_compact_slot,
+                                                          d_compact_to_subtree_idx,
+                                                          d_dkv_subtree_v[l],
+                                                          N, H, HD);
+                    }
+
                     // Inverse RoPE on dQ. Reverse order of forward composition:
                     // Q was rotated first by real position, then by scalar shift.
                     // Undo shift first, then real-position rotation.
@@ -5351,6 +5505,47 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                 chunks_processed++;
                 chunk_start = chunk_end;
             }  // end chunk loop — one subtree done
+
+            // --anc-grad: fire-end chain-rule reduction.
+            // After all chunks of this subtree have scattered ancestor K/V gradients
+            // into d_dkv_subtree_{k,v}[l] and saved ln1_out into h_subtree[l], we
+            // collapse the descendant→ancestor contribution into per-layer dW_kw / dW_vw.
+            //
+            //   dW_kw[l] += grad_scale * d_dkv_subtree_k[l] · h_subtree[l]^T   (after RoPE-inv on K)
+            //   dW_vw[l] += grad_scale * d_dkv_subtree_v[l] · h_subtree[l]^T   (V has no RoPE)
+            //
+            // grad_scale here mirrors the per-chunk own-edge scale (1/T_q) — but
+            // at fire-end we don't know "the" T_q. Use 1 / total_chunks_trained
+            // accumulated across the chunks, which approximates the same denominator
+            // (each ancestor contribution was packed alongside its descendant chunk's
+            // queries). Approximation only — own-edge path has the same per-chunk
+            // /chunk_trained quirk, and we're additive to it, so behavior stays
+            // consistent with the existing pathology.
+            //
+            // We use the LAST chunk's grad_scale (1/T_q_last) as a stand-in — same
+            // ballpark as the own-edge gradient scaling. A future cleanup should
+            // unify denominator handling for accumulated chunks.
+            if (cfg.anc_grad && n_subtree_compact_chars > 0) {
+                int n_sub = n_subtree_compact_chars;
+                float anc_scale = (chunks_processed > 0) ? (1.0f / (float)chunks_processed) : 1.0f;
+                float anc_one = 1.0f;  // beta=1 accumulate into existing dW
+                for (int l = 0; l < L_layers; l++) {
+                    // RoPE-inverse on K-grad (V has no RoPE). Treats buffer as
+                    // (n_sub × H) rows of HD; positions[row] gives per-head pos.
+                    launch_rope_batched_inverse(d_dkv_subtree_k[l], d_subtree_real_pos,
+                                                d_rope_cos, d_rope_sin, n_sub * H, HD);
+
+                    float* dW_kw = d_grads + wo.wk_w[l];
+                    float* dW_vw = d_grads + wo.wv_w[l];
+                    // dW_kw [D × D] += anc_scale * d_dkv_subtree_k [n_sub × D] · h_subtree [n_sub × D]^T
+                    CUBLAS_CHECK(cublasSgemm(cublas, CUBLAS_OP_N, CUBLAS_OP_T, D, D, n_sub,
+                                              &anc_scale, d_dkv_subtree_k[l], D,
+                                              h_subtree[l], D, &anc_one, dW_kw, D));
+                    CUBLAS_CHECK(cublasSgemm(cublas, CUBLAS_OP_N, CUBLAS_OP_T, D, D, n_sub,
+                                              &anc_scale, d_dkv_subtree_v[l], D,
+                                              h_subtree[l], D, &anc_one, dW_vw, D));
+                }
+            }
 
             // ONE Adam step per subtree. This is the AGPT training-unit boundary:
             // all descendant-branch gradients sharing a prefix inside this subtree
@@ -5874,6 +6069,7 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
         free(h_subtree);
     }
     if (d_compact_to_subtree_idx) cudaFree(d_compact_to_subtree_idx);
+    if (d_subtree_real_pos)       cudaFree(d_subtree_real_pos);
     if (d_adam_m_per_rc) cudaFree(d_adam_m_per_rc);
     if (d_adam_v_per_rc) cudaFree(d_adam_v_per_rc);
     if (h_adam_t_per_rc) free(h_adam_t_per_rc);
