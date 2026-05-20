@@ -6398,10 +6398,20 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    // Default --save to --model when not specified (overwrite-in-place).
-    // Without this, training silently discards weights at exit — a footgun
-    // that wasted multiple multi-hour runs (apr 2026).
-    if (!save_path) save_path = model_path;
+    // --save behavior: explicit only. If --save is omitted, training does
+    // NOT write weights or optimizer state anywhere. Earlier versions defaulted
+    // save_path to model_path (overwrite-in-place) to avoid "training
+    // silently discards weights at exit." That fix introduced a worse footgun:
+    // diagnostic runs without --save silently appended optimizer state to the
+    // source model, contaminating future cold starts (caught 2026-05-20 on the
+    // raw-no-scale seed1 runs — codex spotted the adam_t=130 load). Now we
+    // print a clear warning instead of silently overwriting.
+    if (!save_path) {
+        fprintf(stderr,
+                "WARNING: no --save path given. Training results (weights + "
+                "optimizer state) will be DISCARDED at exit. Pass --save PATH "
+                "to persist.\n");
+    }
 
     printf("AGPT CUDA Training Engine\n");
 
