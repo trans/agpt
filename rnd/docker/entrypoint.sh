@@ -13,6 +13,16 @@
 #      lets `ssh root@<IP> -p <PORT>` work for our launch.sh automation.
 
 set -e
+# Verbose so the actual failing line shows in RunPod's container logs
+# when something breaks. Cost is a handful of lines per container start.
+set -x
+
+# 0. Ensure sshd's privsep chroot dir exists. Ubuntu's sshd refuses to
+#    start without /run/sshd, and /run is a tmpfs in containers — it's
+#    re-mounted empty on every container start, wiping anything the
+#    Dockerfile created here at build time. So we recreate it on each
+#    startup, not just once.
+mkdir -p /run/sshd
 
 # 1. Generate host keys if missing.
 if [ ! -f /etc/ssh/ssh_host_ed25519_key ]; then
