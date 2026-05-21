@@ -93,7 +93,8 @@ RUN shards install && \
 # Build all required binaries.
 RUN just build-agpt-train && \
     just build-agpt-build-radix-corpus && \
-    just build-microgpt-tools
+    just build-microgpt-tools && \
+    just build-agpt-sliding-window-perplexity
 
 # Stash binaries at /opt/agpt/bin — OUTSIDE /workspace — so RunPod's FUSE
 # volume mount doesn't shadow them at container start.
