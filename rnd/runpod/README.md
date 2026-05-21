@@ -1,5 +1,14 @@
 # RunPod launcher for AGPT experiments
 
+> **For the current operational guide, see `HOWTO.md` in this
+> directory.** This README documents history and rationale; HOWTO.md
+> is the day-to-day cookbook. Of particular note: the
+> `docker.io/7rans/agpt` image was rewritten on 2026-05-21 from an
+> Arch base to `nvidia/cuda:12.4.1-devel-ubuntu22.04` because RunPod's
+> typical hosts run NVIDIA driver 550, which caps at CUDA 12.4 — Arch's
+> rolling CUDA 13.2 was rejected with "driver version is insufficient"
+> on every pod. The image now pins CUDA 12.4.
+
 Lets you provision an H100/H200/A100 RunPod instance, sync code+data, run
 experiments, and pull results back — without manually maintaining the env.
 

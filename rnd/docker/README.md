@@ -1,5 +1,14 @@
 # AGPT Docker image
 
+> **Current state (2026-05-21):** This README describes the original
+> Arch-based design. The image was rewritten on 2026-05-21 to base on
+> `nvidia/cuda:12.4.1-devel-ubuntu22.04` because Arch's rolling CUDA
+> 13.2 + glibc 2.41 combo is incompatible with RunPod's typical
+> driver-550 hosts (CUDA 13 needs driver ≥560). The Ubuntu base pins
+> CUDA at 12.4, which works on all RunPod drivers ≥550. The build,
+> push, and run workflow is otherwise the same; see
+> `rnd/runpod/HOWTO.md` for the current operational guide.
+
 Self-contained build environment + pre-compiled binaries for AGPT.
 
 ## Why
