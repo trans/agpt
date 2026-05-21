@@ -7,7 +7,18 @@
 #
 # Image size: ~5-8GB (cuda package alone is ~3GB).
 # Cold-start on a fresh pod after `docker run`: instant — binaries are
-# already at /workspace/agpt/bin/.
+# at /opt/agpt/bin/.
+#
+# Filesystem layout — important for RunPod:
+#   /opt/agpt/bin/  — pre-built binaries (NOT inside RunPod's /workspace
+#                      volume mount, so they survive the FUSE shadow).
+#   /workspace/agpt — RunPod mounts persistent storage here. Empty by
+#                      default; user rsyncs source code + data here per
+#                      session. Anything the image COPYs into /workspace/
+#                      at build time gets shadowed at container start.
+#                      Confirmed via cyclops investigation 2026-05-21:
+#                      RunPod's mfs#us-wa-1.runpod.net:9421 FUSE mount
+#                      hides image content at /workspace/*.
 
 FROM archlinux:latest
 
@@ -31,7 +42,16 @@ RUN mkdir -p /run/sshd /root/.ssh && \
 
 # Crystal 1.20+ overflows default_workers_count on high-vCPU container
 # hosts (RunPod sees host's 100+ cores). Cap to 8.
+#
+# ENV alone isn't enough: it applies to the entrypoint + children but
+# fresh SSH sessions don't inherit it (sshd spawns a new login shell
+# that only reads PAM env files). Also write to /etc/profile.d/ so
+# `ssh root@pod 'crystal --version'` works without the user setting it.
+# Verified by cyclops 2026-05-21: without profile.d, ssh-spawned shells
+# crash with `Unhandled exception: Arithmetic overflow (OverflowError)`.
 ENV CRYSTAL_WORKERS=8
+RUN echo 'export CRYSTAL_WORKERS=8' > /etc/profile.d/crystal.sh && \
+    chmod 644 /etc/profile.d/crystal.sh
 
 WORKDIR /workspace/agpt
 
@@ -54,8 +74,20 @@ RUN just build-agpt-train && \
     just build-agpt-build-radix-corpus && \
     just build-microgpt-tools
 
-# Expose built binaries on PATH for convenience.
-ENV PATH="/workspace/agpt/bin:${PATH}"
+# Stash the built binaries at /opt/agpt/bin/ — OUTSIDE /workspace —
+# so RunPod's volume mount can't shadow them. Verified by cyclops
+# 2026-05-21: /workspace gets overlaid by mfs#us-wa-1.runpod.net:9421
+# FUSE on container start, hiding anything the image COPYs there.
+RUN mkdir -p /opt/agpt && \
+    cp -r bin /opt/agpt/ && \
+    echo 'export PATH="/opt/agpt/bin:$PATH"' > /etc/profile.d/agpt.sh && \
+    chmod 644 /etc/profile.d/agpt.sh
+
+# Expose built binaries on PATH for convenience. /opt/agpt/bin is where
+# the binaries actually live in the running container; /workspace/agpt/bin
+# kept as a fallback for users who push their own builds via launch.sh
+# push-code + just build (those land in the live volume).
+ENV PATH="/opt/agpt/bin:/workspace/agpt/bin:${PATH}"
 
 # Run the entrypoint, which generates SSH host keys, injects $PUBLIC_KEY
 # into authorized_keys, then runs sshd in foreground. sshd keeps the
