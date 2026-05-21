@@ -77,6 +77,8 @@ push_code() {
         --include='rnd/streaming-agpt-v1/**' \
         --include='rnd/runpod/' \
         --include='rnd/runpod/**' \
+        --include='rnd/beta2-diagnostic/' \
+        --include='rnd/beta2-diagnostic/**' \
         --exclude='rnd/*' \
         --exclude='/tmp/' \
         --exclude='.git/' \
