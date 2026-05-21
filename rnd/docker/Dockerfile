@@ -41,6 +41,8 @@ RUN pacman-key --init && \
         base-devel crystal shards just openblas64 \
         pkg-config rsync git wget openssh && \
     pacman -U --noconfirm \
+        https://archive.archlinux.org/packages/g/gcc13-libs/gcc13-libs-13.3.0-1-x86_64.pkg.tar.zst \
+        https://archive.archlinux.org/packages/g/gcc13/gcc13-13.3.0-1-x86_64.pkg.tar.zst \
         https://archive.archlinux.org/packages/c/cuda/cuda-12.4.1-4-x86_64.pkg.tar.zst && \
     pacman -Scc --noconfirm
 
