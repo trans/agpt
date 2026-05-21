@@ -167,7 +167,52 @@ enum class OptimizerKind { Adam, SGD, Momentum, RMSProp, LBFGS };
 //   Sqrt   : w_i = sqrt(count_i)    / mean                 (partial)
 //   Linear : w_i = count_i          / mean                 (matches SGD
 //            frequency weighting — common patterns dominate training)
-enum class MassWeightMode { Off, Log, Sqrt, Linear };
+enum class MassWeightMode { Off, Log, Sqrt, Linear, InvLog, InvLinear };
+
+// Depth-weight: scales per-query loss/grad by f(endpoint_depth_of_query).
+// Per the "mass != relevance" framing: shallow nodes are high-mass but
+// low-context-relevance (e.g. unigram "A" is a bigram statistic — high
+// confidence but rarely the prediction we actually need); deep nodes are
+// low-mass but high-context-relevance (long meaningful prefix, the
+// prediction we care about). Weighting deeper-prefix predictions more
+// heavily tests whether the model benefits from emphasizing relevance
+// over mass. The revised Fisher note argues depth shouldn't get its own
+// term (its effect is already in N for a precision-weighted overlay) —
+// this flag is the deliberately-naive depth-only experiment that ignores
+// that critique; useful as a sanity check on direction.
+//   Off    : w = 1.0
+//   Log    : w = log(1 + d)
+//   Sqrt   : w = sqrt(d)
+//   Linear : w = d
+//   InvLog    : w = 1 / log(2 + d)   (inverted log — down-weight deep)
+//   InvLinear : w = 1 / (1 + d)      (inverted linear — stronger down-weight)
+enum class DepthWeightMode { Off, Log, Sqrt, Linear, InvLog, InvLinear };
+
+// Entropy-weight: scales per-query loss/grad by f(H_v), where H_v is the
+// Shannon entropy of the query's target distribution (counts at the node).
+// Tests how the diffuseness of the next-token distribution should shape
+// gradient weighting.
+//   Off        : w = 1
+//   Up         : w = 1 + H (additive up-weight, "magnify diffuse" — model
+//                needs more push on hard/diffuse predictions)
+//   Down       : w = 1 / (1 + H) ("slow down on diffuse — estimator noisier")
+//   Peakedness : w = 1 - H/log(V) ("trust peaky predictions")
+// H is computed in nats; weight magnitudes range roughly [1, 1 + log(V)] for
+// Up and [1/(1+log(V)), 1] for Down. Peakedness is in [0, 1].
+enum class EntropyWeightMode { Off, Up, Down, Peakedness };
+
+// Branching-weight: scales per-query loss/grad by f(b), where b = k/V is the
+// fraction of vocab that's a distinct continuation at the query's node
+// (k = number of unique tokens in the count distribution, V = vocab size).
+// Branching is the SUPPORT of the next-token distribution — a related-but-
+// distinct signal from entropy. Same shape options as depth-weight.
+//   Off    : w = 1.0
+//   Log    : w = log(1 + b)        — sub-linear up-weight of high branching
+//   Sqrt   : w = sqrt(b)
+//   Linear : w = b
+//   InvLog    : w = 1 / log(2 + b)   — down-weight high branching
+//   InvLinear : w = 1 / (1 + b)       — stronger down-weight
+enum class BranchingWeightMode { Off, Log, Sqrt, Linear, InvLog, InvLinear };
 
 // Learning rate schedules.
 //  - Constant:     lr stays at base_lr throughout training.
@@ -3388,7 +3433,13 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                         float weight_decay, float grad_clip_norm, int save_every,
                         CurriculumMode curriculum, const char* save_path,
                         LightningConfig lightning = LightningConfig{},
-                        TrainPersistence* persist = nullptr)
+                        TrainPersistence* persist = nullptr,
+                        DepthWeightMode depth_weight = DepthWeightMode::Off,
+                        bool fire_norm_by_mass = false,
+                        EntropyWeightMode entropy_weight = EntropyWeightMode::Off,
+                        bool fire_norm_by_weight = false,
+                        bool fire_norm_none = false,
+                        BranchingWeightMode branching_weight = BranchingWeightMode::Off)
 {
     const bool quiet = persist && persist->quiet;
 
@@ -4740,6 +4791,22 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
         // unlimited-memory single-chunk run would produce. Independent of how
         // memory chunked the work.
         int fire_events = 0;
+        // Per-fire total mass = sum of trie.edge_mass[r] over all trained events.
+        // When --fire-norm-mass is set, d_grads is divided by fire_mass instead
+        // of fire_events. This implements "mass-weighted normalization at the
+        // optimizer step" — high-mass nodes (appearing at many corpus positions)
+        // contribute proportionally more to the divisor, so their per-observation
+        // gradient impact is reduced. Tests whether the inv-linear mass-weight
+        // win at the loss-kernel layer was really just compensating for the
+        // absence of mass-weighted gradient normalization at the update step.
+        long long fire_mass = 0;
+        // Per-fire total of per-event weights (sum of h_mass_weights[q] across
+        // all trained events of the fire). When --fire-norm-weight is set,
+        // d_grads is divided by fire_weight at fire-end instead of by event
+        // count, giving the gradient the canonical "weighted mean per effective
+        // event" interpretation. Pairs with any of --mass-weight / --depth-weight
+        // / --entropy-weight to make the loss + gradient consistent.
+        double fire_weight = 0.0;
         int mb_groups_in_flight = 0;  // counter for --mini-batch-groups: number of partition groups
                                        // whose gradients are currently accumulated since the last
                                        // optimizer step (or since epoch start for the first batch).
@@ -4755,6 +4822,8 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
         if (accumulate) {
             CUDA_CHECK(cudaMemset(d_grads, 0, wo.total_floats * sizeof(float)));
             fire_events = 0;
+            fire_mass = 0;
+            fire_weight = 0.0;
         }
 
         // --- Per-subtree residual measurement (notes/measure-loss-during-training.md) ---
@@ -4912,6 +4981,7 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
             if (!accumulate && mb_groups_in_flight == 0) {
                 CUDA_CHECK(cudaMemset(d_grads, 0, wo.total_floats * sizeof(float)));
                 fire_events = 0;
+                fire_mass = 0;
             }
 
             // --anc-grad: per-split (= per Adam fire) accumulator zero. The actual
@@ -4990,13 +5060,20 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                 // ancestors appearing in many paths and works fine (PPL 29 vs
                 // L3-masked 59 on Gutenberg). See git log for the experiment.
                 if (mass_weight != MassWeightMode::Off) {
+                    // NORMALIZATION: weights are NOT mean-normalized per chunk.
+                    // Per-chunk normalization is the same chunks-in-math sin we
+                    // retired for the gradient normalizer (commit 609e7ab) and for
+                    // depth-weight: it lets chunk composition distort relative
+                    // weighting across the fire. Removed here too on principle —
+                    // not because empirical PPL says so (per-chunk normalization
+                    // does help mass-weight's PPL) but because it bakes a memory-
+                    // layout artifact into gradient math. The principled fix for
+                    // weight magnitude across chunks is per-fire weight
+                    // normalization (divide d_grads by Σw rather than by N at
+                    // fire-end); deferred until ready to implement properly.
                     float* h_mass_weights = (float*)malloc(T_q * sizeof(float));
                     if (joint_mass > 0 && (char_suffix_mass != NULL || trie.mean_edge_mass != NULL)) {
-                        // Per-query joint weight: compress(edge_mass[r] * suffix_factor).
-                        // suffix_factor: per-position from char_suffix_mass[h_char_pos[q]] if
-                        // table is loaded; otherwise aggregate mean_edge_mass[D_max - d_q].
                         int D_max = trie.depth_file_count;
-                        double total_w = 0.0;
                         for (int q = 0; q < T_q; q++) {
                             int node_idx = h_query_to_node[q];
                             int r = h_radix_ids[node_idx];
@@ -5007,7 +5084,7 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                                 if (c >= 0 && c < char_suffix_mass_n) {
                                     suff_m = char_suffix_mass[c];
                                 } else {
-                                    suff_m = 1.0;  // fallback for out-of-range
+                                    suff_m = 1.0;
                                 }
                             } else {
                                 int d_q = h_query_depth[q];
@@ -5019,49 +5096,152 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                             double joint = pref_m * suff_m;
                             float w;
                             switch (mass_weight) {
-                                case MassWeightMode::Log:    w = (float)log(1.0 + joint); break;
-                                case MassWeightMode::Sqrt:   w = (float)sqrt(joint);      break;
-                                case MassWeightMode::Linear: w = (float)joint;             break;
-                                default:                     w = 1.0f;                     break;
+                                case MassWeightMode::Log:       w = (float)log(1.0 + joint); break;
+                                case MassWeightMode::Sqrt:      w = (float)sqrt(joint);      break;
+                                case MassWeightMode::Linear:    w = (float)joint;             break;
+                                case MassWeightMode::InvLog:    w = 1.0f / (float)log(2.0 + joint); break;
+                                case MassWeightMode::InvLinear: w = 1.0f / (1.0f + (float)joint); break;
+                                default:                        w = 1.0f;                     break;
                             }
                             h_mass_weights[q] = w;
-                            total_w += (double)w;
                         }
-                        float mean_w = (T_q > 0) ? (float)(total_w / T_q) : 1.0f;
-                        if (mean_w <= 0.0f) mean_w = 1.0f;
-                        for (int q = 0; q < T_q; q++) h_mass_weights[q] /= mean_w;
                     } else {
-                        // Standard per-node weight: compress(edge_mass[r]).
                         float* node_w = (float*)malloc(N * sizeof(float));
-                        double total_w = 0.0;
                         for (int i = 0; i < N; i++) {
                             int r = h_radix_ids[i];
                             float count = (float)trie.edge_mass[r];
                             float w;
                             switch (mass_weight) {
-                                case MassWeightMode::Log:    w = logf(1.0f + count); break;
-                                case MassWeightMode::Sqrt:   w = sqrtf(count);       break;
-                                case MassWeightMode::Linear: w = count;              break;
-                                default:                     w = 1.0f;               break;
+                                case MassWeightMode::Log:       w = logf(1.0f + count); break;
+                                case MassWeightMode::Sqrt:      w = sqrtf(count);       break;
+                                case MassWeightMode::Linear:    w = count;              break;
+                                case MassWeightMode::InvLog:    w = 1.0f / logf(2.0f + count); break;
+                                case MassWeightMode::InvLinear: w = 1.0f / (1.0f + count); break;
+                                default:                        w = 1.0f;               break;
                             }
                             node_w[i] = w;
-                            int L = trie.edge_lens[r];
-                            total_w += (double)w * L;
                         }
-                        float mean_w = (T_q > 0) ? (float)(total_w / T_q) : 1.0f;
-                        if (mean_w <= 0.0f) mean_w = 1.0f;
                         for (int i = 0; i < N; i++) {
-                            float w = node_w[i] / mean_w;
+                            float w = node_w[i];
                             int q_start = h_query_offsets[i];
                             int q_end = h_query_offsets[i + 1];
                             for (int q = q_start; q < q_end; q++) h_mass_weights[q] = w;
                         }
                         free(node_w);
                     }
+                    for (int q = 0; q < T_q; q++) fire_weight += (double)h_mass_weights[q];  // for --fire-norm-weight
                     CUDA_CHECK(cudaMemcpy(d_mass_weights, h_mass_weights, T_q * sizeof(float), cudaMemcpyHostToDevice));
                     free(h_mass_weights);
                 }
-                bool need_mass_weights = (mass_weight != MassWeightMode::Off);
+                // --depth-weight: per-query loss/grad scaling by f(endpoint_depth).
+                // Mutually exclusive with --mass-weight in this first cut (both
+                // would compete for the same d_mass_weights buffer). Reuses the
+                // existing loss-kernel weight plumbing — no new GPU memory,
+                // no kernel changes. See DepthWeightMode enum for shapes.
+                //
+                // NORMALIZATION: weights are NOT mean-normalized per chunk.
+                // Per-chunk normalization would make a depth-d query's
+                // effective weight depend on which chunk it lands in (same
+                // chunks-in-math sin we retired for the gradient normalizer
+                // in commit 609e7ab). Raw weights give consistent relative
+                // weighting across all chunks/fires; overall magnitude is
+                // handled by the per-fire 1/N d_grads divisor at fire-end.
+                // Consequence: the displayed train-set loss is a weighted
+                // mean, not directly comparable to the baseline's unweighted
+                // mean. Use held-out PPL for fair comparison.
+                if (depth_weight != DepthWeightMode::Off && mass_weight == MassWeightMode::Off) {
+                    float* h_mass_weights = (float*)malloc(T_q * sizeof(float));
+                    for (int q = 0; q < T_q; q++) {
+                        int d_q = h_query_depth[q];
+                        float w;
+                        switch (depth_weight) {
+                            case DepthWeightMode::Log:       w = logf(1.0f + (float)d_q);       break;
+                            case DepthWeightMode::Sqrt:      w = sqrtf((float)d_q);             break;
+                            case DepthWeightMode::Linear:    w = (float)d_q;                    break;
+                            case DepthWeightMode::InvLog:    w = 1.0f / logf(2.0f + (float)d_q); break;
+                            case DepthWeightMode::InvLinear: w = 1.0f / (1.0f + (float)d_q);    break;
+                            default:                         w = 1.0f;                          break;
+                        }
+                        h_mass_weights[q] = w;
+                    }
+                    for (int q = 0; q < T_q; q++) fire_weight += (double)h_mass_weights[q];  // for --fire-norm-weight
+                    CUDA_CHECK(cudaMemcpy(d_mass_weights, h_mass_weights, T_q * sizeof(float), cudaMemcpyHostToDevice));
+                    free(h_mass_weights);
+                }
+                // --entropy-weight: per-query loss/grad scaling by f(H_v), where
+                // H_v is the Shannon entropy of the query's target distribution.
+                // Computed host-side from trie.counts_val. Mutually exclusive
+                // with mass-weight and depth-weight (all share d_mass_weights).
+                // See EntropyWeightMode for shapes.
+                if (entropy_weight != EntropyWeightMode::Off
+                    && mass_weight == MassWeightMode::Off
+                    && depth_weight == DepthWeightMode::Off)
+                {
+                    float* h_mass_weights = (float*)malloc(T_q * sizeof(float));
+                    float log_V = logf((float)cfg.vocab_size);
+                    for (int q = 0; q < T_q; q++) {
+                        int node_idx = h_query_to_node[q];
+                        int r = h_radix_ids[node_idx];
+                        int start = trie.counts_offset[r];
+                        int end   = trie.counts_offset[r + 1];
+                        float H = 0.0f;
+                        if (end - start > 1) {
+                            long long total = 0;
+                            for (int e = start; e < end; e++) total += trie.counts_val[e];
+                            float total_f = (float)total;
+                            for (int e = start; e < end; e++) {
+                                float p = (float)trie.counts_val[e] / total_f;
+                                if (p > 0.0f) H -= p * logf(p);
+                            }
+                        }
+                        float w;
+                        switch (entropy_weight) {
+                            case EntropyWeightMode::Up:         w = 1.0f + H;            break;
+                            case EntropyWeightMode::Down:       w = 1.0f / (1.0f + H);   break;
+                            case EntropyWeightMode::Peakedness: w = 1.0f - H / log_V;    break;
+                            default:                            w = 1.0f;                break;
+                        }
+                        h_mass_weights[q] = w;
+                    }
+                    for (int q = 0; q < T_q; q++) fire_weight += (double)h_mass_weights[q];  // for --fire-norm-weight
+                    CUDA_CHECK(cudaMemcpy(d_mass_weights, h_mass_weights, T_q * sizeof(float), cudaMemcpyHostToDevice));
+                    free(h_mass_weights);
+                }
+                // --branching-weight: per-query loss/grad scaling by f(b),
+                // where b = k/V is the branching-factor fraction of the query's
+                // target distribution. Mutually exclusive with the other weight
+                // modes. See BranchingWeightMode for shapes.
+                if (branching_weight != BranchingWeightMode::Off
+                    && mass_weight == MassWeightMode::Off
+                    && depth_weight == DepthWeightMode::Off
+                    && entropy_weight == EntropyWeightMode::Off)
+                {
+                    float* h_mass_weights = (float*)malloc(T_q * sizeof(float));
+                    float inv_V = 1.0f / (float)cfg.vocab_size;
+                    for (int q = 0; q < T_q; q++) {
+                        int node_idx = h_query_to_node[q];
+                        int r = h_radix_ids[node_idx];
+                        int k = trie.counts_offset[r + 1] - trie.counts_offset[r];
+                        float b = (float)k * inv_V;
+                        float w;
+                        switch (branching_weight) {
+                            case BranchingWeightMode::Log:       w = logf(1.0f + b);            break;
+                            case BranchingWeightMode::Sqrt:      w = sqrtf(b);                  break;
+                            case BranchingWeightMode::Linear:    w = b;                         break;
+                            case BranchingWeightMode::InvLog:    w = 1.0f / logf(2.0f + b);     break;
+                            case BranchingWeightMode::InvLinear: w = 1.0f / (1.0f + b);         break;
+                            default:                             w = 1.0f;                     break;
+                        }
+                        h_mass_weights[q] = w;
+                    }
+                    for (int q = 0; q < T_q; q++) fire_weight += (double)h_mass_weights[q];  // for --fire-norm-weight
+                    CUDA_CHECK(cudaMemcpy(d_mass_weights, h_mass_weights, T_q * sizeof(float), cudaMemcpyHostToDevice));
+                    free(h_mass_weights);
+                }
+                bool need_mass_weights = (mass_weight != MassWeightMode::Off)
+                                       || (depth_weight != DepthWeightMode::Off)
+                                       || (entropy_weight != EntropyWeightMode::Off)
+                                       || (branching_weight != BranchingWeightMode::Off);
 
                 // NOTE: gradients zeroed at subtree start; NOT per chunk.
                 // This chunk's backward accumulates into d_grads (via +=).
@@ -5260,16 +5440,24 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                 float* h_loss = (float*)malloc(T_q * sizeof(float));
                 CUDA_CHECK(cudaMemcpy(h_loss, d_loss, T_q * sizeof(float), cudaMemcpyDeviceToHost));
                 int chunk_trained = 0;
+                long long chunk_mass = 0;
                 double chunk_loss_sum = 0.0;
                 for (int i = 0; i < T_q; i++) if (h_loss[i] > 0.0f) {
                     total_loss += h_loss[i];
                     chunk_loss_sum += h_loss[i];
                     chunk_trained++;
+                    // Mass of this event = trie.edge_mass of its node's radix entry.
+                    // Used by --fire-norm-mass to normalize d_grads by Σ mass at
+                    // fire-end instead of by event count.
+                    int node_idx = h_query_to_node[i];
+                    int r = h_radix_ids[node_idx];
+                    chunk_mass += (long long)trie.edge_mass[r];
                 }
                 subtree_loss_sum[rc_idx] += chunk_loss_sum;
                 subtree_tokens[rc_idx]   += chunk_trained;
                 nodes_trained += chunk_trained;
                 fire_events += chunk_trained;  // per-fire LM-update-unit event count
+                fire_mass   += chunk_mass;     // per-fire mass sum (for --fire-norm-mass)
                 free(h_loss);
 
                 // ---------- BACKWARD ----------
@@ -5648,9 +5836,30 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
             }
 
             // Per-fire normalization: d_grads holds the raw sum across all
-            // chunks of this split (= the LM-update unit). Scale by 1/fire_events
-            // once so the optimizer sees the canonical per-event mean gradient.
-            if (fire_events > 0) {
+            // chunks of this split (= the LM-update unit). Scale by 1/N once so
+            // the optimizer sees the canonical per-event mean gradient.
+            // --fire-norm-mass: divide by Σ mass instead of by event count.
+            // Tests whether high-mass-node gradient over-representation is the
+            // problem the inv-linear mass-weight was solving at the loss kernel.
+            if (fire_norm_none) {
+                // No fire-end divisor at all — d_grads is the raw sum of
+                // per-event gradient contributions. RMSprop's variance norm
+                // is the only thing keeping magnitude in check; this is the
+                // "truly no normalization" regime.
+            } else if (fire_norm_by_weight) {
+                if (fire_weight > 0.0) {
+                    float inv_w = 1.0f / (float)fire_weight;
+                    CUBLAS_CHECK(cublasSscal(cublas, wo.total_floats, &inv_w, d_grads, 1));
+                } else if (fire_events > 0) {
+                    float inv_n = 1.0f / (float)fire_events;
+                    CUBLAS_CHECK(cublasSscal(cublas, wo.total_floats, &inv_n, d_grads, 1));
+                }
+            } else if (fire_norm_by_mass) {
+                if (fire_mass > 0) {
+                    float inv_m = 1.0f / (float)fire_mass;
+                    CUBLAS_CHECK(cublasSscal(cublas, wo.total_floats, &inv_m, d_grads, 1));
+                }
+            } else if (fire_events > 0) {
                 float inv_n = 1.0f / (float)fire_events;
                 CUBLAS_CHECK(cublasSscal(cublas, wo.total_floats, &inv_n, d_grads, 1));
             }
@@ -5731,10 +5940,23 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
             }
             float step_lr = compute_lr(cfg.lr, adam_t - 1, total_opt_steps_estimate,
                                        warmup_steps_acc, lr_schedule);
-            // Per-fire normalization: same as the --no-accumulate fire site
-            // above. d_grads holds the epoch-wide raw event sum; scale by
-            // 1/fire_events once before Adam.
-            if (fire_events > 0) {
+            // Per-fire normalization: same as the --no-accumulate fire site above.
+            if (fire_norm_none) {
+                // No fire-end divisor — raw accumulation.
+            } else if (fire_norm_by_weight) {
+                if (fire_weight > 0.0) {
+                    float inv_w = 1.0f / (float)fire_weight;
+                    CUBLAS_CHECK(cublasSscal(cublas, wo.total_floats, &inv_w, d_grads, 1));
+                } else if (fire_events > 0) {
+                    float inv_n = 1.0f / (float)fire_events;
+                    CUBLAS_CHECK(cublasSscal(cublas, wo.total_floats, &inv_n, d_grads, 1));
+                }
+            } else if (fire_norm_by_mass) {
+                if (fire_mass > 0) {
+                    float inv_m = 1.0f / (float)fire_mass;
+                    CUBLAS_CHECK(cublasSscal(cublas, wo.total_floats, &inv_m, d_grads, 1));
+                }
+            } else if (fire_events > 0) {
                 float inv_n = 1.0f / (float)fire_events;
                 CUBLAS_CHECK(cublasSscal(cublas, wo.total_floats, &inv_n, d_grads, 1));
             }
@@ -6182,6 +6404,12 @@ int main(int argc, char** argv) {
     float lr = 3e-4f;
     float entropy_lambda = 0.0f;
     MassWeightMode mass_weight = MassWeightMode::Off;
+    DepthWeightMode depth_weight = DepthWeightMode::Off;
+    EntropyWeightMode entropy_weight = EntropyWeightMode::Off;
+    BranchingWeightMode branching_weight = BranchingWeightMode::Off;
+    bool fire_norm_by_mass = false;
+    bool fire_norm_by_weight = false;
+    bool fire_norm_none = false;
     int subtree_splits = 1;   // deprecated: count-based chunking. --partition-depth is preferred.
     int partition_depth = 1;  // 1 = per-root-child (65 groups); 2 = bigram (~1139); 3 = trigram; etc.
     // Default: accumulate gradients across all splits + partitions within a
@@ -6236,13 +6464,86 @@ int main(int argc, char** argv) {
             // consume it. Otherwise treat this as bare --mass-weight (= log).
             if (i + 1 < argc) {
                 const char* m = argv[i + 1];
-                if      (strcmp(m, "off")    == 0) { mass_weight = MassWeightMode::Off;    i++; }
-                else if (strcmp(m, "log")    == 0) { mass_weight = MassWeightMode::Log;    i++; }
-                else if (strcmp(m, "sqrt")   == 0) { mass_weight = MassWeightMode::Sqrt;   i++; }
-                else if (strcmp(m, "linear") == 0) { mass_weight = MassWeightMode::Linear; i++; }
-                else                               { mass_weight = MassWeightMode::Log; }  // bare flag
+                if      (strcmp(m, "off")        == 0) { mass_weight = MassWeightMode::Off;       i++; }
+                else if (strcmp(m, "log")        == 0) { mass_weight = MassWeightMode::Log;       i++; }
+                else if (strcmp(m, "sqrt")       == 0) { mass_weight = MassWeightMode::Sqrt;      i++; }
+                else if (strcmp(m, "linear")     == 0) { mass_weight = MassWeightMode::Linear;    i++; }
+                else if (strcmp(m, "inv-log")    == 0) { mass_weight = MassWeightMode::InvLog;    i++; }
+                else if (strcmp(m, "inv-linear") == 0) { mass_weight = MassWeightMode::InvLinear; i++; }
+                else                                   { mass_weight = MassWeightMode::Log; }  // bare flag
             } else {
                 mass_weight = MassWeightMode::Log;
+            }
+        }
+        else if (strcmp(argv[i], "--branching-weight") == 0) {
+            // --branching-weight <mode>: scale per-query loss/grad by f(b),
+            // where b = k/V is the branching factor (k = distinct continuations,
+            // V = vocab size). Modes: off, log, sqrt, linear, inv-log.
+            // Bare flag = log. Mutually exclusive with other weight modes.
+            if (i + 1 < argc) {
+                const char* m = argv[i + 1];
+                if      (strcmp(m, "off")        == 0) { branching_weight = BranchingWeightMode::Off;       i++; }
+                else if (strcmp(m, "log")        == 0) { branching_weight = BranchingWeightMode::Log;       i++; }
+                else if (strcmp(m, "sqrt")       == 0) { branching_weight = BranchingWeightMode::Sqrt;      i++; }
+                else if (strcmp(m, "linear")     == 0) { branching_weight = BranchingWeightMode::Linear;    i++; }
+                else if (strcmp(m, "inv-log")    == 0) { branching_weight = BranchingWeightMode::InvLog;    i++; }
+                else if (strcmp(m, "inv-linear") == 0) { branching_weight = BranchingWeightMode::InvLinear; i++; }
+                else                                   { branching_weight = BranchingWeightMode::Log; }
+            } else {
+                branching_weight = BranchingWeightMode::Log;
+            }
+        }
+        else if (strcmp(argv[i], "--entropy-weight") == 0) {
+            // --entropy-weight <mode>: scale per-query loss/grad by f(H_v).
+            // Modes: off, up, down, peakedness. See EntropyWeightMode enum.
+            // Mutually exclusive with --mass-weight and --depth-weight.
+            if (i + 1 < argc) {
+                const char* m = argv[i + 1];
+                if      (strcmp(m, "off")        == 0) { entropy_weight = EntropyWeightMode::Off;        i++; }
+                else if (strcmp(m, "up")         == 0) { entropy_weight = EntropyWeightMode::Up;         i++; }
+                else if (strcmp(m, "down")       == 0) { entropy_weight = EntropyWeightMode::Down;       i++; }
+                else if (strcmp(m, "peakedness") == 0) { entropy_weight = EntropyWeightMode::Peakedness; i++; }
+                else                                   { entropy_weight = EntropyWeightMode::Down; }
+            } else {
+                entropy_weight = EntropyWeightMode::Down;
+            }
+        }
+        else if (strcmp(argv[i], "--fire-norm-none") == 0) {
+            // No fire-end normalization at all. d_grads is the raw sum of
+            // per-event gradients. Tests the "truly no normalization" baseline.
+            fire_norm_none = true;
+        }
+        else if (strcmp(argv[i], "--fire-norm-weight") == 0) {
+            // Divide d_grads by Σ w_q (sum of loss-kernel weights) over the
+            // fire's trained events at the optimizer step, instead of by event
+            // count. Gives the optimizer a true weighted-mean-per-effective-event
+            // gradient. Takes precedence over --fire-norm-mass.
+            fire_norm_by_weight = true;
+        }
+        else if (strcmp(argv[i], "--fire-norm-mass") == 0) {
+            // Divide d_grads by Σ trie.edge_mass[r] over the fire's trained
+            // events at the optimizer step, instead of by event count.
+            // Tests whether high-mass-node gradient over-representation is what
+            // mass-inv-linear was solving at the loss-kernel layer. See
+            // rnd/depth-weight/.
+            fire_norm_by_mass = true;
+        }
+        else if (strcmp(argv[i], "--depth-weight") == 0) {
+            // --depth-weight <mode>: scale per-query loss/grad by f(endpoint_depth).
+            // Modes: off (default), log, sqrt, linear. Bare flag = log.
+            // Mutually exclusive with --mass-weight at the loss kernel
+            // (both populate d_mass_weights). See DepthWeightMode enum.
+            if (i + 1 < argc) {
+                const char* m = argv[i + 1];
+                if      (strcmp(m, "off")        == 0) { depth_weight = DepthWeightMode::Off;       i++; }
+                else if (strcmp(m, "log")        == 0) { depth_weight = DepthWeightMode::Log;       i++; }
+                else if (strcmp(m, "sqrt")       == 0) { depth_weight = DepthWeightMode::Sqrt;      i++; }
+                else if (strcmp(m, "linear")     == 0) { depth_weight = DepthWeightMode::Linear;    i++; }
+                else if (strcmp(m, "inv-log")    == 0) { depth_weight = DepthWeightMode::InvLog;    i++; }
+                else if (strcmp(m, "inv-linear") == 0) { depth_weight = DepthWeightMode::InvLinear; i++; }
+                else                                   { depth_weight = DepthWeightMode::Log; }
+            } else {
+                depth_weight = DepthWeightMode::Log;
             }
         }
         else if (strcmp(argv[i], "--subtree-splits") == 0 && i + 1 < argc) subtree_splits = atoi(argv[++i]);
@@ -6563,7 +6864,7 @@ int main(int argc, char** argv) {
             load_virtual_tree(virtual_tree_path, radix_trie.radix_count, cfg.vocab_size);
         }
 
-        int rc = run_radix_training(cfg, wo, h_weights, radix_trie, epochs, entropy_lambda, mass_weight, subtree_splits, partition_depth, accumulate, single_subtree, intermediate_weight, optimizer, momentum_beta, rmsprop_beta, lr_schedule, warmup_epochs, weight_decay, grad_clip_norm, save_every, curriculum, save_path, lightning, &persist);
+        int rc = run_radix_training(cfg, wo, h_weights, radix_trie, epochs, entropy_lambda, mass_weight, subtree_splits, partition_depth, accumulate, single_subtree, intermediate_weight, optimizer, momentum_beta, rmsprop_beta, lr_schedule, warmup_epochs, weight_decay, grad_clip_norm, save_every, curriculum, save_path, lightning, &persist, depth_weight, fire_norm_by_mass, entropy_weight, fire_norm_by_weight, fire_norm_none, branching_weight);
         // Append optimizer state to the saved checkpoint so the next training
         // call can pick up Adam/RMSprop moments mid-stream.
         if (rc == 0 && save_path) {

@@ -1,0 +1,20 @@
+gut off events seed=1 train=2.068419 heldout=9.7335
+gut off none seed=1 train=2.075290 heldout=9.7154
+gut mass-linear events seed=1 train=5.041689 heldout=9.2178
+gut mass-linear none seed=1 train=5.051371 heldout=9.4108
+gut off events seed=2 train=2.045285 heldout=9.0497
+gut off none seed=2 train=2.134556 heldout=10.0615
+gut mass-linear events seed=2 train=4.959758 heldout=8.8852
+gut mass-linear none seed=2 train=5.015794 heldout=9.2326
+gut off events seed=3 train=2.019147 heldout=8.9311
+gut off none seed=3 train=2.141998 heldout=9.8060
+gut mass-linear events seed=3 train=4.942694 heldout=8.9011
+gut mass-linear none seed=3 train=5.051302 heldout=9.3714
+GUT_DONE
+gut branching-linear events seed=1 train=0.039244 heldout=9.6100
+gut branching-linear none seed=1 train=0.039836 heldout=9.8216
+gut branching-linear events seed=2 train=0.038996 heldout=9.0009
+gut branching-linear none seed=2 train=0.040359 heldout=9.6990
+gut branching-linear events seed=3 train=0.039185 heldout=9.0864
+gut branching-linear none seed=3 train=0.040831 heldout=9.8181
+GUT_BRANCHING_DONE

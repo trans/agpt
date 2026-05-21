@@ -1,0 +1,2 @@
+depth-log +fireW: train_e10=5.840541 heldout_PPL=10.8615
+depth-sqrt +fireW: train_e10=7.823977 heldout_PPL=11.1196
