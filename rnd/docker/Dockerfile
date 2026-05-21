@@ -24,12 +24,24 @@ FROM archlinux:latest
 
 # Refresh pacman keyring (sometimes the base image's keys are stale) and
 # install everything in one layer to keep image size down.
+#
+# CUDA is pinned to 12.4.1-4 from Arch's archive, NOT the rolling current
+# version (which would be CUDA 13.2+ as of 2026-05). Rationale: RunPod's
+# cheap-tier hosts ship NVIDIA driver 550.x, which only speaks the CUDA
+# 12.4 protocol. CUDA 13's libcudart.so issues ioctls the 550 kernel
+# module doesn't understand → "driver version is insufficient" at any
+# runtime call. Forward-compat libs have a hard floor at driver 560 for
+# CUDA 13, so they don't bridge this either. The Justfile already passes
+# nvcc --allow-unsupported-compiler so a host gcc newer than CUDA 12.4
+# supports (gcc≤13) doesn't break the build.
 RUN pacman-key --init && \
     pacman-key --populate archlinux && \
     pacman -Syu --noconfirm && \
     pacman -S --noconfirm --needed \
-        base-devel cuda crystal shards just openblas64 \
+        base-devel crystal shards just openblas64 \
         pkg-config rsync git wget openssh && \
+    pacman -U --noconfirm \
+        https://archive.archlinux.org/packages/c/cuda/cuda-12.4.1-4-x86_64.pkg.tar.zst && \
     pacman -Scc --noconfirm
 
 # Configure sshd for RunPod-style key-only access (no passwords).
