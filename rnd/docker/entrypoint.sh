@@ -28,4 +28,6 @@ if [ -n "$PUBLIC_KEY" ]; then
 fi
 
 # 3. sshd in foreground keeps the container alive while serving SSH.
-exec /usr/bin/sshd -D -e
+#    Path differs: /usr/sbin/sshd on Ubuntu/Debian, /usr/bin/sshd on Arch.
+#    Resolve via PATH so the entrypoint is portable.
+exec "$(command -v sshd)" -D -e
