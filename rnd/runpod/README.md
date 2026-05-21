@@ -28,28 +28,56 @@ experiments, and pull results back — without manually maintaining the env.
 In RunPod's UI:
 1. Pick a GPU: A100 SXM 80GB (~$1.89/hr, recommended — usually available),
    H100 SXM (~$2.49/hr, when in stock), H200 (141GB, ~$3.59/hr, often gone)
-2. Pick a CUDA image: their default `runpod/pytorch` works fine — we just
-   need CUDA + nvcc. Avoid images that pin a specific PyTorch version we
-   don't need.
+2. Pick an image:
+   - **Recommended: `docker.io/7rans/agpt:YYYY-MM-DD`** (date-tagged
+     immutable version) — Arch-based, has CUDA + Crystal + all AGPT
+     binaries pre-built. Pod is ready to run experiments immediately
+     after `setup-image` rsyncs runtime data. Avoids the ~90 min / ~$3
+     provision time we hit on 2026-05-17 with the generic pytorch
+     image. Use the date tag (e.g. `:2026-05-21`) rather than `:latest`
+     so the pod is reproducible — `:latest` is a moving target.
+     `podman pull docker.io/7rans/agpt:latest` locally to see the
+     current digest; tagged versions live alongside it. Build
+     instructions: `rnd/docker/README.md`.
+   - Fallback: `runpod/pytorch` (or any CUDA 12+ image) — requires the
+     manual install flow via `setup_pod.sh`. Use when the image isn't
+     available, drifted from current code, or you want a clean env.
 3. Set persistent volume to 50 GB (corpora + tries + models)
-4. Note the SSH command they give you (host, port)
+4. **Add "TCP Port 22" to Exposed TCP Ports.** Required for the
+   `launch.sh` automation (rsync + non-interactive ssh). RunPod will
+   map your container's port 22 to a custom external port (~3xxxx).
+   The `ssh.runpod.io` proxy path works only for interactive shells —
+   not for `ssh user@host 'command'` or rsync, which is what
+   `launch.sh` does.
+5. Note the SSH command they give you. After adding TCP 22, RunPod's
+   "Connect" tab shows TWO commands: the proxy one (`ssh user@ssh.runpod.io`)
+   for interactive use, and the direct one (`ssh root@<IP> -p <PORT> -i <key>`)
+   for automation. Use the direct one with `launch.sh`.
 
 ## Using the launcher
 
 From your laptop, in the agpt project root:
 
 ```sh
-# First-time setup (rsync code + data, install deps, build):
+# Recommended path — pod provisioned from docker.io/7rans/agpt:latest:
+bash rnd/runpod/launch.sh setup-image root@69.30.85.92:18234
+
+# Fallback — pod provisioned from generic pytorch image (rsync code + install):
 bash rnd/runpod/launch.sh setup root@69.30.85.92:18234
 
 # Run an experiment:
 bash rnd/runpod/launch.sh run root@69.30.85.92:18234 \
   "CORPUS=\$PWD/data/gutenberg_5m.txt bash rnd/streaming-agpt-v1/run_multiseed_baseline.sh 500 200 300"
 
+# If your laptop has local code changes you want the pod to use (works
+# alongside setup-image):
+bash rnd/runpod/launch.sh push-code root@69.30.85.92:18234
+bash rnd/runpod/launch.sh run root@69.30.85.92:18234 "just build-agpt-train"
+
 # Pull results back to laptop:
 bash rnd/runpod/launch.sh pull root@69.30.85.92:18234
 
-# Or all-in-one:
+# Or all-in-one (manual install path):
 bash rnd/runpod/launch.sh full root@69.30.85.92:18234 \
   "CORPUS=\$PWD/data/gutenberg_5m.txt bash rnd/streaming-agpt-v1/run_multiseed_baseline.sh 500 200 300"
 ```

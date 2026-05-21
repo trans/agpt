@@ -7,7 +7,20 @@
 #
 # Usage:
 #   bash rnd/runpod/launch.sh setup POD_USER@POD_IP[:PORT]
-#       # First-time setup on a fresh pod: rsync code + data, run setup_pod.sh
+#       # First-time setup on a fresh pod (manual install path): rsync
+#       # code + data, run setup_pod.sh. Use when pod is provisioned from
+#       # a generic image (e.g. runpod/pytorch).
+#
+#   bash rnd/runpod/launch.sh setup-image POD_USER@POD_IP[:PORT]
+#       # First-time setup when pod was provisioned from
+#       # docker.io/7rans/agpt:latest (binaries already pre-built). Only
+#       # pushes runtime data; skips Crystal install / binary compile.
+#
+#   bash rnd/runpod/launch.sh push-code POD_USER@POD_IP[:PORT]
+#       # Rsync code (src/, Justfile, scripts) without data. Useful with
+#       # setup-image when your laptop has uncommitted code changes you
+#       # want to test on the pod — follow with `just build-agpt-train`
+#       # inside the pod.
 #
 #   bash rnd/runpod/launch.sh run POD_USER@POD_IP[:PORT] 'COMMAND'
 #       # Run a command on the pod (ssh wrapper that ensures cwd is /workspace/agpt)
@@ -17,7 +30,7 @@
 #       # but BEFORE stopping the pod.
 #
 #   bash rnd/runpod/launch.sh full POD_USER@POD_IP[:PORT] 'COMMAND'
-#       # All-in-one: setup, run, pull.
+#       # All-in-one (manual install path): setup + run + pull.
 #
 # Notes:
 #   - Pod target format examples:
@@ -32,7 +45,7 @@ set -euo pipefail
 PROJ="${PROJ:-$(pwd)}"
 REMOTE_BASE="${REMOTE_BASE:-/workspace/agpt}"
 
-usage() { sed -n '4,30p' "$0"; exit 1; }
+usage() { sed -n '4,40p' "$0"; exit 1; }
 [ $# -lt 2 ] && usage
 
 CMD=$1
@@ -79,7 +92,7 @@ push_code() {
         "${PROJ}/" "${SSH_HOST}:${REMOTE_BASE}/"
 }
 
-# --- helper: push runtime data (corpora + init models, gitignored) ---
+# --- helper: push runtime data (corpora + init models + tries, gitignored) ---
 push_data() {
     echo "→ rsync corpora + init models..."
     # Corpora
@@ -96,6 +109,28 @@ push_data() {
         rsync -avzP --no-owner --no-group --no-perms --rsh="${RSYNC_RSH}" \
             /tmp/init_seed*.model "${SSH_HOST}:/tmp/"
     fi
+    # Per-seed init models (used by recent weighting experiments)
+    if ls /tmp/seed*.model &>/dev/null; then
+        rsync -avzP --no-owner --no-group --no-perms --rsh="${RSYNC_RSH}" \
+            /tmp/seed*.model "${SSH_HOST}:/tmp/"
+    fi
+    # Radix tries (gitignored, expensive to rebuild — push if present).
+    # Both Shakespeare 1M and Gutenberg 5M tries from the current
+    # weighting / per-fire-norm experiments. ~100-500 MB each.
+    for trie_dir in /tmp/shake_baseline_d16_radix /tmp/gutenberg_5m_baseline_d16_radix; do
+        if [ -d "$trie_dir" ]; then
+            echo "→ rsync $(basename $trie_dir)..."
+            rsync -avzP --no-owner --no-group --no-perms --rsh="${RSYNC_RSH}" \
+                "$trie_dir/" "${SSH_HOST}:${trie_dir}/"
+        fi
+    done
+    # Held-out files used by the heldout PPL evaluator
+    for ho in /tmp/shake_holdout.txt /tmp/gut_holdout.txt; do
+        if [ -f "$ho" ]; then
+            rsync -avzP --no-owner --no-group --no-perms --rsh="${RSYNC_RSH}" \
+                "$ho" "${SSH_HOST}:${ho}"
+        fi
+    done
 }
 
 # --- helper: run command on pod ---
@@ -126,6 +161,25 @@ case "${CMD}" in
         pod_run "bash rnd/runpod/setup_pod.sh"
         echo ""
         echo "✓ Pod setup complete. Next: bash rnd/runpod/launch.sh run ${POD} 'YOUR EXPERIMENT'"
+        ;;
+    # New mode: pod is provisioned from docker.io/7rans/agpt:latest, so the
+    # toolchain + pre-built binaries (agpt_train, agpt_build_radix_corpus,
+    # microgpt, perplexity) already exist at /workspace/agpt/bin/. Skips
+    # setup_pod.sh (Crystal install, shards install, binary compile). Just
+    # pushes the gitignored runtime data (corpora + init models). If you
+    # have local code changes, run launch.sh push-code afterwards.
+    setup-image)
+        push_data
+        echo ""
+        echo "✓ Image-based pod ready. Binaries already at /workspace/agpt/bin/."
+        echo "  Next: bash rnd/runpod/launch.sh run ${POD} 'YOUR EXPERIMENT'"
+        echo "  Or:   bash rnd/runpod/launch.sh push-code ${POD}  (if you have local code changes,"
+        echo "        then 'just build-agpt-train' inside the pod to rebuild)"
+        ;;
+    push-code)
+        # Useful with --setup-image when laptop's code has diverged from
+        # the image's snapshot. Pushes code without touching data.
+        push_code
         ;;
     run)
         [ $# -lt 1 ] && { echo "Usage: launch.sh run POD 'COMMAND'"; exit 1; }

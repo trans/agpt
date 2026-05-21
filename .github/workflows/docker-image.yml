@@ -1,0 +1,82 @@
+name: Build & push Docker image to Docker Hub
+
+# Manual trigger only — rebuild + push when you want a fresh snapshot of the
+# AGPT trainer image (see rnd/docker/Dockerfile). Decoupled from laptop's
+# network reliability — runs on GitHub-hosted runners with reliable Docker
+# Hub connectivity.
+#
+# Prerequisites (one-time setup):
+#   1. Docker Hub access token: docker.com → Account Settings → Security →
+#      New Access Token → name "github-actions" → permissions Read/Write/Delete.
+#      Copy the token (shown once).
+#   2. GitHub repo secrets: Settings → Secrets and variables → Actions →
+#      New repository secret. Add:
+#        - DOCKERHUB_USERNAME = "7rans"
+#        - DOCKERHUB_TOKEN    = (the token from step 1)
+#
+# Usage:
+#   GitHub repo → Actions tab → "Build & push Docker image" → Run workflow.
+#   Optionally override the date tag (default = today's date in UTC).
+#
+# Tags pushed:
+#   docker.io/7rans/agpt:latest       (moving)
+#   docker.io/7rans/agpt:<date_tag>   (immutable per push; use this in RunPod
+#                                      pod templates for reproducibility)
+
+on:
+  workflow_dispatch:
+    inputs:
+      date_tag:
+        description: "Immutable tag to push alongside :latest (default: today, UTC)"
+        required: false
+        default: ""
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    # The build takes ~25-40 min (pacman install + CUDA + Crystal + nvcc compiles).
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Resolve date tag
+        id: tag
+        run: |
+          if [ -n "${{ inputs.date_tag }}" ]; then
+            echo "DATE_TAG=${{ inputs.date_tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "DATE_TAG=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: rnd/docker/Dockerfile
+          push: true
+          tags: |
+            docker.io/7rans/agpt:latest
+            docker.io/7rans/agpt:${{ steps.tag.outputs.DATE_TAG }}
+          # GitHub Actions cache for BuildKit layers — speeds up subsequent
+          # rebuilds when only the trailing src/ + just-build layers change.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Summary
+        run: |
+          echo "## Pushed" >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`docker.io/7rans/agpt:latest\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`docker.io/7rans/agpt:${{ steps.tag.outputs.DATE_TAG }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Pull on RunPod by referencing either tag in the pod template." >> "$GITHUB_STEP_SUMMARY"

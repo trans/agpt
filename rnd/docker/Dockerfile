@@ -18,8 +18,16 @@ RUN pacman-key --init && \
     pacman -Syu --noconfirm && \
     pacman -S --noconfirm --needed \
         base-devel cuda crystal shards just openblas64 \
-        pkg-config rsync git wget && \
+        pkg-config rsync git wget openssh && \
     pacman -Scc --noconfirm
+
+# Configure sshd for RunPod-style key-only access (no passwords).
+# The entrypoint will inject $PUBLIC_KEY into authorized_keys at start.
+RUN mkdir -p /run/sshd /root/.ssh && \
+    chmod 700 /root/.ssh && \
+    sed -i 's/^#\?PermitRootLogin .*/PermitRootLogin yes/' /etc/ssh/sshd_config && \
+    sed -i 's/^#\?PasswordAuthentication .*/PasswordAuthentication no/' /etc/ssh/sshd_config && \
+    sed -i 's/^#\?PubkeyAuthentication .*/PubkeyAuthentication yes/' /etc/ssh/sshd_config
 
 # Crystal 1.20+ overflows default_workers_count on high-vCPU container
 # hosts (RunPod sees host's 100+ cores). Cap to 8.
@@ -32,6 +40,8 @@ WORKDIR /workspace/agpt
 COPY shard.yml shard.lock Justfile ./
 COPY src/ ./src/
 COPY rnd/runpod/microgpt_tf32.patch ./rnd/runpod/
+COPY rnd/docker/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
 # Fetch microgpt shard, apply TF32 patch.
 RUN shards install && \
@@ -47,5 +57,10 @@ RUN just build-agpt-train && \
 # Expose built binaries on PATH for convenience.
 ENV PATH="/workspace/agpt/bin:${PATH}"
 
-# Default: interactive bash so `docker exec` / `ssh` workflows work cleanly.
-CMD ["/bin/bash"]
+# Run the entrypoint, which generates SSH host keys, injects $PUBLIC_KEY
+# into authorized_keys, then runs sshd in foreground. sshd keeps the
+# container alive AND lets `ssh root@<IP> -p <PORT>` work for the
+# launch.sh automation (rsync + non-interactive commands), which the
+# RunPod ssh.runpod.io proxy doesn't support.
+EXPOSE 22
+CMD ["/entrypoint.sh"]

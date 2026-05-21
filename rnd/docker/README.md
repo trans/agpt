@@ -57,8 +57,14 @@ Decide between Docker Hub vs GHCR:
 **Docker Hub** (simpler):
 ```sh
 podman login docker.io
+# Push :latest (moving tag, convenient for "give me the most recent")
 podman tag agpt:latest docker.io/7rans/agpt:latest
 podman push docker.io/7rans/agpt:latest
+# ALSO push an immutable date-tagged version (use this in RunPod for
+# reproducibility — :latest is a moving target).
+DATE_TAG=$(date +%Y-%m-%d)
+podman tag agpt:latest docker.io/7rans/agpt:${DATE_TAG}
+podman push docker.io/7rans/agpt:${DATE_TAG}
 ```
 
 **GitHub Container Registry**:
