@@ -12,9 +12,9 @@
 #      at matched hyperparameters (cross-validates the L4 emulator).
 #
 # Run: just test-agpt
-# Requires: bin/agpt_train, bin/microgpt, bin/perplexity, bin/check_weights,
-#   a built d=8 radix trie at /tmp/agpt_input_d8_radix, and a random-init
-#   checkpoint at data/input.random.model.
+# Requires: bin/agpt_train, bin/agpt_sliding_window_perplexity,
+#   bin/check_weights, a built d=8 radix trie at /tmp/agpt_input_d8_radix,
+#   and a random-init checkpoint at data/input.random.model.
 
 set -u
 
@@ -44,8 +44,7 @@ skip () { printf "${YELLOW}SKIP${RESET}  %s\n    reason: %s\n" "$1" "$2"; }
 
 if [ ! -x bin/agpt_train ];        then bad "prereq" "bin/agpt_train missing (just build-agpt-train)"; exit 1; fi
 if [ ! -x bin/agpt_build_radix ];  then bad "prereq" "bin/agpt_build_radix missing (just build-agpt-build-radix)"; exit 1; fi
-if [ ! -x bin/microgpt ];          then bad "prereq" "bin/microgpt missing (just build-microgpt-tools)"; exit 1; fi
-if [ ! -x bin/perplexity ];        then bad "prereq" "bin/perplexity missing (just build-microgpt-tools)"; exit 1; fi
+if [ ! -x bin/agpt_sliding_window_perplexity ]; then bad "prereq" "bin/agpt_sliding_window_perplexity missing (just build-agpt-sliding-window-perplexity)"; exit 1; fi
 if [ ! -x bin/check_weights ];     then just build-check-weights >/dev/null 2>&1 || { bad "prereq" "cannot build bin/check_weights"; exit 1; }; fi
 if [ ! -f data/input.random.model ]; then bad "prereq" "data/input.random.model missing"; exit 1; fi
 if [ ! -d /tmp/agpt_input_d8_radix ]; then bad "prereq" "/tmp/agpt_input_d8_radix missing (need a built d=8 radix trie)"; exit 1; fi
@@ -137,15 +136,18 @@ fi
 # Test 4: Post-training PPL << random-init PPL
 # ====================================================================
 TEST="4. post-training PPL far below random baseline"
-rand_ppl=$(bin/perplexity --model data/input.random.model --file data/input.txt \
-    --max-positions 4096 --backend openblas 2>&1 | awk '/^Perplexity:/ {print $2}')
-post_ppl=$(bin/perplexity --model "$WORK/post.model" --file data/input.txt \
-    --max-positions 4096 --backend openblas 2>&1 | awk '/^Perplexity:/ {print $2}')
+rand_ppl=$(bin/agpt_sliding_window_perplexity --model data/input.random.model \
+    --file data/input.txt --vocab-file data/input.txt \
+    --d 8 --max-positions 4096 --backend openblas --workers 4 2>&1 \
+    | awk '/^Perplexity:/ {print $2}')
+post_ppl=$(bin/agpt_sliding_window_perplexity --model "$WORK/post.model" \
+    --file data/input.txt --vocab-file data/input.txt \
+    --d 8 --max-positions 4096 --backend openblas --workers 4 2>&1 \
+    | awk '/^Perplexity:/ {print $2}')
 if [ -z "$rand_ppl" ] || [ -z "$post_ppl" ]; then
     bad "$TEST" "could not read PPL (rand=$rand_ppl post=$post_ppl)"
 else
     ratio=$(awk -v r=$rand_ppl -v p=$post_ppl 'BEGIN { printf "%.2f", p/r }')
-    # Expect post/rand < 0.5 (post PPL is less than half of random-init PPL)
     check=$(awk -v r=$rand_ppl -v p=$post_ppl 'BEGIN { print (p < r * 0.5) ? "yes" : "no" }')
     if [ "$check" = "yes" ]; then
         ok "$TEST (random=$rand_ppl, post-train=$post_ppl, ratio=$ratio)"
@@ -154,44 +156,11 @@ else
     fi
 fi
 
-# ====================================================================
-# Test 5: L4 path-sampling ≈ real SGD (parity)
-# ====================================================================
-# Within-20% tolerance at matched hyperparameters (Adam, const lr=3e-4).
-# bin/microgpt cublas is broken; use openblas for SGD reference.
-TEST="5. L4 path-sampling ≈ bin/microgpt SGD (within tolerance)"
-# SGD reference: seq=8 (matches d=8), 500 steps
-cp data/input.random.model "$WORK/sgd_ref.model"
-bin/microgpt data/input.txt --model "$WORK/sgd_ref.model" \
-    --seq-len 8 --steps 500 --lr 3e-4 \
-    --d-model 64 --n-layers 2 --backend openblas --seed 42 \
-    > "$WORK/t5_sgd.log" 2>&1
-sgd_ppl=$(bin/perplexity --model "$WORK/sgd_ref.model" --file data/input.txt \
-    --max-positions 4096 --backend openblas 2>&1 | awk '/^Perplexity:/ {print $2}')
-
-# L4 at matched hyperparams
-cp data/input.random.model "$WORK/l4.model"
-bin/agpt_train --model "$WORK/l4.model" --trie-dir /tmp/agpt_input_d8_radix \
-    --save "$WORK/l4.model" --epochs 1 --lr 3e-4 --optimizer adam \
-    --lr-schedule constant --entropy-lambda 0 --mass-weight off \
-    --lightning-steps 500 --lightning-sampler l4 --lightning-seed 42 \
-    > "$WORK/t5_l4.log" 2>&1
-l4_ppl=$(bin/perplexity --model "$WORK/l4.model" --file data/input.txt \
-    --max-positions 4096 --backend openblas 2>&1 | awk '/^Perplexity:/ {print $2}')
-
-if [ -z "$sgd_ppl" ] || [ -z "$l4_ppl" ]; then
-    bad "$TEST" "could not read PPL (sgd=$sgd_ppl l4=$l4_ppl)"
-else
-    ratio=$(awk -v a=$sgd_ppl -v b=$l4_ppl 'BEGIN { d = (a > b) ? a/b : b/a; printf "%.2f", d }')
-    # Tolerance 2.0× (loose — L4 and SGD do converge on the same distribution,
-    # but per-step dynamics differ enough that strict parity isn't expected).
-    check=$(awk -v r=$ratio 'BEGIN { print (r < 2.0) ? "yes" : "no" }')
-    if [ "$check" = "yes" ]; then
-        ok "$TEST (SGD=$sgd_ppl, L4=$l4_ppl, ratio=$ratio)"
-    else
-        bad "$TEST" "SGD=$sgd_ppl L4=$l4_ppl differ by $ratio× (expected <2×)"
-    fi
-fi
+# Test 5 (L4 path-sampling vs bin/microgpt SGD parity) was deleted as
+# part of severing the microgpt dependency. The microgpt project is
+# moth-balled; matching its SGD reference is no longer a useful
+# success criterion. v1↔v2 forward bit-parity (ef3a8e9) is our
+# internal cross-check now.
 
 # ====================================================================
 # Summary

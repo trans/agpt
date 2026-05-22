@@ -249,20 +249,16 @@ build-compare-checkpoints:
 # Build all AGPT-native binaries.
 build-all: build-agpt-train build-agpt-build-index build-agpt-build-radix build-synth-wrap-corpus build-radix-verify build-trie-profile build-bayesian-posterior build-convergence build-check-weights
 
-# Build µGPT reference binaries from the shard.
-# Used only for baseline comparison / parity tests, not for ordinary AGPT builds.
-build-microgpt-tools:
-    mkdir -p bin build
-    /opt/cuda/bin/nvcc --allow-unsupported-compiler -std=c++17 -c -O3 --use_fast_math -gencode=arch=compute_80,code=sm_80 -gencode=arch=compute_89,code=sm_89 -gencode=arch=compute_90,code=sm_90 lib/microgpt/src/cuda/kernels.cu -o build/kernels.o
-    timeout 10m crystal build lib/microgpt/src/microgpt/main.cr -o bin/microgpt --release --link-flags="{{root}}/build/kernels.o -L/opt/cuda/lib64 -lcudart -lcublas -lstdc++"
-    timeout 10m crystal build lib/microgpt/src/tools/perplexity.cr -o bin/perplexity --release --link-flags="{{root}}/build/kernels.o -L/opt/cuda/lib64 -lcudart -lcublas -lstdc++"
-    cc -c -O2 lib/microgpt/src/cuda/stubs.c -o build/kernels.o
-
-# Alias to make the AGPT-vs-reference boundary explicit in local workflows.
-build-reference-tools: build-microgpt-tools
+# µGPT reference binaries (bin/microgpt, bin/perplexity) are not built
+# from this project anymore. microgpt is moth-balled and lives in its
+# own project (/home/trans/Projects/microgpt). When the AGPT
+# fundamental-parity tests need bin/microgpt / bin/perplexity, build
+# them there (cd /path/to/microgpt && just build-cuda build-perplexity)
+# and symlink or copy the binaries into agpt/bin/. Severance started
+# 2026-05-22 (kernels.cu copied to src/cuda/kernels.cu, ef3a8e9);
+# this Justfile no longer touches microgpt sources directly.
 
 # Run AGPT foundational parity tests (gradient flow, radix build, training sanity).
-# These depend on the µGPT reference binaries.
 test-agpt:
     bash tests/test_agpt_fundamentals.sh
 
@@ -281,7 +277,9 @@ docs: docs-api
 docs-api:
     crystal doc -o docs/api
 
-# Simple sanity run
+# Simple sanity run. Trains 5 SE then evaluates held-out PPL with the
+# canonical AGPT sliding-window tool. (bin/perplexity from microgpt is
+# no longer built here — see severance note above.)
 quick-test:
     cp data/input.random.model /tmp/quick.model && \
     bin/agpt_train \
@@ -292,6 +290,7 @@ quick-test:
         --optimizer rmsprop --rmsprop-beta 0.999 \
         --mass-weight log --entropy-lambda 1.0 \
         | tail -5 && \
-    bin/perplexity --model /tmp/quick.model --file data/input.txt \
-        --seq-len 16 --backend openblas --max-positions 4096 \
+    bin/agpt_sliding_window_perplexity --model /tmp/quick.model \
+        --file data/input.txt --vocab-file data/input.txt \
+        --d 16 --backend openblas --max-positions 4096 --workers 4 \
         | tail -4
