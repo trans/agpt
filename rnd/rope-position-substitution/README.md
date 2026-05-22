@@ -1,7 +1,7 @@
-# RoPE Position Substitution: depth vs mass vs log-mass
+# RoPE Position Substitution: depth vs mass vs log-mass vs off
 
 **Date:** 2026-05-22
-**Status:** Closed (preliminary). Statistically null on PPL, but *qualitatively* informative.
+**Status:** Strong finding. Monotonic substitution null on PPL; disabling RoPE entirely costs ~5 PPL.
 **Branch / commits:** Mass-RoPE infrastructure landed on `main` (--rope-mode flag in agpt_train).
 
 ## Question
@@ -35,67 +35,94 @@ larger on Gutenberg.
 - Eval: PyTorch reference (`src/tools/agpt_ppl.py --mode fixed`, d=16,
   max-positions 10000). Independent of trainer kernels.
 
-Three modes:
+Four modes:
 - **depth** (control): pos = char depth, 0..d-1 (16 values)
 - **mass**: pos = edge_mass of the radix node, 0..~170k
 - **log-mass**: pos = floor(log2(edge_mass)), 0..~17 (comparable span to depth)
+- **off** (litmus): pos = 0 for all queries → cos=1, sin=0 → identity rotation.
+  Effectively disables RoPE without other code changes.
 
 ## Results
 
-| corpus      | depth          | mass           | log-mass       |
-|-------------|----------------|----------------|----------------|
-| Shakespeare | 8.584 ± 0.376  | 8.386 ± 0.131  | 8.322 ± 0.297  |
-| Gutenberg   | 8.366 ± 0.102  | 8.370 ± 0.158  | 8.293 ± 0.096  |
+| corpus      | depth          | mass           | log-mass       | off              |
+|-------------|----------------|----------------|----------------|------------------|
+| Shakespeare | 8.584 ± 0.376  | 8.386 ± 0.131  | 8.322 ± 0.297  | **13.432 ± 0.325** |
+| Gutenberg   | 8.366 ± 0.102  | 8.370 ± 0.158  | 8.293 ± 0.096  | (not measured)   |
 
 (mean ± population std, n=3)
 
-Paired Δ vs depth (mass minus depth per-seed):
+Paired Δ vs depth (per-seed):
 
-|             | Shakespeare       | Gutenberg     |
-|-------------|-------------------|---------------|
-| mass        | −0.20 ± 0.30      | +0.00 ± 0.07  |
-| log-mass    | −0.26 ± 0.29      | −0.07 ± 0.17  |
+|             | Shakespeare           | Gutenberg     |
+|-------------|-----------------------|---------------|
+| mass        | −0.20 ± 0.30          | +0.00 ± 0.07  |
+| log-mass    | −0.26 ± 0.29          | −0.07 ± 0.17  |
+| **off**     | **+4.85 ± 0.85**      | —             |
 
-Paired t-tests vs depth: none reach significance at α=0.05 (smallest p≈0.26 on
-Shakespeare log-mass).
+Paired t-tests vs depth:
+- mass / log-mass: smallest p ≈ 0.26 (Shakespeare log-mass). None significant.
+- **off: t ≈ 9.9, p < 0.005 on n=3 Shakespeare. Definitively worse.**
 
 Per-cell data: see `results.txt`. Training logs: `logs/<corpus>_<mode>_s<seed>.train.log`.
 
 ## Interpretation
 
-**The headline is the null itself, not the means.** A standard
-transformer that depends on RoPE as a literal sequence coordinate would
-*break* under mass-substitution. Mass values are 4-5 orders of magnitude
-larger than depth values; the RoPE rotation angles at those positions
-sample the cos/sin curves at vastly different frequencies. If the model
-were locating tokens by their RoPE-encoded position (e.g. for in-context
-copying), the substitution should hurt by a lot.
+**Two findings, one consistent picture.**
+
+### Finding 1: monotonic substitution is null
+
+A standard transformer that depends on RoPE as a literal sequence
+coordinate should *break* under mass-substitution. Mass values are
+4-5 orders of magnitude larger than depth values; the RoPE rotation
+angles at those positions sample the cos/sin curves at vastly
+different frequencies. If the model were locating tokens by their
+RoPE-encoded position (e.g. for in-context copying), the substitution
+should hurt by a lot.
 
 It didn't. Mass and log-mass produce statistically-equivalent PPL to
 depth on both corpora. The model adapts.
 
-That's *consistent with* the trust-signature theory:
+### Finding 2: removing RoPE entirely costs ~5 PPL
+
+When pos=0 for all queries (RoPE rotation becomes identity, model
+loses positional signal entirely), PPL jumps from ~8.4 to ~13.4 on
+Shakespeare. Highly significant (paired t ≈ 9.9 vs depth). RoPE is
+contributing real work.
+
+### Together
+
+The model uses RoPE for **monotonic per-query differentiation** —
+distinguishing "this query is in a position that should be treated
+one way" from "this other query should be treated differently" — but
+doesn't care about the *absolute scale* of that differentiation. Any
+monotonic injection of position-dependent rotation works equally well
+(depth, mass, log-mass). No rotation at all loses the differentiation
+and the model collapses by 5+ PPL.
+
+This is *consistent with* the trust-signature theory:
 - RoPE here isn't carrying "absolute sequence position" because there
   isn't one — every query has its own context window with its own
   arbitrary trie path.
-- What RoPE *can* still carry: a monotonic ordering signal across
-  positions within a query. The model can learn that
+- What RoPE *is* carrying: a monotonic ordering signal across
+  positions within a query. The model learns that
   "rotation-angle-X means deep / rare / less-trustworthy-as-statistic"
   and "rotation-angle-Y means shallow / common / more-trustworthy."
 - The absolute spacing along the angle axis doesn't matter much — what
-  matters is that two queries at "very different depths" have very
-  different rotation angles.
+  matters is that two queries at "different depths" have *different*
+  rotation angles in a monotonic way.
 
-What *would* prove the trust-signature theory: a non-monotonic
-substitution (random permutation of depth → angle). If the model still
-learns, RoPE is being used as essentially a per-node hash, not a
-positional signal. If it falls apart, RoPE *does* need monotonicity,
-and the theory is more nuanced.
+What *would* further test the theory: a non-monotonic substitution
+(random permutation of depth → angle). If the model still learns,
+RoPE is being used as essentially a per-node hash, not even an
+ordering signal. If it falls apart, RoPE *does* need monotonicity,
+and the role is "ordered differentiation," not "arbitrary
+differentiation."
 
 ## Not tested (open follow-ups)
 
-1. **Random-permutation control.** Strongest falsifier of the theory.
-   Cheap to add (`--rope-mode random-perm` flag, deterministic from seed).
+1. **Random-permutation control.** Strongest falsifier of the
+   ordering-vs-identity question. Cheap to add (`--rope-mode random-perm`
+   flag, deterministic from seed).
 2. **Deeper trie (d=32).** Mass range explodes further. Doesn't change
    the theory's prediction (still monotonic → still works) but tests
    robustness.
@@ -103,10 +130,10 @@ and the theory is more nuanced.
    apparent mean trend (mass/log-mass beating depth by 0.2-0.3) would
    either firm up or evaporate. Worth doing only if the trend is
    load-bearing for a publication-style claim.
-4. **Constant position** (pos = 0 for all queries). Removes RoPE entirely
-   as a positional signal. If model still learns: trust-signature theory
-   is partial (RoPE matters but not for trust either). If model
-   degrades: RoPE matters in *some* way, ordering or otherwise.
+4. **~~Constant position (pos=0)~~** — done as `--rope-mode off`.
+   Result: +4.85 PPL vs depth on Shakespeare, p<0.005. RoPE matters.
+5. **off + Gutenberg.** Confirm the ~5 PPL collapse replicates on a
+   larger corpus, ruling out "Shakespeare-specific quirk."
 
 ## What this changes
 

@@ -7062,7 +7062,8 @@ int main(int argc, char** argv) {
             if      (strcmp(m, "depth")    == 0) rope_mode = RopeMode::Depth;
             else if (strcmp(m, "mass")     == 0) rope_mode = RopeMode::Mass;
             else if (strcmp(m, "log-mass") == 0) rope_mode = RopeMode::LogMass;
-            else { fprintf(stderr, "--rope-mode must be 'depth', 'mass', or 'log-mass' (got %s)\n", m); return 1; }
+            else if (strcmp(m, "off")      == 0) rope_mode = RopeMode::Off;
+            else { fprintf(stderr, "--rope-mode must be 'depth', 'mass', 'log-mass', or 'off' (got %s)\n", m); return 1; }
         }
         else if (strcmp(argv[i], "--mass-weight") == 0) {
             // Two-form argument:

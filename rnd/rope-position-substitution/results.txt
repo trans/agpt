@@ -25,3 +25,8 @@ gut       mass      3     8.5891
 gut       log-mass  1     8.3712
 gut       log-mass  2     8.3484
 gut       log-mass  3     8.1579
+
+# Litmus: RoPE disabled (pos=0 → identity rotation), Shakespeare only
+shake     off       1     13.2042
+shake     off       2     13.1995
+shake     off       3     13.8916

@@ -7,7 +7,7 @@
 // more often get a different positional signature than rare nodes.
 // Within a radix edge, all chars share the same node, so they share
 // the same mass — positional info within edges is collapsed.
-enum class RopeMode { Depth = 0, Mass = 1, LogMass = 2 };
+enum class RopeMode { Depth = 0, Mass = 1, LogMass = 2, Off = 3 };
 
 struct ChunkBuildContext {
     const Config& cfg;
@@ -157,7 +157,11 @@ static bool build_chunk_metadata(const ChunkBuildContext& ctx, ChunkMetadata& ou
             out.h_query_to_node[q_fill + j] = i;
             out.h_token_ids[q_fill + j] = ctx.trie.edge_tokens_flat[edge_start + j];
             int pos;
-            if (ctx.rope_mode == RopeMode::Mass || ctx.rope_mode == RopeMode::LogMass) {
+            if (ctx.rope_mode == RopeMode::Off) {
+                // pos=0 → cos=1, sin=0 → RoPE rotation = identity.
+                // Effectively disables RoPE without code changes elsewhere.
+                pos = 0;
+            } else if (ctx.rope_mode == RopeMode::Mass || ctx.rope_mode == RopeMode::LogMass) {
                 pos = mass_pos;
             } else {
                 pos = fcd + j - 1;
