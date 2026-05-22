@@ -1,7 +1,10 @@
 # AGPT project tasks
 #
-# AGPT is its own project/repo. It depends on the µGPT shard for model/runtime
-# primitives, shared CUDA kernels, and reference comparison binaries.
+# AGPT is its own project/repo. CUDA kernels and stubs live in src/cuda/
+# (forked from microgpt 2026-05-22). The lib/microgpt shard is still used
+# by Crystal-side tools for Mat / MiniGPT / Config / TextDataset primitives
+# (~250 call sites across 11 files; not worth forking). The shard is
+# treated as frozen — kernel/architecture evolution happens here, not there.
 
 # Resolve absolute path for linker
 root := `pwd`
