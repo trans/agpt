@@ -5803,6 +5803,12 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                             T_q, H, HD, max_kv_len, scale);
                     });
 
+                    if (trace_fire_target) {
+                        emit_diag_jsonl(fire_diag.path,
+                                         epoch + 1, root_r, fire_chunks_processed + 1, l,
+                                         "layer.bwd.dk_pack_post_attn", d_dk_pack, T_kv * D);
+                    }
+
                     // --anc-grad: scatter ancestor-slice of d_dk_pack/d_dv_pack into
                     // the subtree-scoped accumulator. Each ancestor slot's gradient
                     // (one slot per descendant→ancestor read during attention) is
@@ -5868,6 +5874,12 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                     launch_kv_uncopy_own_edge(d_dv_pack, d_query_offsets, d_kv_offsets,
                                                d_anc_lengths_cache, d_own_lengths_cache,
                                                d_dv_own, N, H, HD);
+
+                    if (trace_fire_target) {
+                        emit_diag_jsonl(fire_diag.path,
+                                         epoch + 1, root_r, fire_chunks_processed + 1, l,
+                                         "layer.bwd.dk_own_post_uncopy_pre_invrope", d_dk_own, T_q * D);
+                    }
 
                     // Inverse RoPE on dK (V has no RoPE). Match forward composition:
                     // scalar shift (if any) then real-position rotation.
