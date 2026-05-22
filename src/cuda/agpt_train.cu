@@ -565,6 +565,100 @@ WeightOffsets compute_offsets(const Config& cfg) {
     return wo;
 }
 
+struct FireDiagOptions {
+    const char* path = nullptr;
+    int epoch = 0;
+    int root_id = -1;
+    bool exit_after = false;
+};
+
+struct FireDiagBlock {
+    const char* name;
+    int offset;
+    int length;
+};
+
+static FireDiagOptions read_fire_diag_options() {
+    FireDiagOptions opts;
+    opts.path = getenv("AGPT_DIAG_FIRE_PATH");
+    const char* epoch = getenv("AGPT_DIAG_FIRE_EPOCH");
+    const char* root_id = getenv("AGPT_DIAG_FIRE_ROOT_ID");
+    const char* exit_after = getenv("AGPT_DIAG_FIRE_EXIT_AFTER");
+    if (epoch) opts.epoch = atoi(epoch);
+    if (root_id) opts.root_id = atoi(root_id);
+    if (exit_after && exit_after[0] && strcmp(exit_after, "0") != 0) opts.exit_after = true;
+    if (!opts.path || !opts.path[0]) opts.path = NULL;
+    if (opts.epoch <= 0 || opts.root_id < 0) opts.path = NULL;
+    return opts;
+}
+
+static double l2_norm_host(const float* data, int n) {
+    double sum = 0.0;
+    for (int i = 0; i < n; i++) sum += (double)data[i] * (double)data[i];
+    return sqrt(sum);
+}
+
+static double l2_diff_host(const float* a, const float* b, int n) {
+    double sum = 0.0;
+    for (int i = 0; i < n; i++) {
+        double d = (double)b[i] - (double)a[i];
+        sum += d * d;
+    }
+    return sqrt(sum);
+}
+
+static void copy_device_floats(float* h_dst, const float* d_src, int n) {
+    CUDA_CHECK(cudaMemcpy(h_dst, d_src, (size_t)n * sizeof(float), cudaMemcpyDeviceToHost));
+}
+
+static void dump_fire_diag(FILE* f,
+                           const char* phase,
+                           const FireDiagBlock* blocks,
+                           int block_count,
+                           const float* whole_a,
+                           const float* whole_b,
+                           const float* opt_v,
+                           int total_floats)
+{
+    if (strcmp(phase, "post_step") == 0) {
+        fprintf(f, "phase=%s delta_w_total_l2=%.9f opt_v_total_l2=%.9f\n",
+                phase, l2_diff_host(whole_a, whole_b, total_floats), l2_norm_host(opt_v, total_floats));
+        for (int i = 0; i < block_count; i++) {
+            const FireDiagBlock& b = blocks[i];
+            fprintf(f, "phase=%s block=%s delta_w_l2=%.9f opt_v_l2=%.9f\n",
+                    phase, b.name,
+                    l2_diff_host(whole_a + b.offset, whole_b + b.offset, b.length),
+                    l2_norm_host(opt_v + b.offset, b.length));
+        }
+    } else {
+        fprintf(f, "phase=%s grads_total_l2=%.9f\n", phase, l2_norm_host(whole_a, total_floats));
+        for (int i = 0; i < block_count; i++) {
+            const FireDiagBlock& b = blocks[i];
+            fprintf(f, "phase=%s block=%s grads_l2=%.9f\n",
+                    phase, b.name, l2_norm_host(whole_a + b.offset, b.length));
+        }
+    }
+}
+
+static void dump_fire_state(FILE* f,
+                            const char* phase,
+                            const FireDiagBlock* blocks,
+                            int block_count,
+                            const float* weights,
+                            const float* opt_v,
+                            int total_floats)
+{
+    fprintf(f, "phase=%s weights_total_l2=%.9f opt_v_total_l2=%.9f\n",
+            phase, l2_norm_host(weights, total_floats), l2_norm_host(opt_v, total_floats));
+    for (int i = 0; i < block_count; i++) {
+        const FireDiagBlock& b = blocks[i];
+        fprintf(f, "phase=%s block=%s weights_l2=%.9f opt_v_l2=%.9f\n",
+                phase, b.name,
+                l2_norm_host(weights + b.offset, b.length),
+                l2_norm_host(opt_v + b.offset, b.length));
+    }
+}
+
 // ============================================================================
 // Trie structure (CPU side, then uploaded)
 // ============================================================================
@@ -3455,6 +3549,14 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
     double       subtree_dropout      = flags.subtree_dropout;
     unsigned int subtree_dropout_seed = flags.subtree_dropout_seed;
     int          branch_dropout_depth = flags.branch_dropout_depth;
+    FireDiagOptions fire_diag = read_fire_diag_options();
+    const char*  dump_subtree_losses_path = getenv("AGPT_DUMP_SUBTREE_LOSSES");
+    if (dump_subtree_losses_path && dump_subtree_losses_path[0]) {
+        remove(dump_subtree_losses_path);
+    } else {
+        dump_subtree_losses_path = NULL;
+    }
+    if (fire_diag.path) remove(fire_diag.path);
 
     cudaEvent_t te_start = NULL, te_stop = NULL;
     if (t_enabled) {
@@ -4913,6 +5015,8 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                 n_in_subtree = subtree_sizes[rc_idx];
             }
             if (n_in_subtree == 0) continue;
+            int root_r = (subtree_sizes[rc_idx] > 0) ? subtree_nodes[rc_idx][0] : -1;
+            bool trace_fire_target = fire_diag.path && (epoch + 1) == fire_diag.epoch && root_r == fire_diag.root_id;
 
             // --anc-grad: per-subtree-fire state init
             // Per the corrected design (see todo/descendant-ancestor-scatter.md),
@@ -4972,6 +5076,10 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
         for (int split_i = 0; split_i < actual_splits; split_i++) {
             int split_size = split_base + (split_i < split_rem ? 1 : 0);
             int n_at_depth = split_size;   // retained variable name used below
+            float* fire_chunk_grad_scratch = NULL;
+            if (trace_fire_target) {
+                fire_chunk_grad_scratch = (float*)malloc((size_t)wo.total_floats * sizeof(float));
+            }
 
             // AGPT invariant: weights are fixed across all chunks of this sub-batch.
             // Zero gradients once at split start; accumulate across chunks.
@@ -4999,6 +5107,7 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
 
             // Chunk by total queries ≤ CHUNK_QUERIES
             int chunk_start = 0;
+            int fire_chunks_processed = 0;
             while (chunk_start < n_at_depth) {
                 int chunk_cycle_shift = 0;
                 if (lightning_active && lightning_cycle_shift && lightning.virtual_cycles > 1) {
@@ -5173,11 +5282,26 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                 // Computed host-side from trie.counts_val. Mutually exclusive
                 // with mass-weight and depth-weight (all share d_mass_weights).
                 // See EntropyWeightMode for shapes.
+                // Entropy composes with mass: when both --mass-weight and
+                // --entropy-weight are set, the per-query weight becomes
+                // mass_weight × entropy_weight (multiplicative). Still
+                // exclusive with depth-weight (haven't designed that
+                // composition yet). When mass-weight is off, entropy works
+                // standalone as before.
                 if (entropy_weight != EntropyWeightMode::Off
-                    && mass_weight == MassWeightMode::Off
                     && depth_weight == DepthWeightMode::Off)
                 {
+                    bool compose = (mass_weight != MassWeightMode::Off);
                     float* h_mass_weights = (float*)malloc(T_q * sizeof(float));
+                    if (compose) {
+                        // Read back the mass weights so we can multiply in
+                        // the entropy contribution per-query.
+                        CUDA_CHECK(cudaMemcpy(h_mass_weights, d_mass_weights, T_q * sizeof(float), cudaMemcpyDeviceToHost));
+                        // The mass block already added its own weights to
+                        // fire_weight; we'll recompute from the composite,
+                        // so reset to avoid double-counting.
+                        fire_weight = 0.0;
+                    }
                     float log_V = logf((float)cfg.vocab_size);
                     for (int q = 0; q < T_q; q++) {
                         int node_idx = h_query_to_node[q];
@@ -5194,14 +5318,18 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                                 if (p > 0.0f) H -= p * logf(p);
                             }
                         }
-                        float w;
+                        float w_e;
                         switch (entropy_weight) {
-                            case EntropyWeightMode::Up:         w = 1.0f + H;            break;
-                            case EntropyWeightMode::Down:       w = 1.0f / (1.0f + H);   break;
-                            case EntropyWeightMode::Peakedness: w = 1.0f - H / log_V;    break;
-                            default:                            w = 1.0f;                break;
+                            case EntropyWeightMode::Up:         w_e = 1.0f + H;            break;
+                            case EntropyWeightMode::Down:       w_e = 1.0f / (1.0f + H);   break;
+                            case EntropyWeightMode::Peakedness: w_e = 1.0f - H / log_V;    break;
+                            default:                            w_e = 1.0f;                break;
                         }
-                        h_mass_weights[q] = w;
+                        if (compose) {
+                            h_mass_weights[q] *= w_e;
+                        } else {
+                            h_mass_weights[q] = w_e;
+                        }
                     }
                     for (int q = 0; q < T_q; q++) fire_weight += (double)h_mass_weights[q];  // for --fire-norm-weight
                     CUDA_CHECK(cudaMemcpy(d_mass_weights, h_mass_weights, T_q * sizeof(float), cudaMemcpyHostToDevice));
@@ -5474,6 +5602,7 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                 // small partial chunks). Switched to per-fire 2026-05-20; see
                 // rnd/per-fire-norm/.
                 float grad_scale = (chunk_trained > 0) ? 1.0f : 0.0f;
+                double chunk_mean_loss = chunk_trained > 0 ? (chunk_loss_sum / (double)chunk_trained) : 0.0;
 
                 // Output projection backward — all T_q rows.
                 float* dG_out = d_grads + wo.out_w;
@@ -5732,30 +5861,51 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
 
                 // NOTE: no Adam step here — gradients accumulate in d_grads
                 // across all chunks of this root-child subtree; one step at subtree end.
+                if (trace_fire_target) {
+                    copy_device_floats(fire_chunk_grad_scratch, d_grads, wo.total_floats);
+                    FILE* fire_diag_chunk_file = fopen(fire_diag.path, "a");
+                    if (fire_diag_chunk_file) {
+                        fprintf(fire_diag_chunk_file,
+                                "chunk=%d N=%d T_q=%d T_kv=%d max_kv_len=%d trained_queries=%d mean_loss=%.9f accum_grads_total_l2=%.9f\n",
+                                fire_chunks_processed + 1, N, T_q, T_kv, max_kv_len,
+                                chunk_trained, chunk_mean_loss,
+                                l2_norm_host(fire_chunk_grad_scratch, wo.total_floats));
+                        fclose(fire_diag_chunk_file);
+                    }
+                }
 
                 free_chunk_metadata(chunk_meta);
 
                 chunks_processed++;
+                fire_chunks_processed++;
                 chunk_start = chunk_end;
             }  // end chunk loop — one subtree done
 
             // --anc-grad: fire-end chain-rule reduction.
             // Ancestor K/V gradients have been scatter-added into d_dkv_subtree_{k,v}[l]
-            // already pre-scaled by 1/T_q_chunk at scatter time — matching own-edge's
-            // per-event weighting exactly. h_subtree[l] holds ln1_out at each ancestor's
-            // position (saved during forward). All we do here is RoPE-inverse the K
-            // accumulator and chain-rule via cuBLAS with scalar 1.0 (no further scaling).
+            // RAW (grad_scale=1.0 at scatter, set at L5604). The per-fire 1/N
+            // normalizer (cublasSscal on d_grads with 1/fire_events) runs once at the
+            // end of the subtree, post-cuBLAS-here, normalizing every contribution
+            // — own-edge, anc, output projection, etc. — uniformly. So no
+            // pre-scaling is needed here either.
+            //
+            // h_subtree[l] holds ln1_out at each ancestor's position (saved during
+            // forward). All we do here is RoPE-inverse the K accumulator and
+            // chain-rule via cuBLAS with scalar 1.0.
             //
             //   dW_kw[l] += d_dkv_subtree_k[l] · h_subtree[l]^T   (RoPE-inv first)
             //   dW_vw[l] += d_dkv_subtree_v[l] · h_subtree[l]^T   (V has no RoPE)
             //
-            // No knob, no chunks_processed, no subtree_events — the per-event weight
-            // already lives in the accumulator. Each anc event contributes the same
-            // 1/T_q_chunk weight that own-edge would have given its own events.
+            // History: pre-2026-05-20 (commit 609e7ab) the scatter pre-scaled by
+            // 1/T_q_chunk to match own-edge's per-event weighting. That per-chunk
+            // normalization was math-incorrect (chunks-in-math sin); see
+            // rnd/per-fire-norm/ and feedback_no_chunks_in_math.md. Switched to
+            // per-fire 1/N at fire-end, applied to all gradient sources uniformly,
+            // so no source needs its own pre-scale anymore.
             // Cf. todo/descendant-ancestor-scatter.md.
             if (cfg.anc_grad && n_subtree_compact_chars > 0) {
                 int n_sub = n_subtree_compact_chars;
-                float anc_alpha = 1.0f;  // pre-scaled at scatter; no extra factor
+                float anc_alpha = 1.0f;  // raw scatter; fire-end 1/N normalizes uniformly
                 float anc_one = 1.0f;    // beta=1 accumulate into existing dW
                 for (int l = 0; l < L_layers; l++) {
                     // RoPE-inverse on K-grad (V has no RoPE). Treats buffer as
@@ -5789,6 +5939,7 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                 mb_groups_in_flight = 0;
             }
             if (fire_step) {
+            bool run_fire_diag = trace_fire_target;
             adam_t++;
             // Apply LR schedule: `adam_t` counts total optimizer steps taken so
             // far (monotonically across epochs). We need total_steps to compute
@@ -5835,6 +5986,64 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                 step_lr *= (float)subtree_lr_mult[rc_idx];
             }
 
+            FireDiagBlock* fire_diag_blocks = NULL;
+            char (*fire_diag_names)[32] = NULL;
+            int fire_diag_block_count = 0;
+            float* fire_diag_grads_pre = NULL;
+            float* fire_diag_grads_post = NULL;
+            float* fire_diag_weights_pre = NULL;
+            float* fire_diag_weights_post = NULL;
+            float* fire_diag_opt_v_pre = NULL;
+            float* fire_diag_opt_v = NULL;
+            if (run_fire_diag) {
+                fire_diag_block_count = 3 + 3 * L_layers;
+                fire_diag_blocks = (FireDiagBlock*)malloc((size_t)fire_diag_block_count * sizeof(FireDiagBlock));
+                fire_diag_names = (char (*)[32])malloc((size_t)fire_diag_block_count * 32);
+                int bi = 0;
+                snprintf(fire_diag_names[bi], 32, "token_emb");
+                fire_diag_blocks[bi].name = fire_diag_names[bi];
+                fire_diag_blocks[bi].offset = wo.token_emb;
+                fire_diag_blocks[bi].length = cfg.vocab_size * D;
+                bi++;
+                for (int l = 0; l < L_layers; l++) {
+                    snprintf(fire_diag_names[bi], 32, "wq_w_l%d", l);
+                    fire_diag_blocks[bi].name = fire_diag_names[bi];
+                    fire_diag_blocks[bi].offset = wo.wq_w[l];
+                    fire_diag_blocks[bi].length = D * D;
+                    bi++;
+                    snprintf(fire_diag_names[bi], 32, "wk_w_l%d", l);
+                    fire_diag_blocks[bi].name = fire_diag_names[bi];
+                    fire_diag_blocks[bi].offset = wo.wk_w[l];
+                    fire_diag_blocks[bi].length = D * D;
+                    bi++;
+                    snprintf(fire_diag_names[bi], 32, "wv_w_l%d", l);
+                    fire_diag_blocks[bi].name = fire_diag_names[bi];
+                    fire_diag_blocks[bi].offset = wo.wv_w[l];
+                    fire_diag_blocks[bi].length = D * D;
+                    bi++;
+                }
+                snprintf(fire_diag_names[bi], 32, "final_gamma");
+                fire_diag_blocks[bi].name = fire_diag_names[bi];
+                fire_diag_blocks[bi].offset = wo.final_gamma;
+                fire_diag_blocks[bi].length = D;
+                bi++;
+                snprintf(fire_diag_names[bi], 32, "out_w");
+                fire_diag_blocks[bi].name = fire_diag_names[bi];
+                fire_diag_blocks[bi].offset = wo.out_w;
+                fire_diag_blocks[bi].length = D * cfg.vocab_size;
+                bi++;
+
+                size_t fire_diag_bytes = (size_t)wo.total_floats * sizeof(float);
+                fire_diag_grads_pre = (float*)malloc(fire_diag_bytes);
+                fire_diag_grads_post = (float*)malloc(fire_diag_bytes);
+                fire_diag_weights_pre = (float*)malloc(fire_diag_bytes);
+                fire_diag_weights_post = (float*)malloc(fire_diag_bytes);
+                fire_diag_opt_v_pre = (float*)malloc(fire_diag_bytes);
+                fire_diag_opt_v = (float*)malloc(fire_diag_bytes);
+                copy_device_floats(fire_diag_grads_pre, d_grads, wo.total_floats);
+                copy_device_floats(fire_diag_weights_pre, d_weights, wo.total_floats);
+            }
+
             // Per-fire normalization: d_grads holds the raw sum across all
             // chunks of this split (= the LM-update unit). Scale by 1/N once so
             // the optimizer sees the canonical per-event mean gradient.
@@ -5863,6 +6072,9 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                 float inv_n = 1.0f / (float)fire_events;
                 CUBLAS_CHECK(cublasSscal(cublas, wo.total_floats, &inv_n, d_grads, 1));
             }
+            if (run_fire_diag) {
+                copy_device_floats(fire_diag_grads_post, d_grads, wo.total_floats);
+            }
 
             // Grad clipping (applies to the accumulated chunk-gradient sum for this
             // subtree-split before the optimizer uses it).
@@ -5883,6 +6095,9 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                 opt_v = d_adam_v_per_rc + off;
                 h_adam_t_per_rc[rc_idx]++;
                 opt_t = h_adam_t_per_rc[rc_idx];
+            }
+            if (run_fire_diag) {
+                copy_device_floats(fire_diag_opt_v_pre, opt_v, wo.total_floats);
             }
             switch (optimizer) {
                 case OptimizerKind::Adam:
@@ -5905,6 +6120,38 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                     cuda_lbfgs_step(&lbfgs_state, cublas, d_weights, d_grads, step_lr);
                     break;
             }
+            if (run_fire_diag) {
+                CUDA_CHECK(cudaDeviceSynchronize());
+                copy_device_floats(fire_diag_weights_post, d_weights, wo.total_floats);
+                copy_device_floats(fire_diag_opt_v, opt_v, wo.total_floats);
+                FILE* fire_diag_file = fopen(fire_diag.path, "a");
+                if (!fire_diag_file) {
+                    fprintf(stderr, "WARNING: could not open AGPT_DIAG_FIRE_PATH=%s for write\n", fire_diag.path);
+                } else {
+                    fprintf(fire_diag_file,
+                            "epoch=%d root_id=%d rc=%d chunks_processed=%d fire_chunks_processed=%d fire_events=%lld fire_mass=%lld step_lr=%.9g optimizer=%d\n",
+                            epoch + 1, root_r, rc_idx, chunks_processed, fire_chunks_processed,
+                            fire_events, fire_mass, step_lr, (int)optimizer);
+                    dump_fire_state(fire_diag_file, "pre_step_state", fire_diag_blocks, fire_diag_block_count,
+                                    fire_diag_weights_pre, fire_diag_opt_v_pre, wo.total_floats);
+                    dump_fire_diag(fire_diag_file, "pre_scale", fire_diag_blocks, fire_diag_block_count,
+                                   fire_diag_grads_pre, NULL, NULL, wo.total_floats);
+                    dump_fire_diag(fire_diag_file, "post_scale", fire_diag_blocks, fire_diag_block_count,
+                                   fire_diag_grads_post, NULL, NULL, wo.total_floats);
+                    dump_fire_diag(fire_diag_file, "post_step", fire_diag_blocks, fire_diag_block_count,
+                                   fire_diag_weights_pre, fire_diag_weights_post, fire_diag_opt_v, wo.total_floats);
+                    fclose(fire_diag_file);
+                }
+                free(fire_diag_blocks);
+                free(fire_diag_names);
+                free(fire_diag_grads_pre);
+                free(fire_diag_grads_post);
+                free(fire_diag_weights_pre);
+                free(fire_diag_weights_post);
+                free(fire_diag_opt_v_pre);
+                free(fire_diag_opt_v);
+                if (fire_diag.exit_after) return 0;
+            }
             // Decoupled weight decay (applies after optimizer step — AdamW style
             // across all optimizers). lr is the scheduled lr so decay also decays.
             if (weight_decay > 0.0f) {
@@ -5912,6 +6159,7 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
             }
             subtrees_trained++;
             }  // end !accumulate gate
+            free(fire_chunk_grad_scratch);
 
             subtree_offset += split_size;
         }  // end subtree-splits loop
@@ -6075,6 +6323,23 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                     printf("  lr_scale[min=%.3f max=%.3f]", lightning_w_min, lightning_w_max);
                 }
                 printf("\n");
+            }
+        }
+
+        if (dump_subtree_losses_path) {
+            FILE* f = fopen(dump_subtree_losses_path, "a");
+            if (!f) {
+                fprintf(stderr, "WARNING: could not open AGPT_DUMP_SUBTREE_LOSSES=%s for append\n",
+                        dump_subtree_losses_path);
+            } else {
+                for (int rc = 0; rc < n_root_children; rc++) {
+                    int root_r = (subtree_sizes[rc] > 0) ? subtree_nodes[rc][0] : -1;
+                    fprintf(f,
+                            "epoch=%d rc=%d root_id=%d mass=%lld trained_queries=%lld avg_loss=%.6f score=%.6f\n",
+                            epoch + 1, rc, root_r, subtree_mass[rc], subtree_tokens[rc],
+                            avgloss[rc], score[rc]);
+                }
+                fclose(f);
             }
         }
 
