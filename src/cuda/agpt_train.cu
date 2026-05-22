@@ -5541,6 +5541,18 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                             d_attn_out /* used as packed output temp */, sv_attn_weights[l],
                             T_q, H, HD, max_kv_len, scale);
                     });
+
+                    // Stage-3 diagnostic: dump sv_attn_weights[l] IMMEDIATELY after
+                    // forward writes it. Comparing this trace to layer.bwd.attn_in.attn_weights
+                    // (read at backward time) localizes whether the buffer is correct
+                    // at save time and gets corrupted later, or wrong from save.
+                    if (trace_fire_target) {
+                        emit_diag_jsonl(fire_diag.path,
+                                         epoch + 1, root_r, fire_chunks_processed + 1, l,
+                                         "layer.fwd.attn_weights_post_save",
+                                         sv_attn_weights[l], T_q * H * max_kv_len);
+                    }
+
                     // d_attn_out now has packed [T_q * H, HD] output — same memory layout as [T_q, D].
                     // Since D = H * HD and heads are contiguous in the last dim, this is already the
                     // right layout for [T_q, D]. Save for backward.
