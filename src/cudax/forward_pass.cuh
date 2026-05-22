@@ -31,7 +31,8 @@ static inline ForwardPassResult run_forward_prefix_v2(const TrainerConfig& cfg,
                                                       const ChunkDeviceMetadataV2& device_meta,
                                                       const ChunkUploadRuntimeV2& upload,
                                                       const LossTablesV2& loss_tables,
-                                                      TrainerRuntimeV2& runtime) {
+                                                      TrainerRuntimeV2& runtime,
+                                                      UnitAncGradRuntimeV2* anc_runtime = nullptr) {
     ForwardPassResult result;
     int T_q = meta.T_q;
     int D = cfg.d_model;
@@ -44,7 +45,7 @@ static inline ForwardPassResult run_forward_prefix_v2(const TrainerConfig& cfg,
 
     run_forward_embedding_stage_v2(layout, upload, runtime, buf, T_q, D);
     for (int l = 0; l < cfg.n_layers; l++) {
-        run_forward_transformer_layer_stage_v2(cfg, layout, meta, device_meta, upload, runtime, buf, cublas, d_rope_cos, d_rope_sin, l);
+        run_forward_transformer_layer_stage_v2(cfg, layout, meta, device_meta, upload, runtime, buf, cublas, d_rope_cos, d_rope_sin, anc_runtime, l);
     }
 
     run_forward_output_stage_v2(cfg, layout, meta, loss_tables, upload, runtime, buf, cublas);

@@ -20,6 +20,7 @@ static inline void run_forward_transformer_layer_stage_v2(const TrainerConfig& c
                                                           cublasHandle_t cublas,
                                                           float* d_rope_cos,
                                                           float* d_rope_sin,
+                                                          UnitAncGradRuntimeV2* anc_runtime,
                                                           int layer) {
     int T_q = meta.T_q;
     int D = cfg.d_model;
@@ -49,6 +50,13 @@ static inline void run_forward_transformer_layer_stage_v2(const TrainerConfig& c
     float beta_zero = 0.0f;
     AGPT_V2_CUDA_CHECK(cudaMemcpy(saved.x_res1, buf.query.x, (size_t)((long long)T_q * D * sizeof(float)), cudaMemcpyDeviceToDevice));
     cuda_layer_norm_forward(buf.query.x, saved.ln1_out, saved.ln1_norm, saved.ln1_std_inv, G1, B1, T_q, D);
+    if (anc_runtime && anc_runtime->enabled && anc_runtime->subtree_compact_chars > 0) {
+        launch_save_ln1_to_subtree_v2(saved.ln1_out, upload.d_char_pos,
+                                      runtime.cache.d_compact_slot,
+                                      anc_runtime->d_compact_to_subtree_idx,
+                                      anc_runtime->d_h_subtree[layer],
+                                      T_q, D);
+    }
 
     AGPT_V2_CUBLAS_CHECK(cublasSgemm(cublas, CUBLAS_OP_N, CUBLAS_OP_N, D, T_q, D,
                                      &alpha, W_qw, D, saved.ln1_out, D, &beta_zero, buf.query.q, D));

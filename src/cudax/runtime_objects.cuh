@@ -2,6 +2,7 @@
 #define AGPT_V2_RUNTIME_OBJECTS_CUH
 
 #include <cstdlib>
+#include <cstring>
 
 #include "cuda_support.cuh"
 #include "kernels_v2.cuh"
@@ -37,6 +38,120 @@ struct TrainerRuntimeV2 {
     float* d_opt_v = nullptr;
 };
 
+struct UnitAncGradRuntimeV2 {
+    bool enabled = false;
+    int subtree_compact_chars = 0;
+    int* d_compact_to_subtree_idx = nullptr;
+    int* d_subtree_real_pos = nullptr;
+    float** d_dkv_subtree_k = nullptr;
+    float** d_dkv_subtree_v = nullptr;
+    float** d_h_subtree = nullptr;
+};
+
+static inline void init_unit_anc_grad_runtime_v2(UnitAncGradRuntimeV2& runtime,
+                                                 const TrainerRuntimeContract& contract,
+                                                 const TrainerConfig& cfg,
+                                                 const TrainingUnit& unit,
+                                                 const RadixTrieStructure& trie) {
+    runtime.enabled = cfg.anc_grad;
+    if (!runtime.enabled) return;
+
+    int compact_cap = (int)contract.cache.compact_char_capacity;
+    int H = contract.shape.n_heads;
+    int D = contract.shape.d_model;
+    int L = contract.shape.n_layers;
+    int seq_len = contract.shape.seq_len;
+
+    int* h_lookup = (int*)std::malloc((size_t)(compact_cap > 0 ? compact_cap : 1) * sizeof(int));
+    for (int i = 0; i < compact_cap; i++) h_lookup[i] = -1;
+    int* h_subtree_pos = (int*)std::malloc((size_t)((unit.compact_char_count > 0 ? unit.compact_char_count : 1) * H) * sizeof(int));
+
+    int n_sub = 0;
+    for (int i = 0; i < unit.node_count; i++) {
+        int r = unit.radix_ids[i];
+        if (trie.edge_mass[r] == 1) continue;
+        int start_pos = trie.edge_starts[r];
+        int len = trie.edge_lens[r];
+        for (int c = 0; c < len; c++) {
+            int char_pos = start_pos + c;
+            int slot = trie.compact_slot[char_pos];
+            if (slot < 0) continue;
+            h_lookup[slot] = n_sub;
+            int pos = trie.real_pos_of_char[char_pos];
+            if (pos < 0) pos = 0;
+            if (pos >= seq_len) pos = seq_len - 1;
+            for (int h = 0; h < H; h++) {
+                h_subtree_pos[n_sub * H + h] = pos;
+            }
+            n_sub++;
+        }
+    }
+
+    runtime.subtree_compact_chars = n_sub;
+    AGPT_V2_CUDA_CHECK(cudaMalloc(&runtime.d_compact_to_subtree_idx, (size_t)(compact_cap > 0 ? compact_cap : 1) * sizeof(int)));
+    AGPT_V2_CUDA_CHECK(cudaMemcpy(runtime.d_compact_to_subtree_idx, h_lookup,
+                                  (size_t)(compact_cap > 0 ? compact_cap : 1) * sizeof(int),
+                                  cudaMemcpyHostToDevice));
+
+    if (n_sub > 0) {
+        AGPT_V2_CUDA_CHECK(cudaMalloc(&runtime.d_subtree_real_pos, (size_t)n_sub * H * sizeof(int)));
+        AGPT_V2_CUDA_CHECK(cudaMemcpy(runtime.d_subtree_real_pos, h_subtree_pos,
+                                      (size_t)n_sub * H * sizeof(int),
+                                      cudaMemcpyHostToDevice));
+    }
+
+    runtime.d_dkv_subtree_k = (float**)std::calloc((size_t)L, sizeof(float*));
+    runtime.d_dkv_subtree_v = (float**)std::calloc((size_t)L, sizeof(float*));
+    runtime.d_h_subtree = (float**)std::calloc((size_t)L, sizeof(float*));
+    if (n_sub > 0) {
+        size_t per_layer_bytes = (size_t)n_sub * D * sizeof(float);
+        for (int l = 0; l < L; l++) {
+            AGPT_V2_CUDA_CHECK(cudaMalloc(&runtime.d_dkv_subtree_k[l], per_layer_bytes));
+            AGPT_V2_CUDA_CHECK(cudaMalloc(&runtime.d_dkv_subtree_v[l], per_layer_bytes));
+            AGPT_V2_CUDA_CHECK(cudaMalloc(&runtime.d_h_subtree[l], per_layer_bytes));
+        }
+    }
+
+    std::free(h_lookup);
+    std::free(h_subtree_pos);
+}
+
+static inline void zero_unit_anc_grad_runtime_v2(UnitAncGradRuntimeV2& runtime,
+                                                 const TrainerRuntimeContract& contract) {
+    if (!runtime.enabled || runtime.subtree_compact_chars <= 0) return;
+    size_t fire_bytes = (size_t)runtime.subtree_compact_chars * contract.shape.d_model * sizeof(float);
+    for (int l = 0; l < contract.shape.n_layers; l++) {
+        AGPT_V2_CUDA_CHECK(cudaMemset(runtime.d_dkv_subtree_k[l], 0, fire_bytes));
+        AGPT_V2_CUDA_CHECK(cudaMemset(runtime.d_dkv_subtree_v[l], 0, fire_bytes));
+        AGPT_V2_CUDA_CHECK(cudaMemset(runtime.d_h_subtree[l], 0, fire_bytes));
+    }
+}
+
+static inline void free_unit_anc_grad_runtime_v2(UnitAncGradRuntimeV2& runtime,
+                                                 const TrainerRuntimeContract& contract) {
+    if (runtime.d_dkv_subtree_k) {
+        for (int l = 0; l < contract.shape.n_layers; l++) {
+            if (runtime.d_dkv_subtree_k[l]) cudaFree(runtime.d_dkv_subtree_k[l]);
+        }
+        std::free(runtime.d_dkv_subtree_k);
+    }
+    if (runtime.d_dkv_subtree_v) {
+        for (int l = 0; l < contract.shape.n_layers; l++) {
+            if (runtime.d_dkv_subtree_v[l]) cudaFree(runtime.d_dkv_subtree_v[l]);
+        }
+        std::free(runtime.d_dkv_subtree_v);
+    }
+    if (runtime.d_h_subtree) {
+        for (int l = 0; l < contract.shape.n_layers; l++) {
+            if (runtime.d_h_subtree[l]) cudaFree(runtime.d_h_subtree[l]);
+        }
+        std::free(runtime.d_h_subtree);
+    }
+    if (runtime.d_subtree_real_pos) cudaFree(runtime.d_subtree_real_pos);
+    if (runtime.d_compact_to_subtree_idx) cudaFree(runtime.d_compact_to_subtree_idx);
+    runtime = UnitAncGradRuntimeV2{};
+}
+
 static inline void init_cache_runtime_v2(CacheRuntimeV2& runtime,
                                          const CacheRuntimeContract& contract,
                                          const RadixTrieStructure& trie) {
@@ -54,6 +169,13 @@ static inline void init_cache_runtime_v2(CacheRuntimeV2& runtime,
             AGPT_V2_CUDA_CHECK(cudaMalloc(&runtime.d_k_layers[l], contract.per_layer_k_bytes));
             AGPT_V2_CUDA_CHECK(cudaMalloc(&runtime.d_v_layers[l], contract.per_layer_v_bytes));
         }
+    }
+}
+
+static inline void zero_cache_runtime_v2(const CacheRuntimeV2& runtime) {
+    for (int l = 0; l < runtime.contract.layer_count; l++) {
+        AGPT_V2_CUDA_CHECK(cudaMemset(runtime.d_k_layers[l], 0, runtime.contract.per_layer_k_bytes));
+        AGPT_V2_CUDA_CHECK(cudaMemset(runtime.d_v_layers[l], 0, runtime.contract.per_layer_v_bytes));
     }
 }
 

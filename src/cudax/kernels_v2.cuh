@@ -259,6 +259,88 @@ static inline void launch_kv_uncopy_own_edge_v2(const float* packed_grad,
         d_out, N, n_heads, head_dim);
 }
 
+__global__ static void scatter_anc_dkv_to_subtree_kernel_v2(const float* packed_grad,
+                                                            const int* ancestor_ids,
+                                                            const int* ancestor_offsets,
+                                                            const int* kv_offsets,
+                                                            const int* anc_lengths,
+                                                            const int* compact_slot,
+                                                            const int* compact_to_subtree,
+                                                            float* dkv_subtree,
+                                                            float grad_scale,
+                                                            int N, int n_heads, int head_dim) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    int d_model = n_heads * head_dim;
+    int nidx = idx / d_model;
+    int col = idx % d_model;
+    if (nidx >= N) return;
+
+    int anc_off = ancestor_offsets[nidx];
+    int kv_off = kv_offsets[nidx];
+    int len = anc_lengths[nidx];
+    int head = col / head_dim;
+    int hcol = col % head_dim;
+
+    for (int p = 0; p < len; p++) {
+        int char_pos = ancestor_ids[anc_off + p];
+        int slot = compact_slot[char_pos];
+        if (slot < 0) continue;
+        int sub_idx = compact_to_subtree[slot];
+        if (sub_idx < 0) continue;
+        float g = packed_grad[((kv_off + p) * n_heads + head) * head_dim + hcol];
+        atomicAdd(&dkv_subtree[(long long)sub_idx * d_model + col], g * grad_scale);
+    }
+}
+
+static inline void launch_scatter_anc_dkv_to_subtree_v2(const float* packed_grad,
+                                                        const int* ancestor_ids,
+                                                        const int* ancestor_offsets,
+                                                        const int* kv_offsets,
+                                                        const int* anc_lengths,
+                                                        const int* compact_slot,
+                                                        const int* compact_to_subtree,
+                                                        float* dkv_subtree,
+                                                        float grad_scale,
+                                                        int N, int n_heads, int head_dim) {
+    int d_model = n_heads * head_dim;
+    int total = N * d_model;
+    int threads = 256;
+    int blocks = (total + threads - 1) / threads;
+    scatter_anc_dkv_to_subtree_kernel_v2<<<blocks, threads>>>(
+        packed_grad, ancestor_ids, ancestor_offsets, kv_offsets, anc_lengths,
+        compact_slot, compact_to_subtree, dkv_subtree, grad_scale,
+        N, n_heads, head_dim);
+}
+
+__global__ static void save_ln1_to_subtree_kernel_v2(const float* ln1_out,
+                                                     const int* char_pos,
+                                                     const int* compact_slot,
+                                                     const int* compact_to_subtree,
+                                                     float* h_subtree,
+                                                     int T_q, int D) {
+    int q = blockIdx.x;
+    if (q >= T_q) return;
+    int cp = char_pos[q];
+    int slot = compact_slot[cp];
+    if (slot < 0) return;
+    int sub_idx = compact_to_subtree[slot];
+    if (sub_idx < 0) return;
+    for (int j = threadIdx.x; j < D; j += blockDim.x) {
+        h_subtree[(long long)sub_idx * D + j] = ln1_out[(long long)q * D + j];
+    }
+}
+
+static inline void launch_save_ln1_to_subtree_v2(const float* ln1_out,
+                                                 const int* char_pos,
+                                                 const int* compact_slot,
+                                                 const int* compact_to_subtree,
+                                                 float* h_subtree,
+                                                 int T_q, int D) {
+    int threads = (D < 256) ? D : 256;
+    save_ln1_to_subtree_kernel_v2<<<T_q, threads>>>(
+        ln1_out, char_pos, compact_slot, compact_to_subtree, h_subtree, T_q, D);
+}
+
 __global__ static void agpt_loss_per_query_kernel_v2(
     const float* logits,
     const int* query_to_node,

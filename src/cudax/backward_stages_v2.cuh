@@ -40,6 +40,7 @@ static inline void run_backward_transformer_layer_stage_v2(const TrainerConfig& 
                                                            ChunkBufferLayoutV2& buf,
                                                            cublasHandle_t cublas,
                                                            float grad_scale,
+                                                           UnitAncGradRuntimeV2* anc_runtime,
                                                            int layer,
                                                            float* d_rope_cos,
                                                            float* d_rope_sin) {
@@ -126,6 +127,21 @@ static inline void run_backward_transformer_layer_stage_v2(const TrainerConfig& 
         upload.d_query_to_node, upload.d_query_offsets, upload.d_kv_offsets, upload.d_kv_lengths,
         buf.packed.d_dq_pack, buf.packed.d_dk_pack, buf.packed.d_dv_pack,
         T_q, H, HD, meta.max_kv_len, 1.0f / sqrtf((float)HD));
+
+    if (anc_runtime && anc_runtime->enabled && anc_runtime->subtree_compact_chars > 0) {
+        launch_scatter_anc_dkv_to_subtree_v2(buf.packed.d_dk_pack,
+                                             device_meta.d_anc_ids, device_meta.d_anc_offsets,
+                                             upload.d_kv_offsets, device_meta.d_anc_lengths,
+                                             runtime.cache.d_compact_slot, anc_runtime->d_compact_to_subtree_idx,
+                                             anc_runtime->d_dkv_subtree_k[layer], grad_scale,
+                                             meta.N, H, HD);
+        launch_scatter_anc_dkv_to_subtree_v2(buf.packed.d_dv_pack,
+                                             device_meta.d_anc_ids, device_meta.d_anc_offsets,
+                                             upload.d_kv_offsets, device_meta.d_anc_lengths,
+                                             runtime.cache.d_compact_slot, anc_runtime->d_compact_to_subtree_idx,
+                                             anc_runtime->d_dkv_subtree_v[layer], grad_scale,
+                                             meta.N, H, HD);
+    }
 
     launch_rope_batched_inverse_v2(buf.packed.d_dq_pack, upload.d_rope_positions, d_rope_cos, d_rope_sin, T_q * H, HD);
     AGPT_V2_CUBLAS_CHECK(cublasSgemm(cublas, CUBLAS_OP_T, CUBLAS_OP_N, D, T_q, D,

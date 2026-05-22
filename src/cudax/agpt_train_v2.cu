@@ -158,6 +158,107 @@ static float scheduled_lr(const agpt_v2::TrainerConfig& cfg,
     return cfg.lr * cosine;
 }
 
+static void scale_gradients_for_fire(cublasHandle_t cublas,
+                                     float* d_grads,
+                                     int total_floats,
+                                     long long fire_events) {
+    if (fire_events <= 0) return;
+    float inv_n = 1.0f / (float)fire_events;
+    AGPT_V2_CUBLAS_CHECK(cublasSscal(cublas, total_floats, &inv_n, d_grads, 1));
+}
+
+struct FireDiagOptionsV2 {
+    const char* path = nullptr;
+    int epoch = 0;
+    int root_id = -1;
+    bool exit_after = false;
+};
+
+struct FireDiagBlockV2 {
+    const char* name = nullptr;
+    int offset = 0;
+    int length = 0;
+};
+
+static FireDiagOptionsV2 read_fire_diag_options_v2() {
+    FireDiagOptionsV2 opts;
+    opts.path = std::getenv("AGPT_DIAG_FIRE_PATH");
+    const char* epoch = std::getenv("AGPT_DIAG_FIRE_EPOCH");
+    const char* root_id = std::getenv("AGPT_DIAG_FIRE_ROOT_ID");
+    const char* exit_after = std::getenv("AGPT_DIAG_FIRE_EXIT_AFTER");
+    if (epoch) opts.epoch = std::atoi(epoch);
+    if (root_id) opts.root_id = std::atoi(root_id);
+    if (exit_after && exit_after[0] && std::strcmp(exit_after, "0") != 0) opts.exit_after = true;
+    if (!opts.path || !opts.path[0]) opts.path = nullptr;
+    if (opts.epoch <= 0 || opts.root_id < 0) opts.path = nullptr;
+    return opts;
+}
+
+static double l2_norm_host_v2(const float* data, int n) {
+    double sum = 0.0;
+    for (int i = 0; i < n; i++) sum += (double)data[i] * (double)data[i];
+    return std::sqrt(sum);
+}
+
+static double l2_diff_host_v2(const float* a, const float* b, int n) {
+    double sum = 0.0;
+    for (int i = 0; i < n; i++) {
+        double d = (double)b[i] - (double)a[i];
+        sum += d * d;
+    }
+    return std::sqrt(sum);
+}
+
+static void copy_device_floats_v2(float* h_dst, const float* d_src, int n) {
+    AGPT_V2_CUDA_CHECK(cudaMemcpy(h_dst, d_src, (size_t)n * sizeof(float), cudaMemcpyDeviceToHost));
+}
+
+static void dump_fire_diag_v2(FILE* f,
+                              const char* phase,
+                              const FireDiagBlockV2* blocks,
+                              int block_count,
+                              const float* whole_a,
+                              const float* whole_b,
+                              const float* opt_v,
+                              int total_floats) {
+    if (std::strcmp(phase, "post_step") == 0) {
+        std::fprintf(f, "phase=%s delta_w_total_l2=%.9f opt_v_total_l2=%.9f\n",
+                     phase, l2_diff_host_v2(whole_a, whole_b, total_floats), l2_norm_host_v2(opt_v, total_floats));
+        for (int i = 0; i < block_count; i++) {
+            const FireDiagBlockV2& b = blocks[i];
+            std::fprintf(f, "phase=%s block=%s delta_w_l2=%.9f opt_v_l2=%.9f\n",
+                         phase, b.name,
+                         l2_diff_host_v2(whole_a + b.offset, whole_b + b.offset, b.length),
+                         l2_norm_host_v2(opt_v + b.offset, b.length));
+        }
+    } else {
+        std::fprintf(f, "phase=%s grads_total_l2=%.9f\n", phase, l2_norm_host_v2(whole_a, total_floats));
+        for (int i = 0; i < block_count; i++) {
+            const FireDiagBlockV2& b = blocks[i];
+            std::fprintf(f, "phase=%s block=%s grads_l2=%.9f\n",
+                         phase, b.name, l2_norm_host_v2(whole_a + b.offset, b.length));
+        }
+    }
+}
+
+static void dump_fire_state_v2(FILE* f,
+                               const char* phase,
+                               const FireDiagBlockV2* blocks,
+                               int block_count,
+                               const float* weights,
+                               const float* opt_v,
+                               int total_floats) {
+    std::fprintf(f, "phase=%s weights_total_l2=%.9f opt_v_total_l2=%.9f\n",
+                 phase, l2_norm_host_v2(weights, total_floats), l2_norm_host_v2(opt_v, total_floats));
+    for (int i = 0; i < block_count; i++) {
+        const FireDiagBlockV2& b = blocks[i];
+        std::fprintf(f, "phase=%s block=%s weights_l2=%.9f opt_v_l2=%.9f\n",
+                     phase, b.name,
+                     l2_norm_host_v2(weights + b.offset, b.length),
+                     l2_norm_host_v2(opt_v + b.offset, b.length));
+    }
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -191,6 +292,7 @@ int main(int argc, char** argv) {
             }
         }
         else if (std::strcmp(argv[i], "--warmup-epochs") == 0 && i + 1 < argc) cfg.warmup_epochs = std::atoi(argv[++i]);
+        else if (std::strcmp(argv[i], "--anc-grad") == 0) cfg.anc_grad = true;
         else if (std::strcmp(argv[i], "--save") == 0 && i + 1 < argc) save_path = argv[++i];
         else if (std::strcmp(argv[i], "--steps") == 0 && i + 1 < argc) steps = std::atoi(argv[++i]);
         else if (std::strcmp(argv[i], "--units") == 0 && i + 1 < argc) unit_limit = std::atoi(argv[++i]);
@@ -218,6 +320,7 @@ int main(int argc, char** argv) {
                      "Usage: agpt_train_v2 --model <path> --trie-dir <path>\n"
                      "  [--epochs N] [--partition-depth 1] [--chunk-queries N] [--lr F] [--lr-schedule constant|warmup-cosine]\n"
                      "  [--warmup-epochs N] [--steps N]\n"
+                     "  [--anc-grad]\n"
                      "  [--units N]\n"
                      "  [--save PATH]\n"
                      "  [--mode plan|instantiate-runtime|upload|forward|backward-head|one-step-sgd|one-step-rmsprop|multi-step-sgd|multi-step-rmsprop|save-reload-sgd|save-reload-rmsprop|train-epoch|train-small]\n"
@@ -247,6 +350,8 @@ int main(int argc, char** argv) {
     agpt_v2::CacheLayout cache = agpt_v2::make_cache_layout(shape);
     agpt_v2::RadixTrieStructure trie = agpt_v2::load_radix_structure_minimal(trie_dir);
     agpt_v2::TrainingPlan training_plan = agpt_v2::build_pd1_training_plan(trie);
+    FireDiagOptionsV2 fire_diag = read_fire_diag_options_v2();
+    if (fire_diag.path) std::remove(fire_diag.path);
     agpt_v2::ExecutionPlan plan = agpt_v2::build_execution_plan(trie, training_plan, cfg.chunk_queries);
     agpt_v2::ChunkPlanList largest_chunks = {};
     if (plan.largest_by_queries) {
@@ -271,6 +376,9 @@ int main(int argc, char** argv) {
     std::printf("  config: epochs=%d lr=%.6f schedule=%s warmup_epochs=%d partition_depth=%d chunk_queries=%d accumulate=%s\n",
                 cfg.epochs, cfg.lr, v2_lr_schedule_name(cfg.lr_schedule), cfg.warmup_epochs,
                 cfg.partition_depth, cfg.chunk_queries, cfg.accumulate ? "true" : "false");
+    if (cfg.anc_grad) {
+        std::printf("  anc-grad: enabled (descendant->ancestor scatter into Wk/Wv)\n");
+    }
     std::printf("  cache contract: K=%s compact_slot_indexed=%s\n",
                 cache.k_space == agpt_v2::KCoordinateSpace::PostRope ? "post-RoPE" : "pre-RoPE",
                 cache.compact_slot_indexed ? "true" : "false");
@@ -367,6 +475,7 @@ int main(int argc, char** argv) {
     if (instantiate_runtime) {
         agpt_v2::TrainerRuntimeV2 runtime{};
         init_trainer_runtime_v2(runtime, runtime_contract, trie);
+        agpt_v2::zero_cache_runtime_v2(runtime.cache);
         float* h_weights = agpt_v2::load_model_weights_v2(model_path, model);
         AGPT_V2_CUDA_CHECK(cudaMemcpy(runtime.d_weights, h_weights,
                                       (size_t)model.total_floats * sizeof(float),
@@ -408,6 +517,7 @@ int main(int argc, char** argv) {
                 for (int epoch = 0; epoch < epochs; epoch++) {
                     double epoch_loss_sum = 0.0;
                     long long epoch_trained = 0;
+                    agpt_v2::zero_cache_runtime_v2(runtime.cache);
                     std::printf("  train-epoch: epoch %d/%d\n", epoch + 1, epochs);
                     for (int u = 0; u < units_to_run; u++) {
                         const agpt_v2::TrainingUnit& unit = training_plan.units[u];
@@ -423,6 +533,18 @@ int main(int argc, char** argv) {
                         long long global_unit_step = (long long)epoch * (long long)units_to_run + (long long)u;
                         float current_lr = scheduled_lr(cfg, global_unit_step, total_unit_steps, warmup_unit_steps);
                         AGPT_V2_CUDA_CHECK(cudaMemset(runtime.d_grads, 0, runtime.contract.weight_and_grad_bytes / 2));
+                        agpt_v2::UnitAncGradRuntimeV2 unit_anc{};
+                        if (cfg.anc_grad) {
+                            agpt_v2::init_unit_anc_grad_runtime_v2(unit_anc, runtime.contract, cfg, unit, trie);
+                            agpt_v2::zero_unit_anc_grad_runtime_v2(unit_anc, runtime.contract);
+                        }
+                        bool run_fire_diag = fire_diag.path
+                                          && (epoch + 1) == fire_diag.epoch
+                                          && unit.root_child_id == fire_diag.root_id;
+                        float* fire_diag_chunk_grads = nullptr;
+                        if (run_fire_diag) {
+                            fire_diag_chunk_grads = (float*)std::malloc((size_t)model.total_floats * sizeof(float));
+                        }
                         double unit_loss_sum = 0.0;
                         long long unit_trained = 0;
                         for (int s = 0; s < unit_chunks.chunk_count; s++) {
@@ -432,24 +554,137 @@ int main(int argc, char** argv) {
                             agpt_v2::ChunkDeviceMetadataV2 chunk_device_meta =
                                 upload_chunk_metadata_v2(chunk_meta, upload);
                             agpt_v2::ForwardPassResult chunk_fwd =
-                                agpt_v2::run_forward_prefix_v2(cfg, model, chunk_meta, chunk_device_meta, upload, loss_tables, runtime);
+                                agpt_v2::run_forward_prefix_v2(cfg, model, chunk_meta, chunk_device_meta, upload, loss_tables, runtime,
+                                                               cfg.anc_grad ? &unit_anc : nullptr);
                             agpt_v2::BackwardPassResult chunk_bwd =
-                                agpt_v2::run_backward_output_head_v2(cfg, model, chunk_meta, chunk_device_meta, upload, chunk_fwd, runtime, s == 0);
+                                agpt_v2::run_backward_output_head_v2(cfg, model, chunk_meta, chunk_device_meta, upload, chunk_fwd, runtime,
+                                                                     cfg.anc_grad ? &unit_anc : nullptr,
+                                                                     s == 0, s + 1 == unit_chunks.chunk_count);
                             (void)chunk_bwd;
                             unit_loss_sum += (double)chunk_fwd.mean_loss * (double)chunk_fwd.trained_queries;
                             unit_trained += chunk_fwd.trained_queries;
                             epoch_loss_sum += (double)chunk_fwd.mean_loss * (double)chunk_fwd.trained_queries;
                             epoch_trained += chunk_fwd.trained_queries;
+                            if (run_fire_diag) {
+                                copy_device_floats_v2(fire_diag_chunk_grads, runtime.d_grads, model.total_floats);
+                                FILE* fire_diag_chunk_file = std::fopen(fire_diag.path, "a");
+                                if (fire_diag_chunk_file) {
+                                    std::fprintf(fire_diag_chunk_file,
+                                                 "chunk=%d N=%d T_q=%d T_kv=%d max_kv_len=%d trained_queries=%d mean_loss=%.9f accum_grads_total_l2=%.9f\n",
+                                                 s + 1, chunk_meta.N, chunk_meta.T_q, chunk_meta.T_kv, chunk_meta.max_kv_len,
+                                                 chunk_fwd.trained_queries, chunk_fwd.mean_loss,
+                                                 l2_norm_host_v2(fire_diag_chunk_grads, model.total_floats));
+                                    std::fclose(fire_diag_chunk_file);
+                                }
+                            }
                             agpt_v2::free_chunk_metadata_v2(chunk_meta);
                         }
 
+                        FireDiagBlockV2* fire_diag_blocks = nullptr;
+                        char (*fire_diag_names)[32] = nullptr;
+                        int fire_diag_block_count = 0;
+                        float* fire_diag_grads_pre = nullptr;
+                        float* fire_diag_grads_post = nullptr;
+                        float* fire_diag_weights_pre = nullptr;
+                        float* fire_diag_weights_post = nullptr;
+                        float* fire_diag_opt_v_pre = nullptr;
+                        float* fire_diag_opt_v = nullptr;
+                        if (run_fire_diag) {
+                            fire_diag_block_count = 3 + 3 * cfg.n_layers;
+                            fire_diag_blocks = (FireDiagBlockV2*)std::malloc((size_t)fire_diag_block_count * sizeof(FireDiagBlockV2));
+                            fire_diag_names = (char (*)[32])std::malloc((size_t)fire_diag_block_count * 32);
+                            int bi = 0;
+                            std::snprintf(fire_diag_names[bi], 32, "token_emb");
+                            fire_diag_blocks[bi].name = fire_diag_names[bi];
+                            fire_diag_blocks[bi].offset = model.token_emb;
+                            fire_diag_blocks[bi].length = cfg.vocab_size * cfg.d_model;
+                            bi++;
+                            for (int l = 0; l < cfg.n_layers; l++) {
+                                std::snprintf(fire_diag_names[bi], 32, "wq_w_l%d", l);
+                                fire_diag_blocks[bi].name = fire_diag_names[bi];
+                                fire_diag_blocks[bi].offset = model.wq_w[l];
+                                fire_diag_blocks[bi].length = cfg.d_model * cfg.d_model;
+                                bi++;
+                                std::snprintf(fire_diag_names[bi], 32, "wk_w_l%d", l);
+                                fire_diag_blocks[bi].name = fire_diag_names[bi];
+                                fire_diag_blocks[bi].offset = model.wk_w[l];
+                                fire_diag_blocks[bi].length = cfg.d_model * cfg.d_model;
+                                bi++;
+                                std::snprintf(fire_diag_names[bi], 32, "wv_w_l%d", l);
+                                fire_diag_blocks[bi].name = fire_diag_names[bi];
+                                fire_diag_blocks[bi].offset = model.wv_w[l];
+                                fire_diag_blocks[bi].length = cfg.d_model * cfg.d_model;
+                                bi++;
+                            }
+                            std::snprintf(fire_diag_names[bi], 32, "final_gamma");
+                            fire_diag_blocks[bi].name = fire_diag_names[bi];
+                            fire_diag_blocks[bi].offset = model.final_gamma;
+                            fire_diag_blocks[bi].length = cfg.d_model;
+                            bi++;
+                            std::snprintf(fire_diag_names[bi], 32, "out_w");
+                            fire_diag_blocks[bi].name = fire_diag_names[bi];
+                            fire_diag_blocks[bi].offset = model.out_w;
+                            fire_diag_blocks[bi].length = cfg.d_model * cfg.vocab_size;
+                            bi++;
+
+                            size_t fire_diag_bytes = (size_t)model.total_floats * sizeof(float);
+                            fire_diag_grads_pre = (float*)std::malloc(fire_diag_bytes);
+                            fire_diag_grads_post = (float*)std::malloc(fire_diag_bytes);
+                            fire_diag_weights_pre = (float*)std::malloc(fire_diag_bytes);
+                            fire_diag_weights_post = (float*)std::malloc(fire_diag_bytes);
+                            fire_diag_opt_v_pre = (float*)std::malloc(fire_diag_bytes);
+                            fire_diag_opt_v = (float*)std::malloc(fire_diag_bytes);
+                            copy_device_floats_v2(fire_diag_grads_pre, runtime.d_grads, model.total_floats);
+                            copy_device_floats_v2(fire_diag_weights_pre, runtime.d_weights, model.total_floats);
+                            copy_device_floats_v2(fire_diag_opt_v_pre, runtime.d_opt_v, model.total_floats);
+                        }
+
+                        scale_gradients_for_fire(runtime.cublas, runtime.d_grads, model.total_floats, unit_trained);
+                        if (run_fire_diag) {
+                            copy_device_floats_v2(fire_diag_grads_post, runtime.d_grads, model.total_floats);
+                        }
                         agpt_v2::OptimizerStepResult step =
                             agpt_v2::run_optimizer_step_rmsprop_stateful(current_lr, runtime.d_weights, runtime.d_grads, runtime.d_opt_v, model.total_floats);
+                        bool fire_diag_exit_now = false;
+                        if (run_fire_diag) {
+                            copy_device_floats_v2(fire_diag_weights_post, runtime.d_weights, model.total_floats);
+                            copy_device_floats_v2(fire_diag_opt_v, runtime.d_opt_v, model.total_floats);
+                            FILE* fire_diag_file = std::fopen(fire_diag.path, "a");
+                            if (!fire_diag_file) {
+                                std::fprintf(stderr, "agpt_train_v2: could not open AGPT_DIAG_FIRE_PATH=%s for write\n", fire_diag.path);
+                            } else {
+                                std::fprintf(fire_diag_file,
+                                             "epoch=%d root_id=%d rc=%d chunks_processed=%d fire_events=%lld fire_mass=%d step_lr=%.9g optimizer=%s\n",
+                                             epoch + 1, unit.root_child_id, unit.root_child_id, unit_chunks.chunk_count,
+                                             unit_trained, 0, current_lr, "rmsprop");
+                                dump_fire_state_v2(fire_diag_file, "pre_step_state", fire_diag_blocks, fire_diag_block_count,
+                                                   fire_diag_weights_pre, fire_diag_opt_v_pre, model.total_floats);
+                                dump_fire_diag_v2(fire_diag_file, "pre_scale", fire_diag_blocks, fire_diag_block_count,
+                                                  fire_diag_grads_pre, nullptr, nullptr, model.total_floats);
+                                dump_fire_diag_v2(fire_diag_file, "post_scale", fire_diag_blocks, fire_diag_block_count,
+                                                  fire_diag_grads_post, nullptr, nullptr, model.total_floats);
+                                dump_fire_diag_v2(fire_diag_file, "post_step", fire_diag_blocks, fire_diag_block_count,
+                                                  fire_diag_weights_pre, fire_diag_weights_post, fire_diag_opt_v, model.total_floats);
+                                std::fclose(fire_diag_file);
+                            }
+                            std::free(fire_diag_blocks);
+                            std::free(fire_diag_names);
+                            std::free(fire_diag_grads_pre);
+                            std::free(fire_diag_grads_post);
+                            std::free(fire_diag_weights_pre);
+                            std::free(fire_diag_weights_post);
+                            std::free(fire_diag_opt_v_pre);
+                            std::free(fire_diag_opt_v);
+                            fire_diag_exit_now = fire_diag.exit_after;
+                        }
                         double unit_mean = unit_trained > 0 ? (unit_loss_sum / (double)unit_trained) : 0.0;
                         std::printf("    unit %d/%d rc=%d chunks=%d trained_queries=%lld mean_loss=%.6f lr=%.6g step=%s\n",
                                     u + 1, units_to_run, unit.root_child_id, unit_chunks.chunk_count,
                                     unit_trained, unit_mean, current_lr, step.message);
+                        std::free(fire_diag_chunk_grads);
+                        agpt_v2::free_unit_anc_grad_runtime_v2(unit_anc, runtime.contract);
                         agpt_v2::free_chunk_plan_list(unit_chunks);
+                        if (fire_diag_exit_now) return 0;
                     }
                     double epoch_mean = epoch_trained > 0 ? (epoch_loss_sum / (double)epoch_trained) : 0.0;
                     std::printf("  train-epoch: epoch %d summary trained_queries=%lld mean_loss=%.6f\n",
@@ -473,9 +708,15 @@ int main(int argc, char** argv) {
                 if (n_steps < 1) n_steps = 1;
                 AGPT_V2_CUDA_CHECK(cudaMemset(runtime.d_grads, 0, runtime.contract.weight_and_grad_bytes / 2));
                 AGPT_V2_CUDA_CHECK(cudaMemset(runtime.d_opt_v, 0, (size_t)model.total_floats * sizeof(float)));
+                agpt_v2::UnitAncGradRuntimeV2 unit_anc{};
+                if (cfg.anc_grad) {
+                    agpt_v2::init_unit_anc_grad_runtime_v2(unit_anc, runtime.contract, cfg, unit, trie);
+                    agpt_v2::zero_unit_anc_grad_runtime_v2(unit_anc, runtime.contract);
+                }
                 std::printf("  train-small: unit rc=%d chunks=%d accumulate=true optimizer=stateful RMSProp\n",
                             unit.root_child_id, n_steps);
                 agpt_v2::ForwardPassResult first_before{};
+                long long unit_trained = 0;
                 for (int s = 0; s < n_steps; s++) {
                     const agpt_v2::ChunkPlan& chunk = largest_chunks.chunks[s];
                     agpt_v2::ChunkMetadataV2 chunk_meta =
@@ -483,28 +724,42 @@ int main(int argc, char** argv) {
                     agpt_v2::ChunkDeviceMetadataV2 chunk_device_meta =
                         upload_chunk_metadata_v2(chunk_meta, upload);
                     agpt_v2::ForwardPassResult chunk_fwd =
-                        agpt_v2::run_forward_prefix_v2(cfg, model, chunk_meta, chunk_device_meta, upload, loss_tables, runtime);
+                        agpt_v2::run_forward_prefix_v2(cfg, model, chunk_meta, chunk_device_meta, upload, loss_tables, runtime,
+                                                       cfg.anc_grad ? &unit_anc : nullptr);
                     if (s == 0) first_before = chunk_fwd;
                     agpt_v2::BackwardPassResult chunk_bwd =
-                        agpt_v2::run_backward_output_head_v2(cfg, model, chunk_meta, chunk_device_meta, upload, chunk_fwd, runtime, s == 0);
+                        agpt_v2::run_backward_output_head_v2(cfg, model, chunk_meta, chunk_device_meta, upload, chunk_fwd, runtime,
+                                                             cfg.anc_grad ? &unit_anc : nullptr,
+                                                             s == 0, s + 1 == n_steps);
                     (void)chunk_bwd;
+                    unit_trained += chunk_fwd.trained_queries;
                     std::printf("    chunk %d/%d: accumulated loss=%.6f queries=%d nodes=%d\n",
                                 s + 1, n_steps, chunk_fwd.mean_loss, chunk_meta.T_q, chunk_meta.N);
                     agpt_v2::free_chunk_metadata_v2(chunk_meta);
                 }
+                scale_gradients_for_fire(runtime.cublas, runtime.d_grads, model.total_floats, unit_trained);
                 agpt_v2::OptimizerStepResult step =
                     agpt_v2::run_optimizer_step_rmsprop_stateful(cfg.lr, runtime.d_weights, runtime.d_grads, runtime.d_opt_v, model.total_floats);
                 std::printf("  train-small-step: %s  (first_chunk_before=%.6f accumulated_unit_chunks=%d)\n",
                             step.message, first_before.mean_loss, n_steps);
+                agpt_v2::free_unit_anc_grad_runtime_v2(unit_anc, runtime.contract);
             } else if (run_forward_prefix) {
                 agpt_v2::LossTablesV2 loss_tables{d_counts_offset, d_counts_tok, d_counts_val};
+                agpt_v2::UnitAncGradRuntimeV2 unit_anc{};
+                if (cfg.anc_grad && plan.largest_by_queries) {
+                    agpt_v2::init_unit_anc_grad_runtime_v2(unit_anc, runtime.contract, cfg, *plan.largest_by_queries, trie);
+                    agpt_v2::zero_unit_anc_grad_runtime_v2(unit_anc, runtime.contract);
+                }
                 agpt_v2::ForwardPassResult fwd =
-                    agpt_v2::run_forward_prefix_v2(cfg, model, first_chunk_meta, device_meta, upload, loss_tables, runtime);
+                    agpt_v2::run_forward_prefix_v2(cfg, model, first_chunk_meta, device_meta, upload, loss_tables, runtime,
+                                                   cfg.anc_grad ? &unit_anc : nullptr);
                 std::printf("  forward prefix: %s  (trained_queries=%d mean_loss=%.6f)\n",
                             fwd.message, fwd.trained_queries, fwd.mean_loss);
                 if (run_backward_head) {
                     agpt_v2::BackwardPassResult bwd =
-                        agpt_v2::run_backward_output_head_v2(cfg, model, first_chunk_meta, device_meta, upload, fwd, runtime);
+                        agpt_v2::run_backward_output_head_v2(cfg, model, first_chunk_meta, device_meta, upload, fwd, runtime,
+                                                             cfg.anc_grad ? &unit_anc : nullptr,
+                                                             true, true);
                     std::printf("  backward head: %s  (||dW_out||=%.6f ||d_final_gamma||=%.6f"
                                 " ||dW_2||=%.6f ||dW_1||=%.6f ||d_ln2_gamma||=%.6f"
                                 " ||dW_o||=%.6f ||dQ||=%.6f"
@@ -516,6 +771,7 @@ int main(int argc, char** argv) {
                                 bwd.wq_w_grad_l2, bwd.wk_w_grad_l2, bwd.wv_w_grad_l2, bwd.ln1_gamma_grad_l2,
                                 bwd.emb_grad_l2);
                     if (run_one_step_sgd) {
+                        scale_gradients_for_fire(runtime.cublas, runtime.d_grads, model.total_floats, fwd.trained_queries);
                         agpt_v2::OptimizerStepResult step =
                             agpt_v2::run_optimizer_step_sgd(cfg, runtime.d_weights, runtime.d_grads, model.total_floats);
                         agpt_v2::ForwardPassResult fwd_after =
@@ -523,10 +779,13 @@ int main(int argc, char** argv) {
                         std::printf("  one-step-sgd: %s  (loss_before=%.6f loss_after=%.6f delta=%.6f)\n",
                                     step.message, fwd.mean_loss, fwd_after.mean_loss, fwd_after.mean_loss - fwd.mean_loss);
                     } else if (run_one_step_rmsprop) {
+                        scale_gradients_for_fire(runtime.cublas, runtime.d_grads, model.total_floats, fwd.trained_queries);
                         agpt_v2::OptimizerStepResult step =
                             agpt_v2::run_optimizer_step_rmsprop(cfg, runtime.d_weights, runtime.d_grads, runtime.d_opt_v, model.total_floats);
+                        if (cfg.anc_grad) agpt_v2::zero_unit_anc_grad_runtime_v2(unit_anc, runtime.contract);
                         agpt_v2::ForwardPassResult fwd_after =
-                            agpt_v2::run_forward_prefix_v2(cfg, model, first_chunk_meta, device_meta, upload, loss_tables, runtime);
+                            agpt_v2::run_forward_prefix_v2(cfg, model, first_chunk_meta, device_meta, upload, loss_tables, runtime,
+                                                           cfg.anc_grad ? &unit_anc : nullptr);
                         std::printf("  one-step-rmsprop: %s  (loss_before=%.6f loss_after=%.6f delta=%.6f)\n",
                                     step.message, fwd.mean_loss, fwd_after.mean_loss, fwd_after.mean_loss - fwd.mean_loss);
                     } else if (run_multi_step_sgd) {
@@ -534,12 +793,17 @@ int main(int argc, char** argv) {
                         std::printf("  multi-step-sgd: starting loss=%.6f steps=%d\n", cur_fwd.mean_loss, steps);
                         for (int s = 0; s < steps; s++) {
                             agpt_v2::BackwardPassResult cur_bwd =
-                                agpt_v2::run_backward_output_head_v2(cfg, model, first_chunk_meta, device_meta, upload, cur_fwd, runtime);
+                                agpt_v2::run_backward_output_head_v2(cfg, model, first_chunk_meta, device_meta, upload, cur_fwd, runtime,
+                                                                     cfg.anc_grad ? &unit_anc : nullptr,
+                                                                     true, true);
                             (void)cur_bwd;
+                            scale_gradients_for_fire(runtime.cublas, runtime.d_grads, model.total_floats, cur_fwd.trained_queries);
                             agpt_v2::OptimizerStepResult step =
                                 agpt_v2::run_optimizer_step_sgd(cfg, runtime.d_weights, runtime.d_grads, model.total_floats);
+                            if (cfg.anc_grad) agpt_v2::zero_unit_anc_grad_runtime_v2(unit_anc, runtime.contract);
                             agpt_v2::ForwardPassResult next_fwd =
-                                agpt_v2::run_forward_prefix_v2(cfg, model, first_chunk_meta, device_meta, upload, loss_tables, runtime);
+                                agpt_v2::run_forward_prefix_v2(cfg, model, first_chunk_meta, device_meta, upload, loss_tables, runtime,
+                                                               cfg.anc_grad ? &unit_anc : nullptr);
                             std::printf("    step %d: %s  loss_before=%.6f loss_after=%.6f delta=%.6f\n",
                                         s + 1, step.message, cur_fwd.mean_loss, next_fwd.mean_loss,
                                         next_fwd.mean_loss - cur_fwd.mean_loss);
@@ -551,12 +815,17 @@ int main(int argc, char** argv) {
                         std::printf("  multi-step-rmsprop: starting loss=%.6f steps=%d\n", cur_fwd.mean_loss, steps);
                         for (int s = 0; s < steps; s++) {
                             agpt_v2::BackwardPassResult cur_bwd =
-                                agpt_v2::run_backward_output_head_v2(cfg, model, first_chunk_meta, device_meta, upload, cur_fwd, runtime);
+                                agpt_v2::run_backward_output_head_v2(cfg, model, first_chunk_meta, device_meta, upload, cur_fwd, runtime,
+                                                                     cfg.anc_grad ? &unit_anc : nullptr,
+                                                                     true, true);
                             (void)cur_bwd;
+                            scale_gradients_for_fire(runtime.cublas, runtime.d_grads, model.total_floats, cur_fwd.trained_queries);
                             agpt_v2::OptimizerStepResult step =
                                 agpt_v2::run_optimizer_step_rmsprop_stateful(cfg, runtime.d_weights, runtime.d_grads, runtime.d_opt_v, model.total_floats);
+                            if (cfg.anc_grad) agpt_v2::zero_unit_anc_grad_runtime_v2(unit_anc, runtime.contract);
                             agpt_v2::ForwardPassResult next_fwd =
-                                agpt_v2::run_forward_prefix_v2(cfg, model, first_chunk_meta, device_meta, upload, loss_tables, runtime);
+                                agpt_v2::run_forward_prefix_v2(cfg, model, first_chunk_meta, device_meta, upload, loss_tables, runtime,
+                                                               cfg.anc_grad ? &unit_anc : nullptr);
                             std::printf("    step %d: %s  loss_before=%.6f loss_after=%.6f delta=%.6f\n",
                                         s + 1, step.message, cur_fwd.mean_loss, next_fwd.mean_loss,
                                         next_fwd.mean_loss - cur_fwd.mean_loss);
@@ -564,6 +833,7 @@ int main(int argc, char** argv) {
                         }
                     } else if (run_save_reload_sgd) {
                         const char* roundtrip_path = save_path ? save_path : "/tmp/agpt_v2_roundtrip.model";
+                        scale_gradients_for_fire(runtime.cublas, runtime.d_grads, model.total_floats, fwd.trained_queries);
                         agpt_v2::OptimizerStepResult step =
                             agpt_v2::run_optimizer_step_sgd(cfg, runtime.d_weights, runtime.d_grads, model.total_floats);
                         float* h_updated = (float*)std::malloc((size_t)model.total_floats * sizeof(float));
@@ -580,8 +850,10 @@ int main(int argc, char** argv) {
                         AGPT_V2_CUDA_CHECK(cudaMemcpy(runtime.d_weights, h_reloaded,
                                                       (size_t)model.total_floats * sizeof(float),
                                                       cudaMemcpyHostToDevice));
+                        if (cfg.anc_grad) agpt_v2::zero_unit_anc_grad_runtime_v2(unit_anc, runtime.contract);
                         agpt_v2::ForwardPassResult fwd_after =
-                            agpt_v2::run_forward_prefix_v2(cfg, model, first_chunk_meta, device_meta, upload, loss_tables, runtime);
+                            agpt_v2::run_forward_prefix_v2(cfg, model, first_chunk_meta, device_meta, upload, loss_tables, runtime,
+                                                           cfg.anc_grad ? &unit_anc : nullptr);
                         std::printf("  save-reload-sgd: %s  (loss_before=%.6f loss_after=%.6f delta=%.6f max_abs_diff=%.3e file=%s)\n",
                                     step.message, fwd.mean_loss, fwd_after.mean_loss, fwd_after.mean_loss - fwd.mean_loss,
                                     max_abs_diff, roundtrip_path);
@@ -590,6 +862,7 @@ int main(int argc, char** argv) {
                     } else if (run_save_reload_rmsprop) {
                         const char* roundtrip_path = save_path ? save_path : "/tmp/agpt_v2_roundtrip.model";
                         const char* opt_path = "/tmp/agpt_v2_roundtrip.optv";
+                        scale_gradients_for_fire(runtime.cublas, runtime.d_grads, model.total_floats, fwd.trained_queries);
                         agpt_v2::OptimizerStepResult step =
                             agpt_v2::run_optimizer_step_rmsprop_stateful(cfg, runtime.d_weights, runtime.d_grads, runtime.d_opt_v, model.total_floats);
                         float* h_updated = (float*)std::malloc((size_t)model.total_floats * sizeof(float));
@@ -618,8 +891,10 @@ int main(int argc, char** argv) {
                         AGPT_V2_CUDA_CHECK(cudaMemcpy(runtime.d_opt_v, h_opt_reloaded,
                                                       (size_t)model.total_floats * sizeof(float),
                                                       cudaMemcpyHostToDevice));
+                        if (cfg.anc_grad) agpt_v2::zero_unit_anc_grad_runtime_v2(unit_anc, runtime.contract);
                         agpt_v2::ForwardPassResult fwd_after =
-                            agpt_v2::run_forward_prefix_v2(cfg, model, first_chunk_meta, device_meta, upload, loss_tables, runtime);
+                            agpt_v2::run_forward_prefix_v2(cfg, model, first_chunk_meta, device_meta, upload, loss_tables, runtime,
+                                                           cfg.anc_grad ? &unit_anc : nullptr);
                         std::printf("  save-reload-rmsprop: %s  (loss_before=%.6f loss_after=%.6f delta=%.6f max_abs_diff_w=%.3e max_abs_diff_v=%.3e file=%s)\n",
                                     step.message, fwd.mean_loss, fwd_after.mean_loss, fwd_after.mean_loss - fwd.mean_loss,
                                     max_abs_diff_w, max_abs_diff_v, roundtrip_path);
@@ -629,6 +904,7 @@ int main(int argc, char** argv) {
                         std::free(h_opt_reloaded);
                     }
                 }
+                agpt_v2::free_unit_anc_grad_runtime_v2(unit_anc, runtime.contract);
             }
             free_chunk_upload_runtime_v2(upload);
             std::printf("  chunk upload: freed successfully\n");

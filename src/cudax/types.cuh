@@ -25,6 +25,7 @@ struct TrainerConfig {
     LrSchedule lr_schedule = LrSchedule::Constant;
     int warmup_epochs = 0;
 
+    bool anc_grad = false;
     bool accumulate = false;
     bool quiet = false;
 };

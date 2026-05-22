@@ -1,0 +1,32 @@
+Vocab: 65 unique chars from data/input.txt
+Tokens: 50000
+Arch: d_model=64 n_heads=4 n_layers=2 d_ff=256 ckpt_seq=128
+Model loaded
+  500/10000 (61.0/s, ETA 156s)
+  1000/10000 (61.6/s, ETA 146s)
+  1500/10000 (61.2/s, ETA 139s)
+  2000/10000 (60.2/s, ETA 133s)
+  2500/10000 (60.6/s, ETA 124s)
+  3000/10000 (60.6/s, ETA 115s)
+  3500/10000 (61.5/s, ETA 106s)
+  4000/10000 (61.8/s, ETA 97s)
+  4500/10000 (61.4/s, ETA 90s)
+  5000/10000 (61.4/s, ETA 81s)
+  5500/10000 (61.1/s, ETA 74s)
+  6000/10000 (60.6/s, ETA 66s)
+  6500/10000 (60.3/s, ETA 58s)
+  7000/10000 (60.0/s, ETA 50s)
+  7500/10000 (59.1/s, ETA 42s)
+  8000/10000 (59.5/s, ETA 34s)
+  8500/10000 (59.2/s, ETA 25s)
+  9000/10000 (58.5/s, ETA 17s)
+  9500/10000 (57.9/s, ETA 9s)
+  10000/10000 (57.5/s, ETA 0s)
+
+Pool mode:          uniform
+d_window:           16
+Positions scored:   10000
+Mean per-token NLL: 2.316007 nats
+Perplexity:         10.1351
+Bits per char:      3.3413 bpc
+Elapsed:            173.8s (57.5 pos/sec)

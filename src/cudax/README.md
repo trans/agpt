@@ -37,7 +37,6 @@ The first working V2 milestone is intentionally narrow:
 - `partition_depth = 1`
 - no Lightning
 - no virtual cycles
-- no descendant→ancestor scatter yet
 - baseline AGPT train/eval parity only
 - compare against the legacy trainer on Shakespeare `d16`
 
@@ -82,6 +81,7 @@ The current scaffold now owns a validated baseline execution path:
 - per-layer `WO + residual`
 - per-layer `LN2 + FFN + residual`
 - full reverse pass through output head, transformer layers, and embeddings
+- optional descendant→ancestor scatter + fire-end `Wk/Wv` reduction via `--anc-grad`
 - stateful SGD/RMSProp one-step checks
 - save/reload checks for weights and optimizer state
 - `train-small` and `train-epoch` accumulation modes
@@ -110,6 +110,7 @@ Its execution surface should stay explicit and narrow. The primary entrypoint is
 - `--mode save-reload-rmsprop`
 - `--mode train-epoch`
 - `--mode train-small`
+- `--anc-grad`
 - `--lr-schedule constant|warmup-cosine`
 - `--warmup-epochs N`
 

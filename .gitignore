@@ -26,6 +26,8 @@ rnd/per-rc-adam-v1/models/
 rnd/per-rc-adam-v1/models_no_mw/
 rnd/depth-weight/**/*.model
 rnd/beta2-diagnostic/**/*.model
+rnd/cudax-anc-grad-parity/**/*.model
+rnd/legacy-rebaseline/**/*.model
 
 # logs/ directories anywhere in the repo (experiment logs accumulate fast
 # and most are intermediate-stage noise). Specific result logs that matter
