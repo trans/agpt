@@ -1,0 +1,11 @@
+# β₂ diagnostic: SE_SHORT=10 SE_LONG=100  (Thu May 21 21:42:11 UTC 2026)
+b0.999_e10_s1 train_wall=24s train_loss=2.213986 heldout_ppl=
+b0.999_e100_s1 train_wall=206s train_loss=1.718039 heldout_ppl=
+b0.99_e10_s1 train_wall=24s train_loss=2.146535 heldout_ppl=
+b0.99_e100_s1 train_wall=206s train_loss=1.653110 heldout_ppl=
+b0.999_e10_s2 train_wall=24s train_loss=2.106559 heldout_ppl=
+b0.999_e100_s2 train_wall=206s train_loss=1.639510 heldout_ppl=
+b0.99_e10_s2 train_wall=25s train_loss=2.057487 heldout_ppl=
+b0.99_e100_s2 train_wall=206s train_loss=1.521520 heldout_ppl=
+b0.999_e10_s3 train_wall=24s train_loss=2.102588 heldout_ppl=
+b0.999_e100_s3 train_wall=205s train_loss=1.624655 heldout_ppl=
