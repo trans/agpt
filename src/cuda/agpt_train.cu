@@ -572,12 +572,6 @@ struct FireDiagOptions {
     bool exit_after = false;
 };
 
-struct FireDiagBlock {
-    const char* name;
-    int offset;
-    int length;
-};
-
 static FireDiagOptions read_fire_diag_options() {
     FireDiagOptions opts;
     opts.path = getenv("AGPT_DIAG_FIRE_PATH");
@@ -609,54 +603,6 @@ static double l2_diff_host(const float* a, const float* b, int n) {
 
 static void copy_device_floats(float* h_dst, const float* d_src, int n) {
     CUDA_CHECK(cudaMemcpy(h_dst, d_src, (size_t)n * sizeof(float), cudaMemcpyDeviceToHost));
-}
-
-static void dump_fire_diag(FILE* f,
-                           const char* phase,
-                           const FireDiagBlock* blocks,
-                           int block_count,
-                           const float* whole_a,
-                           const float* whole_b,
-                           const float* opt_v,
-                           int total_floats)
-{
-    if (strcmp(phase, "post_step") == 0) {
-        fprintf(f, "phase=%s delta_w_total_l2=%.9f opt_v_total_l2=%.9f\n",
-                phase, l2_diff_host(whole_a, whole_b, total_floats), l2_norm_host(opt_v, total_floats));
-        for (int i = 0; i < block_count; i++) {
-            const FireDiagBlock& b = blocks[i];
-            fprintf(f, "phase=%s block=%s delta_w_l2=%.9f opt_v_l2=%.9f\n",
-                    phase, b.name,
-                    l2_diff_host(whole_a + b.offset, whole_b + b.offset, b.length),
-                    l2_norm_host(opt_v + b.offset, b.length));
-        }
-    } else {
-        fprintf(f, "phase=%s grads_total_l2=%.9f\n", phase, l2_norm_host(whole_a, total_floats));
-        for (int i = 0; i < block_count; i++) {
-            const FireDiagBlock& b = blocks[i];
-            fprintf(f, "phase=%s block=%s grads_l2=%.9f\n",
-                    phase, b.name, l2_norm_host(whole_a + b.offset, b.length));
-        }
-    }
-}
-
-static void dump_fire_state(FILE* f,
-                            const char* phase,
-                            const FireDiagBlock* blocks,
-                            int block_count,
-                            const float* weights,
-                            const float* opt_v,
-                            int total_floats)
-{
-    fprintf(f, "phase=%s weights_total_l2=%.9f opt_v_total_l2=%.9f\n",
-            phase, l2_norm_host(weights, total_floats), l2_norm_host(opt_v, total_floats));
-    for (int i = 0; i < block_count; i++) {
-        const FireDiagBlock& b = blocks[i];
-        fprintf(f, "phase=%s block=%s weights_l2=%.9f opt_v_l2=%.9f\n",
-                phase, b.name,
-                l2_norm_host(weights + b.offset, b.length),
-                l2_norm_host(opt_v + b.offset, b.length));
-    }
 }
 
 // JSONL emission for the v1↔v2 buffer-diff protocol (stage-1 schema agreed with
@@ -1809,17 +1755,6 @@ float* load_model_weights(const char* path, Config* cfg) {
     cfg->vocab_size = read_i32(f);
     cfg->seq_len   = read_i32(f);
     cfg->head_dim  = cfg->d_model / cfg->n_heads;
-    // DIAGNOSTIC OVERRIDE: force seq_len=16 to test whether seq_len=128 from
-    // model header is silently distorting baseline d=16 training. Revert
-    // after diagnosis.
-    if (const char* env_seq_len = getenv("AGPT_FORCE_SEQ_LEN")) {
-        int forced = atoi(env_seq_len);
-        if (forced > 0) {
-            fprintf(stderr, "DIAG: overriding seq_len %d -> %d\n", cfg->seq_len, forced);
-            cfg->seq_len = forced;
-        }
-    }
-
     // seq_len in the model header is whatever the model-creation tool baked
     // in (often 128). At AGPT training time the only positions actually
     // queried are 0..trie.max_depth-1, so the header value is usually a
@@ -5685,6 +5620,22 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                             emit_diag_tensor_int_bin(tensor_dir, epoch + 1, root_r,
                                                        fire_chunks_processed + 1, l,
                                                        "fwd_kv_lengths", d_kv_lengths, N);
+                            // Chunk-1 metadata for parity probe: token_ids,
+                            // query_to_node, rope_positions, radix_ids. Confirmed
+                            // bit-identical v1↔v2 on 2026-05-22 (project_v1v2_residual_gap).
+                            // Kept for future re-verification if the gut-feel materializes.
+                            emit_diag_tensor_int_bin(tensor_dir, epoch + 1, root_r,
+                                                       fire_chunks_processed + 1, l,
+                                                       "fwd_token_ids", d_token_ids, T_q);
+                            emit_diag_tensor_int_bin(tensor_dir, epoch + 1, root_r,
+                                                       fire_chunks_processed + 1, l,
+                                                       "fwd_query_to_node", d_query_to_node, T_q);
+                            emit_diag_tensor_int_bin(tensor_dir, epoch + 1, root_r,
+                                                       fire_chunks_processed + 1, l,
+                                                       "fwd_rope_positions", d_rope_positions, T_q * H);
+                            emit_diag_tensor_int_bin(tensor_dir, epoch + 1, root_r,
+                                                       fire_chunks_processed + 1, l,
+                                                       "fwd_radix_ids", d_radix_ids, N);
                         }
                     }
 
@@ -6297,9 +6248,6 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                 step_lr *= (float)subtree_lr_mult[rc_idx];
             }
 
-            FireDiagBlock* fire_diag_blocks = NULL;
-            char (*fire_diag_names)[32] = NULL;
-            int fire_diag_block_count = 0;
             float* fire_diag_grads_pre = NULL;
             float* fire_diag_grads_post = NULL;
             float* fire_diag_weights_pre = NULL;
@@ -6307,43 +6255,6 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
             float* fire_diag_opt_v_pre = NULL;
             float* fire_diag_opt_v = NULL;
             if (run_fire_diag) {
-                fire_diag_block_count = 3 + 3 * L_layers;
-                fire_diag_blocks = (FireDiagBlock*)malloc((size_t)fire_diag_block_count * sizeof(FireDiagBlock));
-                fire_diag_names = (char (*)[32])malloc((size_t)fire_diag_block_count * 32);
-                int bi = 0;
-                snprintf(fire_diag_names[bi], 32, "token_emb");
-                fire_diag_blocks[bi].name = fire_diag_names[bi];
-                fire_diag_blocks[bi].offset = wo.token_emb;
-                fire_diag_blocks[bi].length = cfg.vocab_size * D;
-                bi++;
-                for (int l = 0; l < L_layers; l++) {
-                    snprintf(fire_diag_names[bi], 32, "wq_w_l%d", l);
-                    fire_diag_blocks[bi].name = fire_diag_names[bi];
-                    fire_diag_blocks[bi].offset = wo.wq_w[l];
-                    fire_diag_blocks[bi].length = D * D;
-                    bi++;
-                    snprintf(fire_diag_names[bi], 32, "wk_w_l%d", l);
-                    fire_diag_blocks[bi].name = fire_diag_names[bi];
-                    fire_diag_blocks[bi].offset = wo.wk_w[l];
-                    fire_diag_blocks[bi].length = D * D;
-                    bi++;
-                    snprintf(fire_diag_names[bi], 32, "wv_w_l%d", l);
-                    fire_diag_blocks[bi].name = fire_diag_names[bi];
-                    fire_diag_blocks[bi].offset = wo.wv_w[l];
-                    fire_diag_blocks[bi].length = D * D;
-                    bi++;
-                }
-                snprintf(fire_diag_names[bi], 32, "final_gamma");
-                fire_diag_blocks[bi].name = fire_diag_names[bi];
-                fire_diag_blocks[bi].offset = wo.final_gamma;
-                fire_diag_blocks[bi].length = D;
-                bi++;
-                snprintf(fire_diag_names[bi], 32, "out_w");
-                fire_diag_blocks[bi].name = fire_diag_names[bi];
-                fire_diag_blocks[bi].offset = wo.out_w;
-                fire_diag_blocks[bi].length = D * cfg.vocab_size;
-                bi++;
-
                 size_t fire_diag_bytes = (size_t)wo.total_floats * sizeof(float);
                 fire_diag_grads_pre = (float*)malloc(fire_diag_bytes);
                 fire_diag_grads_post = (float*)malloc(fire_diag_bytes);
@@ -6451,26 +6362,6 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                                     epoch + 1, root_r, -1, -1,
                                     "fire.opt_v.total",
                                     l2_norm_host(fire_diag_opt_v, wo.total_floats));
-                FILE* fire_diag_file = fopen(fire_diag.path, "a");
-                if (!fire_diag_file) {
-                    fprintf(stderr, "WARNING: could not open AGPT_DIAG_FIRE_PATH=%s for write\n", fire_diag.path);
-                } else {
-                    fprintf(fire_diag_file,
-                            "epoch=%d root_id=%d rc=%d chunks_processed=%d fire_chunks_processed=%d fire_events=%lld fire_mass=%lld step_lr=%.9g optimizer=%d\n",
-                            epoch + 1, root_r, rc_idx, chunks_processed, fire_chunks_processed,
-                            fire_events, fire_mass, step_lr, (int)optimizer);
-                    dump_fire_state(fire_diag_file, "pre_step_state", fire_diag_blocks, fire_diag_block_count,
-                                    fire_diag_weights_pre, fire_diag_opt_v_pre, wo.total_floats);
-                    dump_fire_diag(fire_diag_file, "pre_scale", fire_diag_blocks, fire_diag_block_count,
-                                   fire_diag_grads_pre, NULL, NULL, wo.total_floats);
-                    dump_fire_diag(fire_diag_file, "post_scale", fire_diag_blocks, fire_diag_block_count,
-                                   fire_diag_grads_post, NULL, NULL, wo.total_floats);
-                    dump_fire_diag(fire_diag_file, "post_step", fire_diag_blocks, fire_diag_block_count,
-                                   fire_diag_weights_pre, fire_diag_weights_post, fire_diag_opt_v, wo.total_floats);
-                    fclose(fire_diag_file);
-                }
-                free(fire_diag_blocks);
-                free(fire_diag_names);
                 free(fire_diag_grads_pre);
                 free(fire_diag_grads_post);
                 free(fire_diag_weights_pre);
