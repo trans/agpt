@@ -8,6 +8,13 @@ enum class LrSchedule {
     WarmupCosine = 1,
 };
 
+enum class OptimizerKind {
+    Adam = 0,
+    SGD = 1,
+    Momentum = 2,
+    RMSProp = 3,
+};
+
 struct TrainerConfig {
     int d_model = 0;
     int n_heads = 0;
@@ -22,7 +29,10 @@ struct TrainerConfig {
 
     float lr = 0.0f;
     float grad_clip_norm = 0.0f;
+    float momentum_beta = 0.9f;
+    float rmsprop_beta = 0.999f;
     LrSchedule lr_schedule = LrSchedule::Constant;
+    OptimizerKind optimizer = OptimizerKind::RMSProp;
     int warmup_epochs = 0;
 
     bool anc_grad = false;

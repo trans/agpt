@@ -78,6 +78,64 @@ static inline OptimizerStepResult run_optimizer_step_rmsprop_stateful(const Trai
     return run_optimizer_step_rmsprop_stateful(cfg.lr, d_weights, d_grads, d_opt_v, total_floats, beta, eps);
 }
 
+static inline OptimizerStepResult run_optimizer_step_momentum_stateful(float lr,
+                                                                       float* d_weights,
+                                                                       float* d_grads,
+                                                                       float* d_opt_m,
+                                                                       int total_floats,
+                                                                       float beta = 0.9f) {
+    OptimizerStepResult result;
+    cuda_momentum_bulk(d_weights, d_grads, d_opt_m, lr, beta, total_floats);
+    AGPT_V2_CUDA_CHECK(cudaDeviceSynchronize());
+    result.message = "stateful Momentum step applied";
+    return result;
+}
+
+static inline OptimizerStepResult run_optimizer_step_adam_stateful(float lr,
+                                                                   float* d_weights,
+                                                                   float* d_grads,
+                                                                   float* d_opt_m,
+                                                                   float* d_opt_v,
+                                                                   int total_floats,
+                                                                   int t,
+                                                                   float beta1 = 0.9f,
+                                                                   float beta2 = 0.999f,
+                                                                   float eps = 1e-8f) {
+    OptimizerStepResult result;
+    cuda_adam_bulk(d_weights, d_grads, d_opt_m, d_opt_v, lr, beta1, beta2, eps, t, total_floats);
+    AGPT_V2_CUDA_CHECK(cudaDeviceSynchronize());
+    result.message = "stateful Adam step applied";
+    return result;
+}
+
+static inline OptimizerStepResult run_optimizer_step_stateful(const TrainerConfig& cfg,
+                                                              float lr,
+                                                              float* d_weights,
+                                                              float* d_grads,
+                                                              float* d_opt_m,
+                                                              float* d_opt_v,
+                                                              int total_floats,
+                                                              int optimizer_step_index) {
+    switch (cfg.optimizer) {
+        case OptimizerKind::Adam:
+            return run_optimizer_step_adam_stateful(lr, d_weights, d_grads, d_opt_m, d_opt_v,
+                                                    total_floats, optimizer_step_index,
+                                                    cfg.momentum_beta, cfg.rmsprop_beta);
+        case OptimizerKind::SGD:
+            return run_optimizer_step_sgd(lr, d_weights, d_grads, total_floats);
+        case OptimizerKind::Momentum:
+            return run_optimizer_step_momentum_stateful(lr, d_weights, d_grads, d_opt_m,
+                                                        total_floats, cfg.momentum_beta);
+        case OptimizerKind::RMSProp:
+            return run_optimizer_step_rmsprop_stateful(lr, d_weights, d_grads, d_opt_v,
+                                                       total_floats, cfg.rmsprop_beta);
+    }
+    OptimizerStepResult result;
+    result.ok = false;
+    result.message = "unknown optimizer";
+    return result;
+}
+
 }  // namespace agpt_v2
 
 #endif

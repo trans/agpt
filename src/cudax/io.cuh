@@ -180,10 +180,14 @@ static inline RadixTrieStructure load_radix_structure_minimal(const char* dir) {
             trie.edge_first_char_depths[rid] = read_i32(f);
             trie.edge_lens[rid] = read_i32(f);
             trie.edge_starts[rid] = (int)edge_fill_pos;
+            int max_real_pos = trie.depth_file_count >= 2 ? trie.depth_file_count - 2 : 0;
             for (int e = 0; e < trie.edge_lens[rid]; e++) {
                 trie.edge_tokens_flat[edge_fill_pos + e] = narrow_tokens ? read_i16(f) : read_i32(f);
                 trie.real_pos_of_char[edge_fill_pos + e] = trie.edge_first_char_depths[rid] + e - 1;
                 if (trie.real_pos_of_char[edge_fill_pos + e] < 0) trie.real_pos_of_char[edge_fill_pos + e] = 0;
+                if (trie.real_pos_of_char[edge_fill_pos + e] > max_real_pos) {
+                    trie.real_pos_of_char[edge_fill_pos + e] = max_real_pos;
+                }
             }
             edge_fill_pos += trie.edge_lens[rid];
             trie.edge_mass[rid] = read_i32(f);

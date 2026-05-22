@@ -2,8 +2,6 @@
 #define AGPT_V2_BACKWARD_PASS_CUH
 
 #include <cmath>
-#include <cstdlib>
-
 #include "buffer_layout_v2.cuh"
 #include "forward_pass.cuh"
 
@@ -56,7 +54,8 @@ static inline BackwardPassResult run_backward_output_head_v2(const TrainerConfig
     float* d_rope_sin = runtime.d_rope_sin;
     run_backward_output_stage_v2(cfg, layout, meta, forward, runtime, buf, cublas, grad_scale);
     for (int l = cfg.n_layers - 1; l >= 0; l--) {
-        run_backward_transformer_layer_stage_v2(cfg, layout, meta, device_meta, upload, runtime, buf, cublas, grad_scale, anc_runtime, l, d_rope_cos, d_rope_sin);
+        run_backward_transformer_layer_stage_v2(cfg, layout, meta, device_meta, upload, runtime, buf, cublas,
+                                                grad_scale, anc_runtime, l, d_rope_cos, d_rope_sin);
     }
 
     if (finalize_anc_grad && anc_runtime && anc_runtime->enabled && anc_runtime->subtree_compact_chars > 0) {

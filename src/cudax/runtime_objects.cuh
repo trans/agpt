@@ -10,6 +10,18 @@
 
 namespace agpt_v2 {
 
+static inline cublasMath_t read_cublas_math_mode_v2() {
+    const char* env = std::getenv("AGPT_V2_CUBLAS_MATH");
+    if (!env || !env[0]) return CUBLAS_TF32_TENSOR_OP_MATH;
+    if (std::strcmp(env, "fp32") == 0 || std::strcmp(env, "default") == 0) {
+        return CUBLAS_DEFAULT_MATH;
+    }
+    if (std::strcmp(env, "tf32") == 0) {
+        return CUBLAS_TF32_TENSOR_OP_MATH;
+    }
+    return CUBLAS_TF32_TENSOR_OP_MATH;
+}
+
 struct CacheRuntimeV2 {
     CacheRuntimeContract contract;
     int* d_compact_slot = nullptr;
@@ -226,6 +238,7 @@ static inline void init_trainer_runtime_v2(TrainerRuntimeV2& runtime,
     build_rope_cache_v2(&runtime.d_rope_cos, &runtime.d_rope_sin,
                         contract.shape.seq_len, contract.shape.head_dim);
     AGPT_V2_CUBLAS_CHECK(cublasCreate(&runtime.cublas));
+    AGPT_V2_CUBLAS_CHECK(cublasSetMathMode(runtime.cublas, read_cublas_math_mode_v2()));
 }
 
 static inline void free_trainer_runtime_v2(TrainerRuntimeV2& runtime) {

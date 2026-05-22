@@ -7,7 +7,12 @@
 #include "cuda_support.cuh"
 
 extern "C" {
+    void cuda_adam_bulk(float* params, float* grads,
+                        float* m, float* v,
+                        float lr, float beta1, float beta2, float eps,
+                        int t, int n);
     void cuda_sgd_bulk(float* params, float* grads, float lr, int n);
+    void cuda_momentum_bulk(float* params, float* grads, float* m, float lr, float beta, int n);
     void cuda_rmsprop_bulk(float* params, float* grads, float* s, float lr, float beta, float eps, int n);
     void cuda_layer_norm_forward(const float* input, float* output, float* norm_out,
                                   float* std_inv_out, const float* gamma, const float* beta,

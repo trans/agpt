@@ -35,8 +35,7 @@ static inline float* load_model_weights_v2(const char* path, const ModelLayout& 
         file_shape.n_heads != layout.shape.n_heads ||
         file_shape.n_layers != layout.shape.n_layers ||
         file_shape.d_ff != layout.shape.d_ff ||
-        file_shape.vocab_size != layout.shape.vocab_size ||
-        file_shape.seq_len != layout.shape.seq_len) {
+        file_shape.vocab_size != layout.shape.vocab_size) {
         std::fprintf(stderr, "agpt_train_v2: model header mismatch while loading weights\n");
         std::exit(1);
     }
