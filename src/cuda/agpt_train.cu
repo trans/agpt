@@ -22,6 +22,7 @@
 #include <vector>
 
 #include "../common/init_weights.h"
+#include "../common/diag_tensor_dump.h"
 
 // ============================================================================
 // Error checking
@@ -43,6 +44,69 @@
         exit(1); \
     } \
 } while(0)
+
+// ============================================================================
+// cuBLAS GEMM algo probe
+// ============================================================================
+// Mirrors src/cudax/cuda_support.cuh on the v1 side. Env var
+// AGPT_V1_CUBLAS_GEMM_ALGO=algo0|algo1 forces cublasGemmEx with an
+// explicit algorithm (CUBLAS_GEMM_ALGO0 / ALGO1, _TENSOR_OP variants
+// when TF32 is on). Default = unset = real cublasSgemm with cuBLAS's
+// heuristic (current behavior). Used to probe whether v1↔v2's residual
+// chunk-1 GEMM divergence is heuristic-driven SASS-kernel selection.
+
+enum class AgptV1GemmAlgoMode { Heuristic = 0, Algo0 = 1, Algo1 = 2 };
+
+static inline AgptV1GemmAlgoMode read_cublas_gemm_algo_mode_v1() {
+    const char* env = std::getenv("AGPT_V1_CUBLAS_GEMM_ALGO");
+    if (!env || !env[0]) return AgptV1GemmAlgoMode::Heuristic;
+    if (strcmp(env, "algo0") == 0) return AgptV1GemmAlgoMode::Algo0;
+    if (strcmp(env, "algo1") == 0) return AgptV1GemmAlgoMode::Algo1;
+    return AgptV1GemmAlgoMode::Heuristic;
+}
+
+static inline cublasGemmAlgo_t resolve_cublas_gemm_algo_v1(cublasHandle_t handle,
+                                                            AgptV1GemmAlgoMode mode) {
+    cublasMath_t math_mode = CUBLAS_DEFAULT_MATH;
+    (void)cublasGetMathMode(handle, &math_mode);
+    const bool tensor_ops = (math_mode != CUBLAS_DEFAULT_MATH);
+    if (mode == AgptV1GemmAlgoMode::Algo1) {
+        return tensor_ops ? CUBLAS_GEMM_ALGO1_TENSOR_OP : CUBLAS_GEMM_ALGO1;
+    }
+    return tensor_ops ? CUBLAS_GEMM_ALGO0_TENSOR_OP : CUBLAS_GEMM_ALGO0;
+}
+
+static inline cublasStatus_t agpt_v1_cublas_sgemm(cublasHandle_t handle,
+                                                   cublasOperation_t transa,
+                                                   cublasOperation_t transb,
+                                                   int m, int n, int k,
+                                                   const float* alpha,
+                                                   const float* A, int lda,
+                                                   const float* B, int ldb,
+                                                   const float* beta,
+                                                   float* C, int ldc) {
+    const AgptV1GemmAlgoMode mode = read_cublas_gemm_algo_mode_v1();
+    if (mode == AgptV1GemmAlgoMode::Heuristic) {
+        return cublasSgemm(handle, transa, transb, m, n, k,
+                           alpha, A, lda, B, ldb, beta, C, ldc);
+    }
+    const cublasGemmAlgo_t algo = resolve_cublas_gemm_algo_v1(handle, mode);
+    return cublasGemmEx(handle, transa, transb, m, n, k,
+                        alpha,
+                        A, CUDA_R_32F, lda,
+                        B, CUDA_R_32F, ldb,
+                        beta,
+                        C, CUDA_R_32F, ldc,
+                        CUBLAS_COMPUTE_32F, algo);
+}
+
+// IMPORTANT: define MUST come after agpt_v1_cublas_sgemm's body so the
+// wrapper's own cublasSgemm call resolves to the real cuBLAS function,
+// not a recursive call to itself. Includer's call sites get redirected.
+#ifdef cublasSgemm
+#undef cublasSgemm
+#endif
+#define cublasSgemm agpt_v1_cublas_sgemm
 
 // ============================================================================
 // Existing kernels (extern declarations — linked from kernels.cu)
@@ -657,52 +721,26 @@ static void emit_diag_chunk_meta(const char* path,
 // Cheap signature dump for int arrays. Writes sum + min + max + count
 // in one JSONL record so we can detect mismatches in per-node metadata
 // (kv_lengths, query_offsets, kv_offsets) without sending 6000-19000 ints.
-// Raw element-wise tensor dump for the v1↔v2 parity probe. Skips JSONL —
-// dumps the exact float32 contents of a device buffer to a binary file
-// codex can read with numpy.fromfile. Shape is implied by chunk.meta
-// JSONL records (N, T_q, T_kv, max_kv_len) for the same epoch/root/chunk.
-// Filename: <dir>/<point>_e<E>_r<R>_c<C>_l<L>.f32 (or .i32 for ints).
+// Element-wise tensor dump helpers for the v1↔v2 parity probe. Both
+// trainers route through src/common/diag_tensor_dump.h so the on-disk
+// .f32/.i32 file format stays in lockstep — cmp/sha256sum/numpy can
+// compare dumps from either side without format coordination. v1
+// keeps these named wrappers so call sites stay one-liners; v2 calls
+// agpt_diag::emit_tensor_bin directly.
 //
-// Gated by AGPT_DIAG_TENSOR_DIR env var; only the target case
-// (rc=1 chunk=2 layer=0 per codex's choice) dumps to avoid >250MB output.
-static void emit_diag_tensor_bin(const char* dir,
-                                   int epoch, int root_id, int chunk_idx, int layer,
-                                   const char* point,
-                                   const float* d_buf, int n_floats)
-{
-    if (!dir) return;
-    float* scratch = (float*)malloc((size_t)n_floats * sizeof(float));
-    if (!scratch) return;
-    copy_device_floats(scratch, d_buf, n_floats);
-    char fname[512];
-    snprintf(fname, sizeof(fname), "%s/%s_e%d_r%d_c%d_l%d.f32",
-             dir, point, epoch, root_id, chunk_idx, layer);
-    FILE* f = fopen(fname, "wb");
-    if (f) {
-        fwrite(scratch, sizeof(float), n_floats, f);
-        fclose(f);
-    }
-    free(scratch);
+// Gated by AGPT_DIAG_TENSOR_DIR env var (callers pass NULL when unset).
+static inline void emit_diag_tensor_bin(const char* dir,
+                                        int epoch, int root_id, int chunk_idx, int layer,
+                                        const char* point,
+                                        const float* d_buf, int n_floats) {
+    agpt_diag::emit_tensor_bin(dir, epoch, root_id, chunk_idx, layer, point, d_buf, n_floats);
 }
 
-static void emit_diag_tensor_int_bin(const char* dir,
-                                       int epoch, int root_id, int chunk_idx, int layer,
-                                       const char* point,
-                                       const int* d_buf, int n_ints)
-{
-    if (!dir) return;
-    int* scratch = (int*)malloc((size_t)n_ints * sizeof(int));
-    if (!scratch) return;
-    CUDA_CHECK(cudaMemcpy(scratch, d_buf, (size_t)n_ints * sizeof(int), cudaMemcpyDeviceToHost));
-    char fname[512];
-    snprintf(fname, sizeof(fname), "%s/%s_e%d_r%d_c%d_l%d.i32",
-             dir, point, epoch, root_id, chunk_idx, layer);
-    FILE* f = fopen(fname, "wb");
-    if (f) {
-        fwrite(scratch, sizeof(int), n_ints, f);
-        fclose(f);
-    }
-    free(scratch);
+static inline void emit_diag_tensor_int_bin(const char* dir,
+                                            int epoch, int root_id, int chunk_idx, int layer,
+                                            const char* point,
+                                            const int* d_buf, int n_ints) {
+    agpt_diag::emit_tensor_int_bin(dir, epoch, root_id, chunk_idx, layer, point, d_buf, n_ints);
 }
 
 static void emit_diag_int_signature(const char* path,
@@ -4111,7 +4149,17 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
     // epoch is meaningful over research-cadence training runs.
     // The real legacy-vs-cudax PPL gap is elsewhere (chunk-1 first-call
     // divergence, backward path, or other unexplored differences).
-    CUBLAS_CHECK(cublasSetMathMode(cublas, CUBLAS_TF32_TENSOR_OP_MATH));
+    {
+        // AGPT_V1_DISABLE_TF32=1 forces full FP32 cuBLAS math (no tensor-core
+        // TF32 truncation). Used by determinism / parity probes — TF32 tensor
+        // ops are not bit-reproducible across runs even with a pinned algo.
+        const char* no_tf32 = getenv("AGPT_V1_DISABLE_TF32");
+        if (no_tf32 && no_tf32[0] && strcmp(no_tf32, "0") != 0) {
+            CUBLAS_CHECK(cublasSetMathMode(cublas, CUBLAS_DEFAULT_MATH));
+        } else {
+            CUBLAS_CHECK(cublasSetMathMode(cublas, CUBLAS_TF32_TENSOR_OP_MATH));
+        }
+    }
 
     if (!quiet) {
         size_t free_mem, total_mem;
@@ -5544,9 +5592,39 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                     // Save residual 1 input
                     CUDA_CHECK(cudaMemcpy(sv_x_res1[l], d_x, (long long)T_q * D * sizeof(float), cudaMemcpyDeviceToDevice));
 
+                    // Determinism-probe dump: post-embedding (d_x BEFORE LN). Gated
+                    // on the same trace_fire_target as fwd_q et al. Used to localize
+                    // where v1↔v1 nondeterminism enters: if these dumps already
+                    // differ, source is before LN (embedding gather or earlier).
+                    {
+                        const char* tensor_dir = getenv("AGPT_DIAG_TENSOR_DIR");
+                        bool dump_this = trace_fire_target && tensor_dir
+                                      && (fire_chunks_processed + 1) <= 2 && l == 0;
+                        if (dump_this) {
+                            emit_diag_tensor_bin(tensor_dir, epoch + 1, root_r,
+                                                  fire_chunks_processed + 1, l,
+                                                  "fwd_x_post_embed", d_x, T_q * D);
+                        }
+                    }
+
                     // LN1
                     cuda_layer_norm_forward(d_x, d_ln_out, sv_ln1_norm[l], sv_ln1_std_inv[l], G1, B1, T_q, D);
                     CUDA_CHECK(cudaMemcpy(sv_ln1_out[l], d_ln_out, (long long)T_q * D * sizeof(float), cudaMemcpyDeviceToDevice));
+
+                    // Determinism-probe dump: post-LN. If d_x is deterministic
+                    // but d_ln_out differs, LN has a nondet bug (parallel reduction
+                    // or similar). If d_ln_out matches but Q/K/V differ later,
+                    // divergence is in cuBLAS GEMM.
+                    {
+                        const char* tensor_dir = getenv("AGPT_DIAG_TENSOR_DIR");
+                        bool dump_this = trace_fire_target && tensor_dir
+                                      && (fire_chunks_processed + 1) <= 2 && l == 0;
+                        if (dump_this) {
+                            emit_diag_tensor_bin(tensor_dir, epoch + 1, root_r,
+                                                  fire_chunks_processed + 1, l,
+                                                  "fwd_x_post_ln1", d_ln_out, T_q * D);
+                        }
+                    }
 
                     // --anc-grad: stash ln1_out per compact-char into the subtree
                     // buffer. The fire-end chain rule needs ln1_out at each
@@ -7533,7 +7611,17 @@ int main(int argc, char** argv) {
     // epoch is meaningful over research-cadence training runs.
     // The real legacy-vs-cudax PPL gap is elsewhere (chunk-1 first-call
     // divergence, backward path, or other unexplored differences).
-    CUBLAS_CHECK(cublasSetMathMode(cublas, CUBLAS_TF32_TENSOR_OP_MATH));
+    {
+        // AGPT_V1_DISABLE_TF32=1 forces full FP32 cuBLAS math (no tensor-core
+        // TF32 truncation). Used by determinism / parity probes — TF32 tensor
+        // ops are not bit-reproducible across runs even with a pinned algo.
+        const char* no_tf32 = getenv("AGPT_V1_DISABLE_TF32");
+        if (no_tf32 && no_tf32[0] && strcmp(no_tf32, "0") != 0) {
+            CUBLAS_CHECK(cublasSetMathMode(cublas, CUBLAS_DEFAULT_MATH));
+        } else {
+            CUBLAS_CHECK(cublasSetMathMode(cublas, CUBLAS_TF32_TENSOR_OP_MATH));
+        }
+    }
 
     // Report GPU memory
     size_t free_mem, total_mem;
