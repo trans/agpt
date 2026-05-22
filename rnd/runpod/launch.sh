@@ -69,7 +69,13 @@ push_code() {
     # Whitelist approach for rnd/: only ship the experiment scripts we
     # actually run on the pod. The convergence archives and old research
     # subdirs are local-only and would otherwise add ~4GB to the push.
-    rsync -avzP --no-owner --no-group --no-perms --delete \
+    #
+    # NO --delete. push_code is additive only. Pod-side state — including
+    # in-progress experiment outputs under rnd/<exp>/ — must not be
+    # destroyed by a code sync. Burned by this 2026-05-21: ran push-code
+    # while a Gutenberg sweep was running, --delete wiped the in-progress
+    # output dir, killed the experiment.
+    rsync -avzP --no-owner --no-group --no-perms \
         --include='rnd/' \
         --include='rnd/streaming-agpt-v1/' \
         --exclude='rnd/streaming-agpt-v1/models/' \
@@ -79,6 +85,8 @@ push_code() {
         --include='rnd/runpod/**' \
         --include='rnd/beta2-diagnostic/' \
         --include='rnd/beta2-diagnostic/**' \
+        --include='rnd/composite-weights/' \
+        --include='rnd/composite-weights/**' \
         --exclude='rnd/*' \
         --exclude='/tmp/' \
         --exclude='.git/' \
