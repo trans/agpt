@@ -45,68 +45,9 @@
     } \
 } while(0)
 
-// ============================================================================
-// cuBLAS GEMM algo probe
-// ============================================================================
-// Mirrors src/cudax/cuda_support.cuh on the v1 side. Env var
-// AGPT_V1_CUBLAS_GEMM_ALGO=algo0|algo1 forces cublasGemmEx with an
-// explicit algorithm (CUBLAS_GEMM_ALGO0 / ALGO1, _TENSOR_OP variants
-// when TF32 is on). Default = unset = real cublasSgemm with cuBLAS's
-// heuristic (current behavior). Used to probe whether v1↔v2's residual
-// chunk-1 GEMM divergence is heuristic-driven SASS-kernel selection.
-
-enum class AgptV1GemmAlgoMode { Heuristic = 0, Algo0 = 1, Algo1 = 2 };
-
-static inline AgptV1GemmAlgoMode read_cublas_gemm_algo_mode_v1() {
-    const char* env = std::getenv("AGPT_V1_CUBLAS_GEMM_ALGO");
-    if (!env || !env[0]) return AgptV1GemmAlgoMode::Heuristic;
-    if (strcmp(env, "algo0") == 0) return AgptV1GemmAlgoMode::Algo0;
-    if (strcmp(env, "algo1") == 0) return AgptV1GemmAlgoMode::Algo1;
-    return AgptV1GemmAlgoMode::Heuristic;
-}
-
-static inline cublasGemmAlgo_t resolve_cublas_gemm_algo_v1(cublasHandle_t handle,
-                                                            AgptV1GemmAlgoMode mode) {
-    cublasMath_t math_mode = CUBLAS_DEFAULT_MATH;
-    (void)cublasGetMathMode(handle, &math_mode);
-    const bool tensor_ops = (math_mode != CUBLAS_DEFAULT_MATH);
-    if (mode == AgptV1GemmAlgoMode::Algo1) {
-        return tensor_ops ? CUBLAS_GEMM_ALGO1_TENSOR_OP : CUBLAS_GEMM_ALGO1;
-    }
-    return tensor_ops ? CUBLAS_GEMM_ALGO0_TENSOR_OP : CUBLAS_GEMM_ALGO0;
-}
-
-static inline cublasStatus_t agpt_v1_cublas_sgemm(cublasHandle_t handle,
-                                                   cublasOperation_t transa,
-                                                   cublasOperation_t transb,
-                                                   int m, int n, int k,
-                                                   const float* alpha,
-                                                   const float* A, int lda,
-                                                   const float* B, int ldb,
-                                                   const float* beta,
-                                                   float* C, int ldc) {
-    const AgptV1GemmAlgoMode mode = read_cublas_gemm_algo_mode_v1();
-    if (mode == AgptV1GemmAlgoMode::Heuristic) {
-        return cublasSgemm(handle, transa, transb, m, n, k,
-                           alpha, A, lda, B, ldb, beta, C, ldc);
-    }
-    const cublasGemmAlgo_t algo = resolve_cublas_gemm_algo_v1(handle, mode);
-    return cublasGemmEx(handle, transa, transb, m, n, k,
-                        alpha,
-                        A, CUDA_R_32F, lda,
-                        B, CUDA_R_32F, ldb,
-                        beta,
-                        C, CUDA_R_32F, ldc,
-                        CUBLAS_COMPUTE_32F, algo);
-}
-
-// IMPORTANT: define MUST come after agpt_v1_cublas_sgemm's body so the
-// wrapper's own cublasSgemm call resolves to the real cuBLAS function,
-// not a recursive call to itself. Includer's call sites get redirected.
-#ifdef cublasSgemm
-#undef cublasSgemm
-#endif
-#define cublasSgemm agpt_v1_cublas_sgemm
+// cuBLAS GEMM-algo probe shared with v2; env var AGPT_CUBLAS_GEMM_ALGO
+// ∈ {algo0, algo1} forces an explicit cuBLAS algorithm. See header.
+#include "../common/cublas_algo.h"
 
 // ============================================================================
 // Existing kernels (extern declarations — linked from kernels.cu)
