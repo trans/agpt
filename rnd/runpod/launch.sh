@@ -114,15 +114,13 @@ push_data() {
     rsync -avzP --no-owner --no-group --no-perms --rsh="${RSYNC_RSH}" \
         "${PROJ}/data/input.random.model" \
         "${SSH_HOST}:${REMOTE_BASE}/data/" 2>/dev/null || true
-    # Seeded init models (in /tmp on laptop)
+    # Seeded init models (in /tmp on laptop). Used by older streaming-agpt-v1
+    # and per-rc-adam-v1 scripts that still load via --model. Newer sweep
+    # scripts (beta2-diagnostic, composite-weights, depth-weight) use
+    # --init --init-seed N now — no checkpoint file needed.
     if ls /tmp/init_seed*.model &>/dev/null; then
         rsync -avzP --no-owner --no-group --no-perms --rsh="${RSYNC_RSH}" \
             /tmp/init_seed*.model "${SSH_HOST}:/tmp/"
-    fi
-    # Per-seed init models (used by recent weighting experiments)
-    if ls /tmp/seed*.model &>/dev/null; then
-        rsync -avzP --no-owner --no-group --no-perms --rsh="${RSYNC_RSH}" \
-            /tmp/seed*.model "${SSH_HOST}:/tmp/"
     fi
     # Radix tries (gitignored, expensive to rebuild — push if present).
     # Both Shakespeare 1M and Gutenberg 5M tries from the current
