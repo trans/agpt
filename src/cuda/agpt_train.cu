@@ -4121,21 +4121,18 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
     // internally). On pre-Ampere GPUs this is a no-op fall-back to FP32.
     cublasHandle_t cublas;
     CUBLAS_CHECK(cublasCreate(&cublas));
-    // cuBLAS default math mode (FP32). Previously this set
-    // CUBLAS_TF32_TENSOR_OP_MATH for 2-3× matmul speedup on Ampere+, but
-    // the 10-bit-mantissa TF32 path was substantively the source of the
-    // v1↔v2 PPL gap (cudax v2 has always used default/FP32). Element-wise
-    // tensor diff against PyTorch reference and cudax v2 confirmed:
-    // with TF32 removed, chunk 2 forward Q/K/V/kv_pack are BIT-IDENTICAL
-    // to cudax v2 (which itself matches PyTorch to 1e-7).
-    //
-    // Tradeoff: 2-3× slower cuBLAS Sgemm. At d_model=64 the matmuls aren't
-    // the wall-time bottleneck (trie ops + host serial work dominate), so
-    // ~5-10% overall slowdown is acceptable for the ~0.5 PPL gain and
-    // PyTorch parity. Decision made 2026-05-21 jointly with codex-agpt
-    // after element-wise dump diff localized TF32 as the bug.
-    // Re-enable explicitly if a future scaled-up regime makes matmul the
-    // dominant cost AND the precision loss is acceptable.
+    // TF32 (10-bit mantissa) matmuls on Ampere+ for 2-3× cuBLAS Sgemm
+    // speedup. Briefly tried disabling this 2026-05-21 to match cudax v2's
+    // default mode after element-wise diff showed v1-TF32 vs v2 chunk 2
+    // forward differs by ~0.003 max_abs. With TF32 off, chunk 2 forward
+    // became bit-identical to v2 — but empirical seed1 PPL was 9.98 vs
+    // TF32's 9.77 (slightly worse, single-seed). v2 still beats v1-FP32
+    // by ~1.5 PPL on the same recipe, so TF32 is NOT the main source of
+    // the legacy-vs-cudax gap. Reverting for the speed: 2.0s vs 5.9s per
+    // epoch is meaningful over research-cadence training runs.
+    // The real legacy-vs-cudax PPL gap is elsewhere (chunk-1 first-call
+    // divergence, backward path, or other unexplored differences).
+    CUBLAS_CHECK(cublasSetMathMode(cublas, CUBLAS_TF32_TENSOR_OP_MATH));
 
     if (!quiet) {
         size_t free_mem, total_mem;
@@ -7508,21 +7505,18 @@ int main(int argc, char** argv) {
     // on Ampere+; no-op on older GPUs).
     cublasHandle_t cublas;
     CUBLAS_CHECK(cublasCreate(&cublas));
-    // cuBLAS default math mode (FP32). Previously this set
-    // CUBLAS_TF32_TENSOR_OP_MATH for 2-3× matmul speedup on Ampere+, but
-    // the 10-bit-mantissa TF32 path was substantively the source of the
-    // v1↔v2 PPL gap (cudax v2 has always used default/FP32). Element-wise
-    // tensor diff against PyTorch reference and cudax v2 confirmed:
-    // with TF32 removed, chunk 2 forward Q/K/V/kv_pack are BIT-IDENTICAL
-    // to cudax v2 (which itself matches PyTorch to 1e-7).
-    //
-    // Tradeoff: 2-3× slower cuBLAS Sgemm. At d_model=64 the matmuls aren't
-    // the wall-time bottleneck (trie ops + host serial work dominate), so
-    // ~5-10% overall slowdown is acceptable for the ~0.5 PPL gain and
-    // PyTorch parity. Decision made 2026-05-21 jointly with codex-agpt
-    // after element-wise dump diff localized TF32 as the bug.
-    // Re-enable explicitly if a future scaled-up regime makes matmul the
-    // dominant cost AND the precision loss is acceptable.
+    // TF32 (10-bit mantissa) matmuls on Ampere+ for 2-3× cuBLAS Sgemm
+    // speedup. Briefly tried disabling this 2026-05-21 to match cudax v2's
+    // default mode after element-wise diff showed v1-TF32 vs v2 chunk 2
+    // forward differs by ~0.003 max_abs. With TF32 off, chunk 2 forward
+    // became bit-identical to v2 — but empirical seed1 PPL was 9.98 vs
+    // TF32's 9.77 (slightly worse, single-seed). v2 still beats v1-FP32
+    // by ~1.5 PPL on the same recipe, so TF32 is NOT the main source of
+    // the legacy-vs-cudax gap. Reverting for the speed: 2.0s vs 5.9s per
+    // epoch is meaningful over research-cadence training runs.
+    // The real legacy-vs-cudax PPL gap is elsewhere (chunk-1 first-call
+    // divergence, backward path, or other unexplored differences).
+    CUBLAS_CHECK(cublasSetMathMode(cublas, CUBLAS_TF32_TENSOR_OP_MATH));
 
     // Report GPU memory
     size_t free_mem, total_mem;
