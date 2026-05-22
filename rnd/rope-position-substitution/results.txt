@@ -1,0 +1,27 @@
+# Per-cell PPL (3-seed × 3-mode × 2-corpus, d=16, 10 SE, RMSprop+wcos)
+#
+# Eval: src/tools/agpt_ppl.py --mode fixed --d 16 --max-positions 10000
+# Init: /tmp/agpt_init_kaiming_s{1,2,3}.model (shared kaiming, c72710c)
+# Recipe: --partition-depth 1 --no-accumulate --mass-weight off
+#         (no depth/entropy/branching weighting, no curriculum)
+
+# corpus  mode      seed  PPL
+shake     depth     1     8.8183
+shake     depth     2     8.8686
+shake     depth     3     8.0649
+shake     mass      1     8.5667
+shake     mass      2     8.3344
+shake     mass      3     8.2572
+shake     log-mass  1     8.7296
+shake     log-mass  2     8.2009
+shake     log-mass  3     8.0345
+
+gut       depth     1     8.2699
+gut       depth     2     8.3205
+gut       depth     3     8.5070
+gut       mass      1     8.3008
+gut       mass      2     8.2191
+gut       mass      3     8.5891
+gut       log-mass  1     8.3712
+gut       log-mass  2     8.3484
+gut       log-mass  3     8.1579

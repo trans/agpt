@@ -1,6 +1,14 @@
 #ifndef AGPT_CHUNK_METADATA_CUH
 #define AGPT_CHUNK_METADATA_CUH
 
+// RoPE position source. Depth (default) uses the sequential char depth
+// within the trie; Mass uses the radix node's edge_mass (= count of
+// strings sharing this prefix). Mass-RoPE probe: trie nodes that occur
+// more often get a different positional signature than rare nodes.
+// Within a radix edge, all chars share the same node, so they share
+// the same mass — positional info within edges is collapsed.
+enum class RopeMode { Depth = 0, Mass = 1, LogMass = 2 };
+
 struct ChunkBuildContext {
     const Config& cfg;
     const RadixTrieData& trie;
@@ -15,6 +23,7 @@ struct ChunkBuildContext {
     int chunk_cycle_shift;
     const int* real_pos_of_char;
     long long T_kv_max;
+    RopeMode rope_mode = RopeMode::Depth;
 };
 
 struct ChunkMetadata {
@@ -128,12 +137,33 @@ static bool build_chunk_metadata(const ChunkBuildContext& ctx, ChunkMetadata& ou
         int edge_start = ctx.trie.edge_starts[r];
         int fcd = ctx.trie.edge_first_char_depths[r];
         int node_d_split = ctx.trie.d_split ? ctx.trie.d_split[r] : INT_MAX;
+        int mass_pos = 0;
+        if (ctx.rope_mode == RopeMode::Mass || ctx.rope_mode == RopeMode::LogMass) {
+            int em = ctx.trie.edge_mass[r];
+            if (em < 1) em = 1;
+            if (ctx.rope_mode == RopeMode::LogMass) {
+                // floor(log2(em)) — compresses 170k mass range to ~[0, 17],
+                // roughly the same span as depth. Tests whether the *range*
+                // of position values matters or only the monotonic ordering.
+                int lg = 0;
+                int v = em;
+                while (v > 1) { v >>= 1; lg++; }
+                mass_pos = lg;
+            } else {
+                mass_pos = em;
+            }
+        }
         for (int j = 0; j < L; j++) {
             out.h_query_to_node[q_fill + j] = i;
             out.h_token_ids[q_fill + j] = ctx.trie.edge_tokens_flat[edge_start + j];
-            int pos = fcd + j - 1;
-            if (pos < 0) pos = 0;
-            if (pos >= ctx.cfg.seq_len) pos = ctx.cfg.seq_len - 1;
+            int pos;
+            if (ctx.rope_mode == RopeMode::Mass || ctx.rope_mode == RopeMode::LogMass) {
+                pos = mass_pos;
+            } else {
+                pos = fcd + j - 1;
+                if (pos < 0) pos = 0;
+                if (pos >= ctx.cfg.seq_len) pos = ctx.cfg.seq_len - 1;
+            }
             for (int h = 0; h < ctx.H; h++) {
                 out.h_rope_positions[(q_fill + j) * ctx.H + h] = pos;
             }

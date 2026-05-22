@@ -3644,7 +3644,8 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                         EntropyWeightMode entropy_weight = EntropyWeightMode::Off,
                         bool fire_norm_by_weight = false,
                         bool fire_norm_none = false,
-                        BranchingWeightMode branching_weight = BranchingWeightMode::Off)
+                        BranchingWeightMode branching_weight = BranchingWeightMode::Off,
+                        RopeMode rope_mode = RopeMode::Depth)
 {
     const bool quiet = persist && persist->quiet;
 
@@ -4005,9 +4006,35 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                        real_pos_of_char, (long long)trie.total_edge_chars);
     if (!quiet) printf("  KV cache: %.1f MB unified memory (bf16 compact)\n", total_kv_bytes / 1e6);
 
-    // RoPE cache
+    // RoPE cache. Depth: max_pos = cfg.seq_len. Mass: max edge_mass + 1.
+    // LogMass: floor(log2(max edge_mass)) + 1. Scan the trie once when
+    // a mass-based mode is selected.
+    int rope_cache_max = cfg.seq_len;
+    if (rope_mode == RopeMode::Mass || rope_mode == RopeMode::LogMass) {
+        int max_em = 0;
+        for (int r = 0; r < trie.radix_count; r++) {
+            if (trie.edge_mass[r] > max_em) max_em = trie.edge_mass[r];
+        }
+        int max_pos;
+        if (rope_mode == RopeMode::LogMass) {
+            int lg = 0;
+            int v = max_em < 1 ? 1 : max_em;
+            while (v > 1) { v >>= 1; lg++; }
+            max_pos = lg + 1;
+        } else {
+            max_pos = max_em + 1;
+        }
+        rope_cache_max = max_pos;
+        if (rope_cache_max < cfg.seq_len) rope_cache_max = cfg.seq_len;
+        if (!quiet) {
+            const char* mode_str = (rope_mode == RopeMode::LogMass) ? "log-mass" : "mass";
+            double mb = (double)rope_cache_max * HD * 8.0 / 1e6;
+            printf("  RoPE: %s mode, max_edge_mass=%d → cache max_pos=%d (%.1f MB cos+sin)\n",
+                   mode_str, max_em, rope_cache_max, mb);
+        }
+    }
     float* d_rope_cos; float* d_rope_sin;
-    build_rope_cache(&d_rope_cos, &d_rope_sin, cfg.seq_len, HD);
+    build_rope_cache(&d_rope_cos, &d_rope_sin, rope_cache_max, HD);
 
     // Per-chunk working buffers. Sized to T_q_cap queries, T_kv_cap packed KV.
     int N_cap = CHUNK_QUERIES;  // worst-case radix count per chunk when edge_len=1
@@ -5258,7 +5285,8 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                     branch_drop_mask,
                     chunk_cycle_shift,
                     real_pos_of_char,
-                    T_kv_max
+                    T_kv_max,
+                    rope_mode
                 };
                 ChunkMetadata chunk_meta;
                 if (!build_chunk_metadata(chunk_ctx, chunk_meta)) {
@@ -6965,6 +6993,7 @@ int main(int argc, char** argv) {
     DepthWeightMode depth_weight = DepthWeightMode::Off;
     EntropyWeightMode entropy_weight = EntropyWeightMode::Off;
     BranchingWeightMode branching_weight = BranchingWeightMode::Off;
+    RopeMode rope_mode = RopeMode::Depth;
     bool fire_norm_by_mass = false;
     bool fire_norm_by_weight = false;
     bool fire_norm_none = false;
@@ -7020,6 +7049,21 @@ int main(int argc, char** argv) {
         else if (strcmp(argv[i], "--epochs") == 0 && i + 1 < argc) epochs = atoi(argv[++i]);
         else if (strcmp(argv[i], "--lr") == 0 && i + 1 < argc) lr = atof(argv[++i]);
         else if (strcmp(argv[i], "--entropy-lambda") == 0 && i + 1 < argc) entropy_lambda = atof(argv[++i]);
+        else if (strcmp(argv[i], "--rope-mode") == 0) {
+            // --rope-mode <depth|mass|log-mass>: position signal fed to RoPE.
+            //   depth (default): sequential char depth in the trie.
+            //   mass: edge_mass of the query's radix node (count of strings
+            //         sharing this prefix). Range up to ~170k on Shakespeare.
+            //   log-mass: floor(log2(edge_mass)). Compresses mass range to
+            //         ~[0, 17] — comparable span to depth. Tests whether the
+            //         position *range* matters or only the monotonic ordering.
+            if (i + 1 >= argc) { fprintf(stderr, "--rope-mode requires an argument\n"); return 1; }
+            const char* m = argv[++i];
+            if      (strcmp(m, "depth")    == 0) rope_mode = RopeMode::Depth;
+            else if (strcmp(m, "mass")     == 0) rope_mode = RopeMode::Mass;
+            else if (strcmp(m, "log-mass") == 0) rope_mode = RopeMode::LogMass;
+            else { fprintf(stderr, "--rope-mode must be 'depth', 'mass', or 'log-mass' (got %s)\n", m); return 1; }
+        }
         else if (strcmp(argv[i], "--mass-weight") == 0) {
             // Two-form argument:
             //   --mass-weight           → log (alias for backward compat)
@@ -7515,7 +7559,7 @@ int main(int argc, char** argv) {
             load_virtual_tree(virtual_tree_path, radix_trie.radix_count, cfg.vocab_size);
         }
 
-        int rc = run_radix_training(cfg, wo, h_weights, radix_trie, epochs, entropy_lambda, mass_weight, subtree_splits, partition_depth, accumulate, single_subtree, intermediate_weight, optimizer, momentum_beta, rmsprop_beta, lr_schedule, warmup_epochs, weight_decay, grad_clip_norm, save_every, curriculum, save_path, lightning, &persist, depth_weight, fire_norm_by_mass, entropy_weight, fire_norm_by_weight, fire_norm_none, branching_weight);
+        int rc = run_radix_training(cfg, wo, h_weights, radix_trie, epochs, entropy_lambda, mass_weight, subtree_splits, partition_depth, accumulate, single_subtree, intermediate_weight, optimizer, momentum_beta, rmsprop_beta, lr_schedule, warmup_epochs, weight_decay, grad_clip_norm, save_every, curriculum, save_path, lightning, &persist, depth_weight, fire_norm_by_mass, entropy_weight, fire_norm_by_weight, fire_norm_none, branching_weight, rope_mode);
         // Append optimizer state to the saved checkpoint so the next training
         // call can pick up Adam/RMSprop moments mid-stream.
         if (rc == 0 && save_path) {
