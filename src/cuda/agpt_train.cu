@@ -18,6 +18,7 @@
 #include <cublas_v2.h>
 #include <cuda_runtime.h>
 #include <cuda_bf16.h>
+#include <random>
 
 // ============================================================================
 // Error checking
@@ -779,6 +780,7 @@ struct TrieData {
 struct RadixTrieData {
     int radix_count;
     int depth_file_count;        // endpoint depth file count
+    int vocab_size = 0;          // from meta.bin; authoritative source for cfg.vocab_size
     long long total_edge_chars;  // total character positions
 
     // Per-radix-node arrays
@@ -1246,7 +1248,7 @@ RadixTrieData load_radix_trie(const char* dir) {
     t.depth_file_count = read_i32(f);
     fread(&t.total_edge_chars, 8, 1, f);
     read_i32(f); // corpus_token_count
-    read_i32(f); // vocab_size
+    t.vocab_size = read_i32(f);  // authoritative for cfg.vocab_size
     read_u64(f); // corpus_hash
     int tlen = read_i32(f);
     fseek(f, tlen, SEEK_CUR);
@@ -1740,6 +1742,58 @@ TrieData load_trie(const char* dir) {
 // + adam_m (float32[total_floats]) + adam_v (float32[total_floats]).
 // Backward compat: files without this footer load normally (cold optimizer).
 #define OPT_MAGIC  0x31545056u  // "OPT1" little-endian
+
+// Random initialization for fresh training (--init flag, alternative to
+// --model PATH). Standard GPT-2 init:
+//   Weight matrices (token_emb, wq_w/wk_w/wv_w/wo_w/l1_w/l2_w/out_w): N(0, 0.02)
+//   Biases (wq_b/wk_b/wv_b/wo_b/l1_b/l2_b/out_b): 0.0
+//   LayerNorm gamma (ln1_gamma/ln2_gamma/final_gamma): 1.0
+//   LayerNorm beta  (ln1_beta/ln2_beta/final_beta):   0.0
+//
+// Caller must have set cfg.d_model, n_heads, n_layers, d_ff, vocab_size,
+// head_dim before calling. seq_len is set to the trie's max_depth by the
+// reconcile path after trie load, regardless of mode.
+static float* init_random_weights(const Config& cfg, const WeightOffsets& wo, uint32_t seed) {
+    float* h = (float*)malloc((size_t)wo.total_floats * sizeof(float));
+    if (!h) { fprintf(stderr, "init_random_weights: malloc failed\n"); exit(1); }
+    // Deterministic init: same seed → same weight tensors.
+    std::mt19937 rng(seed);
+    std::normal_distribution<float> nd(0.0f, 0.02f);
+
+    auto fill_normal = [&](int off, int len) {
+        for (int i = 0; i < len; i++) h[off + i] = nd(rng);
+    };
+    auto fill_zero = [&](int off, int len) {
+        for (int i = 0; i < len; i++) h[off + i] = 0.0f;
+    };
+    auto fill_one = [&](int off, int len) {
+        for (int i = 0; i < len; i++) h[off + i] = 1.0f;
+    };
+
+    int L = cfg.n_layers;
+    int D = cfg.d_model;
+    int F = cfg.d_ff;
+    int V = cfg.vocab_size;
+
+    fill_normal(wo.token_emb, V * D);
+    for (int l = 0; l < L; l++) {
+        fill_normal(wo.wq_w[l], D * D);  fill_zero(wo.wq_b[l], D);
+        fill_normal(wo.wk_w[l], D * D);  fill_zero(wo.wk_b[l], D);
+        fill_normal(wo.wv_w[l], D * D);  fill_zero(wo.wv_b[l], D);
+        fill_normal(wo.wo_w[l], D * D);  fill_zero(wo.wo_b[l], D);
+        fill_one (wo.ln1_gamma[l], D);   fill_zero(wo.ln1_beta[l], D);
+        fill_normal(wo.l1_w[l], D * F);  fill_zero(wo.l1_b[l], F);
+        fill_normal(wo.l2_w[l], F * D);  fill_zero(wo.l2_b[l], D);
+        fill_one (wo.ln2_gamma[l], D);   fill_zero(wo.ln2_beta[l], D);
+    }
+    fill_one (wo.final_gamma, D);  fill_zero(wo.final_beta, D);
+    fill_normal(wo.out_w, D * V);  fill_zero(wo.out_b, V);
+
+    printf("  Init: random N(0, 0.02) weights, zero biases, 1.0 LN gammas (seed=%u)\n", seed);
+    printf("  Model: d=%d heads=%d layers=%d ff=%d vocab=%d head_dim=%d\n",
+           cfg.d_model, cfg.n_heads, cfg.n_layers, cfg.d_ff, cfg.vocab_size, cfg.head_dim);
+    return h;
+}
 
 float* load_model_weights(const char* path, Config* cfg) {
     FILE* f = fopen(path, "rb");
@@ -6883,6 +6937,18 @@ int main(int argc, char** argv) {
     const char* save_path = NULL;
     const char* fold_table_path = NULL;
     const char* virtual_tree_path = NULL;
+    // --init mode: create fresh random initialization instead of loading from
+    // --model. Mutually exclusive with --model. Architecture comes from CLI
+    // flags with GPT-2-shape defaults. seq_len is derived from trie max_depth
+    // by the reconcile path after trie load.
+    bool init_mode = false;
+    int init_d_model = 64;
+    int init_n_heads = 4;
+    int init_n_layers = 2;
+    int init_d_ff = 256;
+    uint32_t init_seed = 42;
+    // Note: no --init-vocab-size flag — vocab_size comes from the trie's
+    // meta.bin (authoritative). Same for seq_len (= trie.max_depth via reconcile).
     int epochs = 1;
     float lr = 3e-4f;
     float entropy_lambda = 0.0f;
@@ -6932,6 +6998,12 @@ int main(int argc, char** argv) {
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--model") == 0 && i + 1 < argc) model_path = argv[++i];
+        else if (strcmp(argv[i], "--init") == 0) init_mode = true;
+        else if (strcmp(argv[i], "--init-d-model") == 0 && i + 1 < argc) init_d_model = atoi(argv[++i]);
+        else if (strcmp(argv[i], "--init-n-heads") == 0 && i + 1 < argc) init_n_heads = atoi(argv[++i]);
+        else if (strcmp(argv[i], "--init-n-layers") == 0 && i + 1 < argc) init_n_layers = atoi(argv[++i]);
+        else if (strcmp(argv[i], "--init-d-ff") == 0 && i + 1 < argc) init_d_ff = atoi(argv[++i]);
+        else if (strcmp(argv[i], "--init-seed") == 0 && i + 1 < argc) init_seed = (uint32_t)atoi(argv[++i]);
         else if (strcmp(argv[i], "--trie-dir") == 0 && i + 1 < argc) trie_dir = argv[++i];
         else if (strcmp(argv[i], "--fold-table") == 0 && i + 1 < argc) fold_table_path = argv[++i];
         else if (strcmp(argv[i], "--virtual-tree") == 0 && i + 1 < argc) virtual_tree_path = argv[++i];
@@ -7115,8 +7187,23 @@ int main(int argc, char** argv) {
     if (subtree_splits < 1) subtree_splits = 1;
     if (partition_depth < 1) partition_depth = 1;
 
-    if (!model_path || !trie_dir) {
-        fprintf(stderr, "Usage: agpt_train --model <path> --trie-dir <path>\n"
+    // Validate model source: exactly one of --model and --init.
+    if (model_path && init_mode) {
+        fprintf(stderr, "ERROR: --model and --init are mutually exclusive.\n");
+        return 1;
+    }
+    if (init_mode && !save_path) {
+        fprintf(stderr, "ERROR: --init requires --save PATH (where to write the trained checkpoint).\n");
+        return 1;
+    }
+    if ((!model_path && !init_mode) || !trie_dir) {
+        fprintf(stderr, "Usage: agpt_train (--model PATH | --init) --trie-dir PATH\n"
+                        "  Either --model PATH (load from checkpoint) OR --init (create fresh random init).\n"
+                        "  With --init, architecture flags: --init-d-model (default 64), --init-n-heads (4),\n"
+                        "    --init-n-layers (2), --init-d-ff (256), --init-seed (default 42).\n"
+                        "    Weights N(0, 0.02); biases 0; LN gammas 1.\n"
+                        "    vocab_size comes from trie metadata. seq_len = trie max_depth.\n"
+                        "  Legacy usage: agpt_train --model <path> --trie-dir <path>\n"
                         "  [--epochs N] [--lr F]\n"
                         "  [--entropy-lambda F]        — endpoint icing, λ≥0 (0=off)\n"
                         "  [--mass-weight [off|log|sqrt|linear]] — corpus-mass weighting. Bare\n"
@@ -7268,8 +7355,57 @@ int main(int argc, char** argv) {
         fprintf(stderr, "WARNING: --per-rc-adam: per-rc Adam/RMSprop state is NOT persisted across runs.\n");
         fprintf(stderr, "         Streaming/multi-stage training will start each invocation cold.\n");
     }
-    float* h_weights = load_model_weights(model_path, &cfg);
-    WeightOffsets wo = compute_offsets(cfg);
+    float* h_weights = NULL;
+    WeightOffsets wo;
+    if (init_mode) {
+        // --init mode: build Config from CLI flags + trie metadata (vocab_size,
+        // seq_len = max_depth). Trie is the authoritative source for both; the
+        // header-baked seq_len lie from microgpt-created model files can't enter.
+        // We peek at meta.bin here (cheap) so we have what we need to compute_offsets;
+        // the full trie load still happens below at load_radix_trie(trie_dir).
+        int trie_vocab_size = 0;
+        int trie_max_depth = 0;
+        {
+            char meta_path[1024];
+            snprintf(meta_path, sizeof(meta_path), "%s/meta.bin", trie_dir);
+            FILE* mf = fopen(meta_path, "rb");
+            if (!mf) { fprintf(stderr, "ERROR: --init: cannot open trie meta %s\n", meta_path); return 1; }
+            uint32_t magic = (uint32_t)read_i32(mf);
+            if (magic != RADIX_MAGIC) {
+                fprintf(stderr, "ERROR: --init: trie at %s has bad magic; --init only supports radix tries\n", trie_dir);
+                return 1;
+            }
+            int version = read_i32(mf);
+            if (version != 2 && version != 3) {
+                fprintf(stderr, "ERROR: --init: trie version %d unsupported (need v2 or v3)\n", version);
+                return 1;
+            }
+            read_i32(mf); // radix_count
+            int depth_file_count = read_i32(mf);
+            long long tec; fread(&tec, 8, 1, mf);
+            read_i32(mf); // corpus_token_count
+            trie_vocab_size = read_i32(mf);
+            fclose(mf);
+            trie_max_depth = depth_file_count - 1;
+            if (trie_vocab_size <= 0 || trie_max_depth <= 0) {
+                fprintf(stderr, "ERROR: --init: trie metadata invalid (vocab=%d depth=%d)\n",
+                        trie_vocab_size, trie_max_depth);
+                return 1;
+            }
+        }
+        cfg.d_model    = init_d_model;
+        cfg.n_heads    = init_n_heads;
+        cfg.n_layers   = init_n_layers;
+        cfg.d_ff       = init_d_ff;
+        cfg.head_dim   = init_d_model / init_n_heads;
+        cfg.vocab_size = trie_vocab_size;
+        cfg.seq_len    = trie_max_depth;
+        wo = compute_offsets(cfg);
+        h_weights = init_random_weights(cfg, wo, init_seed);
+    } else {
+        h_weights = load_model_weights(model_path, &cfg);
+        wo = compute_offsets(cfg);
+    }
 
     // Optimizer-state persistence: allocate host buffers, try to load from the
     // model checkpoint. If absent (older format), starts cold (zeros). The
