@@ -4121,7 +4121,21 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
     // internally). On pre-Ampere GPUs this is a no-op fall-back to FP32.
     cublasHandle_t cublas;
     CUBLAS_CHECK(cublasCreate(&cublas));
-    CUBLAS_CHECK(cublasSetMathMode(cublas, CUBLAS_TF32_TENSOR_OP_MATH));
+    // cuBLAS default math mode (FP32). Previously this set
+    // CUBLAS_TF32_TENSOR_OP_MATH for 2-3× matmul speedup on Ampere+, but
+    // the 10-bit-mantissa TF32 path was substantively the source of the
+    // v1↔v2 PPL gap (cudax v2 has always used default/FP32). Element-wise
+    // tensor diff against PyTorch reference and cudax v2 confirmed:
+    // with TF32 removed, chunk 2 forward Q/K/V/kv_pack are BIT-IDENTICAL
+    // to cudax v2 (which itself matches PyTorch to 1e-7).
+    //
+    // Tradeoff: 2-3× slower cuBLAS Sgemm. At d_model=64 the matmuls aren't
+    // the wall-time bottleneck (trie ops + host serial work dominate), so
+    // ~5-10% overall slowdown is acceptable for the ~0.5 PPL gain and
+    // PyTorch parity. Decision made 2026-05-21 jointly with codex-agpt
+    // after element-wise dump diff localized TF32 as the bug.
+    // Re-enable explicitly if a future scaled-up regime makes matmul the
+    // dominant cost AND the precision loss is acceptable.
 
     if (!quiet) {
         size_t free_mem, total_mem;
@@ -7494,7 +7508,21 @@ int main(int argc, char** argv) {
     // on Ampere+; no-op on older GPUs).
     cublasHandle_t cublas;
     CUBLAS_CHECK(cublasCreate(&cublas));
-    CUBLAS_CHECK(cublasSetMathMode(cublas, CUBLAS_TF32_TENSOR_OP_MATH));
+    // cuBLAS default math mode (FP32). Previously this set
+    // CUBLAS_TF32_TENSOR_OP_MATH for 2-3× matmul speedup on Ampere+, but
+    // the 10-bit-mantissa TF32 path was substantively the source of the
+    // v1↔v2 PPL gap (cudax v2 has always used default/FP32). Element-wise
+    // tensor diff against PyTorch reference and cudax v2 confirmed:
+    // with TF32 removed, chunk 2 forward Q/K/V/kv_pack are BIT-IDENTICAL
+    // to cudax v2 (which itself matches PyTorch to 1e-7).
+    //
+    // Tradeoff: 2-3× slower cuBLAS Sgemm. At d_model=64 the matmuls aren't
+    // the wall-time bottleneck (trie ops + host serial work dominate), so
+    // ~5-10% overall slowdown is acceptable for the ~0.5 PPL gain and
+    // PyTorch parity. Decision made 2026-05-21 jointly with codex-agpt
+    // after element-wise dump diff localized TF32 as the bug.
+    // Re-enable explicitly if a future scaled-up regime makes matmul the
+    // dominant cost AND the precision loss is acceptable.
 
     // Report GPU memory
     size_t free_mem, total_mem;
