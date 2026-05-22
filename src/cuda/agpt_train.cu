@@ -19,6 +19,9 @@
 #include <cuda_runtime.h>
 #include <cuda_bf16.h>
 #include <random>
+#include <vector>
+
+#include "../common/init_weights.h"
 
 // ============================================================================
 // Error checking
@@ -1743,22 +1746,11 @@ TrieData load_trie(const char* dir) {
 // Backward compat: files without this footer load normally (cold optimizer).
 #define OPT_MAGIC  0x31545056u  // "OPT1" little-endian
 
-// Random initialization for fresh training (--init flag, alternative to
-// --model PATH). Mirrors microgpt's micro_gpt.cr init scheme so that
-// --init produces a baseline statistically equivalent to the legacy
-// microgpt-generated seed checkpoints (which set the historical
-// PPL baselines on this codebase):
-//   token_emb (V × D):       N(0, sqrt(1/D))      — embedding init
-//   linear weights (fan_in): N(0, sqrt(2/fan_in)) — Kaiming/He
-//     wq_w, wk_w, wv_w, wo_w, l1_w: fan_in = D
-//     l2_w: fan_in = F (d_ff)
-//     out_w: fan_in = D
-//   biases: 0.0
-//   LayerNorm gamma: 1.0; beta: 0.0
-//
-// Earlier versions of this function used a flat N(0, 0.02) (GPT-2-paper
-// schedule) which produced weights ~8× smaller than microgpt and cost
-// ~2.2 PPL at Shakespeare 1M d=16 10 SE. Kaiming closes that gap.
+// Random initialization for fresh training (--init flag, alternative
+// to --model PATH). Delegates to the shared
+// agpt_init::init_random_weights() in src/common/init_weights.h so v1
+// and v2 (src/cudax/agpt_seed.cu) produce byte-identical seed
+// checkpoints from the same (seed, dims).
 //
 // Caller must have set cfg.d_model, n_heads, n_layers, d_ff, vocab_size,
 // head_dim before calling. seq_len is set to the trie's max_depth by the
@@ -1766,47 +1758,30 @@ TrieData load_trie(const char* dir) {
 static float* init_random_weights(const Config& cfg, const WeightOffsets& wo, uint32_t seed) {
     float* h = (float*)malloc((size_t)wo.total_floats * sizeof(float));
     if (!h) { fprintf(stderr, "init_random_weights: malloc failed\n"); exit(1); }
-    // Deterministic init: same seed → same weight tensors.
-    std::mt19937 rng(seed);
 
-    auto fill_normal_with_std = [&](int off, int len, float stddev) {
-        std::normal_distribution<float> nd(0.0f, stddev);
-        for (int i = 0; i < len; i++) h[off + i] = nd(rng);
-    };
-    auto fill_zero = [&](int off, int len) {
-        for (int i = 0; i < len; i++) h[off + i] = 0.0f;
-    };
-    auto fill_one = [&](int off, int len) {
-        for (int i = 0; i < len; i++) h[off + i] = 1.0f;
-    };
-
-    int L = cfg.n_layers;
-    int D = cfg.d_model;
-    int F = cfg.d_ff;
-    int V = cfg.vocab_size;
-
-    const float std_emb     = sqrtf(1.0f / (float)D);
-    const float std_kaiming_D = sqrtf(2.0f / (float)D);
-    const float std_kaiming_F = sqrtf(2.0f / (float)F);
-
-    fill_normal_with_std(wo.token_emb, V * D, std_emb);
-    for (int l = 0; l < L; l++) {
-        fill_normal_with_std(wo.wq_w[l], D * D, std_kaiming_D); fill_zero(wo.wq_b[l], D);
-        fill_normal_with_std(wo.wk_w[l], D * D, std_kaiming_D); fill_zero(wo.wk_b[l], D);
-        fill_normal_with_std(wo.wv_w[l], D * D, std_kaiming_D); fill_zero(wo.wv_b[l], D);
-        fill_normal_with_std(wo.wo_w[l], D * D, std_kaiming_D); fill_zero(wo.wo_b[l], D);
-        fill_one (wo.ln1_gamma[l], D);   fill_zero(wo.ln1_beta[l], D);
-        fill_normal_with_std(wo.l1_w[l], D * F, std_kaiming_D); fill_zero(wo.l1_b[l], F);
-        fill_normal_with_std(wo.l2_w[l], F * D, std_kaiming_F); fill_zero(wo.l2_b[l], D);
-        fill_one (wo.ln2_gamma[l], D);   fill_zero(wo.ln2_beta[l], D);
+    std::vector<agpt_init::LayerOffsets> layers(cfg.n_layers);
+    for (int i = 0; i < cfg.n_layers; i++) {
+        layers[i] = {
+            wo.wq_w[i], wo.wq_b[i],
+            wo.wk_w[i], wo.wk_b[i],
+            wo.wv_w[i], wo.wv_b[i],
+            wo.wo_w[i], wo.wo_b[i],
+            wo.ln1_gamma[i], wo.ln1_beta[i],
+            wo.l1_w[i], wo.l1_b[i],
+            wo.l2_w[i], wo.l2_b[i],
+            wo.ln2_gamma[i], wo.ln2_beta[i],
+        };
     }
-    fill_one (wo.final_gamma, D);  fill_zero(wo.final_beta, D);
-    fill_normal_with_std(wo.out_w, D * V, std_kaiming_D);  fill_zero(wo.out_b, V);
-
-    printf("  Init: microgpt-style — emb N(0, %.4f), Kaiming N(0, %.4f) [fan_in=D], N(0, %.4f) [fan_in=F=%d], biases 0, LN γ=1 (seed=%u)\n",
-           std_emb, std_kaiming_D, std_kaiming_F, F, seed);
+    agpt_init::InitLayout il = {
+        cfg.d_model, cfg.d_ff, cfg.vocab_size, cfg.n_layers,
+        wo.token_emb, layers.data(),
+        wo.final_gamma, wo.final_beta,
+        wo.out_w, wo.out_b,
+    };
+    agpt_init::init_random_weights(h, il, seed);
     printf("  Model: d=%d heads=%d layers=%d ff=%d vocab=%d head_dim=%d\n",
-           cfg.d_model, cfg.n_heads, cfg.n_layers, cfg.d_ff, cfg.vocab_size, cfg.head_dim);
+           cfg.d_model, cfg.n_heads, cfg.n_layers, cfg.d_ff,
+           cfg.vocab_size, cfg.head_dim);
     return h;
 }
 

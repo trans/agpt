@@ -1,11 +1,12 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <random>
+#include <vector>
 
 #include "checkpoint_io_v2.cuh"
 #include "io.cuh"
 #include "model_layout.cuh"
+#include "../common/init_weights.h"
 
 namespace agpt_v2 {
 
@@ -16,62 +17,36 @@ static void usage() {
     std::exit(1);
 }
 
-static void zero_slice(float* weights, int offset, int count) {
-    std::memset(weights + offset, 0, (size_t)count * sizeof(float));
-}
-
-static void fill_normal_slice(float* weights,
-                              int offset,
-                              int count,
-                              std::mt19937& rng,
-                              std::normal_distribution<float>& nd) {
-    for (int i = 0; i < count; i++) {
-        weights[offset + i] = nd(rng);
-    }
-}
-
-static void fill_scalar_slice(float* weights, int offset, int count, float value) {
-    for (int i = 0; i < count; i++) {
-        weights[offset + i] = value;
-    }
-}
-
+// Adapter to the shared agpt_init::init_random_weights().  v2's
+// ModelLayout and v1's WeightOffsets carry the same offset structure
+// (verified byte-identical), so both bind into agpt_init::InitLayout
+// the same way and produce identical seed bytes for matching dims.
 static void init_random_weights(float* weights, const ModelLayout& layout, int seed) {
     const int L = layout.shape.n_layers;
-    const int D = layout.shape.d_model;
-    const int F = layout.shape.d_ff;
-    const int V = layout.shape.vocab_size;
-
-    std::mt19937 rng(seed);
-    std::normal_distribution<float> nd(0.0f, 0.02f);
-
-    fill_normal_slice(weights, layout.token_emb, V * D, rng, nd);
+    std::vector<agpt_init::LayerOffsets> layers(L);
     for (int i = 0; i < L; i++) {
-        fill_normal_slice(weights, layout.wq_w[i], D * D, rng, nd);
-        zero_slice(weights, layout.wq_b[i], D);
-        fill_normal_slice(weights, layout.wk_w[i], D * D, rng, nd);
-        zero_slice(weights, layout.wk_b[i], D);
-        fill_normal_slice(weights, layout.wv_w[i], D * D, rng, nd);
-        zero_slice(weights, layout.wv_b[i], D);
-        fill_normal_slice(weights, layout.wo_w[i], D * D, rng, nd);
-        zero_slice(weights, layout.wo_b[i], D);
-
-        fill_scalar_slice(weights, layout.ln1_gamma[i], D, 1.0f);
-        zero_slice(weights, layout.ln1_beta[i], D);
-
-        fill_normal_slice(weights, layout.l1_w[i], D * F, rng, nd);
-        zero_slice(weights, layout.l1_b[i], F);
-        fill_normal_slice(weights, layout.l2_w[i], F * D, rng, nd);
-        zero_slice(weights, layout.l2_b[i], D);
-
-        fill_scalar_slice(weights, layout.ln2_gamma[i], D, 1.0f);
-        zero_slice(weights, layout.ln2_beta[i], D);
+        layers[i] = {
+            layout.wq_w[i], layout.wq_b[i],
+            layout.wk_w[i], layout.wk_b[i],
+            layout.wv_w[i], layout.wv_b[i],
+            layout.wo_w[i], layout.wo_b[i],
+            layout.ln1_gamma[i], layout.ln1_beta[i],
+            layout.l1_w[i], layout.l1_b[i],
+            layout.l2_w[i], layout.l2_b[i],
+            layout.ln2_gamma[i], layout.ln2_beta[i],
+        };
     }
-
-    fill_scalar_slice(weights, layout.final_gamma, D, 1.0f);
-    zero_slice(weights, layout.final_beta, D);
-    fill_normal_slice(weights, layout.out_w, D * V, rng, nd);
-    zero_slice(weights, layout.out_b, V);
+    agpt_init::InitLayout il = {
+        layout.shape.d_model,
+        layout.shape.d_ff,
+        layout.shape.vocab_size,
+        L,
+        layout.token_emb,
+        layers.data(),
+        layout.final_gamma, layout.final_beta,
+        layout.out_w, layout.out_b,
+    };
+    agpt_init::init_random_weights(weights, il, (uint32_t)seed);
 }
 
 }  // namespace agpt_v2
