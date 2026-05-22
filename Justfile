@@ -13,31 +13,76 @@ build-stubs:
     mkdir -p build
     cc -c -O2 lib/microgpt/src/cuda/stubs.c -o build/kernels.o
 
+# Build the shared GPU kernels object (µGPT shard's kernels.cu) once,
+# so both v1 (src/cuda/agpt_train.cu) and v2 (src/cudax/agpt_train_v2.cu)
+# link the SAME compiled kernel SASS. Previously each trainer recompiled
+# kernels.cu inline, which produced slightly different register-allocation
+# and intermediate-rounding decisions per binary — the v1↔v2 LayerNorm
+# bit-mismatch traced back to this (resolved 2026-05-22).
+#
+# --use_fast_math is DROPPED here and on both training binaries below:
+# nvcc's fast-math intrinsics (--prec-sqrt=false, --prec-div=false,
+# --ftz=true) make individual fp32 ops non-bit-reproducible across
+# runs — small drift in LN's 1/sqrt(var+ε), softmax exp/log, etc.
+# Verified empirically 2026-05-22: with fast-math, even two consecutive
+# runs of the same binary diverge in forward Q/K/V output; without it
+# and with this shared kernels object, v1↔v2 forward is bit-identical
+# on chunk 1 layer 0 (14/14 dumped tensors match).
+#
+# Cost: "modest" softmax slowdown vs the prior fast-math build (the
+# original justification for --use_fast_math). Determinism by default
+# is worth the cost — see notes/agpt/forward-parity.md if/when written.
+#
+# Distinct from build/kernels.o (CPU stubs for Crystal-side tools, see
+# build-stubs); we use build/kernels_gpu.o to avoid filename collision.
+build-cuda-kernels:
+    mkdir -p build
+    # Idempotent: skip rebuild if build/kernels_gpu.o exists and is newer
+    # than the source. nvcc embeds non-determinism (timestamps?) so two
+    # compilations of the same source produce different .o bytes — which
+    # breaks v1↔v2 bit-parity if build-agpt-train and build-agpt-train-v2
+    # are invoked in separate `just` runs and each rebuilds kernels.o.
+    # Treating it as up-to-date when the source hasn't changed keeps both
+    # trainers linked against the same .o across invocations.
+    #
+    # src/cuda/kernels.cu is agpt's own copy (forked from lib/microgpt
+    # 2026-05-22 as part of severing microgpt dependency). Future kernel
+    # evolution (deterministic LN reductions, atomicAdd-free backward,
+    # etc.) happens here without coordinating with the moth-balled
+    # microgpt project.
+    if [ ! -e build/kernels_gpu.o ] || [ src/cuda/kernels.cu -nt build/kernels_gpu.o ]; then \
+        /opt/cuda/bin/nvcc --allow-unsupported-compiler -std=c++17 -c -O3 \
+            -gencode=arch=compute_80,code=sm_80 \
+            -gencode=arch=compute_89,code=sm_89 \
+            -gencode=arch=compute_90,code=sm_90 \
+            src/cuda/kernels.cu -o build/kernels_gpu.o; \
+    fi
+
 # Build AGPT CUDA training engine (standalone GPU trainer).
-# Sources kernels.cu from the µGPT shard.
-build-agpt-train:
+# Links against the shared build/kernels_gpu.o (see build-cuda-kernels).
+# No --use_fast_math: see build-cuda-kernels comment.
+build-agpt-train: build-cuda-kernels
     mkdir -p bin
-    # -O3 + --use_fast_math: modest speedup on attention softmax (exp/log).
     # -gencode for sm_80 (Ampere A100), sm_89 (Ada RTX 40xx), and sm_90
     # (Hopper H100/H200) emits native SASS for all three — no JIT recompile
     # delay on first run on any of them.
     # If you have a 30xx (Ampere sm_86), add -gencode=arch=compute_86,code=sm_86.
-    /opt/cuda/bin/nvcc --allow-unsupported-compiler -std=c++17 -O3 --use_fast_math \
+    /opt/cuda/bin/nvcc --allow-unsupported-compiler -std=c++17 -O3 \
         -gencode=arch=compute_80,code=sm_80 \
         -gencode=arch=compute_89,code=sm_89 \
         -gencode=arch=compute_90,code=sm_90 \
-        src/cuda/agpt_train.cu lib/microgpt/src/cuda/kernels.cu -lcublas -o bin/agpt_train
+        src/cuda/agpt_train.cu build/kernels_gpu.o -lcublas -o bin/agpt_train
 
 # Build AGPT CUDA training engine v2 skeleton.
-# This is a separate trainer-core rewrite path; keep it independent of the
-# current agpt_train baseline until parity is established.
-build-agpt-train-v2:
+# Shares build/kernels_gpu.o with v1; same flags — load-bearing for
+# v1↔v2 forward bit-parity. No --use_fast_math: see build-cuda-kernels.
+build-agpt-train-v2: build-cuda-kernels
     mkdir -p bin
-    /opt/cuda/bin/nvcc --allow-unsupported-compiler -std=c++17 -O3 --use_fast_math \
+    /opt/cuda/bin/nvcc --allow-unsupported-compiler -std=c++17 -O3 \
         -gencode=arch=compute_80,code=sm_80 \
         -gencode=arch=compute_89,code=sm_89 \
         -gencode=arch=compute_90,code=sm_90 \
-        src/cudax/agpt_train_v2.cu lib/microgpt/src/cuda/kernels.cu -lcublas -o bin/agpt_train_v2
+        src/cudax/agpt_train_v2.cu build/kernels_gpu.o -lcublas -o bin/agpt_train_v2
 
 # Build standalone cudax seed-model generator.
 build-agpt-seed:
