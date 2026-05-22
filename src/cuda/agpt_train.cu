@@ -707,6 +707,54 @@ static void emit_diag_chunk_meta(const char* path,
 // Cheap signature dump for int arrays. Writes sum + min + max + count
 // in one JSONL record so we can detect mismatches in per-node metadata
 // (kv_lengths, query_offsets, kv_offsets) without sending 6000-19000 ints.
+// Raw element-wise tensor dump for the v1↔v2 parity probe. Skips JSONL —
+// dumps the exact float32 contents of a device buffer to a binary file
+// codex can read with numpy.fromfile. Shape is implied by chunk.meta
+// JSONL records (N, T_q, T_kv, max_kv_len) for the same epoch/root/chunk.
+// Filename: <dir>/<point>_e<E>_r<R>_c<C>_l<L>.f32 (or .i32 for ints).
+//
+// Gated by AGPT_DIAG_TENSOR_DIR env var; only the target case
+// (rc=1 chunk=2 layer=0 per codex's choice) dumps to avoid >250MB output.
+static void emit_diag_tensor_bin(const char* dir,
+                                   int epoch, int root_id, int chunk_idx, int layer,
+                                   const char* point,
+                                   const float* d_buf, int n_floats)
+{
+    if (!dir) return;
+    float* scratch = (float*)malloc((size_t)n_floats * sizeof(float));
+    if (!scratch) return;
+    copy_device_floats(scratch, d_buf, n_floats);
+    char fname[512];
+    snprintf(fname, sizeof(fname), "%s/%s_e%d_r%d_c%d_l%d.f32",
+             dir, point, epoch, root_id, chunk_idx, layer);
+    FILE* f = fopen(fname, "wb");
+    if (f) {
+        fwrite(scratch, sizeof(float), n_floats, f);
+        fclose(f);
+    }
+    free(scratch);
+}
+
+static void emit_diag_tensor_int_bin(const char* dir,
+                                       int epoch, int root_id, int chunk_idx, int layer,
+                                       const char* point,
+                                       const int* d_buf, int n_ints)
+{
+    if (!dir) return;
+    int* scratch = (int*)malloc((size_t)n_ints * sizeof(int));
+    if (!scratch) return;
+    CUDA_CHECK(cudaMemcpy(scratch, d_buf, (size_t)n_ints * sizeof(int), cudaMemcpyDeviceToHost));
+    char fname[512];
+    snprintf(fname, sizeof(fname), "%s/%s_e%d_r%d_c%d_l%d.i32",
+             dir, point, epoch, root_id, chunk_idx, layer);
+    FILE* f = fopen(fname, "wb");
+    if (f) {
+        fwrite(scratch, sizeof(int), n_ints, f);
+        fclose(f);
+    }
+    free(scratch);
+}
+
 static void emit_diag_int_signature(const char* path,
                                       int epoch, int root_id, int chunk_idx, int layer,
                                       const char* point,
@@ -5578,6 +5626,37 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                                                lightning.virtual_cycles > 1);
                     });
 
+                    // Stage-A diagnostic: element-wise binary tensor dump of the
+                    // INPUTS to the forward attention kernel for the target case
+                    // (rc=1 chunk=2 layer=0). Gated by AGPT_DIAG_TENSOR_DIR env var.
+                    // Goes alongside the L2 JSONL — element-wise diff vs v2 needed
+                    // because L2 summaries can hide which exact elements diverge.
+                    {
+                        const char* tensor_dir = getenv("AGPT_DIAG_TENSOR_DIR");
+                        bool dump_this = trace_fire_target && tensor_dir
+                                      && (fire_chunks_processed + 1) == 2 && l == 0;
+                        if (dump_this) {
+                            emit_diag_tensor_bin(tensor_dir, epoch + 1, root_r,
+                                                  fire_chunks_processed + 1, l,
+                                                  "fwd_q", d_q, T_q * D);
+                            emit_diag_tensor_bin(tensor_dir, epoch + 1, root_r,
+                                                  fire_chunks_processed + 1, l,
+                                                  "fwd_kv_pack_k", d_kv_pack_k, T_kv * D);
+                            emit_diag_tensor_bin(tensor_dir, epoch + 1, root_r,
+                                                  fire_chunks_processed + 1, l,
+                                                  "fwd_kv_pack_v", d_kv_pack_v, T_kv * D);
+                            emit_diag_tensor_int_bin(tensor_dir, epoch + 1, root_r,
+                                                       fire_chunks_processed + 1, l,
+                                                       "fwd_query_offsets", d_query_offsets, N + 1);
+                            emit_diag_tensor_int_bin(tensor_dir, epoch + 1, root_r,
+                                                       fire_chunks_processed + 1, l,
+                                                       "fwd_kv_offsets", d_kv_offsets, N + 1);
+                            emit_diag_tensor_int_bin(tensor_dir, epoch + 1, root_r,
+                                                       fire_chunks_processed + 1, l,
+                                                       "fwd_kv_lengths", d_kv_lengths, N);
+                        }
+                    }
+
                     // L-query varlen attention
                     float scale = 1.0f / sqrtf((float)HD);
                     TIME_K(t_us_attn_fwd, {
@@ -5597,6 +5676,22 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                                          epoch + 1, root_r, fire_chunks_processed + 1, l,
                                          "layer.fwd.attn_weights_post_save",
                                          sv_attn_weights[l], T_q * H * max_kv_len);
+                    }
+
+                    // Stage-A: dump attention OUTPUTS element-wise for target case.
+                    {
+                        const char* tensor_dir = getenv("AGPT_DIAG_TENSOR_DIR");
+                        bool dump_this = trace_fire_target && tensor_dir
+                                      && (fire_chunks_processed + 1) == 2 && l == 0;
+                        if (dump_this) {
+                            emit_diag_tensor_bin(tensor_dir, epoch + 1, root_r,
+                                                  fire_chunks_processed + 1, l,
+                                                  "fwd_attn_weights", sv_attn_weights[l],
+                                                  T_q * H * max_kv_len);
+                            emit_diag_tensor_bin(tensor_dir, epoch + 1, root_r,
+                                                  fire_chunks_processed + 1, l,
+                                                  "fwd_attn_out", d_attn_out, T_q * D);
+                        }
                     }
 
                     // d_attn_out now has packed [T_q * H, HD] output — same memory layout as [T_q, D].
