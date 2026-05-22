@@ -17,6 +17,10 @@
 #               Equivalent to standard PPL@d; sanity check baseline.
 #   depth_w   — weighted mean, w_k ∝ k+1 (favor deeper contributors)
 #
+# Concurrency: positions are processed in parallel across CRYSTAL_WORKERS
+# fibers. Each fiber owns its own MiniGPT copy because forward-pass
+# state (KV cache, activation buffers) isn't safe to share.
+#
 # Usage:
 #   bin/agpt_sliding_window_perplexity \
 #     --model /tmp/agpt-gut-d16-pd1.model \
@@ -37,6 +41,7 @@ d_window   = 16          # the trie depth / per-window context length
 pool_mode  = "uniform"   # uniform | deep_only | depth_w
 backend    = "openblas"
 max_positions = -1
+n_workers  = (ENV["CRYSTAL_WORKERS"]? || "8").to_i
 
 OptionParser.parse do |p|
   p.banner = "Usage: agpt_sliding_window_perplexity --model PATH --file PATH [options]"
@@ -47,6 +52,7 @@ OptionParser.parse do |p|
   p.on("--pool MODE", "uniform | deep_only | depth_w (default uniform)") { |v| pool_mode = v }
   p.on("--backend B", "crystal|openblas|cublas (default openblas)") { |v| backend = v }
   p.on("--max-positions N", "Cap positions scored") { |v| max_positions = v.to_i }
+  p.on("--workers N", "Parallel fibers (default CRYSTAL_WORKERS or 8)") { |v| n_workers = v.to_i }
   p.on("-h", "--help", "") { puts p; exit 0 }
 end
 
@@ -58,6 +64,7 @@ if !["uniform", "deep_only", "depth_w"].includes?(pool_mode)
   STDERR.puts "--pool must be one of uniform, deep_only, depth_w"
   exit 1
 end
+n_workers = 1 if n_workers < 1
 
 case backend
 when "openblas" then MicroGPT.use_openblas!
@@ -99,9 +106,15 @@ config.d_ff       = d_ff
 config.seq_len    = d_window
 config.vocab_size = dataset.vocab_size
 
-model = MiniGPT.new(config)
-model.load(model_path)
-STDERR.puts "Model loaded"
+# Per-worker model copies. Each fiber owns its own MiniGPT to keep
+# forward-pass scratch state (KV cache, activations) thread-isolated.
+STDERR.puts "Loading #{n_workers} model copies for parallel eval..."
+models = Array(MiniGPT).new(n_workers) do
+  m = MiniGPT.new(config)
+  m.load(model_path)
+  m
+end
+STDERR.puts "Models loaded"
 
 # Compute pooling weights once (for depth_w)
 pool_weights = Array(Float32).new(d_window, 1.0_f32)
@@ -115,44 +128,32 @@ else
 end
 
 vocab_size = config.vocab_size
-n_targets = tokens.size - d_window  # need d chars before any target
+n_targets = tokens.size - d_window
 n_targets = max_positions if max_positions > 0 && max_positions < n_targets
 
-# For each target i ∈ [d_window, d_window + n_targets - 1]:
-#   contributors j ∈ [0, d_window - 1]
-#   for j, window starts at w = i - 1 - j, which means context = tokens[i-1-j .. i-1-j+d-1]
-#   model.forward(context), grab logits at row j of the output (predicting token at w+j+1 = i)
-
-nll_sum = 0.0
-t0 = Time.instant
-report_every = (n_targets // 20).clamp(50, 5000)
-
-n_targets.times do |k|
+# Compute the per-position NLL contribution. Same math as the original
+# single-threaded loop; isolated here so worker fibers can call it.
+score_position = ->(model : MiniGPT, k : Int32) do
   i = d_window + k
   target = tokens[i]
-
+  nll = 0.0
   if pool_mode == "deep_only"
-    # j = d_window - 1, w = i - 1 - (d_window - 1) = i - d_window
-    # context = tokens[i - d_window, d_window], last position predicts target.
     context = tokens[i - d_window, d_window]
     logits = model.forward(context)
-    # Logits row d_window-1
     row = Array(Float32).new(vocab_size)
     vocab_size.times { |c| row << logits[d_window - 1, c] }
     max_lg = row.max
     exp_sum = 0.0
     row.each { |lg| exp_sum += Math.exp(lg.to_f64 - max_lg.to_f64) }
     log_p = row[target].to_f64 - (Math.log(exp_sum) + max_lg.to_f64)
-    nll_sum -= log_p
+    nll = -log_p
   else
-    # Pool log-probs from d contributing windows.
     pooled_lp = Array(Float64).new(vocab_size, 0.0)
     d_window.times do |j|
       w = i - 1 - j
       next if w < 0
       context = tokens[w, d_window]
       logits = model.forward(context)
-      # Log-softmax of row j → log-probs at within-window-position j (predicting token at w+j+1 = i)
       row = Array(Float32).new(vocab_size)
       vocab_size.times { |c| row << logits[j, c] }
       max_lg = row.max
@@ -165,15 +166,62 @@ n_targets.times do |k|
         pooled_lp[c] += weight * log_p_c
       end
     end
-    nll_sum -= pooled_lp[target]
+    nll = -pooled_lp[target]
+  end
+  nll
+end
+
+# Dispatch positions across worker fibers via a channel; aggregate
+# results from a results channel. Bounded buffers keep memory small.
+nll_sum = 0.0
+t0 = Time.instant
+report_every = (n_targets // 20).clamp(50, 5000)
+
+if n_workers == 1
+  # Single-thread fast path — avoids fiber overhead for tiny runs.
+  n_targets.times do |k|
+    nll_sum += score_position.call(models[0], k)
+    if (k + 1) % report_every == 0
+      elapsed = (Time.instant - t0).total_seconds
+      rate = (k + 1) / elapsed
+      eta = (n_targets - k - 1) / rate
+      STDERR.puts "  #{k + 1}/#{n_targets} (%.1f/s, ETA %.0fs)" % [rate, eta]
+    end
+  end
+else
+  work_chan    = Channel(Int32).new(n_workers * 4)
+  results_chan = Channel(Float64).new(n_workers * 4)
+  done_chan    = Channel(Nil).new(n_workers)
+
+  n_workers.times do |w|
+    spawn do
+      m = models[w]
+      while (k = work_chan.receive?)
+        results_chan.send(score_position.call(m, k))
+      end
+      done_chan.send(nil)
+    end
   end
 
-  if (k + 1) % report_every == 0
-    elapsed = (Time.instant - t0).total_seconds
-    rate = (k + 1) / elapsed
-    eta = (n_targets - k - 1) / rate
-    STDERR.puts "  #{k + 1}/#{n_targets} (%.1f/s, ETA %.0fs)" % [rate, eta]
+  # Feed positions; close after the last so workers exit cleanly.
+  spawn do
+    n_targets.times { |k| work_chan.send(k) }
+    work_chan.close
   end
+
+  # Aggregate. Report progress periodically.
+  done = 0
+  n_targets.times do
+    nll_sum += results_chan.receive
+    done += 1
+    if done % report_every == 0
+      elapsed = (Time.instant - t0).total_seconds
+      rate = done / elapsed
+      eta = (n_targets - done) / rate
+      STDERR.puts "  #{done}/#{n_targets} (%.1f/s, ETA %.0fs)" % [rate, eta]
+    end
+  end
+  n_workers.times { done_chan.receive }
 end
 
 elapsed = (Time.instant - t0).total_seconds
@@ -184,6 +232,7 @@ puts ""
 puts "Pool mode:          #{pool_mode}"
 puts "d_window:           #{d_window}"
 puts "Positions scored:   #{n_targets}"
+puts "Workers:            #{n_workers}"
 puts "Mean per-token NLL: %.6f nats" % mean_nll
 puts "Perplexity:         %.4f" % ppl
 puts "Bits per char:      %.4f bpc" % bpc

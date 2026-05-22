@@ -108,7 +108,7 @@ build-agpt-parrot-sample: build-stubs
 build-agpt-sliding-window-perplexity:
     mkdir -p bin build
     /opt/cuda/bin/nvcc --allow-unsupported-compiler -std=c++17 -c -O3 --use_fast_math -gencode=arch=compute_80,code=sm_80 -gencode=arch=compute_89,code=sm_89 -gencode=arch=compute_90,code=sm_90 lib/microgpt/src/cuda/kernels.cu -o build/kernels.o
-    timeout 10m crystal build src/tools/agpt_sliding_window_perplexity.cr -o bin/agpt_sliding_window_perplexity --release --link-flags="{{root}}/build/kernels.o -L/opt/cuda/lib64 -lcudart -lcublas -lstdc++"
+    timeout 10m crystal build src/tools/agpt_sliding_window_perplexity.cr -o bin/agpt_sliding_window_perplexity --release -Dpreview_mt --link-flags="{{root}}/build/kernels.o -L/opt/cuda/lib64 -lcudart -lcublas -lstdc++"
     cc -c -O2 lib/microgpt/src/cuda/stubs.c -o build/kernels.o
 
 # Build position→node map tool. Phase 0 of seq_len decoupling: walks
