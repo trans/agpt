@@ -70,6 +70,11 @@ struct RadixTrieStructure {
     int* counts_val = nullptr;
 };
 
+struct RadixMetaSummary {
+    int depth_file_count = 0;
+    int vocab_size = 0;
+};
+
 static inline void free_radix_trie_structure(RadixTrieStructure& trie) {
     std::free(trie.parents);
     std::free(trie.edge_starts);
@@ -111,6 +116,36 @@ static inline ModelHeader load_model_header(const char* path) {
 
     std::fclose(f);
     return header;
+}
+
+static inline RadixMetaSummary load_radix_meta_summary(const char* dir) {
+    char path[1024];
+    std::snprintf(path, sizeof(path), "%s/meta.bin", dir);
+    FILE* f = std::fopen(path, "rb");
+    if (!f) {
+        std::fprintf(stderr, "agpt_train_v2: cannot open trie meta: %s\n", path);
+        std::exit(1);
+    }
+
+    unsigned magic = read_u32(f);
+    if (magic != RADIX_MAGIC) {
+        std::fprintf(stderr, "agpt_train_v2: bad radix magic in %s\n", path);
+        std::exit(1);
+    }
+    int version = read_i32(f);
+    if (version != 2 && version != 3) {
+        std::fprintf(stderr, "agpt_train_v2: unsupported radix format v%d in %s\n", version, path);
+        std::exit(1);
+    }
+
+    read_i32(f);  // radix_count
+    RadixMetaSummary meta;
+    meta.depth_file_count = read_i32(f);
+    read_u64(f);  // total_edge_chars
+    read_i32(f);  // corpus_token_count
+    meta.vocab_size = read_i32(f);
+    std::fclose(f);
+    return meta;
 }
 
 static inline RadixTrieStructure load_radix_structure_minimal(const char* dir) {

@@ -39,6 +39,12 @@ build-agpt-train-v2:
         -gencode=arch=compute_90,code=sm_90 \
         src/cudax/agpt_train_v2.cu lib/microgpt/src/cuda/kernels.cu -lcublas -o bin/agpt_train_v2
 
+# Build standalone cudax seed-model generator.
+build-agpt-seed:
+    mkdir -p bin
+    /opt/cuda/bin/nvcc --allow-unsupported-compiler -std=c++17 -O3 \
+        src/cudax/agpt_seed.cu -o bin/agpt-seed
+
 # Build the leveled-trie index builder.
 build-agpt-build-index: build-stubs
     mkdir -p bin
