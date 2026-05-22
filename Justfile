@@ -196,6 +196,11 @@ build-check-weights:
     mkdir -p bin
     gcc -O2 tools/check_weights.c -o bin/check_weights
 
+# Build checkpoint comparer used to inspect seed/init equivalence.
+build-compare-checkpoints:
+    mkdir -p bin
+    gcc -O2 tools/compare_checkpoints.c -lm -o bin/compare_checkpoints
+
 # Build all AGPT-native binaries.
 build-all: build-agpt-train build-agpt-build-index build-agpt-build-radix build-synth-wrap-corpus build-radix-verify build-trie-profile build-bayesian-posterior build-convergence build-check-weights
 
