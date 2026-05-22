@@ -6,12 +6,14 @@
 # Resolve absolute path for linker
 root := `pwd`
 
-# CUDA stubs (CPU-only) sourced from the µGPT shard. Most Crystal-side
-# tools link a CPU-only build.o against these symbols so the µGPT model
-# code (which references CUDA symbols) can compile.
+# CUDA stubs (CPU-only). Most Crystal-side tools link a CPU-only build.o
+# against these symbols so model code (which references CUDA symbols)
+# can compile without pulling in libcudart. src/cuda/stubs.c is agpt's
+# own copy (forked from lib/microgpt 2026-05-22 as part of microgpt
+# severance).
 build-stubs:
     mkdir -p build
-    cc -c -O2 lib/microgpt/src/cuda/stubs.c -o build/kernels.o
+    cc -c -O2 src/cuda/stubs.c -o build/kernels.o
 
 # Build the shared GPU kernels object (µGPT shard's kernels.cu) once,
 # so both v1 (src/cuda/agpt_train.cu) and v2 (src/cudax/agpt_train_v2.cu)
@@ -160,7 +162,7 @@ build-agpt-sliding-window-perplexity:
     mkdir -p bin build
     /opt/cuda/bin/nvcc --allow-unsupported-compiler -std=c++17 -c -O3 --use_fast_math -gencode=arch=compute_80,code=sm_80 -gencode=arch=compute_89,code=sm_89 -gencode=arch=compute_90,code=sm_90 lib/microgpt/src/cuda/kernels.cu -o build/kernels.o
     timeout 10m crystal build src/tools/agpt_sliding_window_perplexity.cr -o bin/agpt_sliding_window_perplexity --release -Dpreview_mt --link-flags="{{root}}/build/kernels.o -L/opt/cuda/lib64 -lcudart -lcublas -lstdc++"
-    cc -c -O2 lib/microgpt/src/cuda/stubs.c -o build/kernels.o
+    cc -c -O2 src/cuda/stubs.c -o build/kernels.o
 
 # Build position→node map tool. Phase 0 of seq_len decoupling: walks
 # each corpus position's d-window through the radix trie and reports
