@@ -1,6 +1,8 @@
 #ifndef AGPT_V2_FORWARD_PASS_CUH
 #define AGPT_V2_FORWARD_PASS_CUH
 
+#include "../common/diag_tensor_dump.h"
+
 #include "checkpoint_io_v2.cuh"
 #include "chunk_metadata_v2.cuh"
 #include "chunk_upload_v2.cuh"
@@ -23,6 +25,14 @@ struct LossTablesV2 {
     const int* d_counts_val = nullptr;
 };
 
+struct ForwardDiagDumpConfigV2 {
+    const char* tensor_dir = nullptr;
+    int epoch = 0;
+    int root_id = 0;
+    int chunk_idx = 0;
+    bool active = false;
+};
+
 #include "forward_stages_v2.cuh"
 
 static inline ForwardPassResult run_forward_prefix_v2(const TrainerConfig& cfg,
@@ -32,7 +42,8 @@ static inline ForwardPassResult run_forward_prefix_v2(const TrainerConfig& cfg,
                                                       const ChunkUploadRuntimeV2& upload,
                                                       const LossTablesV2& loss_tables,
                                                       TrainerRuntimeV2& runtime,
-                                                      UnitAncGradRuntimeV2* anc_runtime = nullptr) {
+                                                      UnitAncGradRuntimeV2* anc_runtime = nullptr,
+                                                      const ForwardDiagDumpConfigV2* diag = nullptr) {
     ForwardPassResult result;
     int T_q = meta.T_q;
     int D = cfg.d_model;
@@ -43,9 +54,24 @@ static inline ForwardPassResult run_forward_prefix_v2(const TrainerConfig& cfg,
     float* d_rope_cos = runtime.d_rope_cos;
     float* d_rope_sin = runtime.d_rope_sin;
 
-    run_forward_embedding_stage_v2(layout, upload, runtime, buf, T_q, D);
+    if (diag && diag->active) {
+        agpt_diag::emit_tensor_int_bin(diag->tensor_dir, diag->epoch, diag->root_id, diag->chunk_idx, 0,
+                                       "fwd_token_ids", upload.d_token_ids, T_q);
+        agpt_diag::emit_tensor_int_bin(diag->tensor_dir, diag->epoch, diag->root_id, diag->chunk_idx, 0,
+                                       "fwd_query_offsets", upload.d_query_offsets, meta.N + 1);
+        agpt_diag::emit_tensor_int_bin(diag->tensor_dir, diag->epoch, diag->root_id, diag->chunk_idx, 0,
+                                       "fwd_kv_offsets", upload.d_kv_offsets, meta.N + 1);
+        agpt_diag::emit_tensor_int_bin(diag->tensor_dir, diag->epoch, diag->root_id, diag->chunk_idx, 0,
+                                       "fwd_kv_lengths", upload.d_kv_lengths, meta.N);
+        agpt_diag::emit_tensor_int_bin(diag->tensor_dir, diag->epoch, diag->root_id, diag->chunk_idx, 0,
+                                       "fwd_query_to_node", upload.d_query_to_node, T_q);
+        agpt_diag::emit_tensor_int_bin(diag->tensor_dir, diag->epoch, diag->root_id, diag->chunk_idx, 0,
+                                       "fwd_radix_ids", upload.d_radix_ids, meta.N);
+    }
+
+    run_forward_embedding_stage_v2(layout, upload, runtime, buf, T_q, D, diag);
     for (int l = 0; l < cfg.n_layers; l++) {
-        run_forward_transformer_layer_stage_v2(cfg, layout, meta, device_meta, upload, runtime, buf, cublas, d_rope_cos, d_rope_sin, anc_runtime, l);
+        run_forward_transformer_layer_stage_v2(cfg, layout, meta, device_meta, upload, runtime, buf, cublas, d_rope_cos, d_rope_sin, anc_runtime, l, diag);
     }
 
     run_forward_output_stage_v2(cfg, layout, meta, loss_tables, upload, runtime, buf, cublas);

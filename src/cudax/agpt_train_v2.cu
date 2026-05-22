@@ -20,6 +20,37 @@
 
 namespace {
 
+struct DiagFireProbeV2 {
+    const char* tensor_dir = nullptr;
+    int epoch = 0;
+    int root_id = 0;
+    bool exit_after = false;
+    bool enabled = false;
+};
+
+static int read_env_int_or_default_v2(const char* name, int fallback) {
+    const char* env = std::getenv(name);
+    if (!env || !env[0]) return fallback;
+    return std::atoi(env);
+}
+
+static bool read_env_flag_v2(const char* name) {
+    const char* env = std::getenv(name);
+    if (!env || !env[0]) return false;
+    return !(std::strcmp(env, "0") == 0 || std::strcmp(env, "false") == 0 || std::strcmp(env, "False") == 0);
+}
+
+static DiagFireProbeV2 read_diag_fire_probe_v2() {
+    DiagFireProbeV2 cfg{};
+    cfg.tensor_dir = std::getenv("AGPT_DIAG_TENSOR_DIR");
+    if (!cfg.tensor_dir || !cfg.tensor_dir[0]) return cfg;
+    cfg.epoch = read_env_int_or_default_v2("AGPT_DIAG_FIRE_EPOCH", 1);
+    cfg.root_id = read_env_int_or_default_v2("AGPT_DIAG_FIRE_ROOT_ID", 1);
+    cfg.exit_after = read_env_flag_v2("AGPT_DIAG_FIRE_EXIT_AFTER");
+    cfg.enabled = true;
+    return cfg;
+}
+
 enum class V2Mode {
     Plan,
     InstantiateRuntime,
@@ -292,6 +323,7 @@ int main(int argc, char** argv) {
     }
     if (cfg.chunk_queries <= 0) cfg.chunk_queries = 50000;
     if (steps <= 0) steps = 3;
+    DiagFireProbeV2 diag_probe = read_diag_fire_probe_v2();
 
     agpt_v2::ModelHeader header = agpt_v2::load_model_header(model_path);
     agpt_v2::RuntimeShape shape = header.shape;
@@ -507,9 +539,40 @@ int main(int argc, char** argv) {
                                 agpt_v2::build_chunk_metadata_v2(cfg, shape, trie, unit, chunk);
                             agpt_v2::ChunkDeviceMetadataV2 chunk_device_meta =
                                 upload_chunk_metadata_v2(chunk_meta, upload);
+                            agpt_v2::ForwardDiagDumpConfigV2 diag_dump{};
+                            if (diag_probe.enabled &&
+                                diag_probe.epoch == (epoch + 1) &&
+                                diag_probe.root_id == unit.root_child_id) {
+                                diag_dump.tensor_dir = diag_probe.tensor_dir;
+                                diag_dump.epoch = epoch + 1;
+                                diag_dump.root_id = unit.root_child_id;
+                                diag_dump.chunk_idx = s + 1;
+                                diag_dump.active = true;
+                            }
                             agpt_v2::ForwardPassResult chunk_fwd =
                                 agpt_v2::run_forward_prefix_v2(cfg, model, chunk_meta, chunk_device_meta, upload, loss_tables, runtime,
-                                                               cfg.anc_grad ? &unit_anc : nullptr);
+                                                               cfg.anc_grad ? &unit_anc : nullptr,
+                                                               diag_dump.active ? &diag_dump : nullptr);
+                            if (diag_dump.active && diag_probe.exit_after) {
+                                std::printf("  diag-fire-exit: dumped forward tensors at epoch=%d root_id=%d chunk=%d\n",
+                                            diag_dump.epoch, diag_dump.root_id, diag_dump.chunk_idx);
+                                agpt_v2::free_chunk_metadata_v2(chunk_meta);
+                                agpt_v2::free_unit_anc_grad_runtime_v2(unit_anc, runtime.contract);
+                                agpt_v2::free_chunk_plan_list(unit_chunks);
+                                if (save_path) {
+                                    std::printf("  diag-fire-exit: skipping save due to early exit\n");
+                                }
+                                AGPT_V2_CUDA_CHECK(cudaFree(d_counts_offset));
+                                AGPT_V2_CUDA_CHECK(cudaFree(d_counts_tok));
+                                AGPT_V2_CUDA_CHECK(cudaFree(d_counts_val));
+                                free_chunk_upload_runtime_v2(upload);
+                                agpt_v2::free_trainer_runtime_v2(runtime);
+                                agpt_v2::free_chunk_metadata_v2(first_chunk_meta);
+                                agpt_v2::free_chunk_plan_list(largest_chunks);
+                                agpt_v2::free_training_plan(training_plan);
+                                agpt_v2::free_radix_trie_structure(trie);
+                                return 0;
+                            }
                             agpt_v2::BackwardPassResult chunk_bwd =
                                 agpt_v2::run_backward_output_head_v2(cfg, model, chunk_meta, chunk_device_meta, upload, chunk_fwd, runtime,
                                                                      cfg.anc_grad ? &unit_anc : nullptr,

@@ -6,8 +6,13 @@ static inline void run_forward_embedding_stage_v2(const ModelLayout& layout,
                                                   TrainerRuntimeV2& runtime,
                                                   ChunkBufferLayoutV2& buf,
                                                   int T_q,
-                                                  int D) {
+                                                  int D,
+                                                  const ForwardDiagDumpConfigV2* diag) {
     cuda_embedding_gather(runtime.d_weights + layout.token_emb, upload.d_token_ids, buf.query.x, T_q, D);
+    if (diag && diag->active) {
+        agpt_diag::emit_tensor_bin(diag->tensor_dir, diag->epoch, diag->root_id, diag->chunk_idx, 0,
+                                   "fwd_x_post_embed", buf.query.x, T_q * D);
+    }
 }
 
 static inline void run_forward_transformer_layer_stage_v2(const TrainerConfig& cfg,
@@ -21,7 +26,8 @@ static inline void run_forward_transformer_layer_stage_v2(const TrainerConfig& c
                                                           float* d_rope_cos,
                                                           float* d_rope_sin,
                                                           UnitAncGradRuntimeV2* anc_runtime,
-                                                          int layer) {
+                                                          int layer,
+                                                          const ForwardDiagDumpConfigV2* diag) {
     int T_q = meta.T_q;
     int D = cfg.d_model;
     int H = cfg.n_heads;
@@ -50,6 +56,10 @@ static inline void run_forward_transformer_layer_stage_v2(const TrainerConfig& c
     float beta_zero = 0.0f;
     AGPT_V2_CUDA_CHECK(cudaMemcpy(saved.x_res1, buf.query.x, (size_t)((long long)T_q * D * sizeof(float)), cudaMemcpyDeviceToDevice));
     cuda_layer_norm_forward(buf.query.x, saved.ln1_out, saved.ln1_norm, saved.ln1_std_inv, G1, B1, T_q, D);
+    if (diag && diag->active && layer == 0) {
+        agpt_diag::emit_tensor_bin(diag->tensor_dir, diag->epoch, diag->root_id, diag->chunk_idx, layer,
+                                   "fwd_x_post_ln1", saved.ln1_out, T_q * D);
+    }
     if (anc_runtime && anc_runtime->enabled && anc_runtime->subtree_compact_chars > 0) {
         launch_save_ln1_to_subtree_v2(saved.ln1_out, upload.d_char_pos,
                                       runtime.cache.d_compact_slot,
@@ -73,6 +83,14 @@ static inline void run_forward_transformer_layer_stage_v2(const TrainerConfig& c
     AGPT_V2_CUDA_CHECK(cudaMemcpy(saved.q, buf.query.q, (size_t)((long long)T_q * D * sizeof(float)), cudaMemcpyDeviceToDevice));
     AGPT_V2_CUDA_CHECK(cudaMemcpy(saved.k, buf.query.k, (size_t)((long long)T_q * D * sizeof(float)), cudaMemcpyDeviceToDevice));
     AGPT_V2_CUDA_CHECK(cudaMemcpy(saved.v, buf.query.v, (size_t)((long long)T_q * D * sizeof(float)), cudaMemcpyDeviceToDevice));
+    if (diag && diag->active && layer == 0) {
+        agpt_diag::emit_tensor_bin(diag->tensor_dir, diag->epoch, diag->root_id, diag->chunk_idx, layer,
+                                   "fwd_q", buf.query.q, T_q * D);
+        agpt_diag::emit_tensor_bin(diag->tensor_dir, diag->epoch, diag->root_id, diag->chunk_idx, layer,
+                                   "fwd_k_pre_scatter", buf.query.k, T_q * D);
+        agpt_diag::emit_tensor_bin(diag->tensor_dir, diag->epoch, diag->root_id, diag->chunk_idx, layer,
+                                   "fwd_v_pre_scatter", buf.query.v, T_q * D);
+    }
 
     launch_kv_scatter_compact_bf16_v2(buf.query.k, upload.d_char_pos,
                                       runtime.cache.d_compact_slot, runtime.cache.d_k_layers[layer], T_q, D);
@@ -95,12 +113,22 @@ static inline void run_forward_transformer_layer_stage_v2(const TrainerConfig& c
     launch_kv_copy_own_edge_v2(buf.query.v, upload.d_query_offsets, upload.d_kv_offsets,
                                device_meta.d_anc_lengths, device_meta.d_own_lengths,
                                buf.packed.kv_pack_v, meta.N, H, HD);
+    if (diag && diag->active && layer == 0) {
+        agpt_diag::emit_tensor_bin(diag->tensor_dir, diag->epoch, diag->root_id, diag->chunk_idx, layer,
+                                   "fwd_kv_pack_k", buf.packed.kv_pack_k, meta.T_kv * D);
+        agpt_diag::emit_tensor_bin(diag->tensor_dir, diag->epoch, diag->root_id, diag->chunk_idx, layer,
+                                   "fwd_kv_pack_v", buf.packed.kv_pack_v, meta.T_kv * D);
+    }
 
     cuda_batched_varlen_attention_L_queries(
         buf.query.q, buf.packed.kv_pack_k, buf.packed.kv_pack_v,
         upload.d_query_to_node, upload.d_query_offsets, upload.d_kv_offsets, upload.d_kv_lengths,
         buf.query.attn_out, buf.packed.attn_weights,
         T_q, H, HD, meta.max_kv_len, 1.0f / sqrtf((float)HD));
+    if (diag && diag->active && layer == 0) {
+        agpt_diag::emit_tensor_bin(diag->tensor_dir, diag->epoch, diag->root_id, diag->chunk_idx, layer,
+                                   "fwd_attn_out", buf.query.attn_out, T_q * D);
+    }
     AGPT_V2_CUDA_CHECK(cudaMemcpy(saved.attn_out, buf.query.attn_out, (size_t)((long long)T_q * D * sizeof(float)), cudaMemcpyDeviceToDevice));
     AGPT_V2_CUDA_CHECK(cudaMemcpy(saved.attn_weights, buf.packed.attn_weights,
                                   (size_t)((long long)T_q * H * meta.max_kv_len * sizeof(float)),
