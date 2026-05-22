@@ -659,6 +659,65 @@ static void dump_fire_state(FILE* f,
     }
 }
 
+// JSONL emission for the v1↔v2 buffer-diff protocol (stage-1 schema agreed with
+// codex-agpt). Each call writes ONE record per trace point. Field names must
+// match exactly so the diff is mechanical:
+//   {epoch, root_id, chunk_idx, layer, point, l2, ...metadata}
+// chunk.meta records carry N/T_q/T_kv/T_anc/max_kv_len/trained_queries/mean_loss.
+// Per-layer records use layer=0..L-1. Fire records use layer=-1, chunk_idx=-1.
+//
+// Scratch buffer is callee-provided so we don't malloc per emit.
+
+static void emit_diag_jsonl(const char* path,
+                              int epoch, int root_id, int chunk_idx, int layer,
+                              const char* point,
+                              const float* d_buf, int n_floats)
+{
+    if (!path) return;
+    float* scratch = (float*)malloc((size_t)n_floats * sizeof(float));
+    if (!scratch) return;
+    copy_device_floats(scratch, d_buf, n_floats);
+    double l2 = l2_norm_host(scratch, n_floats);
+    free(scratch);
+    FILE* f = fopen(path, "a");
+    if (!f) return;
+    fprintf(f,
+        "{\"epoch\":%d,\"root_id\":%d,\"chunk_idx\":%d,\"layer\":%d,\"point\":\"%s\",\"l2\":%.9f}\n",
+        epoch, root_id, chunk_idx, layer, point, l2);
+    fclose(f);
+}
+
+static void emit_diag_chunk_meta(const char* path,
+                                   int epoch, int root_id, int chunk_idx,
+                                   int N, int T_q, int T_kv, int T_anc, int max_kv_len,
+                                   int trained_queries, double mean_loss)
+{
+    if (!path) return;
+    FILE* f = fopen(path, "a");
+    if (!f) return;
+    fprintf(f,
+        "{\"epoch\":%d,\"root_id\":%d,\"chunk_idx\":%d,\"layer\":-1,\"point\":\"chunk.meta\","
+        "\"N\":%d,\"T_q\":%d,\"T_kv\":%d,\"T_anc\":%d,\"max_kv_len\":%d,"
+        "\"trained_queries\":%d,\"mean_loss\":%.9f}\n",
+        epoch, root_id, chunk_idx, N, T_q, T_kv, T_anc, max_kv_len,
+        trained_queries, mean_loss);
+    fclose(f);
+}
+
+static void emit_diag_l2_value(const char* path,
+                                 int epoch, int root_id, int chunk_idx, int layer,
+                                 const char* point,
+                                 double l2_value)
+{
+    if (!path) return;
+    FILE* f = fopen(path, "a");
+    if (!f) return;
+    fprintf(f,
+        "{\"epoch\":%d,\"root_id\":%d,\"chunk_idx\":%d,\"layer\":%d,\"point\":\"%s\",\"l2\":%.9f}\n",
+        epoch, root_id, chunk_idx, layer, point, l2_value);
+    fclose(f);
+}
+
 // ============================================================================
 // Trie structure (CPU side, then uploaded)
 // ============================================================================
@@ -5511,6 +5570,14 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                     cuda_bias_add(d_ff_out, W_2b, T_q, D);
                     CUDA_CHECK(cudaMemcpy(d_x, sv_x_res2[l], (long long)T_q * D * sizeof(float), cudaMemcpyDeviceToDevice));
                     launch_elem_add(d_x, d_ff_out, T_q * D);
+
+                    if (trace_fire_target) {
+                        char pt[64];
+                        snprintf(pt, sizeof(pt), "layer%d.x_out", l);
+                        emit_diag_jsonl(fire_diag.path,
+                                         epoch + 1, root_r, fire_chunks_processed + 1, l,
+                                         pt, d_x, T_q * D);
+                    }
                 }
 
                 // AGPT mass conservation: apply final LN + output proj over ALL T_q
@@ -5542,6 +5609,12 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                 CUBLAS_CHECK(cublasSgemm(cublas, CUBLAS_OP_N, CUBLAS_OP_N, V, T_q, D,
                                           &alpha, W_out, V, d_final_out, D, &beta_zero, d_logits, V));
                 cuda_bias_add(d_logits, B_out, T_q, V);
+
+                if (trace_fire_target) {
+                    emit_diag_jsonl(fire_diag.path,
+                                     epoch + 1, root_r, fire_chunks_processed + 1, -1,
+                                     "output.logits", d_logits, T_q * V);
+                }
 
                 // Per-query loss: intermediate positions = single-target CE, endpoints
                 // = distribution CE (KL). d_d_logits (per-query grad) written in place.
@@ -5587,6 +5660,12 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                 fire_events += chunk_trained;  // per-fire LM-update-unit event count
                 fire_mass   += chunk_mass;     // per-fire mass sum (for --fire-norm-mass)
                 free(h_loss);
+
+                if (trace_fire_target) {
+                    emit_diag_jsonl(fire_diag.path,
+                                     epoch + 1, root_r, fire_chunks_processed + 1, -1,
+                                     "output.d_logits", d_d_logits, T_q * V);
+                }
 
                 // ---------- BACKWARD ----------
                 // Per-chunk accumulation is RAW (grad_scale = 1.0): each event
@@ -5799,6 +5878,14 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                     }
                     launch_rope_batched_inverse(d_dk_own, d_rope_positions, d_rope_cos, d_rope_sin, T_q * H, HD);
 
+                    if (trace_fire_target) {
+                        char pt[64];
+                        snprintf(pt, sizeof(pt), "layer%d.bwd.dk_own_post_invrope", l);
+                        emit_diag_jsonl(fire_diag.path,
+                                         epoch + 1, root_r, fire_chunks_processed + 1, l,
+                                         pt, d_dk_own, T_q * D);
+                    }
+
                     // dK → d_d_ln_out += d_dk_own × Wk^T;  dWk += ln1_out^T × d_dk_own;
                     //                                      dwk_b += col-sum(d_dk_own)
                     // dlnout propagation uses the FULL gradient (no depth routing) —
@@ -5862,16 +5949,11 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                 // NOTE: no Adam step here — gradients accumulate in d_grads
                 // across all chunks of this root-child subtree; one step at subtree end.
                 if (trace_fire_target) {
-                    copy_device_floats(fire_chunk_grad_scratch, d_grads, wo.total_floats);
-                    FILE* fire_diag_chunk_file = fopen(fire_diag.path, "a");
-                    if (fire_diag_chunk_file) {
-                        fprintf(fire_diag_chunk_file,
-                                "chunk=%d N=%d T_q=%d T_kv=%d max_kv_len=%d trained_queries=%d mean_loss=%.9f accum_grads_total_l2=%.9f\n",
-                                fire_chunks_processed + 1, N, T_q, T_kv, max_kv_len,
-                                chunk_trained, chunk_mean_loss,
-                                l2_norm_host(fire_chunk_grad_scratch, wo.total_floats));
-                        fclose(fire_diag_chunk_file);
-                    }
+                    int chunk_T_anc = (chunk_meta.h_anc_offsets) ? chunk_meta.h_anc_offsets[N] : 0;
+                    emit_diag_chunk_meta(fire_diag.path,
+                                          epoch + 1, root_r, fire_chunks_processed + 1,
+                                          N, T_q, T_kv, chunk_T_anc, max_kv_len,
+                                          chunk_trained, chunk_mean_loss);
                 }
 
                 free_chunk_metadata(chunk_meta);
@@ -6042,6 +6124,10 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                 fire_diag_opt_v = (float*)malloc(fire_diag_bytes);
                 copy_device_floats(fire_diag_grads_pre, d_grads, wo.total_floats);
                 copy_device_floats(fire_diag_weights_pre, d_weights, wo.total_floats);
+                emit_diag_l2_value(fire_diag.path,
+                                    epoch + 1, root_r, -1, -1,
+                                    "fire.grads.pre_scale.total",
+                                    l2_norm_host(fire_diag_grads_pre, wo.total_floats));
             }
 
             // Per-fire normalization: d_grads holds the raw sum across all
@@ -6074,6 +6160,10 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
             }
             if (run_fire_diag) {
                 copy_device_floats(fire_diag_grads_post, d_grads, wo.total_floats);
+                emit_diag_l2_value(fire_diag.path,
+                                    epoch + 1, root_r, -1, -1,
+                                    "fire.grads.post_scale.total",
+                                    l2_norm_host(fire_diag_grads_post, wo.total_floats));
             }
 
             // Grad clipping (applies to the accumulated chunk-gradient sum for this
