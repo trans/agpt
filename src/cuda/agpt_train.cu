@@ -5795,6 +5795,29 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                     CUDA_CHECK(cudaMemset(d_dv_pack, 0, (long long)T_kv * H * HD * sizeof(float)));
 
                     float scale = 1.0f / sqrtf((float)HD);
+
+                    // Dump attention-backward CALL INPUTS for stage-3 parity probe.
+                    // Codex localized v1↔v2 divergence to the input side of this call
+                    // (shared kernel body matches PyTorch ref). These five buffers
+                    // are everything the kernel reads.
+                    if (trace_fire_target) {
+                        emit_diag_jsonl(fire_diag.path,
+                                         epoch + 1, root_r, fire_chunks_processed + 1, l,
+                                         "layer.bwd.attn_in.q", d_q, T_q * D);
+                        emit_diag_jsonl(fire_diag.path,
+                                         epoch + 1, root_r, fire_chunks_processed + 1, l,
+                                         "layer.bwd.attn_in.kv_pack_k", d_kv_pack_k, T_kv * D);
+                        emit_diag_jsonl(fire_diag.path,
+                                         epoch + 1, root_r, fire_chunks_processed + 1, l,
+                                         "layer.bwd.attn_in.kv_pack_v", d_kv_pack_v, T_kv * D);
+                        emit_diag_jsonl(fire_diag.path,
+                                         epoch + 1, root_r, fire_chunks_processed + 1, l,
+                                         "layer.bwd.attn_in.attn_weights", sv_attn_weights[l], T_q * H * max_kv_len);
+                        emit_diag_jsonl(fire_diag.path,
+                                         epoch + 1, root_r, fire_chunks_processed + 1, l,
+                                         "layer.bwd.attn_in.d_attn_out", d_d_attn_out, T_q * D);
+                    }
+
                     TIME_K(t_us_attn_bwd, {
                         cuda_batched_varlen_attention_L_queries_backward(
                             d_q, d_kv_pack_k, d_kv_pack_v, sv_attn_weights[l], d_d_attn_out,
