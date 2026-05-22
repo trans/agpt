@@ -5585,6 +5585,26 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                     launch_rope_batched(d_q, d_rope_positions, d_rope_cos, d_rope_sin, T_q * H, HD);
                     launch_rope_batched(d_k, d_rope_positions, d_rope_cos, d_rope_sin, T_q * H, HD);
 
+                    // Stage-B: dump post-RoPE d_k IMMEDIATELY before scatter,
+                    // for chunks 1 and 2. Comparing pre-scatter K v1↔v2 says
+                    // whether the divergence enters at K compute (forward
+                    // matmul + RoPE) or at cache scatter/gather (which would
+                    // mean pre-scatter K matches but kv_pack_k after gather
+                    // doesn't).
+                    {
+                        const char* tensor_dir = getenv("AGPT_DIAG_TENSOR_DIR");
+                        bool dump_this = trace_fire_target && tensor_dir
+                                      && (fire_chunks_processed + 1) <= 2 && l == 0;
+                        if (dump_this) {
+                            emit_diag_tensor_bin(tensor_dir, epoch + 1, root_r,
+                                                  fire_chunks_processed + 1, l,
+                                                  "fwd_k_pre_scatter", d_k, T_q * D);
+                            emit_diag_tensor_bin(tensor_dir, epoch + 1, root_r,
+                                                  fire_chunks_processed + 1, l,
+                                                  "fwd_v_pre_scatter", d_v, T_q * D);
+                        }
+                    }
+
                     // Scatter K/V into compact cache (mass=1 char positions are
                     // skipped — they're never queried as ancestors).
                     TIME_K(t_us_scatter_fwd, {
@@ -5634,7 +5654,7 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                     {
                         const char* tensor_dir = getenv("AGPT_DIAG_TENSOR_DIR");
                         bool dump_this = trace_fire_target && tensor_dir
-                                      && (fire_chunks_processed + 1) == 2 && l == 0;
+                                      && (fire_chunks_processed + 1) <= 2 && l == 0;
                         if (dump_this) {
                             emit_diag_tensor_bin(tensor_dir, epoch + 1, root_r,
                                                   fire_chunks_processed + 1, l,
@@ -5682,7 +5702,7 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                     {
                         const char* tensor_dir = getenv("AGPT_DIAG_TENSOR_DIR");
                         bool dump_this = trace_fire_target && tensor_dir
-                                      && (fire_chunks_processed + 1) == 2 && l == 0;
+                                      && (fire_chunks_processed + 1) <= 2 && l == 0;
                         if (dump_this) {
                             emit_diag_tensor_bin(tensor_dir, epoch + 1, root_r,
                                                   fire_chunks_processed + 1, l,
