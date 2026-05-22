@@ -44,7 +44,7 @@ run_cell() {
     local regime_flag=""
     [ "$regime" = "none" ] && regime_flag="--fire-norm-none"
     local START=$(date +%s)
-    agpt_train --model /tmp/seed${seed}.model \
+    agpt_train --init --init-seed ${seed} \
         --trie-dir /tmp/gutenberg_5m_baseline_d16_radix \
         --epochs 10 --lr 3e-3 --optimizer rmsprop \
         --lr-schedule warmup-cosine --warmup-epochs 1 \

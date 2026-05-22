@@ -57,7 +57,7 @@ run_cell() {
     rm -rf $D && mkdir -p $D
     echo "[run] $label..."
     local START=$(date +%s)
-    agpt_train --model /tmp/seed${seed}.model \
+    agpt_train --init --init-seed ${seed} \
         --trie-dir /tmp/shake_baseline_d16_radix \
         --epochs $epochs --lr 3e-3 --optimizer rmsprop \
         --rmsprop-beta $beta2 \
