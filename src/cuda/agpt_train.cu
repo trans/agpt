@@ -704,6 +704,36 @@ static void emit_diag_chunk_meta(const char* path,
     fclose(f);
 }
 
+// Cheap signature dump for int arrays. Writes sum + min + max + count
+// in one JSONL record so we can detect mismatches in per-node metadata
+// (kv_lengths, query_offsets, kv_offsets) without sending 6000-19000 ints.
+static void emit_diag_int_signature(const char* path,
+                                      int epoch, int root_id, int chunk_idx, int layer,
+                                      const char* point,
+                                      const int* d_arr, int n)
+{
+    if (!path || n <= 0) return;
+    int* scratch = (int*)malloc((size_t)n * sizeof(int));
+    if (!scratch) return;
+    CUDA_CHECK(cudaMemcpy(scratch, d_arr, (size_t)n * sizeof(int), cudaMemcpyDeviceToHost));
+    long long sum = 0;
+    int mn = scratch[0], mx = scratch[0];
+    for (int i = 0; i < n; i++) {
+        long long v = scratch[i];
+        sum += v;
+        if (scratch[i] < mn) mn = scratch[i];
+        if (scratch[i] > mx) mx = scratch[i];
+    }
+    free(scratch);
+    FILE* f = fopen(path, "a");
+    if (!f) return;
+    fprintf(f,
+        "{\"epoch\":%d,\"root_id\":%d,\"chunk_idx\":%d,\"layer\":%d,\"point\":\"%s\","
+        "\"count\":%d,\"sum\":%lld,\"min\":%d,\"max\":%d}\n",
+        epoch, root_id, chunk_idx, layer, point, n, sum, mn, mx);
+    fclose(f);
+}
+
 static void emit_diag_l2_value(const char* path,
                                  int epoch, int root_id, int chunk_idx, int layer,
                                  const char* point,
@@ -1731,8 +1761,24 @@ float* load_model_weights(const char* path, Config* cfg) {
     cfg->vocab_size = read_i32(f);
     cfg->seq_len   = read_i32(f);
     cfg->head_dim  = cfg->d_model / cfg->n_heads;
+    // DIAGNOSTIC OVERRIDE: force seq_len=16 to test whether seq_len=128 from
+    // model header is silently distorting baseline d=16 training. Revert
+    // after diagnosis.
+    if (const char* env_seq_len = getenv("AGPT_FORCE_SEQ_LEN")) {
+        int forced = atoi(env_seq_len);
+        if (forced > 0) {
+            fprintf(stderr, "DIAG: overriding seq_len %d -> %d\n", cfg->seq_len, forced);
+            cfg->seq_len = forced;
+        }
+    }
 
-    printf("  Model: d=%d heads=%d layers=%d ff=%d vocab=%d seq=%d head_dim=%d\n",
+    // seq_len in the model header is whatever the model-creation tool baked
+    // in (often 128). At AGPT training time the only positions actually
+    // queried are 0..trie.max_depth-1, so the header value is usually a
+    // bigger-than-actual lie. We print it here marked as "header" and
+    // reconcile to the trie's max_depth after trie load — see the
+    // "seq_len reconcile" line near load_radix_trie.
+    printf("  Model: d=%d heads=%d layers=%d ff=%d vocab=%d seq=%d(header) head_dim=%d\n",
            cfg->d_model, cfg->n_heads, cfg->n_layers, cfg->d_ff,
            cfg->vocab_size, cfg->seq_len, cfg->head_dim);
 
@@ -5997,6 +6043,20 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                                           epoch + 1, root_r, fire_chunks_processed + 1,
                                           N, T_q, T_kv, chunk_T_anc, max_kv_len,
                                           chunk_trained, chunk_mean_loss);
+                    // Per-node metadata signatures: catch any v1↔v2 disagreement
+                    // in the slicing the kernel uses, even when aggregate N/T_q/T_kv match.
+                    emit_diag_int_signature(fire_diag.path,
+                                             epoch + 1, root_r, fire_chunks_processed + 1, -1,
+                                             "chunk.meta.query_offsets",
+                                             d_query_offsets, N + 1);
+                    emit_diag_int_signature(fire_diag.path,
+                                             epoch + 1, root_r, fire_chunks_processed + 1, -1,
+                                             "chunk.meta.kv_offsets",
+                                             d_kv_offsets, N + 1);
+                    emit_diag_int_signature(fire_diag.path,
+                                             epoch + 1, root_r, fire_chunks_processed + 1, -1,
+                                             "chunk.meta.kv_lengths",
+                                             d_kv_lengths, N);
                 }
 
                 free_chunk_metadata(chunk_meta);
@@ -7262,6 +7322,29 @@ int main(int argc, char** argv) {
     if (format == 1) {
         printf("Loading radix trie from %s...\n", trie_dir);
         RadixTrieData radix_trie = load_radix_trie(trie_dir);
+
+        // Reconcile cfg.seq_len with the actual training depth. The model
+        // header carries seq_len from whatever tool created the file (often
+        // 128 — a microgpt default). At AGPT training time, the only
+        // positions actually queried are 0..trie.max_depth-1. Reporting
+        // seq_len=128 when the training is d=16 is a flat lie. Force the
+        // in-memory value to match reality so the printout, RoPE cache
+        // size, and any future save propagate the truth.
+        //
+        // (Virtual-tree training with virtual_cycles>1 needs larger seq_len
+        // because chunk_cycle_shift pushes positions up. The lightning
+        // config carries virtual_cycles; if >1, we need at least
+        // virtual_cycles * max_depth. Honor that.)
+        {
+            int effective_seq_len = (radix_trie.depth_file_count - 1);
+            int vc = lightning.virtual_cycles > 0 ? lightning.virtual_cycles : 1;
+            if (vc > 1) effective_seq_len *= vc;
+            if (cfg.seq_len != effective_seq_len) {
+                printf("  seq_len reconcile: model header says %d, trie max_depth=%d virtual_cycles=%d -> effective %d. Overriding.\n",
+                    cfg.seq_len, (radix_trie.depth_file_count - 1), vc, effective_seq_len);
+                cfg.seq_len = effective_seq_len;
+            }
+        }
 
         if (fold_table_path) {
             load_fold_table(fold_table_path, radix_trie.radix_count, cfg.vocab_size);
