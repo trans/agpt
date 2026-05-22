@@ -5572,11 +5572,9 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                     launch_elem_add(d_x, d_ff_out, T_q * D);
 
                     if (trace_fire_target) {
-                        char pt[64];
-                        snprintf(pt, sizeof(pt), "layer%d.x_out", l);
                         emit_diag_jsonl(fire_diag.path,
                                          epoch + 1, root_r, fire_chunks_processed + 1, l,
-                                         pt, d_x, T_q * D);
+                                         "layer.x_out", d_x, T_q * D);
                     }
                 }
 
@@ -5879,11 +5877,9 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                     launch_rope_batched_inverse(d_dk_own, d_rope_positions, d_rope_cos, d_rope_sin, T_q * H, HD);
 
                     if (trace_fire_target) {
-                        char pt[64];
-                        snprintf(pt, sizeof(pt), "layer%d.bwd.dk_own_post_invrope", l);
                         emit_diag_jsonl(fire_diag.path,
                                          epoch + 1, root_r, fire_chunks_processed + 1, l,
-                                         pt, d_dk_own, T_q * D);
+                                         "layer.bwd.dk_own_post_invrope", d_dk_own, T_q * D);
                     }
 
                     // dK → d_d_ln_out += d_dk_own × Wk^T;  dWk += ln1_out^T × d_dk_own;
@@ -6214,6 +6210,14 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                 CUDA_CHECK(cudaDeviceSynchronize());
                 copy_device_floats(fire_diag_weights_post, d_weights, wo.total_floats);
                 copy_device_floats(fire_diag_opt_v, opt_v, wo.total_floats);
+                emit_diag_l2_value(fire_diag.path,
+                                    epoch + 1, root_r, -1, -1,
+                                    "fire.delta_w.total",
+                                    l2_diff_host(fire_diag_weights_pre, fire_diag_weights_post, wo.total_floats));
+                emit_diag_l2_value(fire_diag.path,
+                                    epoch + 1, root_r, -1, -1,
+                                    "fire.opt_v.total",
+                                    l2_norm_host(fire_diag_opt_v, wo.total_floats));
                 FILE* fire_diag_file = fopen(fire_diag.path, "a");
                 if (!fire_diag_file) {
                     fprintf(stderr, "WARNING: could not open AGPT_DIAG_FIRE_PATH=%s for write\n", fire_diag.path);
