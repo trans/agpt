@@ -65,58 +65,82 @@ Paired t-tests vs depth:
 
 Per-cell data: see `results.txt`. Training logs: `logs/<corpus>_<mode>_s<seed>.train.log`.
 
+### Single-transposition swap probes (n=3 each)
+
+| swap | mean | std | Δ vs depth |
+|---|---|---|---|
+| (0,1) | 8.407 | 0.135 | −0.18 |
+| (1,2) | 8.402 | 0.262 | −0.18 |
+| (2,3) | 8.276 | 0.111 | −0.31 |
+| (8,9) | 8.816 | 0.262 | +0.23 |
+| (14,15) | 8.940 | 0.236 | +0.36 |
+
+Per-seed `(14,15) - (0,1)` Δ across all 3 seeds: +1.04, +0.16, +0.41 — all positive.
+Direction is consistent: **front-swap is harmless, back-swap is degrading.** Not
+significant at α=0.05 (n=3, paired t≈2.1 for the leaf-vs-front comparison).
+
 ## Interpretation
 
-**Two findings, one consistent picture.**
+### Final picture across all six probe families
 
-### Finding 1: monotonic substitution is null
+| condition | preserves | breaks | mean Δ vs depth | significance |
+|---|---|---|---|---|
+| depth (control) | everything | — | 0 | — |
+| mass | monotonic ordering | linear spacing | −0.20 | p≈0.36 |
+| log-mass | monotonic ordering | linear spacing | −0.26 | p≈0.26 |
+| swap(0..3) | near-leaf ordering | front-local tiny break | ~ −0.2 | n.s. (favors swap) |
+| swap(8,9) | leaf order intact | mid-local break | +0.23 | n.s. |
+| swap(14,15) | identity except leaf | leaf-local order | +0.36 | n.s. |
+| perm-depth | per-depth identity | all ordering | +3.09 | p<0.01 |
+| off | nothing | everything | +4.85 | p<0.005 |
 
-A standard transformer that depends on RoPE as a literal sequence
-coordinate should *break* under mass-substitution. Mass values are
-4-5 orders of magnitude larger than depth values; the RoPE rotation
-angles at those positions sample the cos/sin curves at vastly
-different frequencies. If the model were locating tokens by their
-RoPE-encoded position (e.g. for in-context copying), the substitution
-should hurt by a lot.
+### What's actually going on
 
-It didn't. Mass and log-mass produce statistically-equivalent PPL to
-depth on both corpora. The model adapts.
+The model uses RoPE for **monotonic ordered differentiation, weighted toward
+the prediction-bearing end of the window.** Three pieces:
 
-### Finding 2: removing RoPE entirely costs ~5 PPL
+1. **Ordering matters more than scale.** Mass and log-mass produce
+   PPL statistically equivalent to depth even though their absolute
+   values differ by 4-5 orders of magnitude. RoPE here is not carrying
+   "literal sequence position"; it's carrying a monotonic ordering
+   signal that the model uses to differentiate queries.
 
-When pos=0 for all queries (RoPE rotation becomes identity, model
-loses positional signal entirely), PPL jumps from ~8.4 to ~13.4 on
-Shakespeare. Highly significant (paired t ≈ 9.9 vs depth). RoPE is
-contributing real work.
+2. **Identity-only doesn't suffice.** Perm-depth (random shuffle of
+   depth → angle, preserving per-depth identity but breaking ordering)
+   costs +3.09 PPL. Off (no positional signal at all) costs +4.85.
+   Perm-depth recovers ~36% of the off-vs-depth gap — meaning some
+   identity-hash signal *is* used, but ordering is the dominant
+   ~64% of RoPE's contribution.
 
-### Together
+3. **Leaf-end matters more than root-end.** Single transpositions at
+   depths 0-3 (near root, where corpus mass concentrates) are
+   harmless — sometimes even slightly *better* than identity. Single
+   transpositions at depths 8-15 (near leaf, where the predictive
+   decision happens) degrade the model. This was the key surprise of
+   the experiment and reframes the trust-signature hypothesis:
 
-The model uses RoPE for **monotonic per-query differentiation** —
-distinguishing "this query is in a position that should be treated
-one way" from "this other query should be treated differently" — but
-doesn't care about the *absolute scale* of that differentiation. Any
-monotonic injection of position-dependent rotation works equally well
-(depth, mass, log-mass). No rotation at all loses the differentiation
-and the model collapses by 5+ PPL.
+   > **The prediction in AGPT happens at the leaf.** Each query is
+   > predicting what character should come next at its position; the
+   > deepest queries in the window ARE the prediction-bearing nodes.
+   > Disrupting RoPE near the leaf disrupts the predictive attention.
+   > Disrupting RoPE near the root touches positions that mostly
+   > carry redundant "every window starts here" signal — the model
+   > can absorb that disruption without losing predictive accuracy.
 
-This is *consistent with* the trust-signature theory:
-- RoPE here isn't carrying "absolute sequence position" because there
-  isn't one — every query has its own context window with its own
-  arbitrary trie path.
-- What RoPE *is* carrying: a monotonic ordering signal across
-  positions within a query. The model learns that
-  "rotation-angle-X means deep / rare / less-trustworthy-as-statistic"
-  and "rotation-angle-Y means shallow / common / more-trustworthy."
-- The absolute spacing along the angle axis doesn't matter much — what
-  matters is that two queries at "different depths" have *different*
-  rotation angles in a monotonic way.
+   So while the corpus's mass concentrates near the root (every
+   window's first few characters are common), the model's *use* of
+   positional information concentrates near the leaf (deep queries
+   are the discriminative predictions).
 
-What *would* further test the theory: a non-monotonic substitution
-(random permutation of depth → angle). If the model still learns,
-RoPE is being used as essentially a per-node hash, not even an
-ordering signal. If it falls apart, RoPE *does* need monotonicity,
-and the role is "ordered differentiation," not "arbitrary
-differentiation."
+### Net answer to the original question
+
+AGPT's RoPE is *not* a literal-position encoding (mass-substitution
+shows the model doesn't care about absolute scale). It *is* a
+monotonic ordering signal, weighted toward the leaf end of the
+window. The trust-signature framing was directionally right but
+unevenly applied: the model doesn't treat all depths the same —
+it treats deep, prediction-adjacent depths as load-bearing and
+shallow, mass-heavy depths as nearly fungible.
 
 ## Not tested (open follow-ups)
 

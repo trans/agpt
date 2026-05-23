@@ -7,7 +7,7 @@
 // more often get a different positional signature than rare nodes.
 // Within a radix edge, all chars share the same node, so they share
 // the same mass — positional info within edges is collapsed.
-enum class RopeMode { Depth = 0, Mass = 1, LogMass = 2, Off = 3 };
+enum class RopeMode { Depth = 0, Mass = 1, LogMass = 2, Off = 3, PermDepth = 4, Swap = 5 };
 
 struct ChunkBuildContext {
     const Config& cfg;
@@ -24,6 +24,7 @@ struct ChunkBuildContext {
     const int* real_pos_of_char;
     long long T_kv_max;
     RopeMode rope_mode = RopeMode::Depth;
+    const int* rope_perm = nullptr;  // size cfg.seq_len; used only in PermDepth mode
 };
 
 struct ChunkMetadata {
@@ -163,6 +164,14 @@ static bool build_chunk_metadata(const ChunkBuildContext& ctx, ChunkMetadata& ou
                 pos = 0;
             } else if (ctx.rope_mode == RopeMode::Mass || ctx.rope_mode == RopeMode::LogMass) {
                 pos = mass_pos;
+            } else if (ctx.rope_mode == RopeMode::PermDepth || ctx.rope_mode == RopeMode::Swap) {
+                // PermDepth: full random permutation of depth indices.
+                // Swap: identity except for one transposition (set via
+                // --rope-swap A,B). Both routed via rope_perm.
+                int d_raw = fcd + j - 1;
+                if (d_raw < 0) d_raw = 0;
+                if (d_raw >= ctx.cfg.seq_len) d_raw = ctx.cfg.seq_len - 1;
+                pos = ctx.rope_perm ? ctx.rope_perm[d_raw] : d_raw;
             } else {
                 pos = fcd + j - 1;
                 if (pos < 0) pos = 0;

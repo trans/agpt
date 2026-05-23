@@ -20,6 +20,7 @@
 #include <cuda_bf16.h>
 #include <random>
 #include <vector>
+#include <algorithm>
 
 #include "../common/init_weights.h"
 #include "../common/diag_tensor_dump.h"
@@ -3645,7 +3646,9 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                         bool fire_norm_by_weight = false,
                         bool fire_norm_none = false,
                         BranchingWeightMode branching_weight = BranchingWeightMode::Off,
-                        RopeMode rope_mode = RopeMode::Depth)
+                        RopeMode rope_mode = RopeMode::Depth,
+                        unsigned rope_perm_seed = 0,
+                        int rope_swap_a = -1, int rope_swap_b = -1)
 {
     const bool quiet = persist && persist->quiet;
 
@@ -4035,6 +4038,35 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
     }
     float* d_rope_cos; float* d_rope_sin;
     build_rope_cache(&d_rope_cos, &d_rope_sin, rope_cache_max, HD);
+
+    // Build the depth-permutation table once when in PermDepth or Swap mode.
+    // PermDepth: full Fisher-Yates shuffle seeded by rope_perm_seed.
+    // Swap: identity except for one transposition at (rope_swap_a, rope_swap_b).
+    std::vector<int> rope_perm_table;
+    if (rope_mode == RopeMode::PermDepth || rope_mode == RopeMode::Swap) {
+        rope_perm_table.resize(cfg.seq_len);
+        for (int i = 0; i < cfg.seq_len; i++) rope_perm_table[i] = i;
+        const char* mode_str = "perm-depth";
+        if (rope_mode == RopeMode::PermDepth) {
+            std::mt19937 perm_rng(rope_perm_seed);
+            std::shuffle(rope_perm_table.begin(), rope_perm_table.end(), perm_rng);
+        } else {
+            mode_str = "swap";
+            if (rope_swap_a < 0 || rope_swap_b < 0 ||
+                rope_swap_a >= cfg.seq_len || rope_swap_b >= cfg.seq_len) {
+                fprintf(stderr, "--rope-mode swap requires valid --rope-swap A,B (0 ≤ A,B < %d, got %d,%d)\n",
+                        cfg.seq_len, rope_swap_a, rope_swap_b);
+                exit(1);
+            }
+            std::swap(rope_perm_table[rope_swap_a], rope_perm_table[rope_swap_b]);
+        }
+        if (!quiet) {
+            printf("  RoPE: %s mode, σ=[", mode_str);
+            for (int i = 0; i < cfg.seq_len; i++) {
+                printf("%d%s", rope_perm_table[i], (i + 1 < cfg.seq_len) ? "," : "]\n");
+            }
+        }
+    }
 
     // Per-chunk working buffers. Sized to T_q_cap queries, T_kv_cap packed KV.
     int N_cap = CHUNK_QUERIES;  // worst-case radix count per chunk when edge_len=1
@@ -5286,7 +5318,8 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                     chunk_cycle_shift,
                     real_pos_of_char,
                     T_kv_max,
-                    rope_mode
+                    rope_mode,
+                    rope_perm_table.empty() ? nullptr : rope_perm_table.data()
                 };
                 ChunkMetadata chunk_meta;
                 if (!build_chunk_metadata(chunk_ctx, chunk_meta)) {
@@ -6994,6 +7027,8 @@ int main(int argc, char** argv) {
     EntropyWeightMode entropy_weight = EntropyWeightMode::Off;
     BranchingWeightMode branching_weight = BranchingWeightMode::Off;
     RopeMode rope_mode = RopeMode::Depth;
+    int rope_perm_seed = -1;  // -1 = unset; falls back to init_seed
+    int rope_swap_a = -1, rope_swap_b = -1;  // --rope-swap A,B
     bool fire_norm_by_mass = false;
     bool fire_norm_by_weight = false;
     bool fire_norm_none = false;
@@ -7059,11 +7094,25 @@ int main(int argc, char** argv) {
             //         position *range* matters or only the monotonic ordering.
             if (i + 1 >= argc) { fprintf(stderr, "--rope-mode requires an argument\n"); return 1; }
             const char* m = argv[++i];
-            if      (strcmp(m, "depth")    == 0) rope_mode = RopeMode::Depth;
-            else if (strcmp(m, "mass")     == 0) rope_mode = RopeMode::Mass;
-            else if (strcmp(m, "log-mass") == 0) rope_mode = RopeMode::LogMass;
-            else if (strcmp(m, "off")      == 0) rope_mode = RopeMode::Off;
-            else { fprintf(stderr, "--rope-mode must be 'depth', 'mass', 'log-mass', or 'off' (got %s)\n", m); return 1; }
+            if      (strcmp(m, "depth")      == 0) rope_mode = RopeMode::Depth;
+            else if (strcmp(m, "mass")       == 0) rope_mode = RopeMode::Mass;
+            else if (strcmp(m, "log-mass")   == 0) rope_mode = RopeMode::LogMass;
+            else if (strcmp(m, "off")        == 0) rope_mode = RopeMode::Off;
+            else if (strcmp(m, "perm-depth") == 0) rope_mode = RopeMode::PermDepth;
+            else if (strcmp(m, "swap")       == 0) rope_mode = RopeMode::Swap;
+            else { fprintf(stderr, "--rope-mode must be 'depth', 'mass', 'log-mass', 'off', 'perm-depth', or 'swap' (got %s)\n", m); return 1; }
+        }
+        else if (strcmp(argv[i], "--rope-perm-seed") == 0 && i + 1 < argc) {
+            rope_perm_seed = atoi(argv[++i]);
+        }
+        else if (strcmp(argv[i], "--rope-swap") == 0 && i + 1 < argc) {
+            // --rope-swap A,B → single transposition at depths A and B.
+            // Used with --rope-mode swap.
+            const char* arg = argv[++i];
+            if (sscanf(arg, "%d,%d", &rope_swap_a, &rope_swap_b) != 2) {
+                fprintf(stderr, "--rope-swap expects 'A,B' (got '%s')\n", arg);
+                return 1;
+            }
         }
         else if (strcmp(argv[i], "--mass-weight") == 0) {
             // Two-form argument:
@@ -7560,7 +7609,8 @@ int main(int argc, char** argv) {
             load_virtual_tree(virtual_tree_path, radix_trie.radix_count, cfg.vocab_size);
         }
 
-        int rc = run_radix_training(cfg, wo, h_weights, radix_trie, epochs, entropy_lambda, mass_weight, subtree_splits, partition_depth, accumulate, single_subtree, intermediate_weight, optimizer, momentum_beta, rmsprop_beta, lr_schedule, warmup_epochs, weight_decay, grad_clip_norm, save_every, curriculum, save_path, lightning, &persist, depth_weight, fire_norm_by_mass, entropy_weight, fire_norm_by_weight, fire_norm_none, branching_weight, rope_mode);
+        unsigned final_perm_seed = (rope_perm_seed >= 0) ? (unsigned)rope_perm_seed : init_seed;
+        int rc = run_radix_training(cfg, wo, h_weights, radix_trie, epochs, entropy_lambda, mass_weight, subtree_splits, partition_depth, accumulate, single_subtree, intermediate_weight, optimizer, momentum_beta, rmsprop_beta, lr_schedule, warmup_epochs, weight_decay, grad_clip_norm, save_every, curriculum, save_path, lightning, &persist, depth_weight, fire_norm_by_mass, entropy_weight, fire_norm_by_weight, fire_norm_none, branching_weight, rope_mode, final_perm_seed, rope_swap_a, rope_swap_b);
         // Append optimizer state to the saved checkpoint so the next training
         // call can pick up Adam/RMSprop moments mid-stream.
         if (rc == 0 && save_path) {
