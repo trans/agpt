@@ -264,6 +264,24 @@ static inline void launch_kv_uncopy_own_edge_v2(const float* packed_grad,
         d_out, N, n_heads, head_dim);
 }
 
+__global__ static void set_compact_to_subtree_kernel_v2(int* compact_to_subtree,
+                                                        const int* compact_slots,
+                                                        int n_sub) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= n_sub) return;
+    int slot = compact_slots[i];
+    if (slot >= 0) compact_to_subtree[slot] = i;
+}
+
+static inline void launch_set_compact_to_subtree_v2(int* compact_to_subtree,
+                                                    const int* compact_slots,
+                                                    int n_sub) {
+    if (n_sub <= 0) return;
+    int threads = 256;
+    int blocks = (n_sub + threads - 1) / threads;
+    set_compact_to_subtree_kernel_v2<<<blocks, threads>>>(compact_to_subtree, compact_slots, n_sub);
+}
+
 __global__ static void scatter_anc_dkv_to_subtree_kernel_v2(const float* packed_grad,
                                                             const int* ancestor_ids,
                                                             const int* ancestor_offsets,
