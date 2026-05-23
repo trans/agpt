@@ -7,7 +7,21 @@
 // more often get a different positional signature than rare nodes.
 // Within a radix edge, all chars share the same node, so they share
 // the same mass — positional info within edges is collapsed.
-enum class RopeMode { Depth = 0, Mass = 1, LogMass = 2, Off = 3, PermDepth = 4, Swap = 5 };
+enum class RopeMode { Depth = 0, Mass = 1, LogMass = 2, Off = 3, PermDepth = 4, Swap = 5, Split = 6 };
+
+// Secondary signal for split mode: depth-heads always use depth, but the
+// other heads use one of these signals as their RoPE position.
+enum class SplitSecondary {
+    Mass = 0,         // edge_mass (count of strings sharing prefix)
+    LogMass = 1,      // floor(log2(edge_mass))
+    Branching = 2,    // k = distinct continuations at the radix node
+    LogBranching = 3, // floor(log2(k+1))
+    CorpusPos = 4,    // canonical corpus position mod W (where this prefix
+                      // first occurred in the corpus, wrapped to a window).
+                      // Genuinely orthogonal to depth — doesn't measure
+                      // anything about the prefix itself, but where in the
+                      // document it tends to live.
+};
 
 struct ChunkBuildContext {
     const Config& cfg;
@@ -25,6 +39,12 @@ struct ChunkBuildContext {
     long long T_kv_max;
     RopeMode rope_mode = RopeMode::Depth;
     const int* rope_perm = nullptr;  // size cfg.seq_len; used only in PermDepth mode
+    // Split mode: heads [0, split_depth_heads) use depth-positions; heads
+    // [split_depth_heads, H) use split_secondary as their position. Lets
+    // the model attend on two complementary signals per query.
+    int split_depth_heads = 0;
+    SplitSecondary split_secondary = SplitSecondary::Mass;
+    int corpus_window = 128;  // W for SplitSecondary::CorpusPos (mod window)
 };
 
 struct ChunkMetadata {
@@ -154,6 +174,45 @@ static bool build_chunk_metadata(const ChunkBuildContext& ctx, ChunkMetadata& ou
                 mass_pos = em;
             }
         }
+        // Precompute depth pos once per (j); split-mode secondary position
+        // is per-radix-node (constant across the edge) for most signals,
+        // EXCEPT corpus-pos which varies per char-in-edge.
+        int em_pos = (ctx.rope_mode == RopeMode::Split) ? ctx.trie.edge_mass[r] : 0;
+        if (em_pos < 0) em_pos = 0;
+        int split_secondary_pos = 0;
+        bool secondary_is_per_char = false;
+        if (ctx.rope_mode == RopeMode::Split) {
+            switch (ctx.split_secondary) {
+                case SplitSecondary::Mass: {
+                    split_secondary_pos = em_pos;
+                    break;
+                }
+                case SplitSecondary::LogMass: {
+                    int v = em_pos < 1 ? 1 : em_pos;
+                    int lg = 0; while (v > 1) { v >>= 1; lg++; }
+                    split_secondary_pos = lg;
+                    break;
+                }
+                case SplitSecondary::Branching: {
+                    int k = ctx.trie.counts_offset[r + 1] - ctx.trie.counts_offset[r];
+                    if (k < 0) k = 0;
+                    split_secondary_pos = k;
+                    break;
+                }
+                case SplitSecondary::LogBranching: {
+                    int k = ctx.trie.counts_offset[r + 1] - ctx.trie.counts_offset[r];
+                    int v = k < 1 ? 1 : k;
+                    int lg = 0; while (v > 1) { v >>= 1; lg++; }
+                    split_secondary_pos = lg;
+                    break;
+                }
+                case SplitSecondary::CorpusPos: {
+                    // Computed per j below; placeholder here.
+                    secondary_is_per_char = true;
+                    break;
+                }
+            }
+        }
         for (int j = 0; j < L; j++) {
             out.h_query_to_node[q_fill + j] = i;
             out.h_token_ids[q_fill + j] = ctx.trie.edge_tokens_flat[edge_start + j];
@@ -177,8 +236,28 @@ static bool build_chunk_metadata(const ChunkBuildContext& ctx, ChunkMetadata& ou
                 if (pos < 0) pos = 0;
                 if (pos >= ctx.cfg.seq_len) pos = ctx.cfg.seq_len - 1;
             }
-            for (int h = 0; h < ctx.H; h++) {
-                out.h_rope_positions[(q_fill + j) * ctx.H + h] = pos;
+            if (ctx.rope_mode == RopeMode::Split) {
+                // Dispatch by head: depth-heads get clamped depth position;
+                // secondary-heads get split_secondary_pos. The rope_cache
+                // must cover both ranges (handled in run_radix_training).
+                int d_clamp = fcd + j - 1;
+                if (d_clamp < 0) d_clamp = 0;
+                if (d_clamp >= ctx.cfg.seq_len) d_clamp = ctx.cfg.seq_len - 1;
+                int sec = split_secondary_pos;
+                if (secondary_is_per_char && ctx.real_pos_of_char) {
+                    int cp = ctx.real_pos_of_char[edge_start + j];
+                    if (cp < 0) cp = 0;
+                    int W = ctx.corpus_window > 0 ? ctx.corpus_window : 128;
+                    sec = cp % W;
+                }
+                for (int h = 0; h < ctx.H; h++) {
+                    int p = (h < ctx.split_depth_heads) ? d_clamp : sec;
+                    out.h_rope_positions[(q_fill + j) * ctx.H + h] = p;
+                }
+            } else {
+                for (int h = 0; h < ctx.H; h++) {
+                    out.h_rope_positions[(q_fill + j) * ctx.H + h] = pos;
+                }
             }
             out.h_char_pos[q_fill + j] = edge_start + j;
             out.h_query_depth[q_fill + j] = fcd + j;

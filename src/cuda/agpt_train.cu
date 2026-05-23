@@ -3648,7 +3648,10 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                         BranchingWeightMode branching_weight = BranchingWeightMode::Off,
                         RopeMode rope_mode = RopeMode::Depth,
                         unsigned rope_perm_seed = 0,
-                        int rope_swap_a = -1, int rope_swap_b = -1)
+                        int rope_swap_a = -1, int rope_swap_b = -1,
+                        int rope_split_depth_heads = -1,
+                        SplitSecondary rope_split_secondary = SplitSecondary::Mass,
+                        int rope_corpus_window = 128)
 {
     const bool quiet = persist && persist->quiet;
 
@@ -4010,13 +4013,20 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
     if (!quiet) printf("  KV cache: %.1f MB unified memory (bf16 compact)\n", total_kv_bytes / 1e6);
 
     // RoPE cache. Depth: max_pos = cfg.seq_len. Mass: max edge_mass + 1.
-    // LogMass: floor(log2(max edge_mass)) + 1. Scan the trie once when
-    // a mass-based mode is selected.
+    // LogMass: floor(log2(max edge_mass)) + 1. Split: max(seq_len, max edge_mass+1)
+    // since mass-heads consume raw mass while depth-heads consume clamped depth.
     int rope_cache_max = cfg.seq_len;
-    if (rope_mode == RopeMode::Mass || rope_mode == RopeMode::LogMass) {
+    if (rope_mode == RopeMode::Mass || rope_mode == RopeMode::LogMass ||
+        rope_mode == RopeMode::Split) {
+        // Scan trie for max edge_mass and (for split mode) max branching.
         int max_em = 0;
+        int max_k = 0;
         for (int r = 0; r < trie.radix_count; r++) {
             if (trie.edge_mass[r] > max_em) max_em = trie.edge_mass[r];
+            if (rope_mode == RopeMode::Split) {
+                int k = trie.counts_offset[r + 1] - trie.counts_offset[r];
+                if (k > max_k) max_k = k;
+            }
         }
         int max_pos;
         if (rope_mode == RopeMode::LogMass) {
@@ -4024,16 +4034,63 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
             int v = max_em < 1 ? 1 : max_em;
             while (v > 1) { v >>= 1; lg++; }
             max_pos = lg + 1;
+        } else if (rope_mode == RopeMode::Split) {
+            // Cache must cover the depth range AND the secondary range.
+            int secondary_max = 0;
+            switch (rope_split_secondary) {
+                case SplitSecondary::Mass:         secondary_max = max_em; break;
+                case SplitSecondary::LogMass: {
+                    int v = max_em < 1 ? 1 : max_em;
+                    int lg = 0; while (v > 1) { v >>= 1; lg++; }
+                    secondary_max = lg;
+                    break;
+                }
+                case SplitSecondary::Branching:    secondary_max = max_k; break;
+                case SplitSecondary::LogBranching: {
+                    int v = max_k < 1 ? 1 : max_k;
+                    int lg = 0; while (v > 1) { v >>= 1; lg++; }
+                    secondary_max = lg;
+                    break;
+                }
+                case SplitSecondary::CorpusPos:    secondary_max = rope_corpus_window - 1; break;
+            }
+            max_pos = secondary_max + 1;
+            if (max_pos < cfg.seq_len) max_pos = cfg.seq_len;
         } else {
             max_pos = max_em + 1;
         }
         rope_cache_max = max_pos;
         if (rope_cache_max < cfg.seq_len) rope_cache_max = cfg.seq_len;
         if (!quiet) {
-            const char* mode_str = (rope_mode == RopeMode::LogMass) ? "log-mass" : "mass";
+            const char* mode_str = "mass";
+            if (rope_mode == RopeMode::LogMass) mode_str = "log-mass";
+            else if (rope_mode == RopeMode::Split) mode_str = "split";
             double mb = (double)rope_cache_max * HD * 8.0 / 1e6;
-            printf("  RoPE: %s mode, max_edge_mass=%d → cache max_pos=%d (%.1f MB cos+sin)\n",
-                   mode_str, max_em, rope_cache_max, mb);
+            printf("  RoPE: %s mode, max_edge_mass=%d max_branching=%d → cache max_pos=%d (%.1f MB cos+sin)\n",
+                   mode_str, max_em, max_k, rope_cache_max, mb);
+        }
+    }
+    // Default split-heads = n_heads/2 if not set explicitly.
+    int split_depth_heads_final = rope_split_depth_heads;
+    if (rope_mode == RopeMode::Split) {
+        if (split_depth_heads_final < 0) split_depth_heads_final = cfg.n_heads / 2;
+        if (split_depth_heads_final < 0 || split_depth_heads_final > cfg.n_heads) {
+            fprintf(stderr, "--rope-split-depth-heads must be in [0, %d], got %d\n",
+                    cfg.n_heads, split_depth_heads_final);
+            exit(1);
+        }
+        const char* sec_str = "mass";
+        switch (rope_split_secondary) {
+            case SplitSecondary::Mass:         sec_str = "mass"; break;
+            case SplitSecondary::LogMass:      sec_str = "log-mass"; break;
+            case SplitSecondary::Branching:    sec_str = "branching"; break;
+            case SplitSecondary::LogBranching: sec_str = "log-branching"; break;
+            case SplitSecondary::CorpusPos:    sec_str = "corpus-pos"; break;
+        }
+        if (!quiet) {
+            printf("  RoPE: split mode, %d depth-head(s) + %d %s-head(s)\n",
+                   split_depth_heads_final,
+                   cfg.n_heads - split_depth_heads_final, sec_str);
         }
     }
     float* d_rope_cos; float* d_rope_sin;
@@ -5319,7 +5376,10 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                     real_pos_of_char,
                     T_kv_max,
                     rope_mode,
-                    rope_perm_table.empty() ? nullptr : rope_perm_table.data()
+                    rope_perm_table.empty() ? nullptr : rope_perm_table.data(),
+                    split_depth_heads_final,
+                    rope_split_secondary,
+                    rope_corpus_window
                 };
                 ChunkMetadata chunk_meta;
                 if (!build_chunk_metadata(chunk_ctx, chunk_meta)) {
@@ -7029,6 +7089,9 @@ int main(int argc, char** argv) {
     RopeMode rope_mode = RopeMode::Depth;
     int rope_perm_seed = -1;  // -1 = unset; falls back to init_seed
     int rope_swap_a = -1, rope_swap_b = -1;  // --rope-swap A,B
+    int rope_split_depth_heads = -1;          // -1 = default to n_heads / 2 (set after cfg load)
+    SplitSecondary rope_split_secondary = SplitSecondary::Mass;
+    int rope_corpus_window = 128;             // W for SplitSecondary::CorpusPos
     bool fire_norm_by_mass = false;
     bool fire_norm_by_weight = false;
     bool fire_norm_none = false;
@@ -7100,7 +7163,26 @@ int main(int argc, char** argv) {
             else if (strcmp(m, "off")        == 0) rope_mode = RopeMode::Off;
             else if (strcmp(m, "perm-depth") == 0) rope_mode = RopeMode::PermDepth;
             else if (strcmp(m, "swap")       == 0) rope_mode = RopeMode::Swap;
-            else { fprintf(stderr, "--rope-mode must be 'depth', 'mass', 'log-mass', 'off', 'perm-depth', or 'swap' (got %s)\n", m); return 1; }
+            else if (strcmp(m, "split")      == 0) rope_mode = RopeMode::Split;
+            else { fprintf(stderr, "--rope-mode must be 'depth', 'mass', 'log-mass', 'off', 'perm-depth', 'swap', or 'split' (got %s)\n", m); return 1; }
+        }
+        else if (strcmp(argv[i], "--rope-split-depth-heads") == 0 && i + 1 < argc) {
+            rope_split_depth_heads = atoi(argv[++i]);
+        }
+        else if (strcmp(argv[i], "--rope-split-secondary") == 0 && i + 1 < argc) {
+            const char* s = argv[++i];
+            if      (strcmp(s, "mass")          == 0) rope_split_secondary = SplitSecondary::Mass;
+            else if (strcmp(s, "log-mass")      == 0) rope_split_secondary = SplitSecondary::LogMass;
+            else if (strcmp(s, "branching")     == 0) rope_split_secondary = SplitSecondary::Branching;
+            else if (strcmp(s, "log-branching") == 0) rope_split_secondary = SplitSecondary::LogBranching;
+            else if (strcmp(s, "corpus-pos")    == 0) rope_split_secondary = SplitSecondary::CorpusPos;
+            else {
+                fprintf(stderr, "--rope-split-secondary must be one of 'mass', 'log-mass', 'branching', 'log-branching', 'corpus-pos' (got %s)\n", s);
+                return 1;
+            }
+        }
+        else if (strcmp(argv[i], "--rope-corpus-window") == 0 && i + 1 < argc) {
+            rope_corpus_window = atoi(argv[++i]);
         }
         else if (strcmp(argv[i], "--rope-perm-seed") == 0 && i + 1 < argc) {
             rope_perm_seed = atoi(argv[++i]);
@@ -7610,7 +7692,7 @@ int main(int argc, char** argv) {
         }
 
         unsigned final_perm_seed = (rope_perm_seed >= 0) ? (unsigned)rope_perm_seed : init_seed;
-        int rc = run_radix_training(cfg, wo, h_weights, radix_trie, epochs, entropy_lambda, mass_weight, subtree_splits, partition_depth, accumulate, single_subtree, intermediate_weight, optimizer, momentum_beta, rmsprop_beta, lr_schedule, warmup_epochs, weight_decay, grad_clip_norm, save_every, curriculum, save_path, lightning, &persist, depth_weight, fire_norm_by_mass, entropy_weight, fire_norm_by_weight, fire_norm_none, branching_weight, rope_mode, final_perm_seed, rope_swap_a, rope_swap_b);
+        int rc = run_radix_training(cfg, wo, h_weights, radix_trie, epochs, entropy_lambda, mass_weight, subtree_splits, partition_depth, accumulate, single_subtree, intermediate_weight, optimizer, momentum_beta, rmsprop_beta, lr_schedule, warmup_epochs, weight_decay, grad_clip_norm, save_every, curriculum, save_path, lightning, &persist, depth_weight, fire_norm_by_mass, entropy_weight, fire_norm_by_weight, fire_norm_none, branching_weight, rope_mode, final_perm_seed, rope_swap_a, rope_swap_b, rope_split_depth_heads, rope_split_secondary, rope_corpus_window);
         // Append optimizer state to the saved checkpoint so the next training
         // call can pick up Adam/RMSprop moments mid-stream.
         if (rc == 0 && save_path) {
