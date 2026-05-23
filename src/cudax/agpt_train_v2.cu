@@ -2,6 +2,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <cmath>
+#include <chrono>
 
 #include "types.cuh"
 #include "io.cuh"
@@ -235,6 +236,11 @@ static void scale_gradients_for_fire(cublasHandle_t cublas,
     AGPT_V2_CUBLAS_CHECK(cublasSscal(cublas, total_floats, &inv_n, d_grads, 1));
 }
 
+static double wall_seconds_v2() {
+    using clock = std::chrono::steady_clock;
+    return std::chrono::duration<double>(clock::now().time_since_epoch()).count();
+}
+
 static int effective_seq_len_from_trie_v2(const agpt_v2::RadixTrieStructure& trie) {
     int effective = trie.depth_file_count - 1;
     if (effective < 1) effective = 1;
@@ -277,6 +283,7 @@ static void run_train_epoch_on_radix_host_v2(const agpt_v2::TrainerConfig& cfg,
                                              long long total_unit_steps,
                                              long long warmup_unit_steps,
                                              int& optimizer_step_index) {
+    double t_total0 = wall_seconds_v2();
     agpt_v2::CacheLayout cache = agpt_v2::make_cache_layout(shape);
     agpt_v2::TrainingPlan training_plan = agpt_v2::build_pd1_training_plan(trie);
     if (training_plan.unit_count <= 0) {
@@ -290,6 +297,7 @@ static void run_train_epoch_on_radix_host_v2(const agpt_v2::TrainerConfig& cfg,
         build_capacity_chunk_list_for_plan_v2(trie, training_plan, cfg.chunk_queries);
     agpt_v2::TrainerRuntimeContract runtime_contract =
         agpt_v2::build_trainer_runtime_contract(shape, cache, plan, capacity_chunks);
+    double t_plan1 = wall_seconds_v2();
 
     int units_to_run = plan.training_unit_count;
     if (unit_limit > 0 && unit_limit < units_to_run) units_to_run = unit_limit;
@@ -330,6 +338,8 @@ static void run_train_epoch_on_radix_host_v2(const agpt_v2::TrainerConfig& cfg,
     agpt_v2::ChunkUploadRuntimeV2 upload{};
     init_chunk_upload_runtime_v2(upload, runtime_contract.chunk.node_capacity,
                                  runtime_contract.chunk.query_capacity, shape.n_heads);
+    AGPT_V2_CUDA_CHECK(cudaDeviceSynchronize());
+    double t_setup1 = wall_seconds_v2();
 
     std::printf("  train-growth-stage: epochs=%d units=%d optimizer=%s radix_nodes=%d edge_chars=%lld\n",
                 epochs, units_to_run, v2_optimizer_name(cfg.optimizer),
@@ -398,6 +408,8 @@ static void run_train_epoch_on_radix_host_v2(const agpt_v2::TrainerConfig& cfg,
         std::printf("    stage-epoch %d summary trained_queries=%lld mean_loss=%.6f\n",
                     epoch + 1, epoch_trained, epoch_mean);
     }
+    AGPT_V2_CUDA_CHECK(cudaDeviceSynchronize());
+    double t_train1 = wall_seconds_v2();
 
     AGPT_V2_CUDA_CHECK(cudaMemcpy(h_weights, runtime.d_weights,
                                   (size_t)model.total_floats * sizeof(float),
@@ -408,6 +420,8 @@ static void run_train_epoch_on_radix_host_v2(const agpt_v2::TrainerConfig& cfg,
     AGPT_V2_CUDA_CHECK(cudaMemcpy(h_opt_v, runtime.d_opt_v,
                                   (size_t)model.total_floats * sizeof(float),
                                   cudaMemcpyDeviceToHost));
+    AGPT_V2_CUDA_CHECK(cudaDeviceSynchronize());
+    double t_copy1 = wall_seconds_v2();
 
     free_chunk_upload_runtime_v2(upload);
     if (d_counts_offset) cudaFree(d_counts_offset);
@@ -416,6 +430,15 @@ static void run_train_epoch_on_radix_host_v2(const agpt_v2::TrainerConfig& cfg,
     agpt_v2::free_trainer_runtime_v2(runtime);
     agpt_v2::free_chunk_plan_list(capacity_chunks);
     agpt_v2::free_training_plan(training_plan);
+    AGPT_V2_CUDA_CHECK(cudaDeviceSynchronize());
+    double t_cleanup1 = wall_seconds_v2();
+    std::printf("  train-growth-stage-timing: plan=%.3fs setup=%.3fs train=%.3fs copy_back=%.3fs cleanup=%.3fs total=%.3fs\n",
+                t_plan1 - t_total0,
+                t_setup1 - t_plan1,
+                t_train1 - t_setup1,
+                t_copy1 - t_train1,
+                t_cleanup1 - t_copy1,
+                t_cleanup1 - t_total0);
 }
 
 }  // namespace
@@ -590,8 +613,11 @@ int main(int argc, char** argv) {
 
         for (int i = 0; i < (int)frontiers.size(); i++) {
             int frontier = frontiers[i];
+            double t_stage0 = wall_seconds_v2();
             agpt_v2::growth_ingest_until_v2(growth, frontier);
+            double t_ingest1 = wall_seconds_v2();
             agpt_v2::RadixTrieStructure trie = agpt_v2::growth_build_radix_view_v2(growth);
+            double t_materialize1 = wall_seconds_v2();
             std::printf("  growth-stage %d/%zu: frontier_starts=%d ingested_starts=%d radix_nodes=%d edge_chars=%lld counts=%d\n",
                         i + 1, frontiers.size(), frontier, growth.ingested_starts,
                         trie.radix_count, trie.total_edge_chars, trie.total_counts);
@@ -600,7 +626,16 @@ int main(int argc, char** argv) {
                                              epochs, unit_limit,
                                              total_unit_steps, warmup_unit_steps,
                                              optimizer_step_index);
+            double t_train1 = wall_seconds_v2();
             agpt_v2::free_radix_trie_structure(trie);
+            double t_free1 = wall_seconds_v2();
+            std::printf("  growth-stage-timing %d/%zu: ingest=%.3fs materialize=%.3fs train_stage=%.3fs free_radix=%.3fs total=%.3fs\n",
+                        i + 1, frontiers.size(),
+                        t_ingest1 - t_stage0,
+                        t_materialize1 - t_ingest1,
+                        t_train1 - t_materialize1,
+                        t_free1 - t_train1,
+                        t_free1 - t_stage0);
         }
 
         if (save_path) {
