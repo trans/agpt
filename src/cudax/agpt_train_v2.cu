@@ -241,6 +241,30 @@ static int effective_seq_len_from_trie_v2(const agpt_v2::RadixTrieStructure& tri
     return effective;
 }
 
+static agpt_v2::ChunkPlanList build_capacity_chunk_list_for_plan_v2(
+    const agpt_v2::RadixTrieStructure& trie,
+    const agpt_v2::TrainingPlan& training_plan,
+    int chunk_queries) {
+    agpt_v2::ChunkPlanList capacity{};
+    capacity.chunk_count = 1;
+    capacity.chunks = (agpt_v2::ChunkPlan*)std::calloc(1, sizeof(agpt_v2::ChunkPlan));
+    for (int u = 0; u < training_plan.unit_count; u++) {
+        agpt_v2::ChunkPlanList chunks =
+            agpt_v2::build_chunk_plan_for_unit(trie, training_plan.units[u], chunk_queries);
+        for (int c = 0; c < chunks.chunk_count; c++) {
+            const agpt_v2::ChunkPlan& chunk = chunks.chunks[c];
+            agpt_v2::ChunkPlan& cap = capacity.chunks[0];
+            if (chunk.node_count > cap.node_count) cap.node_count = chunk.node_count;
+            if (chunk.query_count > cap.query_count) cap.query_count = chunk.query_count;
+            if (chunk.kv_count > cap.kv_count) cap.kv_count = chunk.kv_count;
+            if (chunk.compact_char_count > cap.compact_char_count) cap.compact_char_count = chunk.compact_char_count;
+            if (chunk.max_kv_len > cap.max_kv_len) cap.max_kv_len = chunk.max_kv_len;
+        }
+        agpt_v2::free_chunk_plan_list(chunks);
+    }
+    return capacity;
+}
+
 static void run_train_epoch_on_radix_host_v2(const agpt_v2::TrainerConfig& cfg,
                                              const agpt_v2::RuntimeShape& shape,
                                              const agpt_v2::ModelLayout& model,
@@ -262,12 +286,10 @@ static void run_train_epoch_on_radix_host_v2(const agpt_v2::TrainerConfig& cfg,
         return;
     }
     agpt_v2::ExecutionPlan plan = agpt_v2::build_execution_plan(trie, training_plan, cfg.chunk_queries);
-    agpt_v2::ChunkPlanList largest_chunks = {};
-    if (plan.largest_by_queries) {
-        largest_chunks = agpt_v2::build_chunk_plan_for_unit(trie, *plan.largest_by_queries, cfg.chunk_queries);
-    }
+    agpt_v2::ChunkPlanList capacity_chunks =
+        build_capacity_chunk_list_for_plan_v2(trie, training_plan, cfg.chunk_queries);
     agpt_v2::TrainerRuntimeContract runtime_contract =
-        agpt_v2::build_trainer_runtime_contract(shape, cache, plan, largest_chunks);
+        agpt_v2::build_trainer_runtime_contract(shape, cache, plan, capacity_chunks);
 
     int units_to_run = plan.training_unit_count;
     if (unit_limit > 0 && unit_limit < units_to_run) units_to_run = unit_limit;
@@ -392,7 +414,7 @@ static void run_train_epoch_on_radix_host_v2(const agpt_v2::TrainerConfig& cfg,
     if (d_counts_tok) cudaFree(d_counts_tok);
     if (d_counts_val) cudaFree(d_counts_val);
     agpt_v2::free_trainer_runtime_v2(runtime);
-    agpt_v2::free_chunk_plan_list(largest_chunks);
+    agpt_v2::free_chunk_plan_list(capacity_chunks);
     agpt_v2::free_training_plan(training_plan);
 }
 
@@ -607,8 +629,10 @@ int main(int argc, char** argv) {
     if (plan.largest_by_queries) {
         largest_chunks = agpt_v2::build_chunk_plan_for_unit(trie, *plan.largest_by_queries, cfg.chunk_queries);
     }
+    agpt_v2::ChunkPlanList capacity_chunks =
+        build_capacity_chunk_list_for_plan_v2(trie, training_plan, cfg.chunk_queries);
     agpt_v2::TrainerRuntimeContract runtime_contract =
-        agpt_v2::build_trainer_runtime_contract(shape, cache, plan, largest_chunks);
+        agpt_v2::build_trainer_runtime_contract(shape, cache, plan, capacity_chunks);
     agpt_v2::ChunkMetadataV2 first_chunk_meta{};
     bool have_first_chunk_meta = false;
     if (plan.largest_by_queries && largest_chunks.chunk_count > 0) {
@@ -832,6 +856,7 @@ int main(int argc, char** argv) {
                                 agpt_v2::free_trainer_runtime_v2(runtime);
                                 agpt_v2::free_chunk_metadata_v2(first_chunk_meta);
                                 agpt_v2::free_chunk_plan_list(largest_chunks);
+                                agpt_v2::free_chunk_plan_list(capacity_chunks);
                                 agpt_v2::free_training_plan(training_plan);
                                 agpt_v2::free_radix_trie_structure(trie);
                                 return 0;
@@ -1106,6 +1131,7 @@ int main(int argc, char** argv) {
     (void)model;
     if (have_first_chunk_meta) agpt_v2::free_chunk_metadata_v2(first_chunk_meta);
     agpt_v2::free_chunk_plan_list(largest_chunks);
+    agpt_v2::free_chunk_plan_list(capacity_chunks);
     agpt_v2::free_training_plan(training_plan);
     agpt_v2::free_radix_trie_structure(trie);
     agpt_v2::free_model_layout(model);
