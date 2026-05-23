@@ -272,7 +272,55 @@ def build_vocab(path):
     return {c: i for i, c in enumerate(chars)}, len(chars)
 
 
-def fixed_window_ppl(model, tokens, d_window, max_positions, device, batch_size=256):
+def resolve_target_range(
+    token_count,
+    d_window,
+    max_positions,
+    eval_start,
+    eval_end,
+    eval_tail_frac,
+    needs_full_future_window=False,
+):
+    min_start = d_window
+    max_stop = token_count
+    if needs_full_future_window:
+        max_stop = token_count - d_window + 1
+    if max_stop <= min_start:
+        raise ValueError(
+            f"need enough tokens for d_window={d_window}; got {token_count}"
+        )
+
+    start = min_start
+    if eval_tail_frac is not None:
+        if not (0.0 < eval_tail_frac <= 1.0):
+            raise ValueError("--eval-tail-frac must be in (0, 1]")
+        start = max(start, int(token_count * (1.0 - eval_tail_frac)))
+    if eval_start is not None:
+        start = max(start, eval_start)
+
+    stop = max_stop
+    if eval_end is not None:
+        stop = min(stop, eval_end)
+    if max_positions > 0:
+        stop = min(stop, start + max_positions)
+    if start >= stop:
+        raise ValueError(
+            f"empty eval target range [{start}, {stop}); token_count={token_count}"
+        )
+    return start, stop
+
+
+def fixed_window_ppl(
+    model,
+    tokens,
+    d_window,
+    max_positions,
+    device,
+    batch_size=256,
+    eval_start=None,
+    eval_end=None,
+    eval_tail_frac=None,
+):
     """Standard fixed-window PPL: target i predicted from tokens[i-d:i],
     cross-entropy at the last-position logits against tokens[i]. Matches
     agpt_sliding_window_perplexity --pool deep_only."""
@@ -280,16 +328,17 @@ def fixed_window_ppl(model, tokens, d_window, max_positions, device, batch_size=
     N = len(tokens)
     if N < d_window + 1:
         raise ValueError(f"need ≥ d_window+1 = {d_window + 1} tokens, got {N}")
-    n_targets = N - d_window
-    if max_positions > 0 and max_positions < n_targets:
-        n_targets = max_positions
+    target_start, target_stop = resolve_target_range(
+        N, d_window, max_positions, eval_start, eval_end, eval_tail_frac
+    )
+    n_targets = target_stop - target_start
 
     total_nll = 0.0
     tokens_t = torch.tensor(tokens, dtype=torch.long, device=device)
     with torch.no_grad():
-        for start in range(0, n_targets, batch_size):
-            stop = min(start + batch_size, n_targets)
-            i_range = torch.arange(d_window + start, d_window + stop, device=device)
+        for start in range(target_start, target_stop, batch_size):
+            stop = min(start + batch_size, target_stop)
+            i_range = torch.arange(start, stop, device=device)
             offsets = torch.arange(d_window, device=device).view(1, -1)
             idx = (i_range.view(-1, 1) - d_window) + offsets  # (B, d_window)
             ctx = tokens_t[idx]
@@ -299,11 +348,20 @@ def fixed_window_ppl(model, tokens, d_window, max_positions, device, batch_size=
             nll = -log_probs.gather(1, tgt.unsqueeze(1)).squeeze(1)
             total_nll += nll.sum().item()
 
-    return math.exp(total_nll / n_targets), n_targets
+    return math.exp(total_nll / n_targets), n_targets, target_start, target_stop
 
 
 def sliding_window_ppl(
-    model, tokens, d_window, max_positions, device, pool='uniform', batch_size=256
+    model,
+    tokens,
+    d_window,
+    max_positions,
+    device,
+    pool='uniform',
+    batch_size=256,
+    eval_start=None,
+    eval_end=None,
+    eval_tail_frac=None,
 ):
     """Logit-pooled sliding-window PPL (AGPT eval protocol).
 
@@ -321,9 +379,16 @@ def sliding_window_ppl(
     N = len(tokens)
     if N < d_window + 1:
         raise ValueError(f"need ≥ d_window+1 = {d_window + 1} tokens, got {N}")
-    n_targets = N - d_window
-    if max_positions > 0 and max_positions < n_targets:
-        n_targets = max_positions
+    target_start, target_stop = resolve_target_range(
+        N,
+        d_window,
+        max_positions,
+        eval_start,
+        eval_end,
+        eval_tail_frac,
+        needs_full_future_window=True,
+    )
+    n_targets = target_stop - target_start
 
     if pool == 'uniform':
         weights = torch.full((d_window,), 1.0 / d_window, device=device)
@@ -339,10 +404,10 @@ def sliding_window_ppl(
         # Two-level loop: outer over targets (batched), inner over the d
         # window-shifts. Each (target, j) pair feeds one forward pass on a
         # d_window-length context, reading logits at within-window position j.
-        for start in range(0, n_targets, batch_size):
-            stop = min(start + batch_size, n_targets)
+        for start in range(target_start, target_stop, batch_size):
+            stop = min(start + batch_size, target_stop)
             B = stop - start
-            i_range = torch.arange(d_window + start, d_window + stop, device=device)
+            i_range = torch.arange(start, stop, device=device)
             tgt = tokens_t[i_range]  # (B,)
             pooled_lp = torch.zeros(B, model.cfg['vocab_size'], device=device)
             for j in range(d_window):
@@ -362,7 +427,7 @@ def sliding_window_ppl(
             nll = -pooled_lp.gather(1, tgt.unsqueeze(1)).squeeze(1)
             total_nll += nll.sum().item()
 
-    return math.exp(total_nll / n_targets), n_targets
+    return math.exp(total_nll / n_targets), n_targets, target_start, target_stop
 
 
 def main():
@@ -370,7 +435,7 @@ def main():
         description="Independent PyTorch reference PPL for AGPT models"
     )
     ap.add_argument('--model', required=True, help='Path to .model file')
-    ap.add_argument('--file', required=True, help='Held-out text file')
+    ap.add_argument('--file', required=True, help='Evaluation text file')
     ap.add_argument(
         '--vocab-file',
         default=None,
@@ -382,6 +447,27 @@ def main():
         type=int,
         default=0,
         help='Cap evaluated targets (0 = all). Matches the existing tool flag.',
+    )
+    ap.add_argument(
+        '--eval-start',
+        type=int,
+        default=None,
+        help='Absolute token index of first evaluated target. Default starts at d.',
+    )
+    ap.add_argument(
+        '--eval-end',
+        type=int,
+        default=None,
+        help='Absolute token index one past the last evaluated target.',
+    )
+    ap.add_argument(
+        '--eval-tail-frac',
+        type=float,
+        default=None,
+        help=(
+            'Evaluate only the final fraction of --file by target index, e.g. 0.05. '
+            'This is held-out only if training excluded that tail or --file is separate.'
+        ),
     )
     ap.add_argument('--device', default='cpu', choices=['cpu', 'cuda'])
     ap.add_argument('--batch-size', type=int, default=256)
@@ -422,27 +508,37 @@ def main():
     model = AGPTModel(cfg, sd, device=args.device).to(args.device)
 
     if args.mode == 'fixed':
-        ppl, n = fixed_window_ppl(
-            model, tokens, args.d, args.max_positions, args.device, args.batch_size
+        ppl, n, start, stop = fixed_window_ppl(
+            model, tokens, args.d, args.max_positions, args.device, args.batch_size,
+            args.eval_start, args.eval_end, args.eval_tail_frac,
         )
+        print(f"Eval target range: [{start}, {stop})", file=sys.stderr)
         print(f"Tokens evaluated: {n}", file=sys.stderr)
         print(f"Perplexity:    {ppl:.4f}")
     elif args.mode in ('uniform', 'depth_w'):
-        ppl, n = sliding_window_ppl(
+        ppl, n, start, stop = sliding_window_ppl(
             model, tokens, args.d, args.max_positions, args.device,
             pool=args.mode, batch_size=args.batch_size,
+            eval_start=args.eval_start, eval_end=args.eval_end,
+            eval_tail_frac=args.eval_tail_frac,
         )
+        print(f"Eval target range: [{start}, {stop})", file=sys.stderr)
         print(f"Tokens evaluated: {n}", file=sys.stderr)
         print(f"Perplexity:    {ppl:.4f}")
     else:  # both
-        ppl_f, n = fixed_window_ppl(
-            model, tokens, args.d, args.max_positions, args.device, args.batch_size
+        ppl_f, n_f, start_f, stop_f = fixed_window_ppl(
+            model, tokens, args.d, args.max_positions, args.device, args.batch_size,
+            args.eval_start, args.eval_end, args.eval_tail_frac,
         )
-        ppl_u, _ = sliding_window_ppl(
+        ppl_u, n_u, start_u, stop_u = sliding_window_ppl(
             model, tokens, args.d, args.max_positions, args.device,
             pool='uniform', batch_size=args.batch_size,
+            eval_start=args.eval_start, eval_end=args.eval_end,
+            eval_tail_frac=args.eval_tail_frac,
         )
-        print(f"Tokens evaluated: {n}", file=sys.stderr)
+        print(f"Fixed eval target range: [{start_f}, {stop_f})", file=sys.stderr)
+        print(f"Uniform eval target range: [{start_u}, {stop_u})", file=sys.stderr)
+        print(f"Tokens evaluated fixed={n_f} uniform={n_u}", file=sys.stderr)
         print(f"Perplexity (fixed):   {ppl_f:.4f}")
         print(f"Perplexity (uniform): {ppl_u:.4f}")
 
