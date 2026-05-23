@@ -58,6 +58,23 @@ for s in $SEEDS; do
     fi
 done
 
+# Auto-detect available evaluator. Prefer Python reference (independent
+# of the trainer's CUDA kernels); fall back to the Crystal sliding-window
+# tool with --pool deep_only when torch isn't available (runpod images
+# lack Python). The Crystal deep_only mode produces byte-identical PPL
+# to Python --mode fixed (cross-validated 2026-05-22, 4-decimal match).
+EVAL_CMD=""
+if python3 -c "import torch" 2>/dev/null; then
+    EVAL_CMD="python3 src/tools/agpt_ppl.py --d 16 --max-positions 10000 --mode fixed"
+    echo "Evaluator: PyTorch reference (src/tools/agpt_ppl.py)"
+elif [ -x bin/agpt_sliding_window_perplexity ]; then
+    EVAL_CMD="bin/agpt_sliding_window_perplexity --d 16 --max-positions 10000 --backend openblas --workers 8 --pool deep_only"
+    echo "Evaluator: Crystal sliding-window (--pool deep_only)"
+else
+    echo "ERROR: no evaluator available — need python3+torch OR bin/agpt_sliding_window_perplexity"
+    exit 1
+fi
+
 run_cell() {
     local label="$1"
     local flag="$2"
@@ -79,10 +96,7 @@ run_cell() {
         $flag \
         --save $D/run.model > $D/train.log 2>&1
     local TRAIN_WALL=$(($(date +%s) - START))
-    local PPL=$(python3 src/tools/agpt_ppl.py \
-        --model $D/run.model \
-        --file $HOLDOUT --vocab-file $VOCAB \
-        --d 16 --max-positions 10000 --mode fixed 2>/dev/null \
+    local PPL=$($EVAL_CMD --model $D/run.model --file $HOLDOUT --vocab-file $VOCAB 2>/dev/null \
         | awk '/^Perplexity/ {print $2}')
     echo "$PPL" > $D/heldout_ppl.txt
     echo "$label train_wall=${TRAIN_WALL}s PPL=$PPL" | tee -a $RESULTS
