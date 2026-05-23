@@ -1,0 +1,54 @@
+
+=== Gutenberg anc-grad sweep, Sat May 23 18:17:22 UTC 2026 ===
+Signals: mass entropy-w branching depth-weight  Modes: log sqrt linear inv-log inv-linear  Seeds: 1
+
+baseline (depth+anc, mw=off)             mean=7.698 ± 0.000 (n=1)
+mass log                                 mean=7.531 ± 0.000 (n=1)
+mass sqrt                                mean=7.445 ± 0.000 (n=1)
+mass linear                              mean=8.161 ± 0.000 (n=1)
+mass inv-log                             mean=7.833 ± 0.000 (n=1)
+mass inv-linear                          mean=7.548 ± 0.000 (n=1)
+entropy-w log                            mean=7.631 ± 0.000 (n=1)
+entropy-w sqrt                           mean=7.676 ± 0.000 (n=1)
+entropy-w linear                         mean=7.524 ± 0.000 (n=1)
+entropy-w inv-log                        mean=7.598 ± 0.000 (n=1)
+entropy-w inv-linear                     mean=7.530 ± 0.000 (n=1)
+branching log                            mean=7.819 ± 0.000 (n=1)
+branching sqrt                           mean=7.559 ± 0.000 (n=1)
+branching linear                         mean=7.747 ± 0.000 (n=1)
+branching inv-log                        mean=7.942 ± 0.000 (n=1)
+branching inv-linear                     mean=7.820 ± 0.000 (n=1)
+depth-weight log                         mean=7.750 ± 0.000 (n=1)
+depth-weight sqrt                        mean=7.375 ± 0.000 (n=1)
+depth-weight linear                      mean=7.305 ± 0.000 (n=1)
+depth-weight inv-log                     mean=8.114 ± 0.000 (n=1)
+depth-weight inv-linear                  mean=8.634 ± 0.000 (n=1)
+
+Full per-cell results: rnd/gutenberg-anc-sweep/results.txt
+
+=== Gutenberg anc-grad sweep, Sat May 23 19:28:22 UTC 2026 ===
+Signals: mass entropy-w branching depth-weight  Modes: log sqrt linear inv-log inv-linear  Seeds: 2 3
+
+baseline (depth+anc, mw=off)             mean=7.629 ± 0.086 (n=3)
+mass log                                 mean=7.560 ± 0.038 (n=3)
+mass sqrt                                mean=7.485 ± 0.043 (n=3)
+mass linear                              mean=7.928 ± 0.167 (n=3)
+mass inv-log                             mean=7.805 ± 0.072 (n=3)
+mass inv-linear                          mean=7.702 ± 0.110 (n=3)
+entropy-w log                            mean=7.790 ± 0.181 (n=3)
+entropy-w sqrt                           mean=7.760 ± 0.141 (n=3)
+entropy-w linear                         mean=7.651 ± 0.102 (n=3)
+entropy-w inv-log                        mean=7.619 ± 0.021 (n=3)
+entropy-w inv-linear                     mean=7.683 ± 0.133 (n=3)
+branching log                            mean=7.655 ± 0.122 (n=3)
+branching sqrt                           mean=7.761 ± 0.164 (n=3)
+branching linear                         mean=7.634 ± 0.108 (n=3)
+branching inv-log                        mean=7.673 ± 0.194 (n=3)
+branching inv-linear                     mean=7.818 ± 0.005 (n=3)
+depth-weight log                         mean=7.590 ± 0.125 (n=3)
+depth-weight sqrt                        mean=7.445 ± 0.050 (n=3)
+depth-weight linear                      mean=7.422 ± 0.088 (n=3)
+depth-weight inv-log                     mean=7.927 ± 0.132 (n=3)
+depth-weight inv-linear                  mean=8.682 ± 0.080 (n=3)
+
+Full per-cell results: rnd/gutenberg-anc-sweep/results.txt
