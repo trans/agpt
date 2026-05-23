@@ -371,6 +371,7 @@ __global__ static void agpt_loss_per_query_kernel_v2(
     const int* radix_ids,
     const int* token_ids,
     const int* counts_offset,
+    const int* counts_len,
     const int* counts_tok,
     const int* counts_val,
     float* d_logits,
@@ -421,7 +422,7 @@ __global__ static void agpt_loss_per_query_kernel_v2(
         if (is_endpoint) {
             int radix_id = radix_ids[n_idx];
             int start = counts_offset[radix_id];
-            int end = counts_offset[radix_id + 1];
+            int end = start + counts_len[radix_id];
             if (start == end) {
                 loss_out[q] = 0.0f;
                 return;
@@ -453,6 +454,7 @@ static inline void launch_agpt_loss_per_query_v2(const float* logits,
                                                  const int* radix_ids,
                                                  const int* token_ids,
                                                  const int* counts_offset,
+                                                 const int* counts_len,
                                                  const int* counts_tok,
                                                  const int* counts_val,
                                                  float* d_logits,
@@ -465,7 +467,7 @@ static inline void launch_agpt_loss_per_query_v2(const float* logits,
     int smem = threads * sizeof(float);
     agpt_loss_per_query_kernel_v2<<<T_q, threads, smem>>>(
         logits, query_to_node, query_offsets, radix_ids, token_ids,
-        counts_offset, counts_tok, counts_val,
+        counts_offset, counts_len, counts_tok, counts_val,
         d_logits, loss_out, T_q, V);
 }
 

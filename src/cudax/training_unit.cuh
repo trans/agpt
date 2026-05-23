@@ -80,13 +80,24 @@ static inline TrainingPlan build_pd1_training_plan(const RadixTrieStructure& tri
         }
     }
 
+    std::vector<int> root_children;
+    root_children.reserve((size_t)plan.unit_count);
+    for (int rc = 1; rc < trie.radix_count; rc++) {
+        if (seen[rc]) root_children.push_back(rc);
+    }
+    std::stable_sort(root_children.begin(), root_children.end(), [&](int a, int b) {
+        int ta = trie.edge_lens[a] > 0 ? trie.edge_tokens_flat[trie.edge_starts[a]] : -1;
+        int tb = trie.edge_lens[b] > 0 ? trie.edge_tokens_flat[trie.edge_starts[b]] : -1;
+        if (ta != tb) return ta < tb;
+        return a < b;
+    });
+
     plan.units = (TrainingUnit*)std::calloc(plan.unit_count, sizeof(TrainingUnit));
     int* rc_to_unit = (int*)std::malloc(trie.radix_count * sizeof(int));
     for (int i = 0; i < trie.radix_count; i++) rc_to_unit[i] = -1;
 
-    int unit_fill = 0;
-    for (int rc = 1; rc < trie.radix_count; rc++) {
-        if (!seen[rc]) continue;
+    for (int unit_fill = 0; unit_fill < (int)root_children.size(); unit_fill++) {
+        int rc = root_children[unit_fill];
         TrainingUnit& unit = plan.units[unit_fill];
         unit.kind = TrainingUnitKind::RootChildSubtree;
         unit.unit_index = unit_fill;
@@ -94,7 +105,6 @@ static inline TrainingPlan build_pd1_training_plan(const RadixTrieStructure& tri
         unit.node_count = counts[rc];
         unit.radix_ids = (int*)std::malloc(unit.node_count * sizeof(int));
         rc_to_unit[rc] = unit_fill;
-        unit_fill++;
     }
 
     int* fills = (int*)std::calloc(plan.unit_count, sizeof(int));

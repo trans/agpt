@@ -119,10 +119,13 @@ static inline CacheRuntimeContract build_cache_runtime_contract(const RuntimeSha
 static inline TrainerRuntimeContract build_trainer_runtime_contract(const RuntimeShape& shape,
                                                                    const CacheLayout& cache_layout,
                                                                    const ExecutionPlan& plan,
-                                                                   const ChunkPlanList& largest_chunks) {
+                                                                   const ChunkPlanList& largest_chunks,
+                                                                   long long compact_slot_capacity = 0) {
     TrainerRuntimeContract contract;
     contract.shape = shape;
-    contract.cache = build_cache_runtime_contract(shape, plan.total_compact_char_count, shape.n_layers);
+    long long cache_capacity = plan.total_compact_char_count;
+    if (compact_slot_capacity > cache_capacity) cache_capacity = compact_slot_capacity;
+    contract.cache = build_cache_runtime_contract(shape, cache_capacity, shape.n_layers);
     contract.cache.k_space = cache_layout.k_space;
     contract.cache.v_is_rope_free = cache_layout.v_is_rope_free;
     contract.cache.uses_managed_memory = true;

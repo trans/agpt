@@ -65,7 +65,9 @@ struct RadixTrieStructure {
     long long total_ancestor_chars = 0;
     int* real_pos_of_char = nullptr;
     int* compact_slot = nullptr;
+    long long compact_slot_capacity = 0;
     int* counts_offset = nullptr;
+    int* counts_len = nullptr;
     int* counts_tok = nullptr;
     int* counts_val = nullptr;
 };
@@ -87,6 +89,7 @@ static inline void free_radix_trie_structure(RadixTrieStructure& trie) {
     std::free(trie.real_pos_of_char);
     std::free(trie.compact_slot);
     std::free(trie.counts_offset);
+    std::free(trie.counts_len);
     std::free(trie.counts_tok);
     std::free(trie.counts_val);
     trie = RadixTrieStructure{};
@@ -231,8 +234,10 @@ static inline RadixTrieStructure load_radix_structure_minimal(const char* dir) {
     }
 
     trie.counts_offset = (int*)std::malloc((trie.radix_count + 1) * sizeof(int));
+    trie.counts_len = (int*)std::calloc(trie.radix_count > 0 ? trie.radix_count : 1, sizeof(int));
     trie.counts_offset[0] = 0;
     for (int r = 0; r < trie.radix_count; r++) {
+        trie.counts_len[r] = count_lens[r];
         trie.counts_offset[r + 1] = trie.counts_offset[r] + count_lens[r];
     }
     trie.counts_tok = (int*)std::malloc((trie.total_counts > 0 ? trie.total_counts : 1) * sizeof(int));
@@ -322,6 +327,7 @@ static inline RadixTrieStructure load_radix_structure_minimal(const char* dir) {
             for (int e = 0; e < len; e++) trie.compact_slot[start + e] = (int)compact_fill++;
         }
     }
+    trie.compact_slot_capacity = compact_fill;
 
     return trie;
 }

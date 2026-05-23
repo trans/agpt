@@ -21,6 +21,7 @@ struct ForwardPassResult {
 
 struct LossTablesV2 {
     const int* d_counts_offset = nullptr;
+    const int* d_counts_len = nullptr;
     const int* d_counts_tok = nullptr;
     const int* d_counts_val = nullptr;
 };

@@ -247,6 +247,12 @@ static int effective_seq_len_from_trie_v2(const agpt_v2::RadixTrieStructure& tri
     return effective;
 }
 
+static long long active_count_entries_v2(const agpt_v2::RadixTrieStructure& trie) {
+    long long total = 0;
+    for (int r = 0; r < trie.radix_count; r++) total += trie.counts_len[r];
+    return total;
+}
+
 static agpt_v2::ChunkPlanList build_capacity_chunk_list_for_plan_v2(
     const agpt_v2::RadixTrieStructure& trie,
     const agpt_v2::TrainingPlan& training_plan,
@@ -269,6 +275,54 @@ static agpt_v2::ChunkPlanList build_capacity_chunk_list_for_plan_v2(
         agpt_v2::free_chunk_plan_list(chunks);
     }
     return capacity;
+}
+
+struct DeviceLossTablesV2 {
+    int* d_counts_offset = nullptr;
+    int* d_counts_len = nullptr;
+    int* d_counts_tok = nullptr;
+    int* d_counts_val = nullptr;
+};
+
+static DeviceLossTablesV2 upload_loss_tables_v2(const agpt_v2::RadixTrieStructure& trie) {
+    DeviceLossTablesV2 out{};
+    int radix_count_for_tables = trie.radix_count > 0 ? trie.radix_count : 1;
+    AGPT_V2_CUDA_CHECK(cudaMalloc(&out.d_counts_offset, (size_t)radix_count_for_tables * sizeof(int)));
+    AGPT_V2_CUDA_CHECK(cudaMemcpy(out.d_counts_offset, trie.counts_offset,
+                                  (size_t)radix_count_for_tables * sizeof(int),
+                                  cudaMemcpyHostToDevice));
+    AGPT_V2_CUDA_CHECK(cudaMalloc(&out.d_counts_len, (size_t)radix_count_for_tables * sizeof(int)));
+    AGPT_V2_CUDA_CHECK(cudaMemcpy(out.d_counts_len, trie.counts_len,
+                                  (size_t)radix_count_for_tables * sizeof(int),
+                                  cudaMemcpyHostToDevice));
+    AGPT_V2_CUDA_CHECK(cudaMalloc(&out.d_counts_tok, (size_t)(trie.total_counts > 0 ? trie.total_counts : 1) * sizeof(int)));
+    AGPT_V2_CUDA_CHECK(cudaMalloc(&out.d_counts_val, (size_t)(trie.total_counts > 0 ? trie.total_counts : 1) * sizeof(int)));
+    if (trie.total_counts > 0) {
+        AGPT_V2_CUDA_CHECK(cudaMemcpy(out.d_counts_tok, trie.counts_tok,
+                                      (size_t)trie.total_counts * sizeof(int),
+                                      cudaMemcpyHostToDevice));
+        AGPT_V2_CUDA_CHECK(cudaMemcpy(out.d_counts_val, trie.counts_val,
+                                      (size_t)trie.total_counts * sizeof(int),
+                                      cudaMemcpyHostToDevice));
+    }
+    return out;
+}
+
+static agpt_v2::LossTablesV2 make_loss_tables_view_v2(const DeviceLossTablesV2& tables) {
+    return agpt_v2::LossTablesV2{
+        tables.d_counts_offset,
+        tables.d_counts_len,
+        tables.d_counts_tok,
+        tables.d_counts_val,
+    };
+}
+
+static void free_device_loss_tables_v2(DeviceLossTablesV2& tables) {
+    if (tables.d_counts_offset) cudaFree(tables.d_counts_offset);
+    if (tables.d_counts_len) cudaFree(tables.d_counts_len);
+    if (tables.d_counts_tok) cudaFree(tables.d_counts_tok);
+    if (tables.d_counts_val) cudaFree(tables.d_counts_val);
+    tables = DeviceLossTablesV2{};
 }
 
 static void run_train_epoch_on_radix_host_v2(const agpt_v2::TrainerConfig& cfg,
@@ -296,7 +350,8 @@ static void run_train_epoch_on_radix_host_v2(const agpt_v2::TrainerConfig& cfg,
     agpt_v2::ChunkPlanList capacity_chunks =
         build_capacity_chunk_list_for_plan_v2(trie, training_plan, cfg.chunk_queries);
     agpt_v2::TrainerRuntimeContract runtime_contract =
-        agpt_v2::build_trainer_runtime_contract(shape, cache, plan, capacity_chunks);
+        agpt_v2::build_trainer_runtime_contract(shape, cache, plan, capacity_chunks,
+                                                trie.compact_slot_capacity);
     double t_plan1 = wall_seconds_v2();
 
     int units_to_run = plan.training_unit_count;
@@ -316,24 +371,8 @@ static void run_train_epoch_on_radix_host_v2(const agpt_v2::TrainerConfig& cfg,
                                   (size_t)model.total_floats * sizeof(float),
                                   cudaMemcpyHostToDevice));
 
-    int* d_counts_offset = nullptr;
-    int* d_counts_tok = nullptr;
-    int* d_counts_val = nullptr;
-    AGPT_V2_CUDA_CHECK(cudaMalloc(&d_counts_offset, (size_t)(trie.radix_count + 1) * sizeof(int)));
-    AGPT_V2_CUDA_CHECK(cudaMemcpy(d_counts_offset, trie.counts_offset,
-                                  (size_t)(trie.radix_count + 1) * sizeof(int),
-                                  cudaMemcpyHostToDevice));
-    AGPT_V2_CUDA_CHECK(cudaMalloc(&d_counts_tok, (size_t)(trie.total_counts > 0 ? trie.total_counts : 1) * sizeof(int)));
-    AGPT_V2_CUDA_CHECK(cudaMalloc(&d_counts_val, (size_t)(trie.total_counts > 0 ? trie.total_counts : 1) * sizeof(int)));
-    if (trie.total_counts > 0) {
-        AGPT_V2_CUDA_CHECK(cudaMemcpy(d_counts_tok, trie.counts_tok,
-                                      (size_t)trie.total_counts * sizeof(int),
-                                      cudaMemcpyHostToDevice));
-        AGPT_V2_CUDA_CHECK(cudaMemcpy(d_counts_val, trie.counts_val,
-                                      (size_t)trie.total_counts * sizeof(int),
-                                      cudaMemcpyHostToDevice));
-    }
-    agpt_v2::LossTablesV2 loss_tables{d_counts_offset, d_counts_tok, d_counts_val};
+    DeviceLossTablesV2 device_loss_tables = upload_loss_tables_v2(trie);
+    agpt_v2::LossTablesV2 loss_tables = make_loss_tables_view_v2(device_loss_tables);
 
     agpt_v2::ChunkUploadRuntimeV2 upload{};
     init_chunk_upload_runtime_v2(upload, runtime_contract.chunk.node_capacity,
@@ -424,9 +463,7 @@ static void run_train_epoch_on_radix_host_v2(const agpt_v2::TrainerConfig& cfg,
     double t_copy1 = wall_seconds_v2();
 
     free_chunk_upload_runtime_v2(upload);
-    if (d_counts_offset) cudaFree(d_counts_offset);
-    if (d_counts_tok) cudaFree(d_counts_tok);
-    if (d_counts_val) cudaFree(d_counts_val);
+    free_device_loss_tables_v2(device_loss_tables);
     agpt_v2::free_trainer_runtime_v2(runtime);
     agpt_v2::free_chunk_plan_list(capacity_chunks);
     agpt_v2::free_training_plan(training_plan);
@@ -591,7 +628,16 @@ int main(int argc, char** argv) {
         long long total_unit_steps = (long long)frontiers.size() * (long long)epochs * (long long)estimated_units;
         long long warmup_unit_steps = (long long)cfg.warmup_epochs * (long long)estimated_units;
         int optimizer_step_index = 0;
-        agpt_v2::GrowthTrieStateV2 growth = agpt_v2::make_growth_trie_state_v2(std::move(tokens), max_depth);
+        const char* growth_radix_env = std::getenv("AGPT_GROWTH_RADIX");
+        bool use_incremental_growth_radix =
+            !(growth_radix_env && std::strcmp(growth_radix_env, "rebuild") == 0);
+        agpt_v2::GrowthTrieStateV2 growth_rebuild;
+        agpt_v2::GrowthIncrementalRadixStateV2 growth_incremental;
+        if (use_incremental_growth_radix) {
+            growth_incremental = agpt_v2::make_growth_incremental_radix_state_v2(std::move(tokens), max_depth);
+        } else {
+            growth_rebuild = agpt_v2::make_growth_trie_state_v2(std::move(tokens), max_depth);
+        }
 
         std::printf("AGPT CUDA Trainer V2\n");
         std::printf("  mode: %s\n", v2_mode_name(mode));
@@ -603,10 +649,14 @@ int main(int argc, char** argv) {
                         header_seq_len, max_depth, shape.seq_len);
         }
         std::printf("  corpus: %s tokens=%zu full_starts=%d\n",
-                    corpus_path, growth.tokens.size(), full_starts);
-        std::printf("  growth: stages=%zu epochs_per_stage=%d optimizer=%s schedule=%s estimated_total_unit_steps=%lld\n",
+                    corpus_path,
+                    use_incremental_growth_radix ? growth_incremental.tokens.size() : growth_rebuild.tokens.size(),
+                    full_starts);
+        std::printf("  growth: stages=%zu epochs_per_stage=%d optimizer=%s schedule=%s materializer=%s estimated_total_unit_steps=%lld\n",
                     frontiers.size(), epochs, v2_optimizer_name(cfg.optimizer),
-                    v2_lr_schedule_name(cfg.lr_schedule), total_unit_steps);
+                    v2_lr_schedule_name(cfg.lr_schedule),
+                    use_incremental_growth_radix ? "incremental-radix" : "rebuild",
+                    total_unit_steps);
         std::printf("  config: lr=%.6f warmup_epochs=%d partition_depth=%d chunk_queries=%d anc_grad=%s\n",
                     cfg.lr, cfg.warmup_epochs, cfg.partition_depth, cfg.chunk_queries,
                     cfg.anc_grad ? "true" : "false");
@@ -614,20 +664,35 @@ int main(int argc, char** argv) {
         for (int i = 0; i < (int)frontiers.size(); i++) {
             int frontier = frontiers[i];
             double t_stage0 = wall_seconds_v2();
-            agpt_v2::growth_ingest_until_v2(growth, frontier);
+            if (use_incremental_growth_radix) {
+                agpt_v2::growth_incremental_ingest_until_v2(growth_incremental, frontier);
+            } else {
+                agpt_v2::growth_ingest_until_v2(growth_rebuild, frontier);
+            }
             double t_ingest1 = wall_seconds_v2();
-            agpt_v2::RadixTrieStructure trie = agpt_v2::growth_build_radix_view_v2(growth);
+            agpt_v2::RadixTrieStructure trie =
+                use_incremental_growth_radix
+                    ? agpt_v2::growth_incremental_radix_view_v2(growth_incremental)
+                    : agpt_v2::growth_build_radix_view_v2(growth_rebuild);
             double t_materialize1 = wall_seconds_v2();
-            std::printf("  growth-stage %d/%zu: frontier_starts=%d ingested_starts=%d radix_nodes=%d edge_chars=%lld counts=%d\n",
-                        i + 1, frontiers.size(), frontier, growth.ingested_starts,
-                        trie.radix_count, trie.total_edge_chars, trie.total_counts);
+            long long active_counts = active_count_entries_v2(trie);
+            std::printf("  growth-stage %d/%zu: frontier_starts=%d ingested_starts=%d radix_nodes=%d edge_chars=%lld counts=%lld",
+                        i + 1, frontiers.size(), frontier,
+                        use_incremental_growth_radix ? growth_incremental.ingested_starts : growth_rebuild.ingested_starts,
+                        trie.radix_count, trie.total_edge_chars, active_counts);
+            if ((long long)trie.total_counts != active_counts) {
+                std::printf(" flat_counts=%d", trie.total_counts);
+            }
+            std::printf("\n");
             run_train_epoch_on_radix_host_v2(cfg, shape, model, trie,
                                              h_weights, h_opt_m, h_opt_v,
                                              epochs, unit_limit,
                                              total_unit_steps, warmup_unit_steps,
                                              optimizer_step_index);
             double t_train1 = wall_seconds_v2();
-            agpt_v2::free_radix_trie_structure(trie);
+            if (!use_incremental_growth_radix) {
+                agpt_v2::free_radix_trie_structure(trie);
+            }
             double t_free1 = wall_seconds_v2();
             std::printf("  growth-stage-timing %d/%zu: ingest=%.3fs materialize=%.3fs train_stage=%.3fs free_radix=%.3fs total=%.3fs\n",
                         i + 1, frontiers.size(),
@@ -667,7 +732,8 @@ int main(int argc, char** argv) {
     agpt_v2::ChunkPlanList capacity_chunks =
         build_capacity_chunk_list_for_plan_v2(trie, training_plan, cfg.chunk_queries);
     agpt_v2::TrainerRuntimeContract runtime_contract =
-        agpt_v2::build_trainer_runtime_contract(shape, cache, plan, capacity_chunks);
+        agpt_v2::build_trainer_runtime_contract(shape, cache, plan, capacity_chunks,
+                                                trie.compact_slot_capacity);
     agpt_v2::ChunkMetadataV2 first_chunk_meta{};
     bool have_first_chunk_meta = false;
     if (plan.largest_by_queries && largest_chunks.chunk_count > 0) {
@@ -782,9 +848,7 @@ int main(int argc, char** argv) {
     bool run_train_epoch = (mode == V2Mode::TrainEpoch);
     bool run_train_small = (mode == V2Mode::TrainSmall);
 
-    int* d_counts_offset = nullptr;
-    int* d_counts_tok = nullptr;
-    int* d_counts_val = nullptr;
+    DeviceLossTablesV2 device_loss_tables{};
     if (instantiate_runtime) {
         agpt_v2::TrainerRuntimeV2 runtime{};
         init_trainer_runtime_v2(runtime, runtime_contract, trie);
@@ -793,20 +857,7 @@ int main(int argc, char** argv) {
         AGPT_V2_CUDA_CHECK(cudaMemcpy(runtime.d_weights, h_weights,
                                       (size_t)model.total_floats * sizeof(float),
                                       cudaMemcpyHostToDevice));
-        AGPT_V2_CUDA_CHECK(cudaMalloc(&d_counts_offset, (size_t)(trie.radix_count + 1) * sizeof(int)));
-        AGPT_V2_CUDA_CHECK(cudaMemcpy(d_counts_offset, trie.counts_offset,
-                                      (size_t)(trie.radix_count + 1) * sizeof(int),
-                                      cudaMemcpyHostToDevice));
-        AGPT_V2_CUDA_CHECK(cudaMalloc(&d_counts_tok, (size_t)(trie.total_counts > 0 ? trie.total_counts : 1) * sizeof(int)));
-        AGPT_V2_CUDA_CHECK(cudaMalloc(&d_counts_val, (size_t)(trie.total_counts > 0 ? trie.total_counts : 1) * sizeof(int)));
-        if (trie.total_counts > 0) {
-            AGPT_V2_CUDA_CHECK(cudaMemcpy(d_counts_tok, trie.counts_tok,
-                                          (size_t)trie.total_counts * sizeof(int),
-                                          cudaMemcpyHostToDevice));
-            AGPT_V2_CUDA_CHECK(cudaMemcpy(d_counts_val, trie.counts_val,
-                                          (size_t)trie.total_counts * sizeof(int),
-                                          cudaMemcpyHostToDevice));
-        }
+        device_loss_tables = upload_loss_tables_v2(trie);
         std::printf("  runtime objects: instantiated successfully\n");
         if (instantiate_chunk_upload && have_first_chunk_meta) {
             agpt_v2::ChunkUploadRuntimeV2 upload{};
@@ -816,7 +867,7 @@ int main(int argc, char** argv) {
             (void)device_meta;
             std::printf("  chunk upload: first chunk uploaded successfully\n");
             if (run_train_epoch) {
-                agpt_v2::LossTablesV2 loss_tables{d_counts_offset, d_counts_tok, d_counts_val};
+                agpt_v2::LossTablesV2 loss_tables = make_loss_tables_view_v2(device_loss_tables);
                 int epochs = cfg.epochs > 0 ? cfg.epochs : 1;
                 int units_to_run = plan.training_unit_count;
                 if (unit_limit > 0 && unit_limit < units_to_run) units_to_run = unit_limit;
@@ -884,9 +935,7 @@ int main(int argc, char** argv) {
                                 if (save_path) {
                                     std::printf("  diag-fire-exit: skipping save due to early exit\n");
                                 }
-                                AGPT_V2_CUDA_CHECK(cudaFree(d_counts_offset));
-                                AGPT_V2_CUDA_CHECK(cudaFree(d_counts_tok));
-                                AGPT_V2_CUDA_CHECK(cudaFree(d_counts_val));
+                                free_device_loss_tables_v2(device_loss_tables);
                                 free_chunk_upload_runtime_v2(upload);
                                 agpt_v2::free_trainer_runtime_v2(runtime);
                                 agpt_v2::free_chunk_metadata_v2(first_chunk_meta);
@@ -935,7 +984,7 @@ int main(int argc, char** argv) {
                     std::free(h_updated);
                 }
             } else if (run_train_small) {
-                agpt_v2::LossTablesV2 loss_tables{d_counts_offset, d_counts_tok, d_counts_val};
+                agpt_v2::LossTablesV2 loss_tables = make_loss_tables_view_v2(device_loss_tables);
                 const agpt_v2::TrainingUnit& unit = *plan.largest_by_queries;
                 int n_steps = steps;
                 if (n_steps > largest_chunks.chunk_count) n_steps = largest_chunks.chunk_count;
@@ -980,7 +1029,7 @@ int main(int argc, char** argv) {
                             step.message, first_before.mean_loss, n_steps);
                 agpt_v2::free_unit_anc_grad_runtime_v2(unit_anc, runtime.contract);
             } else if (run_forward_prefix) {
-                agpt_v2::LossTablesV2 loss_tables{d_counts_offset, d_counts_tok, d_counts_val};
+                agpt_v2::LossTablesV2 loss_tables = make_loss_tables_view_v2(device_loss_tables);
                 agpt_v2::UnitAncGradRuntimeV2 unit_anc{};
                 if (cfg.anc_grad && plan.largest_by_queries) {
                     agpt_v2::init_unit_anc_grad_runtime_v2(unit_anc, runtime.contract, cfg, *plan.largest_by_queries, trie);
@@ -1150,9 +1199,7 @@ int main(int argc, char** argv) {
             std::printf("  chunk upload: not instantiated (pass --instantiate-chunk-upload to exercise metadata upload)\n");
         }
         free_trainer_runtime_v2(runtime);
-        if (d_counts_offset) cudaFree(d_counts_offset);
-        if (d_counts_tok) cudaFree(d_counts_tok);
-        if (d_counts_val) cudaFree(d_counts_val);
+        free_device_loss_tables_v2(device_loss_tables);
         std::printf("  runtime objects: freed successfully\n");
         std::free(h_weights);
     } else {
