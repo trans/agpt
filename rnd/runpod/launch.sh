@@ -87,6 +87,9 @@ push_code() {
         --include='rnd/beta2-diagnostic/**' \
         --include='rnd/composite-weights/' \
         --include='rnd/composite-weights/**' \
+        --include='rnd/gutenberg-anc-sweep/' \
+        --exclude='rnd/gutenberg-anc-sweep/logs/' \
+        --include='rnd/gutenberg-anc-sweep/**' \
         --exclude='rnd/*' \
         --exclude='/tmp/' \
         --exclude='.git/' \
