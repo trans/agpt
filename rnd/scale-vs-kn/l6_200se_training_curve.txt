@@ -1,0 +1,25 @@
+Warning: Identity file /home/trans/.ssh/id_ed25519 not accessible: No such file or directory.
+=== seed 1 ===
+PPL: 3.7642
+epochs 1, 50, 100, 150, 200:
+Epoch 1: loss=3.279442  (22.70 sec, 65 subtrees, 730 chunks, 34623339 nodes)
+Epoch 50: loss=1.493777  (22.15 sec, 65 subtrees, 730 chunks, 34623339 nodes)
+Epoch 100: loss=1.379702  (22.12 sec, 65 subtrees, 730 chunks, 34623338 nodes)
+Epoch 150: loss=1.343512  (22.12 sec, 65 subtrees, 730 chunks, 34623337 nodes)
+Epoch 200: loss=1.336523  (22.14 sec, 65 subtrees, 730 chunks, 34623338 nodes)
+=== seed 2 ===
+PPL: 3.7648
+epochs 1, 50, 100, 150, 200:
+Epoch 1: loss=3.174303  (22.74 sec, 65 subtrees, 730 chunks, 34623339 nodes)
+Epoch 50: loss=1.498292  (22.14 sec, 65 subtrees, 730 chunks, 34623339 nodes)
+Epoch 100: loss=1.396333  (22.14 sec, 65 subtrees, 730 chunks, 34623339 nodes)
+Epoch 150: loss=1.344581  (22.11 sec, 65 subtrees, 730 chunks, 34623339 nodes)
+Epoch 200: loss=1.336116  (22.12 sec, 65 subtrees, 730 chunks, 34623337 nodes)
+=== seed 3 ===
+PPL: 3.7343
+epochs 1, 50, 100, 150, 200:
+Epoch 1: loss=3.256367  (22.70 sec, 65 subtrees, 730 chunks, 34623339 nodes)
+Epoch 50: loss=1.483940  (22.13 sec, 65 subtrees, 730 chunks, 34623339 nodes)
+Epoch 100: loss=1.377582  (22.13 sec, 65 subtrees, 730 chunks, 34623339 nodes)
+Epoch 150: loss=1.337132  (22.13 sec, 65 subtrees, 730 chunks, 34623339 nodes)
+Epoch 200: loss=1.328185  (22.12 sec, 65 subtrees, 730 chunks, 34623337 nodes)
