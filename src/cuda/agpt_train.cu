@@ -7239,7 +7239,7 @@ int main(int argc, char** argv) {
     // emitted by `bin/agpt_build_position_table`. When set together with
     // --pos-encoder {expected|dist-rope}, RoPE rotations are looked up by
     // substring_id (canonical per-substring ID, prefix-trie keyed) instead of
-    // by integer position. See notes/agpt/position-distributions-plan.md.
+    // by integer position. See notes/seq-len-extension/position-distributions-plan.md.
     const char* position_data_dir = nullptr;
     PosEncoderMode pos_encoder = PosEncoderMode::Default;
     bool fire_norm_by_mass = false;

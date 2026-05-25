@@ -1,7 +1,7 @@
 # Sliding-Window AGPT: Decoupling Tree Depth from Sequence Length
 
 **Origin:** user design writeup, 2026-05-11. Supersedes the partial
-treatment in `notes/shared_key_rope.md` by addressing the
+treatment in `notes/seq-len-extension/shared_key_rope.md` by addressing the
 which-trie-node-for-which-position reconciliation problem the earlier
 write-up glossed over.
 

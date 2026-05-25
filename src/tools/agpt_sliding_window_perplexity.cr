@@ -1,7 +1,7 @@
 # Sliding-window AGPT perplexity — v1 inference prototype.
 #
 # Tests the simplest variant of the sliding-window-AGPT design from
-# notes/sliding_window_agpt.md: LOGIT POOLING.
+# notes/seq-len-extension/sliding_window_agpt.md: LOGIT POOLING.
 #
 # For each target position i, compute the predicted log-prob of
 # tokens[i] from d different contributing windows. Each window starts

@@ -203,7 +203,7 @@ negative, root-cause investigation (vocab, optimizer state, etc.).
 
 ## Followup: Combine with sliding-tree
 
-Streaming and sliding-tree (`notes/sliding_tree_rope.md`) are
+Streaming and sliding-tree (`notes/seq-len-extension/sliding_tree_rope.md`) are
 orthogonal:
 
 - Streaming: more optimizer steps via growing trie

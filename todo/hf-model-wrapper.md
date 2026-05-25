@@ -36,5 +36,5 @@ Defer until current position-distribution experiment lands. This is research-vel
 ## Related
 
 - `src/tools/agpt_ppl.py` — has the PyTorch architecture code that becomes `AGPTModel.forward`.
-- `notes/agpt/per-node-position-distributions.md` — current research direction; this work is unrelated and can wait.
+- `notes/seq-len-extension/per-node-position-distributions.md` — current research direction; this work is unrelated and can wait.
 - `feedback_evaluator_consistency.md` — confirms our existing PyTorch evaluator (`agpt_ppl.py --mode fixed`) gives the canonical PPL number; the HF wrapper inherits that correctness.

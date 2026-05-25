@@ -1,7 +1,7 @@
 # Sliding-Tree AGPT: Corpus-Aware RoPE Positions
 
 **Origin:** user design 2026-05-16. Companion to but distinct from
-`notes/sliding_window_agpt.md` — that one addressed seq_len > d
+`notes/seq-len-extension/sliding_window_agpt.md` — that one addressed seq_len > d
 via pooling overlapping windows; this one addresses the *position-OOD
 problem* by training each trie path at its actual corpus positions
 instead of within-chunk 0..d-1.
@@ -265,7 +265,7 @@ rnd/sliding-tree-rope/                              (experiment results)
 src/cuda/agpt_train.cu                              (modified)
 src/agpt/radix_trie_reader.cr                       (extended to load position lists)
 src/tools/agpt_build_position_lists.cr              (new — emits node→positions side-table)
-notes/sliding_tree_rope.md                     (this file)
+notes/seq-len-extension/sliding_tree_rope.md                     (this file)
 ```
 
 ## Open Questions
