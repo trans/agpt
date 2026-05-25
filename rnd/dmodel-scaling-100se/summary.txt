@@ -1,0 +1,23 @@
+d_model scaling at L=4, 100 SE, Gutenberg 5M, proper held-out
+=======================================================================
+
+Recipe: rmsprop lr=3e-3 warmup-cosine warmup-epochs=5 --partition-depth 1
+        --no-accumulate --mass-weight off --anc-grad
+n_heads scaled so head_dim=16; d_ff = 4 * d_model
+
+config         | wall/seed |  s1     s2     s3   | mean ± std
+---------------+-----------+---------------------+-----------------
+L4 d64  100SE  | 1551s     | 3.9622 4.0410 3.9756| 3.9929 ± 0.0344
+L4 d128 100SE  | 3204s     | 3.7282 3.7517 3.7552| 3.7450 ± 0.0120
+L4 d256 100SE  | 5451s     | 3.7436 3.7757 3.8213| 3.7802 ± 0.0317
+L8 d128 100SE  | 6271s     | 3.6945 3.6687 3.7066| 3.6899 ± 0.0158 ⭐ NEW BEST
+
+Reference:
+L6 d64  200SE  | 4441s     | 3.7642 3.7648 3.7343| 3.7544 ± 0.0142
+nltk KN6       | -         | -                    | 3.96
+kenlm KN8      | -         | -                    | 4.09 (plateau)
+
+Headline:
+- Width dead at d=128 for this trie/recipe (d=256 regresses).
+- Depth still scaling at d=128 (L=4 → L=8 drops 0.055 PPL, tight variance).
+- New project best on Gutenberg proper held-out: 3.6899 ± 0.016 (L=8 d=128).
