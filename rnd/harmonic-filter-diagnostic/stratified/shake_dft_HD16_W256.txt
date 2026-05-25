@@ -1,0 +1,38 @@
+Weighting positions by: count
+Using DFT frequencies, W=256, j=1..8
+Sampling 20000 on-path + 20000 off-path pairs...
+  collected 20000 on-path, 20000 off-path
+
+## Stratified separation per (K mass bucket, dim-pair)
+
+E3 (raw chord correlation, with r gate):
+  bucket         n_on   pair0   pair1   pair2   pair3   pair4   pair5   pair6   pair7 
+  mass=1             0  (too few pairs to summarize)
+  mass=2-9        2540  +0.41 +0.44 +0.51 +0.58 +0.57 +0.56 +0.56 +0.60
+  mass=10-99      4035  +0.11 +0.11 +0.17 +0.24 +0.18 +0.19 +0.24 +0.27
+  mass=100-999    4499  +0.00 +0.01 +0.02 +0.14 +0.03 +0.03 +0.04 +0.15
+  mass≥1000       8926  +0.01 +0.00 +0.01 +0.03 -0.00 +0.00 -0.00 +0.02
+
+E3-norm (unit chords per dim-pair, no r gate):
+  bucket         n_on   pair0   pair1   pair2   pair3   pair4   pair5   pair6   pair7 
+  mass=1             0  (too few pairs)
+  mass=2-9        2540  +0.22 +0.24 +0.46 +0.77 +0.59 +0.55 +0.69 +0.75
+  mass=10-99      4035  +0.10 +0.11 +0.15 +0.44 +0.22 +0.22 +0.34 +0.48
+  mass=100-999    4499  +0.04 +0.04 +0.06 +0.34 +0.05 +0.04 +0.07 +0.35
+  mass≥1000       8926  +0.01 +0.02 +0.02 +0.17 +0.02 +0.02 +0.02 +0.14
+
+ASYM (K's distribution evaluated at p_Q — original concept):
+  bucket         n_on   pair0   pair1   pair2   pair3   pair4   pair5   pair6   pair7 
+  mass=1             0  (too few pairs)
+  mass=2-9        2540  +0.29 +0.33 +0.44 +0.52 +0.48 +0.48 +0.50 +0.53
+  mass=10-99      4035  +0.05 +0.06 +0.09 +0.16 +0.11 +0.11 +0.14 +0.18
+  mass=100-999    4499  -0.02 -0.02 -0.00 +0.07 +0.05 +0.02 +0.03 +0.08
+  mass≥1000       8926  +0.00 +0.00 +0.00 +0.01 -0.00 +0.01 -0.00 +0.03
+
+ASYM aggregate score (sum over all 8 dim-pairs):
+  bucket         n_on   on_med  off_med  separation
+  mass=1             0  (too few pairs)
+  mass=2-9        2540  +3.032  +1.288  +0.74
+  mass=10-99      4035  +1.598  +1.413  +0.21
+  mass=100-999    4499  +1.497  +1.458  +0.08
+  mass≥1000       8926  +1.478  +1.473  +0.01
