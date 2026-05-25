@@ -109,6 +109,22 @@ static int growth_epochs_for_stage_v2(GrowthEpochScheduleV2 schedule,
     return min_epochs + numerator / denominator;
 }
 
+static std::vector<int> make_growth_division_frontiers_v2(int final_frontier, int divisions) {
+    std::vector<int> frontiers;
+    if (divisions <= 0 || final_frontier <= 0) return frontiers;
+    frontiers.reserve(divisions);
+    int prev = 0;
+    for (int i = 1; i <= divisions; i++) {
+        long long v = ((long long)final_frontier * i + divisions - 1) / divisions;
+        if (v <= prev) v = prev + 1;
+        if (v > final_frontier) v = final_frontier;
+        frontiers.push_back((int)v);
+        prev = (int)v;
+    }
+    frontiers.erase(std::unique(frontiers.begin(), frontiers.end()), frontiers.end());
+    return frontiers;
+}
+
 static const char* v2_mode_name(V2Mode mode) {
     switch (mode) {
         case V2Mode::Plan: return "plan";
@@ -531,6 +547,9 @@ int main(int argc, char** argv) {
     int unit_limit = 0;
     int growth_max_depth = 0;
     int growth_min_epochs = 1;
+    int growth_divisions = 0;
+    int growth_final_frontier = 0;
+    double growth_train_frac = 1.0;
     GrowthEpochScheduleV2 growth_epoch_schedule = GrowthEpochScheduleV2::Fixed;
 
     cfg.epochs = 1;
@@ -549,6 +568,9 @@ int main(int argc, char** argv) {
         else if (std::strcmp(argv[i], "--trie-dir") == 0 && i + 1 < argc) trie_dir = argv[++i];
         else if (std::strcmp(argv[i], "--corpus") == 0 && i + 1 < argc) corpus_path = argv[++i];
         else if (std::strcmp(argv[i], "--growth-frontiers") == 0 && i + 1 < argc) growth_frontiers_arg = argv[++i];
+        else if (std::strcmp(argv[i], "--growth-divisions") == 0 && i + 1 < argc) growth_divisions = std::atoi(argv[++i]);
+        else if (std::strcmp(argv[i], "--growth-final-frontier") == 0 && i + 1 < argc) growth_final_frontier = std::atoi(argv[++i]);
+        else if (std::strcmp(argv[i], "--growth-train-frac") == 0 && i + 1 < argc) growth_train_frac = std::atof(argv[++i]);
         else if ((std::strcmp(argv[i], "--growth-max-depth") == 0 ||
                   std::strcmp(argv[i], "--max-depth") == 0) && i + 1 < argc) growth_max_depth = std::atoi(argv[++i]);
         else if (std::strcmp(argv[i], "--epochs") == 0 && i + 1 < argc) cfg.epochs = std::atoi(argv[++i]);
@@ -606,12 +628,16 @@ int main(int argc, char** argv) {
         }
     }
 
+    bool has_growth_schedule =
+        growth_frontiers_arg || growth_divisions > 0 || growth_final_frontier > 0 || growth_train_frac < 1.0;
     bool missing_required = !model_path ||
-        (mode == V2Mode::TrainGrowth ? (!corpus_path || !growth_frontiers_arg) : !trie_dir);
+        (mode == V2Mode::TrainGrowth ? (!corpus_path || !has_growth_schedule) : !trie_dir);
     if (missing_required) {
         std::fprintf(stderr,
                      "Usage: agpt_train_v2 --model <path> --trie-dir <path>\n"
-                     "       agpt_train_v2 --mode train-growth --model <path> --corpus <path> --growth-frontiers LIST [--growth-max-depth N]\n"
+                     "       agpt_train_v2 --mode train-growth --model <path> --corpus <path>\n"
+                     "  [--growth-frontiers LIST | --growth-divisions N [--growth-final-frontier N | --growth-train-frac F]]\n"
+                     "  [--growth-max-depth N]\n"
                      "  [--epochs N] [--partition-depth 1] [--chunk-queries N] [--lr F] [--optimizer adam|sgd|momentum|rmsprop]\n"
                      "  [--momentum-beta F] [--rmsprop-beta F] [--lr-schedule constant|warmup-cosine]\n"
                      "  [--warmup-epochs N] [--growth-min-epochs N] [--growth-epoch-schedule fixed|linear-ramp] [--steps N]\n"
@@ -662,7 +688,26 @@ int main(int argc, char** argv) {
         cfg.seq_len = shape.seq_len;
 
         int full_starts = (int)tokens.size() - 1;
-        std::vector<int> frontiers = agpt_v2::parse_growth_frontiers_v2(growth_frontiers_arg, full_starts);
+        if (growth_train_frac <= 0.0 || growth_train_frac > 1.0) {
+            std::fprintf(stderr, "agpt_train_v2: --growth-train-frac must be in (0, 1]\n");
+            return 1;
+        }
+        if (growth_final_frontier < 0) growth_final_frontier = 0;
+        if (growth_final_frontier > full_starts) growth_final_frontier = full_starts;
+        if (growth_final_frontier == 0) {
+            growth_final_frontier = (int)std::floor((double)full_starts * growth_train_frac);
+        }
+        if (growth_final_frontier < 1) growth_final_frontier = 1;
+        if (growth_divisions < 0) growth_divisions = 0;
+
+        std::vector<int> frontiers;
+        const char* growth_schedule_source = "explicit-frontiers";
+        if (growth_frontiers_arg) {
+            frontiers = agpt_v2::parse_growth_frontiers_v2(growth_frontiers_arg, full_starts);
+        } else if (growth_divisions > 0) {
+            frontiers = make_growth_division_frontiers_v2(growth_final_frontier, growth_divisions);
+            growth_schedule_source = "generated-divisions";
+        }
         if (frontiers.empty()) frontiers.push_back(full_starts);
         agpt_v2::ModelLayout model = agpt_v2::make_model_layout(shape);
         float* h_weights = agpt_v2::load_model_weights_v2(model_path, model);
@@ -728,6 +773,8 @@ int main(int argc, char** argv) {
                     v2_lr_schedule_name(cfg.lr_schedule),
                     use_incremental_growth_radix ? "incremental-radix" : "rebuild",
                     total_unit_steps);
+        std::printf("  growth-frontiers: source=%s divisions=%d train_frac=%.6f final_frontier=%d\n",
+                    growth_schedule_source, growth_divisions, growth_train_frac, frontiers.back());
         std::printf("  config: lr=%.6f warmup_epochs=%d partition_depth=%d chunk_queries=%d anc_grad=%s\n",
                     cfg.lr, cfg.warmup_epochs, cfg.partition_depth, cfg.chunk_queries,
                     cfg.anc_grad ? "true" : "false");

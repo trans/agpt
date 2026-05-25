@@ -13,6 +13,8 @@
 - Ancestor gradients: `--anc-grad`
 - Held-out split: train on prefix-95, evaluate on tail 5%
 - Final prefix frontier: `1059623`
+- Growth frontiers can now be generated directly with:
+  `--growth-divisions N --growth-train-frac 0.95`
 - Eval range: `[1059624, 1069624)` using 10k targets
 - Eval tool:
   `python src/tools/agpt_ppl.py --file data/input.txt --vocab-file data/input.txt --d 16 --eval-tail-frac 0.05 --max-positions 10000 --mode both --device cpu --batch-size 256`
