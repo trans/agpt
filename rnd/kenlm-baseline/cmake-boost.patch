@@ -1,0 +1,12 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index a4e487b..5b6b58a 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -100,7 +100,6 @@ list(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake/modules)
+ # We need boost
+ find_package(Boost 1.41.0 REQUIRED COMPONENTS
+   program_options
+-  system
+   thread
+   unit_test_framework
+ )

@@ -1,0 +1,28 @@
+KenLM modified-KN baseline (with --discount_fallback, SPACE-FIX applied)
+Corpus: data/gutenberg_5m.txt
+Heldout: /tmp/gut_holdout_proper.txt (200K chars, war_peace tail, disjoint)
+Tokenization: char-level, ' ' -> '_' sentinel (KenLM treats whitespace as delim)
+Tokens scored: 196305 (consistent across orders)
+Tool: src/tools/kenlm_baseline.sh
+
+order   context   PPL
+3       2         7.850
+4       3         5.524
+6       5         4.155
+8       7         4.089  <- plateau
+10      9         4.131
+12      11        4.145
+
+KN plateau at order ~8. AGPT L=8 d=128 100SE seed1 = 3.6945
+sits 10% below the KN-8 plateau.
+
+Pre-fix (space dropped) numbers, for reference:
+  order 6: 5.197  (vs 4.155 post-fix)
+  order 8: 5.043  (vs 4.089 post-fix)
+
+Comparison across tools (proper heldout, char-level KN):
+  nltk KN6   = 3.960
+  kenlm KN6  = 4.155  (with --discount_fallback)
+  kenlm KN8  = 4.089  (plateau)
+
+Don't mix tools across comparisons; KenLM with fallback != nltk.

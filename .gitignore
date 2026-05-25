@@ -2,6 +2,9 @@
 /bin/
 /build/
 /.shards/
+# Third-party clones built locally (build instructions in rnd/kenlm-baseline/README.md)
+/tools/kenlm/
+/tools/kenlm_venv/
 *.dwarf
 results.tsv
 .env

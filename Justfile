@@ -122,6 +122,12 @@ build-radix-verify: build-stubs
     mkdir -p bin
     timeout 10m crystal build src/tools/radix_verify.cr -o bin/radix-verify --link-flags="{{root}}/build/kernels.o"
 
+# Dump per-radix-node context strings (one per line, root-first chars) for
+# downstream tools that compute per-node distributions.
+build-dump-trie-contexts: build-stubs
+    mkdir -p bin
+    timeout 10m crystal build src/tools/dump_trie_contexts.cr -o bin/dump_trie_contexts --link-flags="{{root}}/build/kernels.o"
+
 # Build trie sparsity-profile tool.
 build-trie-profile: build-stubs
     mkdir -p bin
