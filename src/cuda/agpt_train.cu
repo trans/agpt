@@ -24,6 +24,7 @@
 
 #include "../common/init_weights.h"
 #include "../common/diag_tensor_dump.h"
+#include "agpt_position_data_io.cuh"
 
 // ============================================================================
 // Error checking
@@ -2060,6 +2061,45 @@ void launch_rope_batched_inverse(float* x, const int* positions,
     rope_batched_inverse_kernel<<<blocks, threads>>>(x, positions, cos_cache, sin_cache, N, dim);
 }
 
+// --- Substring-id gather for --pos-encoder ---
+// Maps each (query, head) row to a substring_id, used as the "position" index
+// into the per-substring eff_cos/eff_sin caches. The query→node lookup gives
+// the radix node id; the radix→substring lookup gives the canonical substring
+// id (or -1 → fall back to slot 0 which holds the identity rotation, see
+// compute_eff_rope_caches in agpt_position_data_io.cuh).
+__global__ void gather_substring_ids_per_query_kernel(
+    int* out_substring_ids,             // [T_q * H]
+    const int* query_to_node,           // [T_q]
+    const int* radix_ids,               // [N] (per-chunk-node)
+    const int* radix_to_substring,      // [global_radix_count]
+    int T_q, int H)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    int total = T_q * H;
+    if (idx >= total) return;
+    int t = idx / H;
+    int node_idx = query_to_node[t];
+    int radix_id = radix_ids[node_idx];
+    int sid = (radix_id >= 0) ? radix_to_substring[radix_id] : 0;
+    if (sid < 0) sid = 0;
+    out_substring_ids[idx] = sid;
+}
+
+static void launch_gather_substring_ids_per_query(
+    int* out_substring_ids,
+    const int* query_to_node,
+    const int* radix_ids,
+    const int* radix_to_substring,
+    int T_q, int H)
+{
+    int total = T_q * H;
+    if (total <= 0) return;
+    int threads = 256;
+    int blocks = (total + threads - 1) / threads;
+    gather_substring_ids_per_query_kernel<<<blocks, threads>>>(
+        out_substring_ids, query_to_node, radix_ids, radix_to_substring, T_q, H);
+}
+
 // --- KV scatter: store projected K/V into global KV cache ---
 // src: [N, d_model], node_ids: [N], dst: [total_nodes, d_model]
 // For each row i: dst[node_ids[i]] = src[i]
@@ -3651,7 +3691,9 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                         int rope_swap_a = -1, int rope_swap_b = -1,
                         int rope_split_depth_heads = -1,
                         SplitSecondary rope_split_secondary = SplitSecondary::Mass,
-                        int rope_corpus_window = 128)
+                        int rope_corpus_window = 128,
+                        const char* position_data_dir = nullptr,
+                        PosEncoderMode pos_encoder = PosEncoderMode::Default)
 {
     const bool quiet = persist && persist->quiet;
 
@@ -4188,6 +4230,68 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
     // even when --mass-weight is off). Cost: T_q_cap * 4 bytes (~kB).
     float* d_mass_weights = NULL;
     CUDA_CHECK(cudaMalloc(&d_mass_weights, T_q_cap * sizeof(float)));
+
+    // ---- Position-data consumer (--position-data <dir> + --pos-encoder mode) ----
+    // When set, eff_cos/eff_sin replace the standard cos/sin caches and are
+    // indexed by substring_id (canonical, prefix-trie-keyed) instead of by
+    // integer position. d_radix_to_substring translates per-node radix_id →
+    // substring_id; the per-query gather kernel materialises substring_ids of
+    // shape [T_q × H] (replicated per head, like d_rope_positions).
+    //
+    // Default mode keeps every buffer null and the dispatch is a no-op (the
+    // standard d_rope_positions / d_rope_cos / d_rope_sin path runs unchanged).
+    int*   d_radix_to_substring = nullptr;  // [trie.radix_count]
+    float* d_eff_rope_cos       = nullptr;  // [substring_count × HD]
+    float* d_eff_rope_sin       = nullptr;  // [substring_count × HD]
+    int*   d_substring_ids      = nullptr;  // [T_q_cap × H]
+    int    pd_substring_count   = 0;
+    std::vector<int32_t> h_prefix_radix_to_substring;  // host copy for anc-grad fill
+    bool   pos_encoder_active   = false;    // true iff loaded AND mode != Default
+    if (position_data_dir != nullptr) {
+        char path_rts[1024], path_pos[1024];
+        snprintf(path_rts, sizeof(path_rts), "%s/prefix_radix_to_substring.bin", position_data_dir);
+        snprintf(path_pos, sizeof(path_pos), "%s/prefix_position_table.bin", position_data_dir);
+        RadixToSubstring rts = load_radix_to_substring(path_rts);
+        if (rts.radix_count != trie.radix_count) {
+            fprintf(stderr, "ERROR: --position-data prefix_radix_to_substring count=%d does not match trie.radix_count=%d\n",
+                    rts.radix_count, trie.radix_count);
+            exit(1);
+        }
+        PositionTable table = load_position_table(path_pos);
+        pd_substring_count = table.substring_count;
+
+        CUDA_CHECK(cudaMalloc(&d_radix_to_substring, (size_t)trie.radix_count * sizeof(int)));
+        CUDA_CHECK(cudaMemcpy(d_radix_to_substring, rts.ids.data(),
+                              (size_t)trie.radix_count * sizeof(int), cudaMemcpyHostToDevice));
+
+        // Keep host copy for the anc-grad inverse-RoPE substring_id fill.
+        h_prefix_radix_to_substring = std::move(rts.ids);
+
+        if (pos_encoder != PosEncoderMode::Default) {
+            std::vector<float> h_eff_cos, h_eff_sin;
+            compute_eff_rope_caches(table, HD, 10000.0f, pos_encoder, h_eff_cos, h_eff_sin);
+            size_t eff_bytes = (size_t)pd_substring_count * (size_t)HD * sizeof(float);
+            CUDA_CHECK(cudaMalloc(&d_eff_rope_cos, eff_bytes));
+            CUDA_CHECK(cudaMalloc(&d_eff_rope_sin, eff_bytes));
+            CUDA_CHECK(cudaMemcpy(d_eff_rope_cos, h_eff_cos.data(), eff_bytes, cudaMemcpyHostToDevice));
+            CUDA_CHECK(cudaMemcpy(d_eff_rope_sin, h_eff_sin.data(), eff_bytes, cudaMemcpyHostToDevice));
+
+            CUDA_CHECK(cudaMalloc(&d_substring_ids, (size_t)T_q_cap * H * sizeof(int)));
+
+            pos_encoder_active = true;
+            const char* mode_str = (pos_encoder == PosEncoderMode::Expected) ? "expected" : "dist-rope";
+            if (!quiet) {
+                printf("Position-data: %d substrings, %d radix nodes, eff_cos/sin %.1f MB each (mode=%s)\n",
+                       pd_substring_count, trie.radix_count,
+                       eff_bytes / (1024.0 * 1024.0), mode_str);
+            }
+        } else {
+            if (!quiet) {
+                printf("Position-data: loaded %d substrings, %d radix nodes; pos-encoder=default (no rotation change)\n",
+                       pd_substring_count, trie.radix_count);
+            }
+        }
+    }
 
     // cuBLAS handle. Enable TF32 tensor cores for FP32 matmuls — gives 2-3×
     // speedup on Ampere+ (A100, RTX 30xx, RTX 40xx, H100/H200) at no accuracy
@@ -5286,16 +5390,29 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                     if (trie.edge_mass[r] == 1) continue;  // mass=1 cap: no cache slot
                     int start_pos = trie.edge_starts[r];
                     int len       = trie.edge_lens[r];
+                    // Per-head index. Two modes:
+                    //   default: real char position (cos/sin cache indexed by pos)
+                    //   pos_encoder_active: substring_id of the containing radix node
+                    //     (eff_cos/sin cache indexed by substring_id). All chars within an
+                    //     edge inherit the node's endpoint substring_id — best-effort
+                    //     approximation for intermediate chars, see PR 3 notes.
+                    int sid_for_node = 0;
+                    if (pos_encoder_active && r >= 0 && r < (int)h_prefix_radix_to_substring.size()) {
+                        sid_for_node = h_prefix_radix_to_substring[r];
+                        if (sid_for_node < 0) sid_for_node = 0;
+                    }
                     for (int c = 0; c < len; c++) {
                         int slot = compact_slot[start_pos + c];
                         if (slot >= 0) {
                             h_anc_lookup[slot] = n_subtree_compact_chars;
-                            int pos = real_pos_of_char[start_pos + c];
-                            // Replicate the same position across all heads so the
-                            // existing launch_rope_batched_inverse — which reads
-                            // positions[row] with row = slot*H + h — works directly.
+                            int idx = pos_encoder_active
+                                ? sid_for_node
+                                : real_pos_of_char[start_pos + c];
+                            // Replicate per head so launch_rope_batched_inverse — which
+                            // reads positions[row] with row = slot*H + h — picks the same
+                            // index for every head.
                             for (int h = 0; h < H; h++) {
-                                h_subtree_pos[n_subtree_compact_chars * H + h] = pos;
+                                h_subtree_pos[n_subtree_compact_chars * H + h] = idx;
                             }
                             n_subtree_compact_chars++;
                         }
@@ -5712,8 +5829,16 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                     cuda_bias_add(d_v, W_vb, T_q, D);
 
                     // RoPE
-                    launch_rope_batched(d_q, d_rope_positions, d_rope_cos, d_rope_sin, T_q * H, HD);
-                    launch_rope_batched(d_k, d_rope_positions, d_rope_cos, d_rope_sin, T_q * H, HD);
+                    if (pos_encoder_active) {
+                        launch_gather_substring_ids_per_query(d_substring_ids,
+                                                              d_query_to_node, d_radix_ids,
+                                                              d_radix_to_substring, T_q, H);
+                        launch_rope_batched(d_q, d_substring_ids, d_eff_rope_cos, d_eff_rope_sin, T_q * H, HD);
+                        launch_rope_batched(d_k, d_substring_ids, d_eff_rope_cos, d_eff_rope_sin, T_q * H, HD);
+                    } else {
+                        launch_rope_batched(d_q, d_rope_positions, d_rope_cos, d_rope_sin, T_q * H, HD);
+                        launch_rope_batched(d_k, d_rope_positions, d_rope_cos, d_rope_sin, T_q * H, HD);
+                    }
 
                     // Stage-B: dump post-RoPE d_k IMMEDIATELY before scatter,
                     // for chunks 1 and 2. Comparing pre-scatter K v1↔v2 says
@@ -6188,7 +6313,13 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                     if (chunk_cycle_shift > 0) {
                         launch_rope_batched_scalar_inverse(d_dq_pack, chunk_cycle_shift, d_rope_cos, d_rope_sin, T_q * H, HD);
                     }
-                    launch_rope_batched_inverse(d_dq_pack, d_rope_positions, d_rope_cos, d_rope_sin, T_q * H, HD);
+                    if (pos_encoder_active) {
+                        // d_substring_ids was populated during forward; reuse it
+                        // for the inverse rotation. Same chunk = same gather.
+                        launch_rope_batched_inverse(d_dq_pack, d_substring_ids, d_eff_rope_cos, d_eff_rope_sin, T_q * H, HD);
+                    } else {
+                        launch_rope_batched_inverse(d_dq_pack, d_rope_positions, d_rope_cos, d_rope_sin, T_q * H, HD);
+                    }
 
                     // dQ → d_ln1_out via Wq^T; dWq += ln1_out^T × dQ;
                     //                            dwq_b += col-sum(dQ, scaled).
@@ -6228,7 +6359,11 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                     if (chunk_cycle_shift > 0) {
                         launch_rope_batched_scalar_inverse(d_dk_own, chunk_cycle_shift, d_rope_cos, d_rope_sin, T_q * H, HD);
                     }
-                    launch_rope_batched_inverse(d_dk_own, d_rope_positions, d_rope_cos, d_rope_sin, T_q * H, HD);
+                    if (pos_encoder_active) {
+                        launch_rope_batched_inverse(d_dk_own, d_substring_ids, d_eff_rope_cos, d_eff_rope_sin, T_q * H, HD);
+                    } else {
+                        launch_rope_batched_inverse(d_dk_own, d_rope_positions, d_rope_cos, d_rope_sin, T_q * H, HD);
+                    }
 
                     if (trace_fire_target) {
                         emit_diag_jsonl(fire_diag.path,
@@ -6353,11 +6488,15 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                 int n_sub = n_subtree_compact_chars;
                 float anc_alpha = 1.0f;  // raw scatter; fire-end 1/N normalizes uniformly
                 float anc_one = 1.0f;    // beta=1 accumulate into existing dW
+                const float* anc_cos = pos_encoder_active ? d_eff_rope_cos : d_rope_cos;
+                const float* anc_sin = pos_encoder_active ? d_eff_rope_sin : d_rope_sin;
                 for (int l = 0; l < L_layers; l++) {
                     // RoPE-inverse on K-grad (V has no RoPE). Treats buffer as
-                    // (n_sub × H) rows of HD; positions[row] gives per-head pos.
+                    // (n_sub × H) rows of HD; positions[row] gives per-head index
+                    // (real char position in default mode, substring_id when
+                    // --pos-encoder is set).
                     launch_rope_batched_inverse(d_dkv_subtree_k[l], d_subtree_real_pos,
-                                                d_rope_cos, d_rope_sin, n_sub * H, HD);
+                                                anc_cos, anc_sin, n_sub * H, HD);
 
                     float* dW_kw = d_grads + wo.wk_w[l];
                     float* dW_vw = d_grads + wo.wv_w[l];
@@ -7030,6 +7169,10 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
     if (lbfgs_state.alpha)    free(lbfgs_state.alpha);
     free_cache_runtime(cache_runtime);
     cudaFree(d_rope_cos); cudaFree(d_rope_sin);
+    if (d_radix_to_substring) cudaFree(d_radix_to_substring);
+    if (d_eff_rope_cos)       cudaFree(d_eff_rope_cos);
+    if (d_eff_rope_sin)       cudaFree(d_eff_rope_sin);
+    if (d_substring_ids)      cudaFree(d_substring_ids);
     free_transformer_chunk_runtime(transformer_runtime);
     cudaFree(d_radix_counts_offset); cudaFree(d_radix_counts_tok); cudaFree(d_radix_counts_val);
     if (d_mass_weights) cudaFree(d_mass_weights);
@@ -7092,6 +7235,13 @@ int main(int argc, char** argv) {
     int rope_split_depth_heads = -1;          // -1 = default to n_heads / 2 (set after cfg load)
     SplitSecondary rope_split_secondary = SplitSecondary::Mass;
     int rope_corpus_window = 128;             // W for SplitSecondary::CorpusPos
+    // --position-data <dir>: load per-substring position-distribution side tables
+    // emitted by `bin/agpt_build_position_table`. When set together with
+    // --pos-encoder {expected|dist-rope}, RoPE rotations are looked up by
+    // substring_id (canonical per-substring ID, prefix-trie keyed) instead of
+    // by integer position. See notes/agpt/position-distributions-plan.md.
+    const char* position_data_dir = nullptr;
+    PosEncoderMode pos_encoder = PosEncoderMode::Default;
     bool fire_norm_by_mass = false;
     bool fire_norm_by_weight = false;
     bool fire_norm_none = false;
@@ -7183,6 +7333,16 @@ int main(int argc, char** argv) {
         }
         else if (strcmp(argv[i], "--rope-corpus-window") == 0 && i + 1 < argc) {
             rope_corpus_window = atoi(argv[++i]);
+        }
+        else if (strcmp(argv[i], "--position-data") == 0 && i + 1 < argc) {
+            position_data_dir = argv[++i];
+        }
+        else if (strcmp(argv[i], "--pos-encoder") == 0 && i + 1 < argc) {
+            const char* m = argv[++i];
+            if      (strcmp(m, "default")   == 0) pos_encoder = PosEncoderMode::Default;
+            else if (strcmp(m, "expected")  == 0) pos_encoder = PosEncoderMode::Expected;
+            else if (strcmp(m, "dist-rope") == 0) pos_encoder = PosEncoderMode::DistRope;
+            else { fprintf(stderr, "--pos-encoder must be 'default', 'expected', or 'dist-rope' (got %s)\n", m); return 1; }
         }
         else if (strcmp(argv[i], "--rope-perm-seed") == 0 && i + 1 < argc) {
             rope_perm_seed = atoi(argv[++i]);
@@ -7692,7 +7852,7 @@ int main(int argc, char** argv) {
         }
 
         unsigned final_perm_seed = (rope_perm_seed >= 0) ? (unsigned)rope_perm_seed : init_seed;
-        int rc = run_radix_training(cfg, wo, h_weights, radix_trie, epochs, entropy_lambda, mass_weight, subtree_splits, partition_depth, accumulate, single_subtree, intermediate_weight, optimizer, momentum_beta, rmsprop_beta, lr_schedule, warmup_epochs, weight_decay, grad_clip_norm, save_every, curriculum, save_path, lightning, &persist, depth_weight, fire_norm_by_mass, entropy_weight, fire_norm_by_weight, fire_norm_none, branching_weight, rope_mode, final_perm_seed, rope_swap_a, rope_swap_b, rope_split_depth_heads, rope_split_secondary, rope_corpus_window);
+        int rc = run_radix_training(cfg, wo, h_weights, radix_trie, epochs, entropy_lambda, mass_weight, subtree_splits, partition_depth, accumulate, single_subtree, intermediate_weight, optimizer, momentum_beta, rmsprop_beta, lr_schedule, warmup_epochs, weight_decay, grad_clip_norm, save_every, curriculum, save_path, lightning, &persist, depth_weight, fire_norm_by_mass, entropy_weight, fire_norm_by_weight, fire_norm_none, branching_weight, rope_mode, final_perm_seed, rope_swap_a, rope_swap_b, rope_split_depth_heads, rope_split_secondary, rope_corpus_window, position_data_dir, pos_encoder);
         // Append optimizer state to the saved checkpoint so the next training
         // call can pick up Adam/RMSprop moments mid-stream.
         if (rc == 0 && save_path) {
