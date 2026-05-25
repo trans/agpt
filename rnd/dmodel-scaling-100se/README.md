@@ -24,13 +24,15 @@ The L=6 d=64 200 SE result (3.7544 ± 0.014) seemed to be hitting a ceiling alon
 | L=4, d_model=64, ff=256, h=4 | ~280K | 1551s | 3.96, 4.04, 3.98 | **3.99 ± 0.04** |
 | L=4, d_model=128, ff=512, h=8 | ~870K | 3204s | 3.73, 3.75, 3.76 | 3.7450 ± 0.012 |
 | L=4, d_model=256, ff=1024, h=16 | ~3.0M | 5451s | 3.74, 3.78, 3.82 | 3.7802 ± 0.032 |
-| **L=8, d_model=128, ff=512, h=8** | **~1.7M** | **6271s** | **3.69, 3.67, 3.71** | **3.6899 ± 0.016** ⭐ |
+| L=8, d_model=128, ff=512, h=8 | ~1.7M | 6271s | 3.69, 3.67, 3.71 | 3.6899 ± 0.016 |
+| L=12, d_model=128, ff=512, h=8 | ~2.5M | 9357s | 3.70, 3.79, 3.73 | 3.7383 ± 0.040 |
+| **L=8, d_model=128, 200 SE** | **~1.7M** | **12527s** | **3.63, 3.65, 3.60** | **3.6274 ± 0.018** ⭐ |
 
 **Reference:** L=6 d=64 200 SE landed at 3.7544 ± 0.014, ~75 min/seed.
 
 ## Headline
 
-**Width is capped at d=128 for this trie/recipe; depth still scales.** L=4 d=128 beats L=4 d=64 by 0.25 PPL (3.7%) and beats L=4 d=256 by 0.035 PPL using 60% of the compute. But doubling **depth** at d=128 (L=4 → L=8) gives another 0.055 PPL (1.5%) with tight variance (±0.016). Depth scaling is alive; width scaling is dead at this configuration.
+**Width and depth (in layers) are capped at L=8, d=128 — but epochs still pay.** L=4 d=128 → L=4 d=256 regressed PPL (width dead). L=4 → L=8 at d=128 gave +0.055 PPL (depth alive). L=8 → L=12 at d=128 went backwards (depth past L=8 hurts at 100 SE). But **L=8 d=128 100 SE → 200 SE dropped another 0.063 PPL** (3.6899 → 3.6274), tight variance. The architectural ceiling for the current recipe is **L=8 d=128 200 SE = 3.6274 ± 0.018**, not the 100 SE number. 400 SE would likely continue the trend; haven't run yet.
 
 ## Interpretation
 
@@ -47,7 +49,7 @@ Variance widening (0.032 vs 0.012) supports under-training: incomplete convergen
 - **Don't naively go bigger.** L=8 / d_model=512 with 100 SE will almost certainly regress further.
 - **If we want to test d=256 properly: 200 SE.** Match the "events per parameter" budget d=128 100 SE had.
 - **For headline runs at fixed budget: d_model=128.** Current best at ~50 min/seed.
-- The "trie taps out at d=10-20" problem is now the active constraint. Bigger d_model can't extract more value because the gradient signal is bounded by what the d=16 trie carries. To break this ceiling we need context extension beyond what the trie naturally supports — the per-node position distribution work in `notes/agpt/per-node-position-distributions.md`.
+- The "trie taps out at d=10-20" problem is now the active constraint. Bigger d_model can't extract more value because the gradient signal is bounded by what the d=16 trie carries. To break this ceiling we need context extension beyond what the trie naturally supports — the per-node position distribution work in `notes/seq-len-extension/per-node-position-distributions.md`.
 
 ## Files
 
@@ -85,5 +87,9 @@ done
 
 - L=4 d=256 200 SE (or 400) — does extra training redeem d=256, or has the trie capped what any width can deliver?
 - L=4 d=192 100 SE — interpolate between 128 and 256 to confirm 128 is the actual peak, not a hump.
-- **L=12 d=128 100 SE** — does the depth scaling continue, or do we plateau between L=8 and L=12?
-- **L=8 d=128 200 SE** — does more compute at the new best architecture push lower still?
+- L=8 d=128 200 SE — does more compute at the new best architecture push lower still? (open; L=12 100SE regressed, but 200SE at L=8 might still help)
+- **Architectural changes are now the real path forward.** Pure scaling along L, d_model, or SE at this trie/recipe is exhausted. See `notes/seq-len-extension/position-distributions-plan.md`.
+
+## Closed via this experiment
+
+- L=12 d=128 100 SE: regressed vs L=8 (3.7383 ± 0.040 vs 3.6899 ± 0.016) with 2.5× wider variance. Depth past L=8 hurts at this epoch budget.
