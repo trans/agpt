@@ -1,12 +1,14 @@
 # Harmonic-Filter / Chord-Correlation RoPE for AGPT — Brief
 
-**Date:** 2026-05-25 (revised after first round of cross-AI review)
-**Purpose:** Self-contained writeup of the multi-position-encoding idea for AGPT, plus three design variants we want help choosing between.
+**Date:** 2026-05-25 (revised after two rounds of cross-AI review)
+**Status:** E4 (chord-chord with depth-shift) identified as the load-bearing variant; offline diagnostic recommended before any kernel work.
+**Purpose:** Self-contained writeup of the multi-position-encoding idea for AGPT, plus the three design variants we considered and why E4 is the chosen mechanism.
 
-The document has two parts:
+The document has three parts:
 
 1. **The brief** — the whole idea, math, and motivation. Assumes some transformer/RoPE background but no AGPT-specific knowledge.
-2. **The three design variants** — same goal, different mechanisms. Where reader input is wanted.
+2. **The three design variants** — what we considered and how they differ.
+3. **The chosen path: E4** — why the depth shift is load-bearing, the ablations we'll run, and the offline diagnostic to do BEFORE building.
 
 ---
 
@@ -206,11 +208,24 @@ If Q at depth k_q and K at depth k_k typically appear at corpus positions `(p, p
 
 This is a **distributional relative-position kernel** — the AGPT-native analog of standard RoPE's `(p_q - p_k)` signal, but operating on distributions rather than individual positions.
 
-### Why E4 should outperform E3 on AGPT specifically
+### Why E4 is load-bearing (not icing)
 
-Standard attention semantic: "tokens at the expected relative offset get more attention." E3 asks "do they live at the same phases?" which only fires when Q and K happen to occur at coincident phases. E4 asks "do they live at phases offset by Δ?" which fires when Q and K's distributions are *compatible with the ancestor-descendant structure of the trie path*.
+The depth shift isn't a refinement on top of a working E3. It's the only thing that makes E3's signal correctly-signed for AGPT's primary attention pattern. Here's the argument:
 
-For AGPT's typical attention pattern (query attends to its ancestors), E4 produces a meaningful signal where E3 produces near-zero (because Q's positions are typically Δ characters AFTER K's positions, not at the same positions).
+For Q="the" (depth 3) attending to its ancestor K="th" (depth 2) on any path containing them:
+- Every corpus occurrence of "the" is at position p_q
+- The corresponding occurrence of "th" is at position p_q - 1
+- So z_Q and z_K are related by `z_K = z_Q · e^{-iω}` at every frequency ω
+
+Computing E3's correlation: `Re(conj(z_Q/C_Q) · z_K/C_K) = Re(e^{-iω}) = cos(ω)` per dim-pair.
+
+For high-frequency dim-pairs (ω near 1, e.g., pair 0 with ω = 1.0), `cos(ω) ≈ 0.54` — weak. For ω closer to 2 or higher, `cos(ω)` swings negative — **anti-correlation**. Exactly the dim-pairs that carry the most positional information are the ones where E3 *penalizes* genuine ancestor-descendant pairs.
+
+E4's `e^{iΔω}` correction (with Δ=1 here) un-rotates that offset: `Re(conj(z_Q) · z_K · e^{iω}) = Re(e^{-iω} · e^{iω}) = cos(0) = 1` per dim-pair. Perfect correlation across all frequencies.
+
+**So E3 has the sign of the signal wrong at the informative frequencies for AGPT's dominant attention pattern.** E4 fixes the sign. The shift isn't optional — it's what converts a near-zero-or-anticorrelated signal into a correctly-signed one.
+
+Prediction: E3 alone should give ≈baseline or slightly worse PPL. E4 should be clearly better. If E3 ≈ E4 empirically, the model isn't using the matched-filter property and something else explains any improvement — that's a red flag, not a success.
 
 ### Implementation cost
 
@@ -231,29 +246,98 @@ Total: ~half-day + a few extra hours over E3.
 | Implementation cost | done (regressed) | ~day if Q option B/C | ~half-day | ~half-day + few hours |
 | Ablation surface | n/a | enable / disable | β coefficient, easy ablation | β coefficient + Δ on/off |
 
-## Our current lean
+---
 
-E4 looks like the strongest candidate:
+# Part 3: The Chosen Path — E4 with Ablations and a Pre-Implementation Diagnostic
 
-- Avoids the Q-position problem entirely (both Q and K are multi-position; the cross-correlation is well-defined without picking Q's "current position")
-- Adds positional info as a side-channel rather than mixing it into the QK rotation (no risk of corrupting content geometry)
-- Uses information AGPT already has (trie depth difference Δ) to apply the right offset
-- Cheapest to implement (~half-day)
-- Easiest to ablate (β coefficient, set to 0 = baseline)
+E4 is the chosen mechanism. The depth-shift argument above makes E3 vs E4 a structural correctness question, not a tuning question. But two concerns from the second-round review identify ablations and a pre-build diagnostic that should happen before any kernel work.
 
-But we want input on:
+## Concern 1: the r_Q · r_K gate may starve common substrings
 
-1. **Is E4 actually the right framing for the problem?** Or does H1's elegance (matched-filter as a fundamental mechanism) carry more value than E4's pragmatism?
-2. **Does E3-vs-E4's depth-shift matter as much as we think?** Empirically, would E3 alone capture enough signal that the depth correction is icing, or is the shift load-bearing?
-3. **For H1 specifically, is the Q-position question (A/B/C) resolvable in a principled way, or is it inherently a design compromise?**
-4. **Are there better variants we haven't considered?** The first-round review proposed E1 (asymmetric Q-K), E2 (chord as harmonic gating), and E3/E4. Is there an E5?
-5. **What signal would tell us E4 isn't working as expected?** What's the diagnostic that would distinguish "model learned positional structure" from "model ignored the bias term"?
+E3/E4 gate the positional bias by `r_Q · r_K`. This is what makes the design behave well for high-mass substrings (broad-distribution K's contribute nothing, no noise injected). But it's the inverse pathology of dist-rope's r² collapse:
+
+- **dist-rope:** common substrings ("the") got the worst position signal — `r²` shrank attention there
+- **E4 (current):** common substrings get NO position signal — `r_Q · r_K ≈ 0` makes the bias vanish for them
+- The positional channel is available only for sharp / rare substrings (mass=1 singletons)
+
+Whether that's correct or wrong depends on whether positional structure helps for common substrings. We don't know a priori. **Planned ablation: E4-norm** — normalize both chords to unit magnitude before correlating, removing the r gate entirely:
+
+```
+phase_score_norm(Q, K) = Σ_j Re(conj(direction_Q,j) · direction_K,j · e^{iΔω_j})
+```
+
+E4-norm has the positional signal available for ALL substrings regardless of sharpness; β and content channel sort out the weighting. One-line change at correlation time. Run E4 and E4-norm side-by-side.
+
+## Concern 2: numerical conditioning of low-mass chord magnitudes
+
+For mass=1 substrings (66% of all nodes in Shakespeare, likely similar on Gutenberg), `r = 1` trivially — "perfectly coherent" because there's only one observation. But that's statistically meaningless; the coherence estimate has no evidence behind it.
+
+Combined with the r gate (concern 1), this means **E4 preferentially fires the bias on the least statistically reliable pairs.**
+
+Mitigation: count-shrinkage on r at precompute time. Shrink r toward zero for low-count substrings (Bayesian / James-Stein style):
+```
+r_shrunk = r · count / (count + λ)
+```
+for some shrinkage parameter λ (e.g., λ = 10). Cheap one-line change at precompute. Reduces signal from undersampled chords without changing well-attested ones.
+
+## Concern 3: W's choice (W=64) is unjustified and load-bearing
+
+The chord is computed mod W, where W=64. If W is misaligned with actual periodicities in the corpus (line length, paragraph rhythm, etc.), the phase structure E4 keys on becomes an artifact of the modulus rather than real corpus structure.
+
+Not a fix per se, but a sensitivity check: if E4 fails, re-run the precompute at W=32, 128, 256 before concluding the design is broken.
+
+## The pre-implementation diagnostic: on-path vs off-path phase_score histograms
+
+The strongest single recommendation from round-2 review: **do an offline check before writing any kernel code.**
+
+The dist-rope precompute on disk (eff_cos, eff_sin = z/C per substring per dim-pair) is exactly the chord we need. From it:
+
+1. Sample many true ancestor-descendant pairs (Q, K) from the trie. Compute their `phase_score(Q, K, Δ)` with the depth shift.
+2. Sample equal-count random off-path (Q, K) pairs (substrings that don't share an ancestor-descendant relationship). Compute their `phase_score` at the same Δ.
+3. Plot the two histograms.
+
+**If the on-path histogram cleanly separates from off-path: E4's premise holds; build the kernel.**
+**If they overlap: the chord-mod-W formulation isn't carrying path structure; no kernel will save it. Pivot.**
+
+Cost: ~half-day Python script using existing on-disk data. No CUDA. No training.
+
+Also run the same diagnostic WITHOUT the depth shift (E3-style). If unshifted histograms overlap but shifted ones separate, that's direct empirical confirmation that the shift is load-bearing. If neither separates, the W choice or count-shrinkage is the next thing to investigate.
+
+## β-logging during training
+
+Instrument the trainer to log β's value and gradient magnitude over epochs:
+- If β drifts toward zero or its gradient is noise-dominated: model is choosing to ignore the bias channel. Definitive evidence the signal isn't useful as-formulated.
+- If β stabilizes at meaningful nonzero AND loss gap to baseline tracks β's growth: model is using it.
+
+Single highest-information-per-effort probe. Build regardless of variant.
+
+## The experimental ladder
+
+In order:
+
+1. **Pre-implementation diagnostic (~half-day Python).** On-path vs off-path phase_score histograms, with and without depth shift. Gate everything else on this. Costs nothing, prevents wasted CUDA days.
+2. **Implement E4 + E4-norm + β-logging (~day CUDA + few hours Crystal).** Same precompute drives both variants; minor kernel branching.
+3. **Run baseline → E3 → E4 → E4-norm ladder on Shakespeare L=2 100 SE (~1 day pod).** Diagnostic comparisons:
+   - E3 vs baseline: should regress per analysis above
+   - E4 vs E3: should clearly improve
+   - E4 vs E4-norm: tells us whether the r gate is helping or starving common substrings
+4. **If Shakespeare results align with predictions, run Gutenberg L=4 d=128 100 SE headline (~3h pod).** Compare to baseline 3.7450 ± 0.012.
+5. **If E4 wins headline, sweep W ∈ {32, 64, 128, 256} and λ shrinkage values.**
+
+## Open questions for further review
+
+The questions we'd still appreciate input on (these survived round-2):
+
+1. **Is the r_Q · r_K gate (E4) genuinely useful or is E4-norm the better default?** Round-2 flagged this; we have an ablation planned but no a priori answer.
+2. **What's the right W for our corpus?** Round-2 flagged this; we have a sensitivity sweep planned but no a priori value.
+3. **Are there better-conditioned coherence estimators for low-count chords than `|z|/C`?** Count-shrinkage is the obvious fix; are there sharper Bayesian alternatives that better handle the singleton case?
+4. **Is the chord-mod-W formulation right at all, or should the chord be over GAP distributions (distance to nearest prior occurrence) so that Q's chunk-local depth naturally lives in the chord's coordinate?** Round-2 called this "option E" and considered it; we landed on E4 because it reuses the existing precompute and lets Δ be per-pair flexible, but the gap framing has appeal if W-mod doesn't work.
 
 ## Context for what we already have
 
-- Per-substring position table (mod W counts): built, on disk for Shakespeare and Gutenberg
+- Per-substring position table (mod W=64 counts): built, on disk for Shakespeare and Gutenberg
 - Substring catalog with stable IDs
-- dist-rope's eff_cos/eff_sin precompute (= z/C per substring per dim-pair): already implemented in `src/cuda/agpt_position_data_io.cuh`. This IS the chord we need for any of the three variants above.
-- CUDA kernel that uses substring_id-keyed cos/sin lookup (currently does the broken dist-rope thing — needs to be rewired for whichever variant we pick).
+- dist-rope's eff_cos/eff_sin precompute (= z/C per substring per dim-pair): already implemented in `src/cuda/agpt_position_data_io.cuh`. This IS the chord we need.
+- CUDA kernel that uses substring_id-keyed cos/sin lookup (currently does the broken dist-rope thing — needs to be rewired for E4, or bypassed entirely if E4's bias-as-additive-logit doesn't touch the rotation path).
 
-The implementation is small once we pick the variant.
+The implementation is small. The diagnostic is smaller. Do the diagnostic first.
