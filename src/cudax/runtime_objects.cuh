@@ -74,9 +74,8 @@ static inline void init_unit_anc_grad_runtime_v2(UnitAncGradRuntimeV2& runtime,
     int L = contract.shape.n_layers;
     int seq_len = contract.shape.seq_len;
 
-    int* h_lookup = (int*)std::malloc((size_t)(compact_cap > 0 ? compact_cap : 1) * sizeof(int));
-    for (int i = 0; i < compact_cap; i++) h_lookup[i] = -1;
     int* h_subtree_pos = (int*)std::malloc((size_t)((unit.compact_char_count > 0 ? unit.compact_char_count : 1) * H) * sizeof(int));
+    int* h_subtree_slots = (int*)std::malloc((size_t)(unit.compact_char_count > 0 ? unit.compact_char_count : 1) * sizeof(int));
 
     int n_sub = 0;
     for (int i = 0; i < unit.node_count; i++) {
@@ -88,7 +87,7 @@ static inline void init_unit_anc_grad_runtime_v2(UnitAncGradRuntimeV2& runtime,
             int char_pos = start_pos + c;
             int slot = trie.compact_slot[char_pos];
             if (slot < 0) continue;
-            h_lookup[slot] = n_sub;
+            h_subtree_slots[n_sub] = slot;
             int pos = trie.real_pos_of_char[char_pos];
             if (pos < 0) pos = 0;
             if (pos >= seq_len) pos = seq_len - 1;
@@ -101,11 +100,18 @@ static inline void init_unit_anc_grad_runtime_v2(UnitAncGradRuntimeV2& runtime,
 
     runtime.subtree_compact_chars = n_sub;
     AGPT_V2_CUDA_CHECK(cudaMalloc(&runtime.d_compact_to_subtree_idx, (size_t)(compact_cap > 0 ? compact_cap : 1) * sizeof(int)));
-    AGPT_V2_CUDA_CHECK(cudaMemcpy(runtime.d_compact_to_subtree_idx, h_lookup,
-                                  (size_t)(compact_cap > 0 ? compact_cap : 1) * sizeof(int),
-                                  cudaMemcpyHostToDevice));
+    AGPT_V2_CUDA_CHECK(cudaMemset(runtime.d_compact_to_subtree_idx, 0xff,
+                                  (size_t)(compact_cap > 0 ? compact_cap : 1) * sizeof(int)));
 
     if (n_sub > 0) {
+        int* d_subtree_slots = nullptr;
+        AGPT_V2_CUDA_CHECK(cudaMalloc(&d_subtree_slots, (size_t)n_sub * sizeof(int)));
+        AGPT_V2_CUDA_CHECK(cudaMemcpy(d_subtree_slots, h_subtree_slots,
+                                      (size_t)n_sub * sizeof(int),
+                                      cudaMemcpyHostToDevice));
+        launch_set_compact_to_subtree_v2(runtime.d_compact_to_subtree_idx, d_subtree_slots, n_sub);
+        AGPT_V2_CUDA_CHECK(cudaFree(d_subtree_slots));
+
         AGPT_V2_CUDA_CHECK(cudaMalloc(&runtime.d_subtree_real_pos, (size_t)n_sub * H * sizeof(int)));
         AGPT_V2_CUDA_CHECK(cudaMemcpy(runtime.d_subtree_real_pos, h_subtree_pos,
                                       (size_t)n_sub * H * sizeof(int),
@@ -124,8 +130,8 @@ static inline void init_unit_anc_grad_runtime_v2(UnitAncGradRuntimeV2& runtime,
         }
     }
 
-    std::free(h_lookup);
     std::free(h_subtree_pos);
+    std::free(h_subtree_slots);
 }
 
 static inline void zero_unit_anc_grad_runtime_v2(UnitAncGradRuntimeV2& runtime,

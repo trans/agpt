@@ -2,6 +2,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <cmath>
+#include <chrono>
 
 #include "types.cuh"
 #include "io.cuh"
@@ -17,6 +18,7 @@
 #include "forward_pass.cuh"
 #include "backward_pass.cuh"
 #include "optimizer_step.cuh"
+#include "growth_trie_v2.cuh"
 
 namespace {
 
@@ -65,7 +67,63 @@ enum class V2Mode {
     SaveReloadRmsprop,
     TrainEpoch,
     TrainSmall,
+    TrainGrowth,
 };
+
+enum class GrowthEpochScheduleV2 {
+    Fixed,
+    LinearRamp,
+};
+
+static const char* growth_epoch_schedule_name_v2(GrowthEpochScheduleV2 schedule) {
+    switch (schedule) {
+        case GrowthEpochScheduleV2::Fixed: return "fixed";
+        case GrowthEpochScheduleV2::LinearRamp: return "linear-ramp";
+    }
+    return "unknown";
+}
+
+static bool parse_growth_epoch_schedule_v2(const char* text, GrowthEpochScheduleV2& out) {
+    if (std::strcmp(text, "fixed") == 0) {
+        out = GrowthEpochScheduleV2::Fixed;
+        return true;
+    }
+    if (std::strcmp(text, "linear") == 0 || std::strcmp(text, "linear-ramp") == 0 || std::strcmp(text, "ramp") == 0) {
+        out = GrowthEpochScheduleV2::LinearRamp;
+        return true;
+    }
+    return false;
+}
+
+static int growth_epochs_for_stage_v2(GrowthEpochScheduleV2 schedule,
+                                      int stage_index,
+                                      int total_stages,
+                                      int min_epochs,
+                                      int max_epochs) {
+    if (schedule == GrowthEpochScheduleV2::Fixed || max_epochs <= min_epochs || total_stages <= 1) {
+        return max_epochs;
+    }
+    // Inclusive min..max ramp: first stage gets min_epochs, final stage gets max_epochs.
+    int numerator = stage_index * (max_epochs - min_epochs);
+    int denominator = total_stages - 1;
+    return min_epochs + numerator / denominator;
+}
+
+static std::vector<int> make_growth_division_frontiers_v2(int final_frontier, int divisions) {
+    std::vector<int> frontiers;
+    if (divisions <= 0 || final_frontier <= 0) return frontiers;
+    frontiers.reserve(divisions);
+    int prev = 0;
+    for (int i = 1; i <= divisions; i++) {
+        long long v = ((long long)final_frontier * i + divisions - 1) / divisions;
+        if (v <= prev) v = prev + 1;
+        if (v > final_frontier) v = final_frontier;
+        frontiers.push_back((int)v);
+        prev = (int)v;
+    }
+    frontiers.erase(std::unique(frontiers.begin(), frontiers.end()), frontiers.end());
+    return frontiers;
+}
 
 static const char* v2_mode_name(V2Mode mode) {
     switch (mode) {
@@ -82,6 +140,7 @@ static const char* v2_mode_name(V2Mode mode) {
         case V2Mode::SaveReloadRmsprop: return "save-reload-rmsprop";
         case V2Mode::TrainEpoch: return "train-epoch";
         case V2Mode::TrainSmall: return "train-small";
+        case V2Mode::TrainGrowth: return "train-growth";
     }
     return "unknown";
 }
@@ -137,6 +196,10 @@ static bool parse_v2_mode(const char* text, V2Mode& out) {
     }
     if (std::strcmp(text, "train-small") == 0) {
         out = V2Mode::TrainSmall;
+        return true;
+    }
+    if (std::strcmp(text, "train-growth") == 0) {
+        out = V2Mode::TrainGrowth;
         return true;
     }
     return false;
@@ -228,10 +291,246 @@ static void scale_gradients_for_fire(cublasHandle_t cublas,
     AGPT_V2_CUBLAS_CHECK(cublasSscal(cublas, total_floats, &inv_n, d_grads, 1));
 }
 
+static double wall_seconds_v2() {
+    using clock = std::chrono::steady_clock;
+    return std::chrono::duration<double>(clock::now().time_since_epoch()).count();
+}
+
 static int effective_seq_len_from_trie_v2(const agpt_v2::RadixTrieStructure& trie) {
     int effective = trie.depth_file_count - 1;
     if (effective < 1) effective = 1;
     return effective;
+}
+
+static long long active_count_entries_v2(const agpt_v2::RadixTrieStructure& trie) {
+    long long total = 0;
+    for (int r = 0; r < trie.radix_count; r++) total += trie.counts_len[r];
+    return total;
+}
+
+static agpt_v2::ChunkPlanList build_capacity_chunk_list_for_plan_v2(
+    const agpt_v2::RadixTrieStructure& trie,
+    const agpt_v2::TrainingPlan& training_plan,
+    int chunk_queries) {
+    agpt_v2::ChunkPlanList capacity{};
+    capacity.chunk_count = 1;
+    capacity.chunks = (agpt_v2::ChunkPlan*)std::calloc(1, sizeof(agpt_v2::ChunkPlan));
+    for (int u = 0; u < training_plan.unit_count; u++) {
+        agpt_v2::ChunkPlanList chunks =
+            agpt_v2::build_chunk_plan_for_unit(trie, training_plan.units[u], chunk_queries);
+        for (int c = 0; c < chunks.chunk_count; c++) {
+            const agpt_v2::ChunkPlan& chunk = chunks.chunks[c];
+            agpt_v2::ChunkPlan& cap = capacity.chunks[0];
+            if (chunk.node_count > cap.node_count) cap.node_count = chunk.node_count;
+            if (chunk.query_count > cap.query_count) cap.query_count = chunk.query_count;
+            if (chunk.kv_count > cap.kv_count) cap.kv_count = chunk.kv_count;
+            if (chunk.compact_char_count > cap.compact_char_count) cap.compact_char_count = chunk.compact_char_count;
+            if (chunk.max_kv_len > cap.max_kv_len) cap.max_kv_len = chunk.max_kv_len;
+        }
+        agpt_v2::free_chunk_plan_list(chunks);
+    }
+    return capacity;
+}
+
+struct DeviceLossTablesV2 {
+    int* d_counts_offset = nullptr;
+    int* d_counts_len = nullptr;
+    int* d_counts_tok = nullptr;
+    int* d_counts_val = nullptr;
+};
+
+static DeviceLossTablesV2 upload_loss_tables_v2(const agpt_v2::RadixTrieStructure& trie) {
+    DeviceLossTablesV2 out{};
+    int radix_count_for_tables = trie.radix_count > 0 ? trie.radix_count : 1;
+    AGPT_V2_CUDA_CHECK(cudaMalloc(&out.d_counts_offset, (size_t)radix_count_for_tables * sizeof(int)));
+    AGPT_V2_CUDA_CHECK(cudaMemcpy(out.d_counts_offset, trie.counts_offset,
+                                  (size_t)radix_count_for_tables * sizeof(int),
+                                  cudaMemcpyHostToDevice));
+    AGPT_V2_CUDA_CHECK(cudaMalloc(&out.d_counts_len, (size_t)radix_count_for_tables * sizeof(int)));
+    AGPT_V2_CUDA_CHECK(cudaMemcpy(out.d_counts_len, trie.counts_len,
+                                  (size_t)radix_count_for_tables * sizeof(int),
+                                  cudaMemcpyHostToDevice));
+    AGPT_V2_CUDA_CHECK(cudaMalloc(&out.d_counts_tok, (size_t)(trie.total_counts > 0 ? trie.total_counts : 1) * sizeof(int)));
+    AGPT_V2_CUDA_CHECK(cudaMalloc(&out.d_counts_val, (size_t)(trie.total_counts > 0 ? trie.total_counts : 1) * sizeof(int)));
+    if (trie.total_counts > 0) {
+        AGPT_V2_CUDA_CHECK(cudaMemcpy(out.d_counts_tok, trie.counts_tok,
+                                      (size_t)trie.total_counts * sizeof(int),
+                                      cudaMemcpyHostToDevice));
+        AGPT_V2_CUDA_CHECK(cudaMemcpy(out.d_counts_val, trie.counts_val,
+                                      (size_t)trie.total_counts * sizeof(int),
+                                      cudaMemcpyHostToDevice));
+    }
+    return out;
+}
+
+static agpt_v2::LossTablesV2 make_loss_tables_view_v2(const DeviceLossTablesV2& tables) {
+    return agpt_v2::LossTablesV2{
+        tables.d_counts_offset,
+        tables.d_counts_len,
+        tables.d_counts_tok,
+        tables.d_counts_val,
+    };
+}
+
+static void free_device_loss_tables_v2(DeviceLossTablesV2& tables) {
+    if (tables.d_counts_offset) cudaFree(tables.d_counts_offset);
+    if (tables.d_counts_len) cudaFree(tables.d_counts_len);
+    if (tables.d_counts_tok) cudaFree(tables.d_counts_tok);
+    if (tables.d_counts_val) cudaFree(tables.d_counts_val);
+    tables = DeviceLossTablesV2{};
+}
+
+static void run_train_epoch_on_radix_host_v2(const agpt_v2::TrainerConfig& cfg,
+                                             const agpt_v2::RuntimeShape& shape,
+                                             const agpt_v2::ModelLayout& model,
+                                             const agpt_v2::RadixTrieStructure& trie,
+                                             float* h_weights,
+                                             float* h_opt_m,
+                                             float* h_opt_v,
+                                             int epochs,
+                                             int unit_limit,
+                                             long long total_unit_steps,
+                                             long long warmup_unit_steps,
+                                             int& optimizer_step_index) {
+    double t_total0 = wall_seconds_v2();
+    agpt_v2::CacheLayout cache = agpt_v2::make_cache_layout(shape);
+    agpt_v2::TrainingPlan training_plan = agpt_v2::build_pd1_training_plan(trie);
+    if (training_plan.unit_count <= 0) {
+        std::printf("  train-growth-stage: skipped, no pd=1 training units at radix_nodes=%d\n",
+                    trie.radix_count);
+        agpt_v2::free_training_plan(training_plan);
+        return;
+    }
+    agpt_v2::ExecutionPlan plan = agpt_v2::build_execution_plan(trie, training_plan, cfg.chunk_queries);
+    agpt_v2::ChunkPlanList capacity_chunks =
+        build_capacity_chunk_list_for_plan_v2(trie, training_plan, cfg.chunk_queries);
+    agpt_v2::TrainerRuntimeContract runtime_contract =
+        agpt_v2::build_trainer_runtime_contract(shape, cache, plan, capacity_chunks,
+                                                trie.compact_slot_capacity);
+    double t_plan1 = wall_seconds_v2();
+
+    int units_to_run = plan.training_unit_count;
+    if (unit_limit > 0 && unit_limit < units_to_run) units_to_run = unit_limit;
+    if (units_to_run < 1) units_to_run = 1;
+
+    agpt_v2::TrainerRuntimeV2 runtime{};
+    init_trainer_runtime_v2(runtime, runtime_contract, trie);
+    agpt_v2::zero_cache_runtime_v2(runtime.cache);
+    AGPT_V2_CUDA_CHECK(cudaMemcpy(runtime.d_weights, h_weights,
+                                  (size_t)model.total_floats * sizeof(float),
+                                  cudaMemcpyHostToDevice));
+    AGPT_V2_CUDA_CHECK(cudaMemcpy(runtime.d_opt_m, h_opt_m,
+                                  (size_t)model.total_floats * sizeof(float),
+                                  cudaMemcpyHostToDevice));
+    AGPT_V2_CUDA_CHECK(cudaMemcpy(runtime.d_opt_v, h_opt_v,
+                                  (size_t)model.total_floats * sizeof(float),
+                                  cudaMemcpyHostToDevice));
+
+    DeviceLossTablesV2 device_loss_tables = upload_loss_tables_v2(trie);
+    agpt_v2::LossTablesV2 loss_tables = make_loss_tables_view_v2(device_loss_tables);
+
+    agpt_v2::ChunkUploadRuntimeV2 upload{};
+    init_chunk_upload_runtime_v2(upload, runtime_contract.chunk.node_capacity,
+                                 runtime_contract.chunk.query_capacity, shape.n_heads);
+    AGPT_V2_CUDA_CHECK(cudaDeviceSynchronize());
+    double t_setup1 = wall_seconds_v2();
+
+    std::printf("  train-growth-stage: epochs=%d units=%d optimizer=%s radix_nodes=%d edge_chars=%lld\n",
+                epochs, units_to_run, v2_optimizer_name(cfg.optimizer),
+                trie.radix_count, trie.total_edge_chars);
+    if (total_unit_steps < 1) total_unit_steps = 1;
+    for (int epoch = 0; epoch < epochs; epoch++) {
+        double epoch_loss_sum = 0.0;
+        long long epoch_trained = 0;
+        agpt_v2::zero_cache_runtime_v2(runtime.cache);
+        std::printf("    stage-epoch %d/%d\n", epoch + 1, epochs);
+        for (int u = 0; u < units_to_run; u++) {
+            const agpt_v2::TrainingUnit& unit = training_plan.units[u];
+            agpt_v2::ChunkPlanList unit_chunks =
+                agpt_v2::build_chunk_plan_for_unit(trie, unit, cfg.chunk_queries);
+            if (unit_chunks.chunk_count <= 0) {
+                agpt_v2::free_chunk_plan_list(unit_chunks);
+                continue;
+            }
+
+            float current_lr = scheduled_lr(cfg, optimizer_step_index, total_unit_steps, warmup_unit_steps);
+            AGPT_V2_CUDA_CHECK(cudaMemset(runtime.d_grads, 0, runtime.contract.weight_and_grad_bytes / 2));
+            agpt_v2::UnitAncGradRuntimeV2 unit_anc{};
+            if (cfg.anc_grad) {
+                agpt_v2::init_unit_anc_grad_runtime_v2(unit_anc, runtime.contract, cfg, unit, trie);
+                agpt_v2::zero_unit_anc_grad_runtime_v2(unit_anc, runtime.contract);
+            }
+
+            double unit_loss_sum = 0.0;
+            long long unit_trained = 0;
+            for (int s = 0; s < unit_chunks.chunk_count; s++) {
+                const agpt_v2::ChunkPlan& chunk = unit_chunks.chunks[s];
+                agpt_v2::ChunkMetadataV2 chunk_meta =
+                    agpt_v2::build_chunk_metadata_v2(cfg, shape, trie, unit, chunk);
+                agpt_v2::ChunkDeviceMetadataV2 chunk_device_meta =
+                    upload_chunk_metadata_v2(chunk_meta, upload);
+                agpt_v2::ForwardPassResult chunk_fwd =
+                    agpt_v2::run_forward_prefix_v2(cfg, model, chunk_meta, chunk_device_meta,
+                                                   upload, loss_tables, runtime,
+                                                   cfg.anc_grad ? &unit_anc : nullptr);
+                agpt_v2::BackwardPassResult chunk_bwd =
+                    agpt_v2::run_backward_output_head_v2(cfg, model, chunk_meta, chunk_device_meta,
+                                                         upload, chunk_fwd, runtime,
+                                                         cfg.anc_grad ? &unit_anc : nullptr,
+                                                         s == 0, s + 1 == unit_chunks.chunk_count);
+                (void)chunk_bwd;
+                unit_loss_sum += (double)chunk_fwd.mean_loss * (double)chunk_fwd.trained_queries;
+                unit_trained += chunk_fwd.trained_queries;
+                epoch_loss_sum += (double)chunk_fwd.mean_loss * (double)chunk_fwd.trained_queries;
+                epoch_trained += chunk_fwd.trained_queries;
+                agpt_v2::free_chunk_metadata_v2(chunk_meta);
+            }
+
+            scale_gradients_for_fire(runtime.cublas, runtime.d_grads, model.total_floats, unit_trained);
+            agpt_v2::OptimizerStepResult step =
+                agpt_v2::run_optimizer_step_stateful(cfg, current_lr, runtime.d_weights, runtime.d_grads,
+                                                     runtime.d_opt_m, runtime.d_opt_v,
+                                                     model.total_floats, ++optimizer_step_index);
+            double unit_mean = unit_trained > 0 ? unit_loss_sum / (double)unit_trained : 0.0;
+            std::printf("      unit %d/%d rc=%d chunks=%d trained_queries=%lld mean_loss=%.6f lr=%.6g step=%s\n",
+                        u + 1, units_to_run, unit.root_child_id, unit_chunks.chunk_count,
+                        unit_trained, unit_mean, current_lr, step.message);
+            agpt_v2::free_unit_anc_grad_runtime_v2(unit_anc, runtime.contract);
+            agpt_v2::free_chunk_plan_list(unit_chunks);
+        }
+        double epoch_mean = epoch_trained > 0 ? epoch_loss_sum / (double)epoch_trained : 0.0;
+        std::printf("    stage-epoch %d summary trained_queries=%lld mean_loss=%.6f\n",
+                    epoch + 1, epoch_trained, epoch_mean);
+    }
+    AGPT_V2_CUDA_CHECK(cudaDeviceSynchronize());
+    double t_train1 = wall_seconds_v2();
+
+    AGPT_V2_CUDA_CHECK(cudaMemcpy(h_weights, runtime.d_weights,
+                                  (size_t)model.total_floats * sizeof(float),
+                                  cudaMemcpyDeviceToHost));
+    AGPT_V2_CUDA_CHECK(cudaMemcpy(h_opt_m, runtime.d_opt_m,
+                                  (size_t)model.total_floats * sizeof(float),
+                                  cudaMemcpyDeviceToHost));
+    AGPT_V2_CUDA_CHECK(cudaMemcpy(h_opt_v, runtime.d_opt_v,
+                                  (size_t)model.total_floats * sizeof(float),
+                                  cudaMemcpyDeviceToHost));
+    AGPT_V2_CUDA_CHECK(cudaDeviceSynchronize());
+    double t_copy1 = wall_seconds_v2();
+
+    free_chunk_upload_runtime_v2(upload);
+    free_device_loss_tables_v2(device_loss_tables);
+    agpt_v2::free_trainer_runtime_v2(runtime);
+    agpt_v2::free_chunk_plan_list(capacity_chunks);
+    agpt_v2::free_training_plan(training_plan);
+    AGPT_V2_CUDA_CHECK(cudaDeviceSynchronize());
+    double t_cleanup1 = wall_seconds_v2();
+    std::printf("  train-growth-stage-timing: plan=%.3fs setup=%.3fs train=%.3fs copy_back=%.3fs cleanup=%.3fs total=%.3fs\n",
+                t_plan1 - t_total0,
+                t_setup1 - t_plan1,
+                t_train1 - t_setup1,
+                t_copy1 - t_train1,
+                t_cleanup1 - t_copy1,
+                t_cleanup1 - t_total0);
 }
 
 }  // namespace
@@ -240,10 +539,18 @@ int main(int argc, char** argv) {
     agpt_v2::TrainerConfig cfg;
     const char* model_path = nullptr;
     const char* trie_dir = nullptr;
+    const char* corpus_path = nullptr;
+    const char* growth_frontiers_arg = nullptr;
     const char* save_path = nullptr;
     V2Mode mode = V2Mode::Plan;
     int steps = 3;
     int unit_limit = 0;
+    int growth_max_depth = 0;
+    int growth_min_epochs = 1;
+    int growth_divisions = 0;
+    int growth_final_frontier = 0;
+    double growth_train_frac = 1.0;
+    GrowthEpochScheduleV2 growth_epoch_schedule = GrowthEpochScheduleV2::Fixed;
 
     cfg.epochs = 1;
     cfg.partition_depth = 1;
@@ -259,6 +566,13 @@ int main(int argc, char** argv) {
     for (int i = 1; i < argc; i++) {
         if (std::strcmp(argv[i], "--model") == 0 && i + 1 < argc) model_path = argv[++i];
         else if (std::strcmp(argv[i], "--trie-dir") == 0 && i + 1 < argc) trie_dir = argv[++i];
+        else if (std::strcmp(argv[i], "--corpus") == 0 && i + 1 < argc) corpus_path = argv[++i];
+        else if (std::strcmp(argv[i], "--growth-frontiers") == 0 && i + 1 < argc) growth_frontiers_arg = argv[++i];
+        else if (std::strcmp(argv[i], "--growth-divisions") == 0 && i + 1 < argc) growth_divisions = std::atoi(argv[++i]);
+        else if (std::strcmp(argv[i], "--growth-final-frontier") == 0 && i + 1 < argc) growth_final_frontier = std::atoi(argv[++i]);
+        else if (std::strcmp(argv[i], "--growth-train-frac") == 0 && i + 1 < argc) growth_train_frac = std::atof(argv[++i]);
+        else if ((std::strcmp(argv[i], "--growth-max-depth") == 0 ||
+                  std::strcmp(argv[i], "--max-depth") == 0) && i + 1 < argc) growth_max_depth = std::atoi(argv[++i]);
         else if (std::strcmp(argv[i], "--epochs") == 0 && i + 1 < argc) cfg.epochs = std::atoi(argv[++i]);
         else if (std::strcmp(argv[i], "--partition-depth") == 0 && i + 1 < argc) cfg.partition_depth = std::atoi(argv[++i]);
         else if (std::strcmp(argv[i], "--chunk-queries") == 0 && i + 1 < argc) cfg.chunk_queries = std::atoi(argv[++i]);
@@ -278,6 +592,19 @@ int main(int argc, char** argv) {
             }
         }
         else if (std::strcmp(argv[i], "--warmup-epochs") == 0 && i + 1 < argc) cfg.warmup_epochs = std::atoi(argv[++i]);
+        else if (std::strcmp(argv[i], "--growth-min-epochs") == 0 && i + 1 < argc) growth_min_epochs = std::atoi(argv[++i]);
+        else if (std::strcmp(argv[i], "--growth-epoch-schedule") == 0 && i + 1 < argc) {
+            if (!parse_growth_epoch_schedule_v2(argv[++i], growth_epoch_schedule)) {
+                std::fprintf(stderr, "agpt_train_v2: unsupported --growth-epoch-schedule value: %s\n", argv[i]);
+                return 1;
+            }
+        }
+        else if (std::strcmp(argv[i], "--growth-epoch-ramp") == 0 && i + 1 < argc) {
+            if (!parse_growth_epoch_schedule_v2(argv[++i], growth_epoch_schedule)) {
+                std::fprintf(stderr, "agpt_train_v2: unsupported --growth-epoch-ramp value: %s\n", argv[i]);
+                return 1;
+            }
+        }
         else if (std::strcmp(argv[i], "--anc-grad") == 0) cfg.anc_grad = true;
         else if (std::strcmp(argv[i], "--save") == 0 && i + 1 < argc) save_path = argv[++i];
         else if (std::strcmp(argv[i], "--steps") == 0 && i + 1 < argc) steps = std::atoi(argv[++i]);
@@ -301,16 +628,23 @@ int main(int argc, char** argv) {
         }
     }
 
-    if (!model_path || !trie_dir) {
+    bool has_growth_schedule =
+        growth_frontiers_arg || growth_divisions > 0 || growth_final_frontier > 0 || growth_train_frac < 1.0;
+    bool missing_required = !model_path ||
+        (mode == V2Mode::TrainGrowth ? (!corpus_path || !has_growth_schedule) : !trie_dir);
+    if (missing_required) {
         std::fprintf(stderr,
                      "Usage: agpt_train_v2 --model <path> --trie-dir <path>\n"
+                     "       agpt_train_v2 --mode train-growth --model <path> --corpus <path>\n"
+                     "  [--growth-frontiers LIST | --growth-divisions N [--growth-final-frontier N | --growth-train-frac F]]\n"
+                     "  [--growth-max-depth N]\n"
                      "  [--epochs N] [--partition-depth 1] [--chunk-queries N] [--lr F] [--optimizer adam|sgd|momentum|rmsprop]\n"
                      "  [--momentum-beta F] [--rmsprop-beta F] [--lr-schedule constant|warmup-cosine]\n"
-                     "  [--warmup-epochs N] [--steps N]\n"
+                     "  [--warmup-epochs N] [--growth-min-epochs N] [--growth-epoch-schedule fixed|linear-ramp] [--steps N]\n"
                      "  [--anc-grad]\n"
                      "  [--units N]\n"
                      "  [--save PATH]\n"
-                     "  [--mode plan|instantiate-runtime|upload|forward|backward-head|one-step-sgd|one-step-rmsprop|multi-step-sgd|multi-step-rmsprop|save-reload-sgd|save-reload-rmsprop|train-epoch|train-small]\n"
+                     "  [--mode plan|instantiate-runtime|upload|forward|backward-head|one-step-sgd|one-step-rmsprop|multi-step-sgd|multi-step-rmsprop|save-reload-sgd|save-reload-rmsprop|train-epoch|train-small|train-growth]\n"
                      "  [--accumulate|--no-accumulate] [--quiet]\n"
                      "  compatibility aliases: [--instantiate-runtime] [--instantiate-chunk-upload]\n"
                          "                         [--run-forward-prefix] [--run-backward-head]\n");
@@ -333,6 +667,182 @@ int main(int argc, char** argv) {
     cfg.n_layers = shape.n_layers;
     cfg.d_ff = shape.d_ff;
     cfg.vocab_size = shape.vocab_size;
+    if (mode == V2Mode::TrainGrowth) {
+        int vocab_size_from_corpus = 0;
+        std::vector<int> tokens = agpt_v2::tokenize_corpus_sorted_unique_utf8_v2(corpus_path, &vocab_size_from_corpus);
+        if ((int)tokens.size() < 2) {
+            std::fprintf(stderr, "agpt_train_v2: train-growth corpus needs at least 2 tokens\n");
+            return 1;
+        }
+        if (vocab_size_from_corpus != shape.vocab_size) {
+            std::fprintf(stderr,
+                         "agpt_train_v2: train-growth vocab mismatch corpus=%d model=%d\n",
+                         vocab_size_from_corpus, shape.vocab_size);
+            return 1;
+        }
+        int max_depth = growth_max_depth > 0 ? growth_max_depth : header_seq_len;
+        if (max_depth < 1) max_depth = 1;
+        int max_possible_depth = (int)tokens.size() - 1;
+        if (max_depth > max_possible_depth) max_depth = max_possible_depth;
+        shape.seq_len = max_depth;
+        cfg.seq_len = shape.seq_len;
+
+        int full_starts = (int)tokens.size() - 1;
+        if (growth_train_frac <= 0.0 || growth_train_frac > 1.0) {
+            std::fprintf(stderr, "agpt_train_v2: --growth-train-frac must be in (0, 1]\n");
+            return 1;
+        }
+        if (growth_final_frontier < 0) growth_final_frontier = 0;
+        if (growth_final_frontier > full_starts) growth_final_frontier = full_starts;
+        if (growth_final_frontier == 0) {
+            growth_final_frontier = (int)std::floor((double)full_starts * growth_train_frac);
+        }
+        if (growth_final_frontier < 1) growth_final_frontier = 1;
+        if (growth_divisions < 0) growth_divisions = 0;
+
+        std::vector<int> frontiers;
+        const char* growth_schedule_source = "explicit-frontiers";
+        if (growth_frontiers_arg) {
+            frontiers = agpt_v2::parse_growth_frontiers_v2(growth_frontiers_arg, full_starts);
+        } else if (growth_divisions > 0) {
+            frontiers = make_growth_division_frontiers_v2(growth_final_frontier, growth_divisions);
+            growth_schedule_source = "generated-divisions";
+        }
+        if (frontiers.empty()) frontiers.push_back(full_starts);
+        agpt_v2::ModelLayout model = agpt_v2::make_model_layout(shape);
+        float* h_weights = agpt_v2::load_model_weights_v2(model_path, model);
+        float* h_opt_m = (float*)std::calloc((size_t)model.total_floats, sizeof(float));
+        float* h_opt_v = (float*)std::calloc((size_t)model.total_floats, sizeof(float));
+        if (!h_weights || !h_opt_m || !h_opt_v) {
+            std::fprintf(stderr, "agpt_train_v2: train-growth failed allocating host state\n");
+            std::free(h_weights);
+            std::free(h_opt_m);
+            std::free(h_opt_v);
+            agpt_v2::free_model_layout(model);
+            return 1;
+        }
+
+        int epochs = cfg.epochs > 0 ? cfg.epochs : 1;
+        if (growth_min_epochs <= 0) growth_min_epochs = 1;
+        if (growth_epoch_schedule != GrowthEpochScheduleV2::Fixed && growth_min_epochs > epochs) {
+            std::fprintf(stderr,
+                         "agpt_train_v2: --growth-min-epochs (%d) must be <= --epochs (%d) for ramp schedules\n",
+                         growth_min_epochs, epochs);
+            std::free(h_weights);
+            std::free(h_opt_m);
+            std::free(h_opt_v);
+            agpt_v2::free_model_layout(model);
+            return 1;
+        }
+        int estimated_units = unit_limit > 0 ? unit_limit : cfg.vocab_size;
+        long long scheduled_epochs = 0;
+        for (int i = 0; i < (int)frontiers.size(); i++) {
+            scheduled_epochs += growth_epochs_for_stage_v2(growth_epoch_schedule, i, (int)frontiers.size(),
+                                                           growth_min_epochs, epochs);
+        }
+        long long total_unit_steps = scheduled_epochs * (long long)estimated_units;
+        long long warmup_unit_steps = (long long)cfg.warmup_epochs * (long long)estimated_units;
+        int optimizer_step_index = 0;
+        const char* growth_radix_env = std::getenv("AGPT_GROWTH_RADIX");
+        bool use_incremental_growth_radix =
+            !(growth_radix_env && std::strcmp(growth_radix_env, "rebuild") == 0);
+        agpt_v2::GrowthTrieStateV2 growth_rebuild;
+        agpt_v2::GrowthIncrementalRadixStateV2 growth_incremental;
+        if (use_incremental_growth_radix) {
+            growth_incremental = agpt_v2::make_growth_incremental_radix_state_v2(std::move(tokens), max_depth);
+        } else {
+            growth_rebuild = agpt_v2::make_growth_trie_state_v2(std::move(tokens), max_depth);
+        }
+
+        std::printf("AGPT CUDA Trainer V2\n");
+        std::printf("  mode: %s\n", v2_mode_name(mode));
+        std::printf("  model: d=%d heads=%d layers=%d ff=%d vocab=%d seq=%d head_dim=%d\n",
+                    shape.d_model, shape.n_heads, shape.n_layers, shape.d_ff,
+                    shape.vocab_size, shape.seq_len, shape.head_dim);
+        if (header_seq_len != shape.seq_len) {
+            std::printf("  seq_len reconcile: model header says %d, growth max_depth=%d -> effective %d. Overriding.\n",
+                        header_seq_len, max_depth, shape.seq_len);
+        }
+        std::printf("  corpus: %s tokens=%zu full_starts=%d\n",
+                    corpus_path,
+                    use_incremental_growth_radix ? growth_incremental.tokens.size() : growth_rebuild.tokens.size(),
+                    full_starts);
+        std::printf("  growth: stages=%zu epochs_per_stage=%d min_epochs=%d epoch_schedule=%s scheduled_epochs=%lld optimizer=%s schedule=%s materializer=%s estimated_total_unit_steps=%lld\n",
+                    frontiers.size(), epochs, growth_min_epochs,
+                    growth_epoch_schedule_name_v2(growth_epoch_schedule), scheduled_epochs, v2_optimizer_name(cfg.optimizer),
+                    v2_lr_schedule_name(cfg.lr_schedule),
+                    use_incremental_growth_radix ? "incremental-radix" : "rebuild",
+                    total_unit_steps);
+        std::printf("  growth-frontiers: source=%s divisions=%d train_frac=%.6f final_frontier=%d\n",
+                    growth_schedule_source, growth_divisions, growth_train_frac, frontiers.back());
+        std::printf("  config: lr=%.6f warmup_epochs=%d partition_depth=%d chunk_queries=%d anc_grad=%s\n",
+                    cfg.lr, cfg.warmup_epochs, cfg.partition_depth, cfg.chunk_queries,
+                    cfg.anc_grad ? "true" : "false");
+
+        for (int i = 0; i < (int)frontiers.size(); i++) {
+            int frontier = frontiers[i];
+            double t_stage0 = wall_seconds_v2();
+            if (use_incremental_growth_radix) {
+                agpt_v2::growth_incremental_ingest_until_v2(growth_incremental, frontier);
+            } else {
+                agpt_v2::growth_ingest_until_v2(growth_rebuild, frontier);
+            }
+            double t_ingest1 = wall_seconds_v2();
+            agpt_v2::RadixTrieStructure trie =
+                use_incremental_growth_radix
+                    ? agpt_v2::growth_incremental_radix_view_v2(growth_incremental)
+                    : agpt_v2::growth_build_radix_view_v2(growth_rebuild);
+            double t_materialize1 = wall_seconds_v2();
+            long long active_counts = active_count_entries_v2(trie);
+            std::printf("  growth-stage %d/%zu: frontier_starts=%d ingested_starts=%d radix_nodes=%d edge_chars=%lld counts=%lld",
+                        i + 1, frontiers.size(), frontier,
+                        use_incremental_growth_radix ? growth_incremental.ingested_starts : growth_rebuild.ingested_starts,
+                        trie.radix_count, trie.total_edge_chars, active_counts);
+            if ((long long)trie.total_counts != active_counts) {
+                std::printf(" flat_counts=%d", trie.total_counts);
+            }
+            std::printf("\n");
+            int epochs_this_stage = growth_epochs_for_stage_v2(
+                growth_epoch_schedule, i, (int)frontiers.size(), growth_min_epochs, epochs);
+            if (growth_epoch_schedule != GrowthEpochScheduleV2::Fixed) {
+                std::printf("  growth-stage-epochs %d/%zu: epochs=%d min_epochs=%d max_epochs=%d schedule=%s\n",
+                            i + 1, frontiers.size(), epochs_this_stage, growth_min_epochs, epochs,
+                            growth_epoch_schedule_name_v2(growth_epoch_schedule));
+            }
+            run_train_epoch_on_radix_host_v2(cfg, shape, model, trie,
+                                             h_weights, h_opt_m, h_opt_v,
+                                             epochs_this_stage, unit_limit,
+                                             total_unit_steps, warmup_unit_steps,
+                                             optimizer_step_index);
+            double t_train1 = wall_seconds_v2();
+            if (!use_incremental_growth_radix) {
+                agpt_v2::free_radix_trie_structure(trie);
+            }
+            double t_free1 = wall_seconds_v2();
+            std::printf("  growth-stage-timing %d/%zu: ingest=%.3fs materialize=%.3fs train_stage=%.3fs free_radix=%.3fs total=%.3fs\n",
+                        i + 1, frontiers.size(),
+                        t_ingest1 - t_stage0,
+                        t_materialize1 - t_ingest1,
+                        t_train1 - t_materialize1,
+                        t_free1 - t_train1,
+                        t_free1 - t_stage0);
+        }
+
+        if (save_path) {
+            agpt_v2::save_model_weights_v2(save_path, model, h_weights);
+            std::printf("  train-growth: saved final weights to %s\n", save_path);
+        } else {
+            std::printf("  train-growth: no --save path supplied; final weights were not written\n");
+        }
+        std::printf("  train-growth: completed stages=%zu optimizer_steps=%d\n",
+                    frontiers.size(), optimizer_step_index);
+
+        std::free(h_weights);
+        std::free(h_opt_m);
+        std::free(h_opt_v);
+        agpt_v2::free_model_layout(model);
+        return 0;
+    }
     agpt_v2::RadixTrieStructure trie = agpt_v2::load_radix_structure_minimal(trie_dir);
     shape.seq_len = effective_seq_len_from_trie_v2(trie);
     cfg.seq_len = shape.seq_len;
@@ -344,8 +854,11 @@ int main(int argc, char** argv) {
     if (plan.largest_by_queries) {
         largest_chunks = agpt_v2::build_chunk_plan_for_unit(trie, *plan.largest_by_queries, cfg.chunk_queries);
     }
+    agpt_v2::ChunkPlanList capacity_chunks =
+        build_capacity_chunk_list_for_plan_v2(trie, training_plan, cfg.chunk_queries);
     agpt_v2::TrainerRuntimeContract runtime_contract =
-        agpt_v2::build_trainer_runtime_contract(shape, cache, plan, largest_chunks);
+        agpt_v2::build_trainer_runtime_contract(shape, cache, plan, capacity_chunks,
+                                                trie.compact_slot_capacity);
     agpt_v2::ChunkMetadataV2 first_chunk_meta{};
     bool have_first_chunk_meta = false;
     if (plan.largest_by_queries && largest_chunks.chunk_count > 0) {
@@ -460,9 +973,7 @@ int main(int argc, char** argv) {
     bool run_train_epoch = (mode == V2Mode::TrainEpoch);
     bool run_train_small = (mode == V2Mode::TrainSmall);
 
-    int* d_counts_offset = nullptr;
-    int* d_counts_tok = nullptr;
-    int* d_counts_val = nullptr;
+    DeviceLossTablesV2 device_loss_tables{};
     if (instantiate_runtime) {
         agpt_v2::TrainerRuntimeV2 runtime{};
         init_trainer_runtime_v2(runtime, runtime_contract, trie);
@@ -471,20 +982,7 @@ int main(int argc, char** argv) {
         AGPT_V2_CUDA_CHECK(cudaMemcpy(runtime.d_weights, h_weights,
                                       (size_t)model.total_floats * sizeof(float),
                                       cudaMemcpyHostToDevice));
-        AGPT_V2_CUDA_CHECK(cudaMalloc(&d_counts_offset, (size_t)(trie.radix_count + 1) * sizeof(int)));
-        AGPT_V2_CUDA_CHECK(cudaMemcpy(d_counts_offset, trie.counts_offset,
-                                      (size_t)(trie.radix_count + 1) * sizeof(int),
-                                      cudaMemcpyHostToDevice));
-        AGPT_V2_CUDA_CHECK(cudaMalloc(&d_counts_tok, (size_t)(trie.total_counts > 0 ? trie.total_counts : 1) * sizeof(int)));
-        AGPT_V2_CUDA_CHECK(cudaMalloc(&d_counts_val, (size_t)(trie.total_counts > 0 ? trie.total_counts : 1) * sizeof(int)));
-        if (trie.total_counts > 0) {
-            AGPT_V2_CUDA_CHECK(cudaMemcpy(d_counts_tok, trie.counts_tok,
-                                          (size_t)trie.total_counts * sizeof(int),
-                                          cudaMemcpyHostToDevice));
-            AGPT_V2_CUDA_CHECK(cudaMemcpy(d_counts_val, trie.counts_val,
-                                          (size_t)trie.total_counts * sizeof(int),
-                                          cudaMemcpyHostToDevice));
-        }
+        device_loss_tables = upload_loss_tables_v2(trie);
         std::printf("  runtime objects: instantiated successfully\n");
         if (instantiate_chunk_upload && have_first_chunk_meta) {
             agpt_v2::ChunkUploadRuntimeV2 upload{};
@@ -494,7 +992,7 @@ int main(int argc, char** argv) {
             (void)device_meta;
             std::printf("  chunk upload: first chunk uploaded successfully\n");
             if (run_train_epoch) {
-                agpt_v2::LossTablesV2 loss_tables{d_counts_offset, d_counts_tok, d_counts_val};
+                agpt_v2::LossTablesV2 loss_tables = make_loss_tables_view_v2(device_loss_tables);
                 int epochs = cfg.epochs > 0 ? cfg.epochs : 1;
                 int units_to_run = plan.training_unit_count;
                 if (unit_limit > 0 && unit_limit < units_to_run) units_to_run = unit_limit;
@@ -562,13 +1060,12 @@ int main(int argc, char** argv) {
                                 if (save_path) {
                                     std::printf("  diag-fire-exit: skipping save due to early exit\n");
                                 }
-                                AGPT_V2_CUDA_CHECK(cudaFree(d_counts_offset));
-                                AGPT_V2_CUDA_CHECK(cudaFree(d_counts_tok));
-                                AGPT_V2_CUDA_CHECK(cudaFree(d_counts_val));
+                                free_device_loss_tables_v2(device_loss_tables);
                                 free_chunk_upload_runtime_v2(upload);
                                 agpt_v2::free_trainer_runtime_v2(runtime);
                                 agpt_v2::free_chunk_metadata_v2(first_chunk_meta);
                                 agpt_v2::free_chunk_plan_list(largest_chunks);
+                                agpt_v2::free_chunk_plan_list(capacity_chunks);
                                 agpt_v2::free_training_plan(training_plan);
                                 agpt_v2::free_radix_trie_structure(trie);
                                 return 0;
@@ -612,7 +1109,7 @@ int main(int argc, char** argv) {
                     std::free(h_updated);
                 }
             } else if (run_train_small) {
-                agpt_v2::LossTablesV2 loss_tables{d_counts_offset, d_counts_tok, d_counts_val};
+                agpt_v2::LossTablesV2 loss_tables = make_loss_tables_view_v2(device_loss_tables);
                 const agpt_v2::TrainingUnit& unit = *plan.largest_by_queries;
                 int n_steps = steps;
                 if (n_steps > largest_chunks.chunk_count) n_steps = largest_chunks.chunk_count;
@@ -657,7 +1154,7 @@ int main(int argc, char** argv) {
                             step.message, first_before.mean_loss, n_steps);
                 agpt_v2::free_unit_anc_grad_runtime_v2(unit_anc, runtime.contract);
             } else if (run_forward_prefix) {
-                agpt_v2::LossTablesV2 loss_tables{d_counts_offset, d_counts_tok, d_counts_val};
+                agpt_v2::LossTablesV2 loss_tables = make_loss_tables_view_v2(device_loss_tables);
                 agpt_v2::UnitAncGradRuntimeV2 unit_anc{};
                 if (cfg.anc_grad && plan.largest_by_queries) {
                     agpt_v2::init_unit_anc_grad_runtime_v2(unit_anc, runtime.contract, cfg, *plan.largest_by_queries, trie);
@@ -827,9 +1324,7 @@ int main(int argc, char** argv) {
             std::printf("  chunk upload: not instantiated (pass --instantiate-chunk-upload to exercise metadata upload)\n");
         }
         free_trainer_runtime_v2(runtime);
-        if (d_counts_offset) cudaFree(d_counts_offset);
-        if (d_counts_tok) cudaFree(d_counts_tok);
-        if (d_counts_val) cudaFree(d_counts_val);
+        free_device_loss_tables_v2(device_loss_tables);
         std::printf("  runtime objects: freed successfully\n");
         std::free(h_weights);
     } else {
@@ -843,6 +1338,7 @@ int main(int argc, char** argv) {
     (void)model;
     if (have_first_chunk_meta) agpt_v2::free_chunk_metadata_v2(first_chunk_meta);
     agpt_v2::free_chunk_plan_list(largest_chunks);
+    agpt_v2::free_chunk_plan_list(capacity_chunks);
     agpt_v2::free_training_plan(training_plan);
     agpt_v2::free_radix_trie_structure(trie);
     agpt_v2::free_model_layout(model);

@@ -174,7 +174,7 @@ static inline void run_forward_output_stage_v2(const TrainerConfig& cfg,
     cuda_bias_add(buf.output.logits, B_out, T_q, cfg.vocab_size);
     launch_agpt_loss_per_query_v2(
         buf.output.logits, upload.d_query_to_node, upload.d_query_offsets, upload.d_radix_ids, upload.d_token_ids,
-        loss_tables.d_counts_offset, loss_tables.d_counts_tok, loss_tables.d_counts_val,
+        loss_tables.d_counts_offset, loss_tables.d_counts_len, loss_tables.d_counts_tok, loss_tables.d_counts_val,
         buf.output.d_logits, buf.output.loss, T_q, cfg.vocab_size);
 }
 
