@@ -70,6 +70,45 @@ enum class V2Mode {
     TrainGrowth,
 };
 
+enum class GrowthEpochScheduleV2 {
+    Fixed,
+    LinearRamp,
+};
+
+static const char* growth_epoch_schedule_name_v2(GrowthEpochScheduleV2 schedule) {
+    switch (schedule) {
+        case GrowthEpochScheduleV2::Fixed: return "fixed";
+        case GrowthEpochScheduleV2::LinearRamp: return "linear-ramp";
+    }
+    return "unknown";
+}
+
+static bool parse_growth_epoch_schedule_v2(const char* text, GrowthEpochScheduleV2& out) {
+    if (std::strcmp(text, "fixed") == 0) {
+        out = GrowthEpochScheduleV2::Fixed;
+        return true;
+    }
+    if (std::strcmp(text, "linear") == 0 || std::strcmp(text, "linear-ramp") == 0 || std::strcmp(text, "ramp") == 0) {
+        out = GrowthEpochScheduleV2::LinearRamp;
+        return true;
+    }
+    return false;
+}
+
+static int growth_epochs_for_stage_v2(GrowthEpochScheduleV2 schedule,
+                                      int stage_index,
+                                      int total_stages,
+                                      int min_epochs,
+                                      int max_epochs) {
+    if (schedule == GrowthEpochScheduleV2::Fixed || max_epochs <= min_epochs || total_stages <= 1) {
+        return max_epochs;
+    }
+    // Inclusive min..max ramp: first stage gets min_epochs, final stage gets max_epochs.
+    int numerator = stage_index * (max_epochs - min_epochs);
+    int denominator = total_stages - 1;
+    return min_epochs + numerator / denominator;
+}
+
 static const char* v2_mode_name(V2Mode mode) {
     switch (mode) {
         case V2Mode::Plan: return "plan";
@@ -491,6 +530,8 @@ int main(int argc, char** argv) {
     int steps = 3;
     int unit_limit = 0;
     int growth_max_depth = 0;
+    int growth_min_epochs = 1;
+    GrowthEpochScheduleV2 growth_epoch_schedule = GrowthEpochScheduleV2::Fixed;
 
     cfg.epochs = 1;
     cfg.partition_depth = 1;
@@ -529,6 +570,19 @@ int main(int argc, char** argv) {
             }
         }
         else if (std::strcmp(argv[i], "--warmup-epochs") == 0 && i + 1 < argc) cfg.warmup_epochs = std::atoi(argv[++i]);
+        else if (std::strcmp(argv[i], "--growth-min-epochs") == 0 && i + 1 < argc) growth_min_epochs = std::atoi(argv[++i]);
+        else if (std::strcmp(argv[i], "--growth-epoch-schedule") == 0 && i + 1 < argc) {
+            if (!parse_growth_epoch_schedule_v2(argv[++i], growth_epoch_schedule)) {
+                std::fprintf(stderr, "agpt_train_v2: unsupported --growth-epoch-schedule value: %s\n", argv[i]);
+                return 1;
+            }
+        }
+        else if (std::strcmp(argv[i], "--growth-epoch-ramp") == 0 && i + 1 < argc) {
+            if (!parse_growth_epoch_schedule_v2(argv[++i], growth_epoch_schedule)) {
+                std::fprintf(stderr, "agpt_train_v2: unsupported --growth-epoch-ramp value: %s\n", argv[i]);
+                return 1;
+            }
+        }
         else if (std::strcmp(argv[i], "--anc-grad") == 0) cfg.anc_grad = true;
         else if (std::strcmp(argv[i], "--save") == 0 && i + 1 < argc) save_path = argv[++i];
         else if (std::strcmp(argv[i], "--steps") == 0 && i + 1 < argc) steps = std::atoi(argv[++i]);
@@ -560,7 +614,7 @@ int main(int argc, char** argv) {
                      "       agpt_train_v2 --mode train-growth --model <path> --corpus <path> --growth-frontiers LIST [--growth-max-depth N]\n"
                      "  [--epochs N] [--partition-depth 1] [--chunk-queries N] [--lr F] [--optimizer adam|sgd|momentum|rmsprop]\n"
                      "  [--momentum-beta F] [--rmsprop-beta F] [--lr-schedule constant|warmup-cosine]\n"
-                     "  [--warmup-epochs N] [--steps N]\n"
+                     "  [--warmup-epochs N] [--growth-min-epochs N] [--growth-epoch-schedule fixed|linear-ramp] [--steps N]\n"
                      "  [--anc-grad]\n"
                      "  [--units N]\n"
                      "  [--save PATH]\n"
@@ -624,8 +678,24 @@ int main(int argc, char** argv) {
         }
 
         int epochs = cfg.epochs > 0 ? cfg.epochs : 1;
+        if (growth_min_epochs <= 0) growth_min_epochs = 1;
+        if (growth_epoch_schedule != GrowthEpochScheduleV2::Fixed && growth_min_epochs > epochs) {
+            std::fprintf(stderr,
+                         "agpt_train_v2: --growth-min-epochs (%d) must be <= --epochs (%d) for ramp schedules\n",
+                         growth_min_epochs, epochs);
+            std::free(h_weights);
+            std::free(h_opt_m);
+            std::free(h_opt_v);
+            agpt_v2::free_model_layout(model);
+            return 1;
+        }
         int estimated_units = unit_limit > 0 ? unit_limit : cfg.vocab_size;
-        long long total_unit_steps = (long long)frontiers.size() * (long long)epochs * (long long)estimated_units;
+        long long scheduled_epochs = 0;
+        for (int i = 0; i < (int)frontiers.size(); i++) {
+            scheduled_epochs += growth_epochs_for_stage_v2(growth_epoch_schedule, i, (int)frontiers.size(),
+                                                           growth_min_epochs, epochs);
+        }
+        long long total_unit_steps = scheduled_epochs * (long long)estimated_units;
         long long warmup_unit_steps = (long long)cfg.warmup_epochs * (long long)estimated_units;
         int optimizer_step_index = 0;
         const char* growth_radix_env = std::getenv("AGPT_GROWTH_RADIX");
@@ -652,8 +722,9 @@ int main(int argc, char** argv) {
                     corpus_path,
                     use_incremental_growth_radix ? growth_incremental.tokens.size() : growth_rebuild.tokens.size(),
                     full_starts);
-        std::printf("  growth: stages=%zu epochs_per_stage=%d optimizer=%s schedule=%s materializer=%s estimated_total_unit_steps=%lld\n",
-                    frontiers.size(), epochs, v2_optimizer_name(cfg.optimizer),
+        std::printf("  growth: stages=%zu epochs_per_stage=%d min_epochs=%d epoch_schedule=%s scheduled_epochs=%lld optimizer=%s schedule=%s materializer=%s estimated_total_unit_steps=%lld\n",
+                    frontiers.size(), epochs, growth_min_epochs,
+                    growth_epoch_schedule_name_v2(growth_epoch_schedule), scheduled_epochs, v2_optimizer_name(cfg.optimizer),
                     v2_lr_schedule_name(cfg.lr_schedule),
                     use_incremental_growth_radix ? "incremental-radix" : "rebuild",
                     total_unit_steps);
@@ -684,9 +755,16 @@ int main(int argc, char** argv) {
                 std::printf(" flat_counts=%d", trie.total_counts);
             }
             std::printf("\n");
+            int epochs_this_stage = growth_epochs_for_stage_v2(
+                growth_epoch_schedule, i, (int)frontiers.size(), growth_min_epochs, epochs);
+            if (growth_epoch_schedule != GrowthEpochScheduleV2::Fixed) {
+                std::printf("  growth-stage-epochs %d/%zu: epochs=%d min_epochs=%d max_epochs=%d schedule=%s\n",
+                            i + 1, frontiers.size(), epochs_this_stage, growth_min_epochs, epochs,
+                            growth_epoch_schedule_name_v2(growth_epoch_schedule));
+            }
             run_train_epoch_on_radix_host_v2(cfg, shape, model, trie,
                                              h_weights, h_opt_m, h_opt_v,
-                                             epochs, unit_limit,
+                                             epochs_this_stage, unit_limit,
                                              total_unit_steps, warmup_unit_steps,
                                              optimizer_step_index);
             double t_train1 = wall_seconds_v2();
