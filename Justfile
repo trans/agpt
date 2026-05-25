@@ -128,6 +128,12 @@ build-dump-trie-contexts: build-stubs
     mkdir -p bin
     timeout 10m crystal build src/tools/dump_trie_contexts.cr -o bin/dump_trie_contexts --link-flags="{{root}}/build/kernels.o"
 
+# Build per-substring position-distribution tables (catalog + radix→substring
+# lookup + sparse position counts) for the multi-position encoding work.
+build-agpt-build-position-table: build-stubs
+    mkdir -p bin
+    timeout 10m crystal build src/tools/build_position_table.cr -o bin/agpt_build_position_table --release --link-flags="{{root}}/build/kernels.o -lstdc++"
+
 # Build trie sparsity-profile tool.
 build-trie-profile: build-stubs
     mkdir -p bin

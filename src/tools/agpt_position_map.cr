@@ -1,5 +1,6 @@
 require "../agpt"
 require "../agpt/radix_trie_reader"
+require "../agpt/corpus_trie_walker"
 require "option_parser"
 
 # Phase 0 of the seq_len decoupling work: build the
@@ -53,23 +54,12 @@ vocab_size = reader.vocab_size
 STDERR.puts "Trie: #{trie_dir} (#{n_radix} nodes, vocab=#{vocab_size}, depth_files=#{reader.depth_file_count})"
 
 # Build (parent_id → first_token → record) index for O(1) child lookup.
-child_by_token = Hash(Int32, Hash(Int32, RadixTrieReader::LoadedRecord)).new do |h, k|
-  h[k] = {} of Int32 => RadixTrieReader::LoadedRecord
-end
-record_by_id = {} of Int32 => RadixTrieReader::LoadedRecord
-
 t_index_start = Time.monotonic
-reader.each do |r|
-  child_by_token[r.parent_id][r.edge_tokens[0]] = r
-  record_by_id[r.id] = r
-end
+walker = CorpusTrieWalker.new(reader, corpus_tokens)
 t_index = (Time.monotonic - t_index_start).total_seconds
-STDERR.puts "Indexed in #{t_index.round(2)}s"
+STDERR.puts "Indexed in #{t_index.round(2)}s (walker ~#{(walker.approximate_bytes / 1024.0 / 1024.0).round(1)} MB compact storage)"
 
-# Determine d (= maximum endpoint depth across all radix records).
-max_endpoint_depth = 0
-record_by_id.each_value { |r| max_endpoint_depth = r.endpoint_depth if r.endpoint_depth > max_endpoint_depth }
-d_max = max_endpoint_depth
+d_max = walker.d_max
 STDERR.puts "Max endpoint depth in trie: d=#{d_max}"
 
 # How many positions to walk?
@@ -88,8 +78,6 @@ end
 node_position_count = Hash(Int32, Int32).new(0)   # node → distinct terminal-position contributions
 nodes_per_position_hist = Hash(Int32, Int64).new(0_i64)
 nodes_per_position_sum = 0_i64
-fall_off_count = 0_i64
-no_root_child_count = 0_i64
 
 t_start = Time.monotonic
 
@@ -102,53 +90,15 @@ n_terminal = sample_n > 0 && sample_n < n_corpus ? sample_n : n_corpus
 per_position_nodes = Array(Array(Int32)).new(n_terminal) { [] of Int32 }
 STDERR.puts "Pass 1: walking from each of #{n_corpus} starting positions, emitting (terminal_position, node) contributions"
 
-s = 0
-while s < n_corpus
-  parent_id = 0
-  pos_off = 0
-  while pos_off < d_max && (s + pos_off) < n_corpus
-    next_char = corpus_tokens[s + pos_off]
-    kids = child_by_token[parent_id]?
-    if kids.nil?
-      no_root_child_count += 1 if parent_id == 0
-      break
-    end
-    kid = kids[next_char]?
-    break if kid.nil?
-    edge_len = kid.edge_tokens.size
-    max_can = Math.min(edge_len, Math.min(d_max - pos_off, n_corpus - (s + pos_off)))
-    match_len = 0
-    max_can.times do |i|
-      if kid.edge_tokens[i] == corpus_tokens[s + pos_off + i]
-        match_len += 1
-      else
-        break
-      end
-    end
-    if match_len > 0
-      terminal_pos = s + pos_off + match_len - 1
-      # Attribute this radix node to its TERMINAL corpus position
-      # (where its path ends). Only record if within sample limit.
-      if terminal_pos < n_terminal
-        per_position_nodes[terminal_pos] << kid.id
-      end
-    end
-    pos_off += match_len
-    if match_len < edge_len
-      fall_off_count += 1
-      break
-    end
-    parent_id = kid.id
-  end
-  s += 1
-  if s % 500000 == 0
-    elapsed = (Time.monotonic - t_start).total_seconds
-    rate = s / elapsed
-    STDERR.puts "  walked from #{s}/#{n_corpus} starting positions (#{rate.round(0)} pos/s)"
+walker.walk do |radix_id, _start_pos, terminal_pos|
+  if terminal_pos < n_terminal
+    per_position_nodes[terminal_pos] << radix_id
   end
 end
 
 t_walk = (Time.monotonic - t_start).total_seconds
+fall_off_count = walker.fall_off_count
+no_root_child_count = walker.no_root_child_count
 STDERR.puts "Pass 1 complete in #{t_walk.round(2)}s"
 
 # Pass 2: emit stats and optional binary output.
@@ -173,8 +123,7 @@ n_terminal.times do |p|
       end
     end
     path_str = contribs.map { |nid|
-      r = record_by_id[nid]
-      "#{nid}(d#{r.endpoint_depth},m#{r.edge_mass})"
+      "#{nid}(d#{walker.endpoint_depth_of(nid)},m#{walker.edge_mass_of(nid)})"
     }.join(", ")
     STDERR.puts "  p=#{p} context_ending_at_p=\"#{snippet}\" k=#{k} reps: #{path_str}"
     verbose_left -= 1
@@ -223,7 +172,7 @@ puts "  total (position, node) contributions: #{nodes_per_position_sum}"
 mismatches = 0
 mismatch_examples = [] of {Int32, Int32, Int32}
 node_position_count.each do |nid, contribs|
-  m = record_by_id[nid].edge_mass
+  m = walker.edge_mass_of(nid)
   if contribs != m
     mismatches += 1
     mismatch_examples << {nid, contribs, m} if mismatch_examples.size < 5
@@ -231,7 +180,7 @@ node_position_count.each do |nid, contribs|
 end
 total_pos = node_position_count.values.sum
 total_mass = 0_i64
-node_position_count.each_key { |id| total_mass += record_by_id[id].edge_mass }
+node_position_count.each_key { |id| total_mass += walker.edge_mass_of(id) }
 puts ""
 puts "## Mass consistency check"
 puts "  sum of position-contributions: #{total_pos}"
@@ -247,6 +196,5 @@ puts ""
 puts "## Top 10 nodes by position count"
 puts "node_id    positions  mass     depth  edge_len"
 node_position_count.to_a.sort_by { |_, c| -c }.first(10).each do |id, c|
-  rec = record_by_id[id]
-  puts "%-10d %-10d %-8d %-6d %d" % [id, c, rec.edge_mass, rec.endpoint_depth, rec.edge_len]
+  puts "%-10d %-10d %-8d %-6d %d" % [id, c, walker.edge_mass_of(id), walker.endpoint_depth_of(id), walker.edge_len_of(id)]
 end

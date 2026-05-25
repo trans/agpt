@@ -18,6 +18,10 @@ require "./agpt/streaming_leveled_builder"
 require "./agpt/streaming_radix_builder"
 require "./agpt/corpus_radix_builder"
 require "./agpt/radix_trie_reader"
+require "./agpt/corpus_trie_walker"
+require "./agpt/substring_catalog"
+require "./agpt/position_table"
+require "./agpt/radix_to_substring"
 
 module MicroGPT
   module AGPT
