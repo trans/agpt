@@ -1,0 +1,18 @@
+[03:13:30] loading init model data/input.model
+/usr/lib/python3.14/site-packages/torch/cuda/__init__.py:1061: UserWarning: Can't initialize NVML
+  raw_cnt = _raw_device_count_nvml()
+[03:13:30] tokenizing rnd/harmonic-bias-prototype/20260526T071324-seed3-baseline/train_corpus.txt
+  corpus tokens (train): 1059624
+  d_window=16 batch_size=128 batches_per_epoch=8278 total=82780
+[03:14:01] epoch 1/10 mean_loss=2.1098 ppl_train=8.247 elapsed=31.6s
+[03:14:33] epoch 2/10 mean_loss=1.7313 ppl_train=5.648 elapsed=62.7s
+[03:15:03] epoch 3/10 mean_loss=1.6225 ppl_train=5.066 elapsed=93.5s
+[03:15:35] epoch 4/10 mean_loss=1.5617 ppl_train=4.767 elapsed=124.8s
+[03:16:06] epoch 5/10 mean_loss=1.5158 ppl_train=4.553 elapsed=155.7s
+[03:16:37] epoch 6/10 mean_loss=1.4759 ppl_train=4.375 elapsed=186.8s
+[03:17:08] epoch 7/10 mean_loss=1.4402 ppl_train=4.222 elapsed=217.9s
+[03:17:39] epoch 8/10 mean_loss=1.4098 ppl_train=4.095 elapsed=248.9s
+[03:18:10] epoch 9/10 mean_loss=1.3865 ppl_train=4.001 elapsed=279.9s
+[03:18:41] epoch 10/10 mean_loss=1.3735 ppl_train=3.949 elapsed=311.3s
+[03:18:41] saving rnd/harmonic-bias-prototype/20260526T071324-seed3-baseline/checkpoint.model
+  wrote rnd/harmonic-bias-prototype/20260526T071324-seed3-baseline/checkpoint.model (seq_len=16)

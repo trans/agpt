@@ -1,0 +1,21 @@
+[02:47:45] loading init model data/input.model
+/usr/lib/python3.14/site-packages/torch/cuda/__init__.py:1061: UserWarning: Can't initialize NVML
+  raw_cnt = _raw_device_count_nvml()
+[02:47:45] tokenizing rnd/harmonic-bias-prototype/20260526T064738-seed1-bias/train_corpus.txt
+  corpus tokens (train): 1059624
+[02:47:45] precomputing chords (d=16, W=64, n_freq=16)
+  precompute_chords: 1026859 unique substrings of length up to 16 from 1059624 positions, 21.3s
+  d_window=16 batch_size=128 batches_per_epoch=8278 total=82780
+[02:49:00] epoch 1/10 mean_loss=2.0852 ppl_train=8.047 elapsed=53.3s
+[02:49:49] epoch 2/10 mean_loss=1.7299 ppl_train=5.640 elapsed=102.1s
+[02:50:39] epoch 3/10 mean_loss=1.6256 ppl_train=5.082 elapsed=152.5s
+[02:51:28] epoch 4/10 mean_loss=1.5678 ppl_train=4.796 elapsed=201.4s
+[02:52:17] epoch 5/10 mean_loss=1.5238 ppl_train=4.589 elapsed=250.0s
+[02:53:04] epoch 6/10 mean_loss=1.4862 ppl_train=4.420 elapsed=297.1s
+[02:53:53] epoch 7/10 mean_loss=1.4519 ppl_train=4.271 elapsed=346.0s
+[02:54:42] epoch 8/10 mean_loss=1.4224 ppl_train=4.147 elapsed=395.0s
+[02:55:32] epoch 9/10 mean_loss=1.3999 ppl_train=4.055 elapsed=445.4s
+[02:56:22] epoch 10/10 mean_loss=1.3873 ppl_train=4.004 elapsed=495.4s
+[02:56:22] saving rnd/harmonic-bias-prototype/20260526T064738-seed1-bias/checkpoint.model
+  wrote rnd/harmonic-bias-prototype/20260526T064738-seed1-bias/checkpoint.model (seq_len=16)
+  wrote bias state to /home/trans/Projects/agpt/rnd/harmonic-bias-prototype/20260526T064738-seed1-bias/checkpoint.beta.pt

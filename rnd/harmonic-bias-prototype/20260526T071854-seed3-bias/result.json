@@ -1,0 +1,24 @@
+{
+  "run_id": "20260526T071854-seed3-bias",
+  "experiment": "harmonic-bias-prototype",
+  "wall_seconds": 367.169567532,
+  "started_utc": "2026-05-26T07:18:54Z",
+  "ended_utc": "2026-05-26T07:25:01Z",
+  "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+  "eval": {
+    "split": "tail-heldout",
+    "source_path": "rnd/harmonic-bias-prototype/20260526T071854-seed3-bias/heldout_corpus.txt",
+    "source_sha256": "8b5a8c8af45905547ad03b7aae6980a277a5dd78924a6e6ac64b75d63d7d40bd",
+    "benchmark": null,
+    "corpus_train_frac": 0.95,
+    "corpus_split_offset": 1059624
+  },
+  "metrics": {
+    "agpt_fixed_token_perplexity": 5.345187614698723,
+    "agpt_fixed_token_perplexity_no_bias": 6.242466673911774,
+    "bits_per_byte": 2.4182405870561783,
+    "bits_per_byte_no_bias": 2.642116214189442,
+    "n_scored": 55754.0
+  },
+  "checkpoint_sha": "2edc9acda74495276b623f710891338ed96cc9a83ab8a5add58da68303b324df"
+}

@@ -1,0 +1,11 @@
+{
+  "protocol": "agpt_fixed_token_with_bias",
+  "d_window": 16,
+  "metrics": {
+    "agpt_fixed_token_perplexity": 5.514743455018171,
+    "agpt_fixed_token_perplexity_no_bias": 6.235460244405763,
+    "bits_per_byte": 2.463293773435554,
+    "bits_per_byte_no_bias": 2.6404960504825765,
+    "n_scored": 55754
+  }
+}

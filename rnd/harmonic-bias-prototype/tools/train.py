@@ -58,9 +58,15 @@ MGPT_MAGIC = 0x4D475054
 # .model save (round-trip of agpt_ppl.load_model)
 # ---------------------------------------------------------------------------
 
-def save_model(path: str, model: AGPTForCausalLM) -> None:
+def save_model(path: str, model: AGPTForCausalLM,
+               seq_len_override: int | None = None) -> None:
     cfg = model.config
     backbone = model.backbone
+    # The saved seq_len drives downstream evaluators' context-window
+    # choice (lm-eval's rolling and agpt_lm_eval's fixed-token both
+    # read it). If we trained at d_window=16, save 16 — otherwise the
+    # evaluator probes RoPE positions the model never saw.
+    seq_len_saved = seq_len_override if seq_len_override is not None else cfg.seq_len
 
     def emit_mat(out, rows: int, cols: int, tensor: torch.Tensor) -> None:
         flat = tensor.detach().cpu().contiguous().view(-1).float().numpy()
@@ -72,7 +78,7 @@ def save_model(path: str, model: AGPTForCausalLM) -> None:
         out.write(struct.pack('<I', MGPT_MAGIC))
         out.write(struct.pack('<6i',
             cfg.d_model, cfg.n_heads, cfg.n_layers,
-            cfg.d_ff, cfg.vocab_size, cfg.seq_len))
+            cfg.d_ff, cfg.vocab_size, seq_len_saved))
 
         D, F_dim, V, L = cfg.d_model, cfg.d_ff, cfg.vocab_size, cfg.n_layers
 
@@ -246,9 +252,11 @@ def train(args: argparse.Namespace) -> None:
 
     print(f"[{time.strftime('%H:%M:%S')}] saving {args.save}", file=sys.stderr)
     # .model save uses the underlying AGPT backbone (β is not part of the
-    # native format; saved separately if --save-beta given).
-    save_model(args.save, hf_model)
-    print(f"  wrote {args.save}", file=sys.stderr)
+    # native format; saved separately if --save-beta given). Override
+    # seq_len = d_window so downstream evaluators don't probe untrained
+    # RoPE positions.
+    save_model(args.save, hf_model, seq_len_override=d_window)
+    print(f"  wrote {args.save} (seq_len={d_window})", file=sys.stderr)
     if chord_table is not None:
         beta_path = args.save_beta
         if beta_path is None:
