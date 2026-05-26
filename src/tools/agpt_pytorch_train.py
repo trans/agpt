@@ -42,6 +42,10 @@ if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
 from agpt_ppl import load_model, build_vocab  # noqa: E402
 from agpt_hf import AGPTConfig, AGPTForCausalLM  # noqa: E402
+from agpt_pytorch_bias import (  # noqa: E402
+    HarmonicBiasModel, ChordTable, precompute_chords,
+    byte_perplexity_pytorch,
+)
 
 
 MGPT_MAGIC = 0x4D475054
@@ -128,17 +132,44 @@ def train(args: argparse.Namespace) -> None:
     device = torch.device(args.device)
 
     print(f"[{time.strftime('%H:%M:%S')}] loading init model {args.model}", file=sys.stderr)
-    model = AGPTForCausalLM.from_agpt_checkpoint(args.model).to(device)
-    cfg = model.config
+    hf_model = AGPTForCausalLM.from_agpt_checkpoint(args.model).to(device)
+    cfg = hf_model.config
     d_window = args.growth_max_depth or cfg.seq_len
 
     print(f"[{time.strftime('%H:%M:%S')}] tokenizing {args.corpus}", file=sys.stderr)
-    ids, _ = tokenize_corpus(args.corpus, vocab_path=args.vocab_file)
+    full_ids, _ = tokenize_corpus(args.corpus, vocab_path=args.vocab_file)
+    full_N = full_ids.numel()
+
+    # Carve train/heldout up front so training never sees the eval tail.
+    if args.eval_heldout_frac and args.eval_heldout_frac > 0:
+        split_off = int(full_N * (1.0 - args.eval_heldout_frac))
+        ids = full_ids[:split_off].contiguous()
+        heldout_ids = full_ids[split_off:].contiguous()
+    else:
+        ids = full_ids
+        heldout_ids = None
     N = ids.numel()
-    print(f"  corpus tokens: {N}", file=sys.stderr)
+    print(f"  corpus tokens (train): {N}"
+          + (f", heldout: {heldout_ids.numel()}" if heldout_ids is not None else ""),
+          file=sys.stderr)
     if N < d_window + 2:
         print(f"corpus too short for d={d_window}", file=sys.stderr)
         sys.exit(2)
+
+    # Build wrapper. β=0 init means harmonic bias starts as a no-op; if
+    # --harmonic-bias is off, we never pass chord data into forward so it
+    # makes no difference.
+    n_freq = args.bias_n_freq if args.harmonic_bias else 1
+    model = HarmonicBiasModel(hf_model, n_freq=n_freq).to(device)
+
+    chord_table = None
+    if args.harmonic_bias:
+        print(f"[{time.strftime('%H:%M:%S')}] precomputing chords "
+              f"(d={d_window}, W={args.bias_window}, n_freq={n_freq})",
+              file=sys.stderr)
+        chord_table = precompute_chords(
+            ids, d_window, args.bias_window, n_freq,
+        ).to(device)
 
     if args.optimizer == 'rmsprop':
         opt = torch.optim.RMSprop(model.parameters(), lr=args.lr,
@@ -176,8 +207,17 @@ def train(args: argparse.Namespace) -> None:
             target = ids_dev[batch_pos]
 
             opt.zero_grad(set_to_none=True)
-            out = model(input_ids=ctx)
-            logits_at_last = out.logits[:, -1, :]
+            if chord_table is not None:
+                chord_idx = chord_table.pos_to_idx[ctx_idx]
+                z_re = chord_table.z_re[chord_idx]
+                z_im = chord_table.z_im[chord_idx]
+                mass = chord_table.mass[chord_idx]
+                logits = model(input_ids=ctx, chord_z_re=z_re,
+                               chord_z_im=z_im, chord_mass=mass,
+                               omega=chord_table.omega, pos_q=ctx_idx)
+            else:
+                logits = model(input_ids=ctx)
+            logits_at_last = logits[:, -1, :]
             loss = F.cross_entropy(logits_at_last, target)
             loss.backward()
             lr_now = cosine_warmup_lr(step, total_batches, args.lr, warmup_steps)
@@ -202,8 +242,49 @@ def train(args: argparse.Namespace) -> None:
               file=sys.stderr)
 
     print(f"[{time.strftime('%H:%M:%S')}] saving {args.save}", file=sys.stderr)
-    save_model(args.save, model)
+    # .model save uses the underlying AGPT backbone (β is not part of the
+    # native format; saved separately if --save-beta given).
+    save_model(args.save, hf_model)
     print(f"  wrote {args.save}", file=sys.stderr)
+    if chord_table is not None and args.save_beta:
+        beta_path = args.save_beta
+        torch.save({
+            'beta': model.beta.detach().cpu(),
+            'n_freq': model.n_freq,
+            'd_window': d_window,
+            'window_W': args.bias_window,
+        }, beta_path)
+        print(f"  wrote bias state to {beta_path}", file=sys.stderr)
+
+    # PyTorch eval on the carved tail. β is exercised here (lm-eval
+    # can't since the .model format has no slot for β).
+    if heldout_ids is not None:
+        if chord_table is not None:
+            print(f"[{time.strftime('%H:%M:%S')}] rebuilding chord table "
+                  f"on heldout slice ({heldout_ids.numel()} tokens)",
+                  file=sys.stderr)
+            heldout_ct = precompute_chords(
+                heldout_ids, d_window, args.bias_window, n_freq,
+            ).to(device)
+        else:
+            heldout_ct = None
+        print(f"[{time.strftime('%H:%M:%S')}] PyTorch eval on heldout "
+              f"({heldout_ids.numel()} tokens)", file=sys.stderr)
+        m = byte_perplexity_pytorch(
+            model, heldout_ids, heldout_ct, d_window, device,
+            batch_size=batch_size, use_bias=(chord_table is not None),
+        )
+        print(f"  byte_perplexity = {m['byte_perplexity']:.4f}", file=sys.stderr)
+        print(f"  bits_per_byte   = {m['bits_per_byte']:.4f}", file=sys.stderr)
+        print(f"  n_scored        = {m['n_scored']}", file=sys.stderr)
+        if chord_table is not None:
+            betas = model.beta.detach().cpu()
+            print(f"  β per (layer, head):", file=sys.stderr)
+            for L in range(betas.shape[0]):
+                line = "    L" + str(L) + ": " + " ".join(
+                    f"{betas[L, h].item():+.4f}" for h in range(betas.shape[1])
+                )
+                print(line, file=sys.stderr)
 
 
 # ---------------------------------------------------------------------------
@@ -243,9 +324,18 @@ def main() -> None:
         p.add_argument(ignored, default=None,
                        help=argparse.SUPPRESS)
 
-    # Prototype-only flag: enable the asym-DFT harmonic bias (when wired).
+    # Prototype-only flags: asym-DFT harmonic bias (forward+backward via autograd).
     p.add_argument('--harmonic-bias', action='store_true',
-                   help='Enable prototype asym-DFT bias in attention (NYI in this build)')
+                   help='Enable prototype asym-DFT bias in attention')
+    p.add_argument('--bias-window', type=int, default=64,
+                   help='W for chord precompute (default 64)')
+    p.add_argument('--bias-n-freq', type=int, default=16,
+                   help='Number of DFT frequencies / dim pairs (default 16)')
+    p.add_argument('--save-beta', default=None,
+                   help='Optional .pt path to save learned β + chord meta')
+    p.add_argument('--eval-heldout-frac', type=float, default=0.0,
+                   help='Tail fraction to PyTorch-eval after training '
+                        '(0 disables). Bias is exercised at eval.')
 
     args = p.parse_args()
     train(args)
