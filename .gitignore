@@ -38,8 +38,10 @@ rnd/legacy-rebaseline/**/*.model
 # stay tracked.
 logs/
 
-# Smoke-test runs (transient verification of bin/agpt_experiment).
-rnd/_smoke/
+# Smoke-test runs (transient verification of bin/agpt_experiment). Ignore
+# the per-run subdirs (which start with a UTC timestamp), but keep
+# rnd/_smoke/configs/ and rnd/_smoke/README.md tracked.
+rnd/_smoke/[0-9]*/
 
 # Orchestrator-generated experiment dirs (rnd/<exp>/<run-id>/): keep
 # config + meta + result.json + train.log; ignore the large regenerable
@@ -51,3 +53,6 @@ rnd/**/eval.log
 # the split offset is recorded in result.json + meta.json).
 rnd/**/train_corpus.txt
 rnd/**/heldout_corpus.txt
+
+# Python bytecode in experiment dirs.
+rnd/**/__pycache__/

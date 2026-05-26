@@ -38,11 +38,14 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 _HERE = Path(__file__).resolve().parent
-if str(_HERE) not in sys.path:
-    sys.path.insert(0, str(_HERE))
+_REPO_ROOT = _HERE.parents[2]  # rnd/<exp>/tools/ → repo root
+_SRC_TOOLS = _REPO_ROOT / "src" / "tools"
+for p in (str(_HERE), str(_SRC_TOOLS)):
+    if p not in sys.path:
+        sys.path.insert(0, p)
 from agpt_ppl import load_model, build_vocab  # noqa: E402
 from agpt_hf import AGPTConfig, AGPTForCausalLM  # noqa: E402
-from agpt_pytorch_bias import (  # noqa: E402
+from bias import (  # noqa: E402
     HarmonicBiasModel, ChordTable, precompute_chords,
     byte_perplexity_pytorch,
 )
@@ -246,8 +249,12 @@ def train(args: argparse.Namespace) -> None:
     # native format; saved separately if --save-beta given).
     save_model(args.save, hf_model)
     print(f"  wrote {args.save}", file=sys.stderr)
-    if chord_table is not None and args.save_beta:
+    if chord_table is not None:
         beta_path = args.save_beta
+        if beta_path is None:
+            # Convention: <save_dir>/checkpoint.beta.pt next to checkpoint.model
+            save_p = Path(args.save).resolve()
+            beta_path = str(save_p.parent / "checkpoint.beta.pt")
         torch.save({
             'beta': model.beta.detach().cpu(),
             'n_freq': model.n_freq,
@@ -332,7 +339,9 @@ def main() -> None:
     p.add_argument('--bias-n-freq', type=int, default=16,
                    help='Number of DFT frequencies / dim pairs (default 16)')
     p.add_argument('--save-beta', default=None,
-                   help='Optional .pt path to save learned β + chord meta')
+                   help='Optional .pt path to save learned β + chord meta. '
+                        'When --harmonic-bias is on and this is omitted, '
+                        'defaults to <save>.beta.pt for orchestrator-convention.')
     p.add_argument('--eval-heldout-frac', type=float, default=0.0,
                    help='Tail fraction to PyTorch-eval after training '
                         '(0 disables). Bias is exercised at eval.')

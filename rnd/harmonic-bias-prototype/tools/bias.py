@@ -38,8 +38,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 _HERE = Path(__file__).resolve().parent
-if str(_HERE) not in sys.path:
-    sys.path.insert(0, str(_HERE))
+_REPO_ROOT = _HERE.parents[2]
+_SRC_TOOLS = _REPO_ROOT / "src" / "tools"
+for p in (str(_HERE), str(_SRC_TOOLS)):
+    if p not in sys.path:
+        sys.path.insert(0, p)
 from agpt_ppl import build_vocab  # noqa: E402
 from agpt_hf import AGPTForCausalLM  # noqa: E402
 

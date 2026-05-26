@@ -1,0 +1,36 @@
+# Variance check, seed 1, no bias. Pair with seed1-bias.yml.
+
+meta:
+  description: "Baseline (no harmonic bias), seed 1"
+  experiment: harmonic-bias-prototype
+  run_slug: seed1-baseline
+
+corpus:
+  path: data/input.txt
+  train_frac: 0.95
+
+model:
+  init_from: data/input.model
+
+train:
+  tool: rnd/harmonic-bias-prototype/tools/train.py
+  mode: train-growth          # ignored by pytorch trainer; orchestrator passes it
+  growth_max_depth: 16
+  epochs: 10
+  optimizer: rmsprop
+  lr: 0.003
+  rmsprop_beta: 0.999
+  lr_schedule: warmup-cosine
+  warmup_epochs: 1            # 1 (0.5*2) — pytorch trainer epoch-based warmup
+  quiet: true
+  extra_args:
+    - "--seed"
+    - "1"
+    - "--batch-size"
+    - "128"
+
+eval:
+  split: tail-heldout
+  task_name: bias_proto_ppl
+  batch_size: 64
+  device: cuda
