@@ -3826,7 +3826,14 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                               : (mass_weight == MassWeightMode::Linear) ? "linear"
                               :                                            "?";
         printf("  mass weighting: %s (head-of-edge count restores corpus-frequency exposure)\n", mode_name);
+    } else {
+        printf("  mass weighting: off (legacy per-query-averaged loss; not paper-equivalent)\n");
     }
+    const char* fnorm = fire_norm_none      ? "none"
+                      : fire_norm_by_weight ? "Σ weight"
+                      : fire_norm_by_mass   ? "Σ event-mass"
+                      :                       "event count";
+    printf("  fire-norm: divide accumulated grad by %s\n", fnorm);
     if (subtree_splits > 1) {
         printf("  subtree splits: %d (N sub-batches per subtree; trades some within-subtree consistency for more updates)\n", subtree_splits);
     }
@@ -7229,7 +7236,13 @@ int main(int argc, char** argv) {
     int epochs = 1;
     float lr = 3e-4f;
     float entropy_lambda = 0.0f;
-    MassWeightMode mass_weight = MassWeightMode::Off;
+    // Canonical AGPT loss is count-weighted (paper §2:
+    //   L = -∑_p ∑_x n(p,x) log π(x|h_p)).
+    // Linear mass-weight = raw N_p per query, combined with --fire-norm-mass
+    // (now default-on too) gives the per-event-mean gradient the paper
+    // specifies. --mass-weight off recovers the legacy per-query-averaged
+    // form (= old behavior).
+    MassWeightMode mass_weight = MassWeightMode::Linear;
     DepthWeightMode depth_weight = DepthWeightMode::Off;
     EntropyWeightMode entropy_weight = EntropyWeightMode::Off;
     BranchingWeightMode branching_weight = BranchingWeightMode::Off;
@@ -7246,7 +7259,11 @@ int main(int argc, char** argv) {
     // by integer position. See notes/seq-len-extension/position-distributions-plan.md.
     const char* position_data_dir = nullptr;
     PosEncoderMode pos_encoder = PosEncoderMode::Default;
-    bool fire_norm_by_mass = false;
+    // fire_norm_by_mass default-on as the partner to --mass-weight linear.
+    // Divides d_grads by Σ N_p (= total event mass) at fire-end, giving
+    // the paper's per-event-mean gradient. --fire-norm-events overrides
+    // this to recover the legacy per-query divisor.
+    bool fire_norm_by_mass = true;
     bool fire_norm_by_weight = false;
     bool fire_norm_none = false;
     int subtree_splits = 1;   // deprecated: count-based chunking. --partition-depth is preferred.
@@ -7429,12 +7446,15 @@ int main(int argc, char** argv) {
             fire_norm_by_weight = true;
         }
         else if (strcmp(argv[i], "--fire-norm-mass") == 0) {
-            // Divide d_grads by Σ trie.edge_mass[r] over the fire's trained
-            // events at the optimizer step, instead of by event count.
-            // Tests whether high-mass-node gradient over-representation is what
-            // mass-inv-linear was solving at the loss-kernel layer. See
-            // rnd/depth-weight/.
+            // No-op (default-on as of paper-correct mass-weighting fix).
+            // Kept for explicit/historical compat.
             fire_norm_by_mass = true;
+        }
+        else if (strcmp(argv[i], "--fire-norm-events") == 0) {
+            // Explicit opt-out from the default --fire-norm-mass: divide by
+            // event count instead of total mass. Combined with --mass-weight
+            // off, recovers the pre-fix legacy behavior.
+            fire_norm_by_mass = false;
         }
         else if (strcmp(argv[i], "--depth-weight") == 0) {
             // --depth-weight <mode>: scale per-query loss/grad by f(endpoint_depth).
