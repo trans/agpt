@@ -253,6 +253,14 @@ build-convergence: build-stubs
     mkdir -p bin
     timeout 10m crystal build src/tools/convergence.cr -o bin/convergence --link-flags="{{root}}/build/kernels.o"
 
+# Build the experiment runner that orchestrates YAML-configured runs.
+# Pure Crystal; no model loading, no CUDA. Spawns trainer + lm-eval
+# subprocesses and bundles config+logs+checkpoint+result into one dir.
+# See notes/experiment-runner-design.md.
+build-agpt-experiment:
+    mkdir -p bin
+    timeout 5m crystal build src/tools/agpt_experiment.cr -o bin/agpt_experiment --release
+
 # Build weight-diff tool used by foundational unit tests.
 build-check-weights:
     mkdir -p bin

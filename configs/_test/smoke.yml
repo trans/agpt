@@ -1,0 +1,36 @@
+# Smoke-test config for agpt_experiment end-to-end verification.
+# Tiny growth-train run on Shakespeare → HF convert → lm-eval.
+# Expected wall: under 2 minutes.
+
+meta:
+  description: smoke test of the experiment runner end-to-end
+  experiment: _smoke
+  run_slug: shake-d64-quick
+
+corpus:
+  path: data/input.txt
+
+model:
+  init_from: data/input.model
+
+train:
+  mode: train-growth
+  growth_frontiers: 200000,500000,full
+  growth_max_depth: 16
+  growth_min_epochs: 1
+  growth_epoch_ramp: linear
+  epochs: 2
+  optimizer: rmsprop
+  lr: 0.003
+  lr_schedule: warmup-cosine
+  warmup_epochs: 0
+  chunk_queries: 50000
+  anc_grad: true
+  quiet: true
+
+eval:
+  text_file: data/input.txt
+  task_name: smoke_ppl
+  batch_size: 1
+  device: cpu
+  limit: 1
