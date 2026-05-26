@@ -40,6 +40,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from transformers import (
+    AutoConfig,
+    AutoModelForCausalLM,
+    AutoTokenizer,
     PretrainedConfig,
     PreTrainedModel,
     PreTrainedTokenizer,
@@ -214,6 +217,7 @@ class AGPTTokenizer(PreTrainedTokenizer):
     """
 
     model_input_names = ["input_ids", "attention_mask"]
+    vocab_files_names = {"vocab_file": "vocab.json"}
 
     def __init__(
         self,
@@ -234,8 +238,14 @@ class AGPTTokenizer(PreTrainedTokenizer):
         self._id_to_char = {i: c for i, c in enumerate(self._chars)}
         # unk_token must be one of the vocab chars (or we add it).
         if unk_token not in self._char_to_id:
-            # Fallback: pick the first vocab char as unk display.
             unk_token = self._chars[0]
+        # BOS/EOS default to newline (a natural char-level document
+        # separator); else first vocab entry. lm-evaluation-harness needs
+        # a non-None prefix_token_id for loglikelihood_rolling.
+        nl = chr(0x0A)
+        bos = nl if nl in self._char_to_id else self._chars[0]
+        kwargs.setdefault("bos_token", bos)
+        kwargs.setdefault("eos_token", bos)
         super().__init__(unk_token=unk_token, **kwargs)
 
     @classmethod
@@ -342,6 +352,24 @@ def _build_parser() -> argparse.ArgumentParser:
 def main() -> None:
     args = _build_parser().parse_args()
     args.func(args)
+
+
+def _register_with_hf():
+    """Register the AGPT model/tokenizer with HF's auto classes.
+
+    Called at import time so any tool that does `import agpt_hf` (or runs
+    a script in this directory) gets the registration. Idempotent.
+    """
+    try:
+        AutoConfig.register("agpt", AGPTConfig)
+        AutoModelForCausalLM.register(AGPTConfig, AGPTForCausalLM)
+        AutoTokenizer.register(AGPTConfig, AGPTTokenizer)
+    except ValueError:
+        # Already registered (e.g. re-import in same process).
+        pass
+
+
+_register_with_hf()
 
 
 if __name__ == "__main__":
