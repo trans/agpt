@@ -15,6 +15,7 @@ meta:
 
 corpus:
   path: data/input.txt
+  train_frac: 0.95       # tail 5% reserved for held-out eval
 
 model:
   init_from: data/input.model
@@ -38,7 +39,7 @@ train:
   quiet: true
 
 eval:
-  text_file: data/input.txt
+  split: tail-heldout    # eval on the last 5% of the corpus
   task_name: shake_ppl
   batch_size: 1
   device: cpu

@@ -47,3 +47,7 @@ rnd/_smoke/
 rnd/**/checkpoint.model
 rnd/**/hf_checkpoint/
 rnd/**/eval.log
+# Carved corpus slices (regenerable from corpus.path + train_frac;
+# the split offset is recorded in result.json + meta.json).
+rnd/**/train_corpus.txt
+rnd/**/heldout_corpus.txt

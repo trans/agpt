@@ -29,7 +29,7 @@ train:
   quiet: true
 
 eval:
-  text_file: data/input.txt
+  split: train          # smoke run: just verify the pipeline, train-PPL is fine
   task_name: smoke_ppl
   batch_size: 1
   device: cpu
