@@ -189,43 +189,53 @@ Exit codes:
 - 4: evaluator failed (tail of eval.log printed)
 - 5: duplicate config (points at existing run-id)
 
-## Sequencing with other in-flight work
+## Sequencing
 
-Codex has uncommitted changes under `src/cudax/` (sampled-bin multi-position
-probe). These touch the trainer and must be either committed or parked before
-infrastructure work begins, so that the trainer's CLI surface is stable when
-we wire YAML through it. **This is the gate** — no implementation starts until
-the CUDAX state is settled.
+**Stage 1: HF wrapper (Python).** Build `src/tools/agpt_hf.py` with
+`AGPTConfig(PretrainedConfig)`, `AGPTModel(PreTrainedModel)`, and char
+tokenizer. Verify it reproduces canonical PPL on a known baseline (L=8 d=128
+100SE seed 1 → 3.6945) via `lm-evaluation-harness`. Once this lands, the
+canonical evaluator is `lm-eval-harness` against the HF wrapper — no more
+`agpt_ppl.py` for new work.
 
-## Implementation order (after CUDAX is settled)
+**Stage 2: Orchestrator (Crystal).** Build `bin/agpt_experiment` knowing
+`lm-eval-harness` is the evaluator from day 1. No throwaway wiring. Crystal
+because that matches existing tool conventions (`agpt_train_v2`, etc.) and
+because the `microgpt` shard already provides config + model primitives we
+can reuse.
 
-1. **Schema + validator** (Python lib, ~150 lines). Used by orchestrator and
-   by `agpt_ppl.py`'s `--config` support.
-2. **`agpt_ppl.py --config X.yml`** (eval is the easier integration; Python
-   already does YAML).
-3. **`bin/agpt_experiment` v0**: orchestrator that wraps a YAML-aware
-   `agpt_ppl.py` + an existing-CLI `agpt_train_v2`. The trainer call is built
-   from the `train:` block; trainer doesn't need to know about YAML yet.
-4. **`agpt_train_v2 --config X.yml`** (Crystal-side, harder). When this lands,
-   the orchestrator stops constructing flag strings and just passes
-   `--config resolved_config.json` through.
-5. **Run a known baseline through the system end-to-end** to verify a
-   well-established number reproduces (e.g. L=8 d=128 100SE → Fixed PPL 3.6945
-   on Shakespeare).
-6. **Backfill one or two recent experiments** as runs under the new layout
-   (does not require re-training; just creates dirs + meta.json + result.json
-   from existing logs).
-7. **CLAUDE.md update** documenting the workflow.
+(Codex's `src/cudax/` work was committed 2026-05-25 as 7cd3d08 before either
+stage started.)
 
-## Out of scope (deferred to HF migration)
+## Stage 1 implementation order
 
-- Industry-standard evaluator integration (`lm-evaluation-harness`).
-- `AgptForCausalLM(PreTrainedModel)` subclass + char tokenizer wrapper.
-- `agpt_ppl.py` and `agpt_sliding_window_perplexity` retirement.
+1. **`AGPTConfig` + `AGPTModel`** in `src/tools/agpt_hf.py`. Reuses
+   `agpt_ppl.py`'s `load_model()` and forward code.
+2. **Char tokenizer** in same file. 65-char vocab loaded from a vocab file.
+3. **`from_pretrained` round-trip test**: load .model → HF state_dict →
+   single forward pass matches `agpt_ppl.py`'s forward bit-for-bit.
+4. **`lm-eval-harness` parity test**: run with `--task wikitext` or a
+   custom Shakespeare task; verify PPL on the baseline matches 3.6945.
+5. **Retire `agpt_ppl.py` and `agpt_sliding_window_perplexity`** to legacy
+   (move under `legacy/` or note in CLAUDE.md). Update
+   `feedback_evaluator_consistency` memory with the new canonical command.
 
-Until HF lands, `agpt_ppl.py --mode fixed` is the canonical evaluator. The
-orchestrator's `eval.tool` field is parameterized so swapping to
-`lm-evaluation-harness` later is a config change, not a code change.
+## Stage 2 implementation order
+
+1. **Crystal config structs** under `src/experiment/`: YAML::Serializable
+   types for each top-level YAML block.
+2. **Run-dir lifecycle** module: creates dir, writes config.yml +
+   resolved_config.json + meta.json (with git_sha, corpus_sha, etc).
+3. **Subprocess wrapping**: trainer (existing CLI) and evaluator
+   (`lm-eval-harness` with HF wrapper). Tee logs.
+4. **Result parsing**: read `lm-eval-harness` output → result.json.
+5. **`runs.json` aggregation + `README.md` table generation**.
+6. **`shard.yml` target + `Justfile` rule** for `bin/agpt_experiment`.
+7. **End-to-end verification**: run the same known baseline through the
+   orchestrator; numbers in `result.json` match the Stage 1 verification.
+8. **Backfill 1–2 recent experiments** by hand-creating run dirs from
+   existing logs (no retraining).
+9. **CLAUDE.md update** documenting the workflow.
 
 ## Related
 
@@ -233,17 +243,18 @@ orchestrator's `eval.tool` field is parameterized so swapping to
   superseded by orchestrator-generated `README.md` scaffold.
 - `todo/proper-ppl-heldout-methodology.md` — multi-heldout proposal; the
   YAML `corpus.split` block is designed to support this when we wire it.
-- `todo/hf-model-wrapper.md` — Step 2 (HF compatibility).
+- `todo/hf-model-wrapper.md` — Stage 1 plan.
 - `[[project_yaml_config]]` memory — flagged this as overdue 2026-05-22.
 
 ## Open questions for sign-off
 
 1. **Run-id format**: `<UTC-stamp>-<slug>` vs `<config-hash-prefix>-<slug>`?
    Stamp is human-friendly and sorts chronologically; hash is reproducible.
-2. **Where does `agpt_experiment` live**: `bin/` (compiled, matches other
-   tools) or `scripts/` (Python, easier to iterate)? Lean Python initially,
-   move to Crystal later if needed.
-3. **Backfill scope**: just the very recent active experiments (harmonic
+2. **Backfill scope**: just the very recent active experiments (harmonic
    filter, dmodel-scaling), or any experiment with a clear single-run result?
-4. **YAML library**: `pyyaml` (standard) or `ruamel.yaml` (round-trips
-   comments)? Lean pyyaml.
+
+Resolved:
+- Orchestrator language: Crystal (`bin/agpt_experiment`), matches existing
+  tools and reuses the `microgpt` shard.
+- Evaluator: `lm-evaluation-harness` against HF wrapper from day 1; no
+  interim `agpt_ppl.py` wiring.
