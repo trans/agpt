@@ -20,23 +20,28 @@ of full-window training, up to minibatch noise.
 
 This turns the optimizer loop into one gradient step per branching
 subtree, with the trie's structure supplying the training schedule.
-On a 1.1 MB Shakespeare corpus with a 108k-parameter transformer
-(§11), trie-based training at depth 32 reaches held-out perplexity
-**13.17** in **195 Adam steps**, versus **14.51** in **2000 SGD steps**
-for a step-sweep-tuned window baseline at matched context (seq_len=32)
-— **9% lower PPL with 10× fewer optimizer updates** at matched depth.
 
 The paper has two halves. §1–9 develops the factorization theorem,
 derives its computational-complexity implications, identifies valid
 training regimes (full-trie, bounded-subtrie, truncated-local-depth),
-and discusses systems considerations. §10–13 documents the
-implementation that validates the framework on a consumer GPU:
+and discusses systems considerations. §10 documents the implementation:
 radix compression of unary chains, a per-subtree KV-cache allocation
-strategy that brings d=32 training within a 15 GB RAM budget, a
-bigram subtree partition that brings peak memory 6× lower for deeper
-d, and an auto-LR scaler that preserves the winning recipe across
-subtree granularities. §12 states limitations honestly; §13 summarizes
-contributions.
+strategy, a bigram subtree partition for memory scaling, and an auto-LR
+scaler across subtree granularities. §11 states limitations honestly;
+§12 summarizes contributions.
+
+**Empirical evaluation has been retracted from this revision.** The
+original §11 reported held-out PPL numbers obtained with a fixed-window
+evaluator that under-measures the depth-1/depth-2 prediction quality on
+non-unary characters. Under standard `lm-evaluation-harness`
+`loglikelihood_rolling` evaluation, trie-based training shows a
+divergence between strong deep-context PPL (the regime the theorem
+addresses) and substantially weaker shallow-context PPL (which the
+training schedule under-trains in a way the factorization does not
+prevent). A revised empirical section is pending re-measurement under
+the rolling-PPL protocol; until that lands, no quantitative claims
+about training efficiency or held-out PPL appear in the abstract or
+conclusion.
 
 
 
@@ -601,133 +606,63 @@ step for scaling the framework to larger corpora.
 
 
 
-## 11. Empirical Evaluation
-
-### 11.1 Setup
-
-- **Corpus**: Shakespeare `input.txt`, 1.12 MB, 65-character vocabulary.
-- **Model**: 2-layer transformer, d_model=64, 4 heads × 16 head-dim,
-  d_ff=256, seq_len=128. 108,481 parameters.
-- **Hardware**: single 8 GB consumer GPU + 15 GB system RAM + 15 GB
-  swap.
-- **Evaluation**: held-out perplexity measured on the corpus tail,
-  32,768 positions scored with a sliding seq_len=128 window.
-
-### 11.2 Comparison vs. standard window training
-
-All numbers from the same codebase, same model architecture, same
-corpus. For each window-training seq_len we swept step counts
-{1k, 2k, 3k, 5k, 10k} and report the saturated best. Trie-based
-results use the recipe of §10.
-
-| Model | Context | Optimizer steps | Held-out PPL |
-|---|---:|---:|---:|
-| Random init | — | 0 | 144.2 |
-| Window seq=16 (saturated) | 16 | 2,000 | 16.92 |
-| **Trie d=16**, RMSProp+warmup-cosine | 16 | 50 | **15.28** |
-| Window seq=32 (saturated) | 32 | 2,000 | 14.51 |
-| **Trie d=32**, per-subtree, 3 super-epochs | 32 | 195 | **13.17** |
-| **Trie d=32 bigram**, auto-LR, 1 super-epoch | 32 | 1,465 | **13.30** |
-| Window seq=128 (saturated) | 128 | 10,000 | 7.00 |
-| Window seq=512 (saturated) | 512 | 10,000 | 7.13 |
-| Window seq=1024 (saturated) | 1024 | 10,000 | 6.30 |
-
-**At matched context, trie-based training wins by ~10%** in PPL with
-40× (at d=16) or 10× (at d=32) fewer optimizer steps.
-
-**At longer context, window training wins overall** — the 108k-parameter
-window model absorbs substantially more context (seq=1024 reaches PPL
-6.30, well below trie d=32). This is the natural scaling boundary: the
-trie formulation's per-step efficiency is per-depth, and extending
-depth costs memory in a way that extending window context does not.
-Scaling the trie formulation to d ≥ 128 is the natural next experiment;
-the per-subtree + bigram + pruning infrastructure of §10 was built for
-exactly this.
-
-### 11.3 Super-epoch sensitivity (d=32 unigram)
-
-| Super-epochs | Adam steps | Held-out PPL |
-|---:|---:|---:|
-| 1 | 65 | 13.71 |
-| 2 | 130 | 13.18 |
-| **3** | **195** | **13.17** |
-| 5 | 325 | 14.84 |
-| 10 | 650 | 18.27 |
-| 50 | 3,250 | 37.34 |
-
-The trie-based objective converges faster than window training and is
-correspondingly easier to over-train — 50 super-epochs catastrophically
-overfits on this small corpus. An external best-checkpoint wrapper
-(`agpt_train_best.sh` in the repository) writes a checkpoint per
-super-epoch and selects the best by held-out PPL, removing the need
-to hand-tune the super-epoch count.
-
-### 11.4 Radix compression + pruning numbers
-
-| Config | radix nodes | total edge chars | Peak KV (d=32) | PPL |
-|---|---:|---:|---:|---:|
-| Uncompressed leveled trie | 27.0 M | — | n/a | n/a |
-| Radix compression | 1.67 M | 27.0 M | 4.0 GB | 13.17 |
-| Radix + prune `m<2, d≥4` | 0.55 M | 1.17 M | 175 MB | 16.07 |
-
-
-
-## 12. Limitations
+## 11. Limitations
 
 Stated without hedging:
 
-1. **Scale**. All results are on a 1.1 MB char-level corpus with a
-   108k-parameter model. Modern LLM training is ~9 orders of magnitude
-   larger. This paper's claims are that trie-based training beats window
-   training *on a small corpus at matched context*; whether the advantage
-   holds at BPE vocabularies and billion-token corpora is an open
-   empirical question.
+1. **Empirical results retracted pending re-measurement under standard
+   `lm-evaluation-harness` rolling-PPL.** The original §11 results
+   reported fixed-window PPL only, which substantially overstates
+   model quality for trie-trained models. Under rolling-PPL,
+   short-context predictions (depth-1 and depth-2) degrade with more
+   training rather than improving — actively diverging from the
+   empirical conditional distribution on non-unary characters. The
+   factorization theorem does not prevent this divergence; the
+   per-event count weighting `n(p,x)` puts more gradient on depth-N
+   endpoints than on depth-1 endpoints, by sheer event-count
+   imbalance. The training schedule's interaction with shared
+   parameters is an open issue and the headline efficiency claims
+   from the original §11 do not survive the more honest measurement
+   protocol.
 
-2. **KV-cache scaling to frontier-scale models**. At Opus-family
+2. **Scale**. All current measurements are on a 1.1 MB char-level
+   corpus with a 108k-parameter model. Modern LLM training is ~9
+   orders of magnitude larger. Even if the empirical issue above is
+   resolved, whether the framework offers an advantage at BPE
+   vocabularies and billion-token corpora is an open empirical
+   question.
+
+3. **KV-cache scaling to frontier-scale models**. At Opus-family
    hyperparameters (d_model ≈ 16k, layers ≈ 100) a 1B-token BPE corpus
    would require petabytes of aggregate KV memory across subtree files.
    Per-subtree training makes this distributable; aggressive pruning
    and trigram/n-gram partitions are likely needed to keep per-node
    budgets feasible on current hardware.
 
-3. **Pruning at scale**. §11.4's pruning result cost 3 PPL on
-   Shakespeare. On a billion-token corpus the long tail of mass=1
-   paths is closer to noise and pruning should approach free — but
-   this is unvalidated at scale.
+4. **Generation quality**. The retracted §11 reported PPL only;
+   qualitative comparison of generated text is not systematically done.
 
-4. **Generation quality**. This paper reports PPL only; qualitative
-   comparison of generated text is not systematically done.
-
-5. **Compute-matched comparison**. Our baseline is step-saturated at
-   each context length; trie-based training uses ~10× fewer optimizer
-   steps but each step covers a whole subtree, so wall-clock cost per
-   step is higher. On the same 108k-param model + 8 GB GPU, trie d=32
-   at best-PPL = 21 minutes, window seq=32 at best-PPL ≈ 45 seconds.
-   Trie-based training spent more wall-clock compute per PPL-unit
-   here, which tilts the honest framing from "faster" toward
-   "different operating point."
-
-6. **Peer comparison**. No head-to-head with tokenizer-free neighbors
+5. **Peer comparison**. No head-to-head with tokenizer-free neighbors
    (ByT5, MambaByte, etc.) has been run. These are the natural peer
    group and a proper comparison requires running them on the same
    corpus at the same model scale.
 
-7. **Representation scalability**. The radix trie representation is
+6. **Representation scalability**. The radix trie representation is
    a reference implementation; it does not itself scale to
    billion-token BPE. A suffix-array-based builder is the clear
    engineering path to compact storage + streaming enumeration at
    scale.
 
-The natural next validation is **WikiText-103 scale with a real BPE
-tokenizer on cluster-grade hardware** — approximately 2 orders of
-magnitude larger than the present experiment, achievable on a single
-A100 for < $100 of cloud compute. This would establish whether the
-trie-based advantage holds at BPE vocabularies and 100M-token corpora,
-which would be the meaningful first step toward frontier scale.
+Before any scaling experiment, the depth-1/depth-2 prediction
+divergence under rolling-PPL needs to be diagnosed and either resolved
+within the framework or acknowledged as a structural property of the
+factorization. The natural next validation after that is **WikiText-103
+scale with a real BPE tokenizer on cluster-grade hardware** —
+approximately 2 orders of magnitude larger than the present experiment.
 
 
 
-## 13. Summary of Contributions
+## 12. Summary of Contributions
 
 1. **Gradient-factorization theorem** (§5): a rigorous demonstration
    that autoregressive next-token training admits reformulation over a
@@ -742,14 +677,12 @@ which would be the meaningful first step toward frontier scale.
 
 3. **Radix-compressed, per-subtree-file trie format** (§10.1–10.2):
    collapses unary chains and scopes KV-cache allocation to one
-   subtree at a time, making d=32 training fit in a 15 GB consumer
-   RAM budget.
+   subtree at a time.
 
 4. **Bigram subtree partition** (§10.3): splits root-child subtrees
    by second-character of path, attacking the dominant-root-child
-   memory ceiling (the space character's subtree in English). 6×
-   further peak-memory reduction at Shakespeare d=32 and a clear path
-   to trigram/n-gram partitioning for deeper d.
+   memory ceiling and providing a clear path to trigram/n-gram
+   partitioning for deeper d.
 
 5. **Auto-LR scaling across subtree granularities** (§10.4): the
    empirical invariant `lr × steps_per_super_epoch ≈ constant` lets
@@ -758,20 +691,18 @@ which would be the meaningful first step toward frontier scale.
 
 6. **Frequency-pruned trie construction** (§10.5): a (min_mass,
    min_depth) threshold gates out the mass=1 long tail at large d.
-   Provably safe (monotonicity); modest quality cost on small
-   corpus; expected to approach free at scale.
-
-7. **Empirical validation at char-level Shakespeare** (§11): matched-
-   context PPL improvement of 9% at d=32 and 10% at d=16 over
-   step-saturated window baselines, in 10× and 40× fewer optimizer
-   steps respectively.
+   Provably safe (monotonicity).
 
 Full code is published at the referenced repository under an MIT
 license.
 
+*Empirical results from the previous revision (§11) have been retracted
+pending re-measurement under standard rolling-PPL evaluation; see §11
+(Limitations) item 1.*
 
 
-## 14. Conclusion
+
+## 13. Conclusion
 
 We have shown that autoregressive language-model training admits a
 reformulation over a prefix trie, in which gradient computation
@@ -780,17 +711,15 @@ chain rule. The resulting objective eliminates redundant prefix
 computation and aggregates gradient contributions at shared nodes,
 exposing a different computational structure for training.
 
-The empirical validation on a 1.1 MB corpus demonstrates that the
-factorization translates to a real per-step efficiency advantage at
-matched context (9-10% lower PPL in 10-40× fewer optimizer steps).
-Per-subtree training and bigram partitioning make the approach
-practical on commodity hardware at depth 32; the same mechanisms
-extend naturally to deeper d.
-
-The open question — whether the per-step efficiency advantage
-persists at BPE vocabularies and billion-token corpora — is the
-natural follow-on experiment. The infrastructure in this paper was
-built with that scaling path in mind.
+Whether this structural reformulation translates to a per-step or
+quality advantage at standard evaluation protocols is an open
+empirical question. The previous revision's evaluation
+under-measured the shallow-context predictions where the
+factorization's per-event count-weighting creates an
+event-count imbalance favoring deep over shallow training signal.
+Resolving that imbalance — either within the framework or via a
+modified training schedule — is the next theoretical and empirical
+gate before scaling experiments.
 
 
 
