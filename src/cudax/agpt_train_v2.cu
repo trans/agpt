@@ -19,6 +19,7 @@
 #include "backward_pass.cuh"
 #include "optimizer_step.cuh"
 #include "growth_trie_v2.cuh"
+#include "position_sampling_v2.cuh"
 
 namespace {
 
@@ -255,6 +256,26 @@ static bool parse_optimizer_kind(const char* text, agpt_v2::OptimizerKind& out) 
     return false;
 }
 
+static bool parse_rope_position_mode_v2(const char* text, agpt_v2::RopePositionModeV2& out) {
+    if (std::strcmp(text, "depth") == 0) {
+        out = agpt_v2::RopePositionModeV2::Depth;
+        return true;
+    }
+    if (std::strcmp(text, "sampled-bin") == 0 || std::strcmp(text, "sampled_bin") == 0) {
+        out = agpt_v2::RopePositionModeV2::SampledBin;
+        return true;
+    }
+    return false;
+}
+
+static const char* rope_position_mode_name_v2(agpt_v2::RopePositionModeV2 mode) {
+    switch (mode) {
+        case agpt_v2::RopePositionModeV2::Depth: return "depth";
+        case agpt_v2::RopePositionModeV2::SampledBin: return "sampled-bin";
+    }
+    return "unknown";
+}
+
 static float scheduled_lr(const agpt_v2::TrainerConfig& cfg,
                           long long step_index,
                           long long total_steps,
@@ -391,7 +412,8 @@ static void run_train_epoch_on_radix_host_v2(const agpt_v2::TrainerConfig& cfg,
                                              int unit_limit,
                                              long long total_unit_steps,
                                              long long warmup_unit_steps,
-                                             int& optimizer_step_index) {
+                                             int& optimizer_step_index,
+                                             const agpt_v2::PositionSamplingStageV2* pos_stage = nullptr) {
     double t_total0 = wall_seconds_v2();
     agpt_v2::CacheLayout cache = agpt_v2::make_cache_layout(shape);
     agpt_v2::TrainingPlan training_plan = agpt_v2::build_pd1_training_plan(trie);
@@ -457,7 +479,8 @@ static void run_train_epoch_on_radix_host_v2(const agpt_v2::TrainerConfig& cfg,
             AGPT_V2_CUDA_CHECK(cudaMemset(runtime.d_grads, 0, runtime.contract.weight_and_grad_bytes / 2));
             agpt_v2::UnitAncGradRuntimeV2 unit_anc{};
             if (cfg.anc_grad) {
-                agpt_v2::init_unit_anc_grad_runtime_v2(unit_anc, runtime.contract, cfg, unit, trie);
+                agpt_v2::init_unit_anc_grad_runtime_v2(unit_anc, runtime.contract, cfg, unit, trie,
+                                                       pos_stage, epoch, optimizer_step_index);
                 agpt_v2::zero_unit_anc_grad_runtime_v2(unit_anc, runtime.contract);
             }
 
@@ -466,7 +489,8 @@ static void run_train_epoch_on_radix_host_v2(const agpt_v2::TrainerConfig& cfg,
             for (int s = 0; s < unit_chunks.chunk_count; s++) {
                 const agpt_v2::ChunkPlan& chunk = unit_chunks.chunks[s];
                 agpt_v2::ChunkMetadataV2 chunk_meta =
-                    agpt_v2::build_chunk_metadata_v2(cfg, shape, trie, unit, chunk);
+                    agpt_v2::build_chunk_metadata_v2(cfg, shape, trie, unit, chunk,
+                                                     pos_stage, epoch, optimizer_step_index);
                 agpt_v2::ChunkDeviceMetadataV2 chunk_device_meta =
                     upload_chunk_metadata_v2(chunk_meta, upload);
                 agpt_v2::ForwardPassResult chunk_fwd =
@@ -541,6 +565,7 @@ int main(int argc, char** argv) {
     const char* trie_dir = nullptr;
     const char* corpus_path = nullptr;
     const char* growth_frontiers_arg = nullptr;
+    const char* position_data_dir = nullptr;
     const char* save_path = nullptr;
     V2Mode mode = V2Mode::Plan;
     int steps = 3;
@@ -571,6 +596,14 @@ int main(int argc, char** argv) {
         else if (std::strcmp(argv[i], "--growth-divisions") == 0 && i + 1 < argc) growth_divisions = std::atoi(argv[++i]);
         else if (std::strcmp(argv[i], "--growth-final-frontier") == 0 && i + 1 < argc) growth_final_frontier = std::atoi(argv[++i]);
         else if (std::strcmp(argv[i], "--growth-train-frac") == 0 && i + 1 < argc) growth_train_frac = std::atof(argv[++i]);
+        else if (std::strcmp(argv[i], "--position-data") == 0 && i + 1 < argc) position_data_dir = argv[++i];
+        else if (std::strcmp(argv[i], "--pos-sample-seed") == 0 && i + 1 < argc) cfg.pos_sample_seed = (unsigned)std::strtoul(argv[++i], nullptr, 10);
+        else if (std::strcmp(argv[i], "--rope-position-mode") == 0 && i + 1 < argc) {
+            if (!parse_rope_position_mode_v2(argv[++i], cfg.rope_position_mode)) {
+                std::fprintf(stderr, "agpt_train_v2: unsupported --rope-position-mode value: %s\n", argv[i]);
+                return 1;
+            }
+        }
         else if ((std::strcmp(argv[i], "--growth-max-depth") == 0 ||
                   std::strcmp(argv[i], "--max-depth") == 0) && i + 1 < argc) growth_max_depth = std::atoi(argv[++i]);
         else if (std::strcmp(argv[i], "--epochs") == 0 && i + 1 < argc) cfg.epochs = std::atoi(argv[++i]);
@@ -641,6 +674,7 @@ int main(int argc, char** argv) {
                      "  [--epochs N] [--partition-depth 1] [--chunk-queries N] [--lr F] [--optimizer adam|sgd|momentum|rmsprop]\n"
                      "  [--momentum-beta F] [--rmsprop-beta F] [--lr-schedule constant|warmup-cosine]\n"
                      "  [--warmup-epochs N] [--growth-min-epochs N] [--growth-epoch-schedule fixed|linear-ramp] [--steps N]\n"
+                     "  [--rope-position-mode depth|sampled-bin] [--position-data DIR] [--pos-sample-seed N]\n"
                      "  [--anc-grad]\n"
                      "  [--units N]\n"
                      "  [--save PATH]\n"
@@ -653,6 +687,12 @@ int main(int argc, char** argv) {
     if (cfg.partition_depth != 1) {
         std::fprintf(stderr,
                      "agpt_train_v2: only --partition-depth 1 is supported in the v2 baseline planner\n");
+        return 1;
+    }
+    if (cfg.rope_position_mode == agpt_v2::RopePositionModeV2::SampledBin &&
+        (mode != V2Mode::TrainGrowth || !position_data_dir)) {
+        std::fprintf(stderr,
+                     "agpt_train_v2: --rope-position-mode sampled-bin currently requires train-growth and --position-data DIR\n");
         return 1;
     }
     if (cfg.chunk_queries <= 0) cfg.chunk_queries = 50000;
@@ -684,7 +724,21 @@ int main(int argc, char** argv) {
         if (max_depth < 1) max_depth = 1;
         int max_possible_depth = (int)tokens.size() - 1;
         if (max_depth > max_possible_depth) max_depth = max_possible_depth;
+        agpt_v2::PositionSamplingDataV2 pos_data;
+        bool have_pos_data = false;
+        if (cfg.rope_position_mode == agpt_v2::RopePositionModeV2::SampledBin) {
+            pos_data = agpt_v2::load_position_sampling_data_v2(position_data_dir);
+            have_pos_data = true;
+            if (pos_data.prefix_table.window_size <= 0) {
+                std::fprintf(stderr, "agpt_train_v2: position table has invalid window_size=%d\n",
+                             pos_data.prefix_table.window_size);
+                return 1;
+            }
+        }
         shape.seq_len = max_depth;
+        if (have_pos_data && pos_data.prefix_table.window_size > shape.seq_len) {
+            shape.seq_len = pos_data.prefix_table.window_size;
+        }
         cfg.seq_len = shape.seq_len;
 
         int full_starts = (int)tokens.size() - 1;
@@ -760,8 +814,13 @@ int main(int argc, char** argv) {
                     shape.d_model, shape.n_heads, shape.n_layers, shape.d_ff,
                     shape.vocab_size, shape.seq_len, shape.head_dim);
         if (header_seq_len != shape.seq_len) {
-            std::printf("  seq_len reconcile: model header says %d, growth max_depth=%d -> effective %d. Overriding.\n",
-                        header_seq_len, max_depth, shape.seq_len);
+            if (have_pos_data) {
+                std::printf("  seq_len reconcile: model header says %d, growth max_depth=%d, rope_window=%d -> effective %d. Overriding.\n",
+                            header_seq_len, max_depth, pos_data.prefix_table.window_size, shape.seq_len);
+            } else {
+                std::printf("  seq_len reconcile: model header says %d, growth max_depth=%d -> effective %d. Overriding.\n",
+                            header_seq_len, max_depth, shape.seq_len);
+            }
         }
         std::printf("  corpus: %s tokens=%zu full_starts=%d\n",
                     corpus_path,
@@ -778,6 +837,13 @@ int main(int argc, char** argv) {
         std::printf("  config: lr=%.6f warmup_epochs=%d partition_depth=%d chunk_queries=%d anc_grad=%s\n",
                     cfg.lr, cfg.warmup_epochs, cfg.partition_depth, cfg.chunk_queries,
                     cfg.anc_grad ? "true" : "false");
+        std::printf("  rope-position: mode=%s", rope_position_mode_name_v2(cfg.rope_position_mode));
+        if (have_pos_data) {
+            std::printf(" position_data=%s window=%d substrings=%d seed=%u",
+                        position_data_dir, pos_data.prefix_table.window_size,
+                        pos_data.prefix_table.substring_count, cfg.pos_sample_seed);
+        }
+        std::printf("\n");
 
         for (int i = 0; i < (int)frontiers.size(); i++) {
             int frontier = frontiers[i];
@@ -792,6 +858,12 @@ int main(int argc, char** argv) {
                 use_incremental_growth_radix
                     ? agpt_v2::growth_incremental_radix_view_v2(growth_incremental)
                     : agpt_v2::growth_build_radix_view_v2(growth_rebuild);
+            agpt_v2::PositionSamplingStageV2 pos_stage;
+            const agpt_v2::PositionSamplingStageV2* pos_stage_ptr = nullptr;
+            if (have_pos_data) {
+                pos_stage = agpt_v2::build_position_sampling_stage_v2(pos_data, trie, cfg.pos_sample_seed);
+                pos_stage_ptr = &pos_stage;
+            }
             double t_materialize1 = wall_seconds_v2();
             long long active_counts = active_count_entries_v2(trie);
             std::printf("  growth-stage %d/%zu: frontier_starts=%d ingested_starts=%d radix_nodes=%d edge_chars=%lld counts=%lld",
@@ -800,6 +872,11 @@ int main(int argc, char** argv) {
                         trie.radix_count, trie.total_edge_chars, active_counts);
             if ((long long)trie.total_counts != active_counts) {
                 std::printf(" flat_counts=%d", trie.total_counts);
+            }
+            if (pos_stage_ptr) {
+                std::printf(" pos_matches=%d/%d",
+                            agpt_v2::count_position_sampling_matches_v2(*pos_stage_ptr),
+                            trie.radix_count);
             }
             std::printf("\n");
             int epochs_this_stage = growth_epochs_for_stage_v2(
@@ -813,7 +890,7 @@ int main(int argc, char** argv) {
                                              h_weights, h_opt_m, h_opt_v,
                                              epochs_this_stage, unit_limit,
                                              total_unit_steps, warmup_unit_steps,
-                                             optimizer_step_index);
+                                             optimizer_step_index, pos_stage_ptr);
             double t_train1 = wall_seconds_v2();
             if (!use_incremental_growth_radix) {
                 agpt_v2::free_radix_trie_structure(trie);

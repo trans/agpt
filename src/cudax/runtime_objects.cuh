@@ -6,6 +6,7 @@
 
 #include "cuda_support.cuh"
 #include "kernels_v2.cuh"
+#include "position_sampling_v2.cuh"
 #include "runtime_contracts.cuh"
 
 namespace agpt_v2 {
@@ -64,7 +65,10 @@ static inline void init_unit_anc_grad_runtime_v2(UnitAncGradRuntimeV2& runtime,
                                                  const TrainerRuntimeContract& contract,
                                                  const TrainerConfig& cfg,
                                                  const TrainingUnit& unit,
-                                                 const RadixTrieStructure& trie) {
+                                                 const RadixTrieStructure& trie,
+                                                 const PositionSamplingStageV2* pos_stage = nullptr,
+                                                 int epoch_index = 0,
+                                                 int optimizer_step_index = 0) {
     runtime.enabled = cfg.anc_grad;
     if (!runtime.enabled) return;
 
@@ -81,6 +85,11 @@ static inline void init_unit_anc_grad_runtime_v2(UnitAncGradRuntimeV2& runtime,
     for (int i = 0; i < unit.node_count; i++) {
         int r = unit.radix_ids[i];
         if (trie.edge_mass[r] == 1) continue;
+        int sampled_start = -1;
+        if (cfg.rope_position_mode == RopePositionModeV2::SampledBin) {
+            sampled_start = sample_prefix_start_bin_v2(pos_stage, r, epoch_index,
+                                                       unit.root_child_id, optimizer_step_index);
+        }
         int start_pos = trie.edge_starts[r];
         int len = trie.edge_lens[r];
         for (int c = 0; c < len; c++) {
@@ -89,6 +98,11 @@ static inline void init_unit_anc_grad_runtime_v2(UnitAncGradRuntimeV2& runtime,
             if (slot < 0) continue;
             h_subtree_slots[n_sub] = slot;
             int pos = trie.real_pos_of_char[char_pos];
+            if (sampled_start >= 0) {
+                int sampled_pos = sampled_rope_pos_from_start_v2(
+                    sampled_start, pos, pos_stage->data->prefix_table.window_size);
+                if (sampled_pos >= 0) pos = sampled_pos;
+            }
             if (pos < 0) pos = 0;
             if (pos >= seq_len) pos = seq_len - 1;
             for (int h = 0; h < H; h++) {

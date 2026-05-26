@@ -15,6 +15,11 @@ enum class OptimizerKind {
     RMSProp = 3,
 };
 
+enum class RopePositionModeV2 {
+    Depth = 0,
+    SampledBin = 1,
+};
+
 struct TrainerConfig {
     int d_model = 0;
     int n_heads = 0;
@@ -38,6 +43,8 @@ struct TrainerConfig {
     bool anc_grad = false;
     bool accumulate = false;
     bool quiet = false;
+    RopePositionModeV2 rope_position_mode = RopePositionModeV2::Depth;
+    unsigned pos_sample_seed = 1;
 };
 
 struct RuntimeShape {

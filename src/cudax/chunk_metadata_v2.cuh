@@ -5,6 +5,7 @@
 #include <cstring>
 
 #include "chunk_plan.cuh"
+#include "position_sampling_v2.cuh"
 #include "types.cuh"
 
 namespace agpt_v2 {
@@ -54,7 +55,10 @@ static inline ChunkMetadataV2 build_chunk_metadata_v2(const TrainerConfig& cfg,
                                                       const RuntimeShape& shape,
                                                       const RadixTrieStructure& trie,
                                                       const TrainingUnit& unit,
-                                                      const ChunkPlan& chunk) {
+                                                      const ChunkPlan& chunk,
+                                                      const PositionSamplingStageV2* pos_stage = nullptr,
+                                                      int epoch_index = 0,
+                                                      int optimizer_step_index = 0) {
     ChunkMetadataV2 out;
     out.N = chunk.node_count;
     out.T_q = (int)chunk.query_count;
@@ -81,6 +85,11 @@ static inline ChunkMetadataV2 build_chunk_metadata_v2(const TrainerConfig& cfg,
         int own_len = trie.edge_lens[r];
         int edge_start = trie.edge_starts[r];
         int fcd = trie.edge_first_char_depths[r];
+        int sampled_start = -1;
+        if (cfg.rope_position_mode == RopePositionModeV2::SampledBin) {
+            sampled_start = sample_prefix_start_bin_v2(pos_stage, r, epoch_index,
+                                                       unit.root_child_id, optimizer_step_index);
+        }
 
         out.h_query_offsets[i] = q_fill;
         out.h_kv_offsets[i] = kv_fill;
@@ -93,6 +102,11 @@ static inline ChunkMetadataV2 build_chunk_metadata_v2(const TrainerConfig& cfg,
             out.h_char_pos[q_fill + j] = edge_start + j;
             out.h_query_depth[q_fill + j] = fcd + j;
             int pos = fcd + j - 1;
+            if (sampled_start >= 0) {
+                int sampled_pos = sampled_rope_pos_from_start_v2(
+                    sampled_start, fcd + j - 1, pos_stage->data->prefix_table.window_size);
+                if (sampled_pos >= 0) pos = sampled_pos;
+            }
             if (pos < 0) pos = 0;
             if (pos >= cfg.seq_len) pos = cfg.seq_len - 1;
             for (int h = 0; h < shape.n_heads; h++) {
@@ -115,6 +129,11 @@ static inline ChunkMetadataV2 build_chunk_metadata_v2(const TrainerConfig& cfg,
     int anc_fill = 0;
     for (int i = 0; i < out.N; i++) {
         int r = out.h_radix_ids[i];
+        int sampled_start = -1;
+        if (cfg.rope_position_mode == RopePositionModeV2::SampledBin) {
+            sampled_start = sample_prefix_start_bin_v2(pos_stage, r, epoch_index,
+                                                       unit.root_child_id, optimizer_step_index);
+        }
         int anc_off = trie.ancestor_char_offsets[r];
         int anc_len = trie.ancestor_char_offsets[r + 1] - anc_off;
         out.h_anc_offsets[i] = anc_fill;
@@ -124,6 +143,11 @@ static inline ChunkMetadataV2 build_chunk_metadata_v2(const TrainerConfig& cfg,
             int char_pos = trie.ancestor_char_ids[anc_off + a];
             out.h_anc_ids[anc_fill] = char_pos;
             int read_pos = trie.real_pos_of_char[char_pos];
+            if (sampled_start >= 0) {
+                int sampled_pos = sampled_rope_pos_from_start_v2(
+                    sampled_start, read_pos, pos_stage->data->prefix_table.window_size);
+                if (sampled_pos >= 0) read_pos = sampled_pos;
+            }
             if (read_pos >= cfg.seq_len) read_pos = cfg.seq_len - 1;
             out.h_read_pos_flat[anc_fill] = read_pos;
             anc_fill++;
