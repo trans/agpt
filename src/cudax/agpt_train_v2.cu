@@ -306,8 +306,8 @@ static float scheduled_lr(const agpt_v2::TrainerConfig& cfg,
 static void scale_gradients_for_fire(cublasHandle_t cublas,
                                      float* d_grads,
                                      int total_floats,
-                                     long long fire_events) {
-    if (fire_events <= 0) return;
+                                     double fire_events) {
+    if (fire_events <= 0.0) return;
     float inv_n = 1.0f / (float)fire_events;
     AGPT_V2_CUBLAS_CHECK(cublasSscal(cublas, total_floats, &inv_n, d_grads, 1));
 }
@@ -463,6 +463,7 @@ static void run_train_epoch_on_radix_host_v2(const agpt_v2::TrainerConfig& cfg,
     if (total_unit_steps < 1) total_unit_steps = 1;
     for (int epoch = 0; epoch < epochs; epoch++) {
         double epoch_loss_sum = 0.0;
+        double epoch_events = 0.0;
         long long epoch_trained = 0;
         agpt_v2::zero_cache_runtime_v2(runtime.cache);
         std::printf("    stage-epoch %d/%d\n", epoch + 1, epochs);
@@ -485,6 +486,7 @@ static void run_train_epoch_on_radix_host_v2(const agpt_v2::TrainerConfig& cfg,
             }
 
             double unit_loss_sum = 0.0;
+            double unit_events = 0.0;
             long long unit_trained = 0;
             for (int s = 0; s < unit_chunks.chunk_count; s++) {
                 const agpt_v2::ChunkPlan& chunk = unit_chunks.chunks[s];
@@ -503,28 +505,30 @@ static void run_train_epoch_on_radix_host_v2(const agpt_v2::TrainerConfig& cfg,
                                                          cfg.anc_grad ? &unit_anc : nullptr,
                                                          s == 0, s + 1 == unit_chunks.chunk_count);
                 (void)chunk_bwd;
-                unit_loss_sum += (double)chunk_fwd.mean_loss * (double)chunk_fwd.trained_queries;
+                unit_loss_sum += (double)chunk_fwd.mean_loss * chunk_fwd.trained_events;
+                unit_events += chunk_fwd.trained_events;
                 unit_trained += chunk_fwd.trained_queries;
-                epoch_loss_sum += (double)chunk_fwd.mean_loss * (double)chunk_fwd.trained_queries;
+                epoch_loss_sum += (double)chunk_fwd.mean_loss * chunk_fwd.trained_events;
+                epoch_events += chunk_fwd.trained_events;
                 epoch_trained += chunk_fwd.trained_queries;
                 agpt_v2::free_chunk_metadata_v2(chunk_meta);
             }
 
-            scale_gradients_for_fire(runtime.cublas, runtime.d_grads, model.total_floats, unit_trained);
+            scale_gradients_for_fire(runtime.cublas, runtime.d_grads, model.total_floats, unit_events);
             agpt_v2::OptimizerStepResult step =
                 agpt_v2::run_optimizer_step_stateful(cfg, current_lr, runtime.d_weights, runtime.d_grads,
                                                      runtime.d_opt_m, runtime.d_opt_v,
                                                      model.total_floats, ++optimizer_step_index);
-            double unit_mean = unit_trained > 0 ? unit_loss_sum / (double)unit_trained : 0.0;
-            std::printf("      unit %d/%d rc=%d chunks=%d trained_queries=%lld mean_loss=%.6f lr=%.6g step=%s\n",
+            double unit_mean = unit_events > 0.0 ? unit_loss_sum / unit_events : 0.0;
+            std::printf("      unit %d/%d rc=%d chunks=%d trained_queries=%lld trained_events=%.0f mean_loss=%.6f lr=%.6g step=%s\n",
                         u + 1, units_to_run, unit.root_child_id, unit_chunks.chunk_count,
-                        unit_trained, unit_mean, current_lr, step.message);
+                        unit_trained, unit_events, unit_mean, current_lr, step.message);
             agpt_v2::free_unit_anc_grad_runtime_v2(unit_anc, runtime.contract);
             agpt_v2::free_chunk_plan_list(unit_chunks);
         }
-        double epoch_mean = epoch_trained > 0 ? epoch_loss_sum / (double)epoch_trained : 0.0;
-        std::printf("    stage-epoch %d summary trained_queries=%lld mean_loss=%.6f\n",
-                    epoch + 1, epoch_trained, epoch_mean);
+        double epoch_mean = epoch_events > 0.0 ? epoch_loss_sum / epoch_events : 0.0;
+        std::printf("    stage-epoch %d summary trained_queries=%lld trained_events=%.0f mean_loss=%.6f\n",
+                    epoch + 1, epoch_trained, epoch_events, epoch_mean);
     }
     AGPT_V2_CUDA_CHECK(cudaDeviceSynchronize());
     double t_train1 = wall_seconds_v2();
@@ -576,6 +580,8 @@ int main(int argc, char** argv) {
     int growth_final_frontier = 0;
     double growth_train_frac = 1.0;
     GrowthEpochScheduleV2 growth_epoch_schedule = GrowthEpochScheduleV2::Fixed;
+    bool explicit_anc_grad = false;
+    bool ablate_anc_grad = false;
 
     cfg.epochs = 1;
     cfg.partition_depth = 1;
@@ -638,7 +644,11 @@ int main(int argc, char** argv) {
                 return 1;
             }
         }
-        else if (std::strcmp(argv[i], "--anc-grad") == 0) cfg.anc_grad = true;
+        else if (std::strcmp(argv[i], "--anc-grad") == 0) {
+            cfg.anc_grad = true;
+            explicit_anc_grad = true;
+        }
+        else if (std::strcmp(argv[i], "--ablate-anc-grad") == 0) ablate_anc_grad = true;
         else if (std::strcmp(argv[i], "--save") == 0 && i + 1 < argc) save_path = argv[++i];
         else if (std::strcmp(argv[i], "--steps") == 0 && i + 1 < argc) steps = std::atoi(argv[++i]);
         else if (std::strcmp(argv[i], "--units") == 0 && i + 1 < argc) unit_limit = std::atoi(argv[++i]);
@@ -675,7 +685,7 @@ int main(int argc, char** argv) {
                      "  [--momentum-beta F] [--rmsprop-beta F] [--lr-schedule constant|warmup-cosine]\n"
                      "  [--warmup-epochs N] [--growth-min-epochs N] [--growth-epoch-schedule fixed|linear-ramp] [--steps N]\n"
                      "  [--rope-position-mode depth|sampled-bin] [--position-data DIR] [--pos-sample-seed N]\n"
-                     "  [--anc-grad]\n"
+                     "  [--anc-grad] [--ablate-anc-grad]\n"
                      "  [--units N]\n"
                      "  [--save PATH]\n"
                      "  [--mode plan|instantiate-runtime|upload|forward|backward-head|one-step-sgd|one-step-rmsprop|multi-step-sgd|multi-step-rmsprop|save-reload-sgd|save-reload-rmsprop|train-epoch|train-small|train-growth]\n"
@@ -687,6 +697,18 @@ int main(int argc, char** argv) {
     if (cfg.partition_depth != 1) {
         std::fprintf(stderr,
                      "agpt_train_v2: only --partition-depth 1 is supported in the v2 baseline planner\n");
+        return 1;
+    }
+    if (explicit_anc_grad && ablate_anc_grad) {
+        std::fprintf(stderr,
+                     "agpt_train_v2: --anc-grad and --ablate-anc-grad are mutually exclusive\n");
+        return 1;
+    }
+    if (mode == V2Mode::TrainGrowth) {
+        cfg.anc_grad = !ablate_anc_grad;
+    } else if (ablate_anc_grad) {
+        std::fprintf(stderr,
+                     "agpt_train_v2: --ablate-anc-grad is only meaningful for --mode train-growth\n");
         return 1;
     }
     if (cfg.rope_position_mode == agpt_v2::RopePositionModeV2::SampledBin &&
@@ -1084,6 +1106,7 @@ int main(int argc, char** argv) {
                 if (total_unit_steps < 1) total_unit_steps = 1;
                 for (int epoch = 0; epoch < epochs; epoch++) {
                     double epoch_loss_sum = 0.0;
+                    double epoch_events = 0.0;
                     long long epoch_trained = 0;
                     agpt_v2::zero_cache_runtime_v2(runtime.cache);
                     std::printf("  train-epoch: epoch %d/%d\n", epoch + 1, epochs);
@@ -1107,6 +1130,7 @@ int main(int argc, char** argv) {
                             agpt_v2::zero_unit_anc_grad_runtime_v2(unit_anc, runtime.contract);
                         }
                         double unit_loss_sum = 0.0;
+                        double unit_events = 0.0;
                         long long unit_trained = 0;
                         for (int s = 0; s < unit_chunks.chunk_count; s++) {
                             const agpt_v2::ChunkPlan& chunk = unit_chunks.chunks[s];
@@ -1152,28 +1176,30 @@ int main(int argc, char** argv) {
                                                                      cfg.anc_grad ? &unit_anc : nullptr,
                                                                      s == 0, s + 1 == unit_chunks.chunk_count);
                             (void)chunk_bwd;
-                            unit_loss_sum += (double)chunk_fwd.mean_loss * (double)chunk_fwd.trained_queries;
+                            unit_loss_sum += (double)chunk_fwd.mean_loss * chunk_fwd.trained_events;
+                            unit_events += chunk_fwd.trained_events;
                             unit_trained += chunk_fwd.trained_queries;
-                            epoch_loss_sum += (double)chunk_fwd.mean_loss * (double)chunk_fwd.trained_queries;
+                            epoch_loss_sum += (double)chunk_fwd.mean_loss * chunk_fwd.trained_events;
+                            epoch_events += chunk_fwd.trained_events;
                             epoch_trained += chunk_fwd.trained_queries;
                             agpt_v2::free_chunk_metadata_v2(chunk_meta);
                         }
 
-                        scale_gradients_for_fire(runtime.cublas, runtime.d_grads, model.total_floats, unit_trained);
+                        scale_gradients_for_fire(runtime.cublas, runtime.d_grads, model.total_floats, unit_events);
                         agpt_v2::OptimizerStepResult step =
                             agpt_v2::run_optimizer_step_stateful(cfg, current_lr, runtime.d_weights, runtime.d_grads,
                                                                  runtime.d_opt_m, runtime.d_opt_v,
                                                                  model.total_floats, ++optimizer_step_index);
-                        double unit_mean = unit_trained > 0 ? (unit_loss_sum / (double)unit_trained) : 0.0;
-                        std::printf("    unit %d/%d rc=%d chunks=%d trained_queries=%lld mean_loss=%.6f lr=%.6g step=%s\n",
+                        double unit_mean = unit_events > 0.0 ? (unit_loss_sum / unit_events) : 0.0;
+                        std::printf("    unit %d/%d rc=%d chunks=%d trained_queries=%lld trained_events=%.0f mean_loss=%.6f lr=%.6g step=%s\n",
                                     u + 1, units_to_run, unit.root_child_id, unit_chunks.chunk_count,
-                                    unit_trained, unit_mean, current_lr, step.message);
+                                    unit_trained, unit_events, unit_mean, current_lr, step.message);
                         agpt_v2::free_unit_anc_grad_runtime_v2(unit_anc, runtime.contract);
                         agpt_v2::free_chunk_plan_list(unit_chunks);
                     }
-                    double epoch_mean = epoch_trained > 0 ? (epoch_loss_sum / (double)epoch_trained) : 0.0;
-                    std::printf("  train-epoch: epoch %d summary trained_queries=%lld mean_loss=%.6f\n",
-                                epoch + 1, epoch_trained, epoch_mean);
+                    double epoch_mean = epoch_events > 0.0 ? (epoch_loss_sum / epoch_events) : 0.0;
+                    std::printf("  train-epoch: epoch %d summary trained_queries=%lld trained_events=%.0f mean_loss=%.6f\n",
+                                epoch + 1, epoch_trained, epoch_events, epoch_mean);
                 }
                 if (save_path) {
                     std::printf("  train-epoch: saving final weights to %s\n", save_path);
@@ -1202,6 +1228,7 @@ int main(int argc, char** argv) {
                 std::printf("  train-small: unit rc=%d chunks=%d accumulate=true optimizer=%s\n",
                             unit.root_child_id, n_steps, v2_optimizer_name(cfg.optimizer));
                 agpt_v2::ForwardPassResult first_before{};
+                double unit_events = 0.0;
                 long long unit_trained = 0;
                 for (int s = 0; s < n_steps; s++) {
                     const agpt_v2::ChunkPlan& chunk = largest_chunks.chunks[s];
@@ -1218,12 +1245,13 @@ int main(int argc, char** argv) {
                                                              cfg.anc_grad ? &unit_anc : nullptr,
                                                              s == 0, s + 1 == n_steps);
                     (void)chunk_bwd;
+                    unit_events += chunk_fwd.trained_events;
                     unit_trained += chunk_fwd.trained_queries;
-                    std::printf("    chunk %d/%d: accumulated loss=%.6f queries=%d nodes=%d\n",
-                                s + 1, n_steps, chunk_fwd.mean_loss, chunk_meta.T_q, chunk_meta.N);
+                    std::printf("    chunk %d/%d: accumulated loss=%.6f queries=%d events=%.0f nodes=%d\n",
+                                s + 1, n_steps, chunk_fwd.mean_loss, chunk_meta.T_q, chunk_fwd.trained_events, chunk_meta.N);
                     agpt_v2::free_chunk_metadata_v2(chunk_meta);
                 }
-                scale_gradients_for_fire(runtime.cublas, runtime.d_grads, model.total_floats, unit_trained);
+                scale_gradients_for_fire(runtime.cublas, runtime.d_grads, model.total_floats, unit_events);
                 agpt_v2::OptimizerStepResult step =
                     agpt_v2::run_optimizer_step_stateful(cfg, cfg.lr, runtime.d_weights, runtime.d_grads,
                                                          runtime.d_opt_m, runtime.d_opt_v, model.total_floats, 1);
@@ -1240,8 +1268,8 @@ int main(int argc, char** argv) {
                 agpt_v2::ForwardPassResult fwd =
                     agpt_v2::run_forward_prefix_v2(cfg, model, first_chunk_meta, device_meta, upload, loss_tables, runtime,
                                                    cfg.anc_grad ? &unit_anc : nullptr);
-                std::printf("  forward prefix: %s  (trained_queries=%d mean_loss=%.6f)\n",
-                            fwd.message, fwd.trained_queries, fwd.mean_loss);
+                std::printf("  forward prefix: %s  (trained_queries=%d trained_events=%.0f mean_loss=%.6f)\n",
+                            fwd.message, fwd.trained_queries, fwd.trained_events, fwd.mean_loss);
                 if (run_backward_head) {
                     agpt_v2::BackwardPassResult bwd =
                         agpt_v2::run_backward_output_head_v2(cfg, model, first_chunk_meta, device_meta, upload, fwd, runtime,
@@ -1258,7 +1286,7 @@ int main(int argc, char** argv) {
                                 bwd.wq_w_grad_l2, bwd.wk_w_grad_l2, bwd.wv_w_grad_l2, bwd.ln1_gamma_grad_l2,
                                 bwd.emb_grad_l2);
                     if (run_one_step_sgd) {
-                        scale_gradients_for_fire(runtime.cublas, runtime.d_grads, model.total_floats, fwd.trained_queries);
+                        scale_gradients_for_fire(runtime.cublas, runtime.d_grads, model.total_floats, fwd.trained_events);
                         agpt_v2::OptimizerStepResult step =
                             agpt_v2::run_optimizer_step_sgd(cfg, runtime.d_weights, runtime.d_grads, model.total_floats);
                         agpt_v2::ForwardPassResult fwd_after =
@@ -1266,7 +1294,7 @@ int main(int argc, char** argv) {
                         std::printf("  one-step-sgd: %s  (loss_before=%.6f loss_after=%.6f delta=%.6f)\n",
                                     step.message, fwd.mean_loss, fwd_after.mean_loss, fwd_after.mean_loss - fwd.mean_loss);
                     } else if (run_one_step_rmsprop) {
-                        scale_gradients_for_fire(runtime.cublas, runtime.d_grads, model.total_floats, fwd.trained_queries);
+                        scale_gradients_for_fire(runtime.cublas, runtime.d_grads, model.total_floats, fwd.trained_events);
                         agpt_v2::OptimizerStepResult step =
                             agpt_v2::run_optimizer_step_rmsprop(cfg, runtime.d_weights, runtime.d_grads, runtime.d_opt_v, model.total_floats);
                         if (cfg.anc_grad) agpt_v2::zero_unit_anc_grad_runtime_v2(unit_anc, runtime.contract);
@@ -1284,7 +1312,7 @@ int main(int argc, char** argv) {
                                                                      cfg.anc_grad ? &unit_anc : nullptr,
                                                                      true, true);
                             (void)cur_bwd;
-                            scale_gradients_for_fire(runtime.cublas, runtime.d_grads, model.total_floats, cur_fwd.trained_queries);
+                            scale_gradients_for_fire(runtime.cublas, runtime.d_grads, model.total_floats, cur_fwd.trained_events);
                             agpt_v2::OptimizerStepResult step =
                                 agpt_v2::run_optimizer_step_sgd(cfg, runtime.d_weights, runtime.d_grads, model.total_floats);
                             if (cfg.anc_grad) agpt_v2::zero_unit_anc_grad_runtime_v2(unit_anc, runtime.contract);
@@ -1306,7 +1334,7 @@ int main(int argc, char** argv) {
                                                                      cfg.anc_grad ? &unit_anc : nullptr,
                                                                      true, true);
                             (void)cur_bwd;
-                            scale_gradients_for_fire(runtime.cublas, runtime.d_grads, model.total_floats, cur_fwd.trained_queries);
+                            scale_gradients_for_fire(runtime.cublas, runtime.d_grads, model.total_floats, cur_fwd.trained_events);
                             agpt_v2::OptimizerStepResult step =
                                 agpt_v2::run_optimizer_step_rmsprop_stateful(cfg, runtime.d_weights, runtime.d_grads, runtime.d_opt_v, model.total_floats);
                             if (cfg.anc_grad) agpt_v2::zero_unit_anc_grad_runtime_v2(unit_anc, runtime.contract);
@@ -1320,7 +1348,7 @@ int main(int argc, char** argv) {
                         }
                     } else if (run_save_reload_sgd) {
                         const char* roundtrip_path = save_path ? save_path : "/tmp/agpt_v2_roundtrip.model";
-                        scale_gradients_for_fire(runtime.cublas, runtime.d_grads, model.total_floats, fwd.trained_queries);
+                        scale_gradients_for_fire(runtime.cublas, runtime.d_grads, model.total_floats, fwd.trained_events);
                         agpt_v2::OptimizerStepResult step =
                             agpt_v2::run_optimizer_step_sgd(cfg, runtime.d_weights, runtime.d_grads, model.total_floats);
                         float* h_updated = (float*)std::malloc((size_t)model.total_floats * sizeof(float));
@@ -1349,7 +1377,7 @@ int main(int argc, char** argv) {
                     } else if (run_save_reload_rmsprop) {
                         const char* roundtrip_path = save_path ? save_path : "/tmp/agpt_v2_roundtrip.model";
                         const char* opt_path = "/tmp/agpt_v2_roundtrip.optv";
-                        scale_gradients_for_fire(runtime.cublas, runtime.d_grads, model.total_floats, fwd.trained_queries);
+                        scale_gradients_for_fire(runtime.cublas, runtime.d_grads, model.total_floats, fwd.trained_events);
                         agpt_v2::OptimizerStepResult step =
                             agpt_v2::run_optimizer_step_rmsprop_stateful(cfg, runtime.d_weights, runtime.d_grads, runtime.d_opt_v, model.total_floats);
                         float* h_updated = (float*)std::malloc((size_t)model.total_floats * sizeof(float));

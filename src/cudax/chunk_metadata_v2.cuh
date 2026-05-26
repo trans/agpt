@@ -16,6 +16,7 @@ struct ChunkMetadataV2 {
     int T_kv = 0;
     int T_anc = 0;
     int max_kv_len = 0;
+    double total_query_weight = 0.0;
 
     int* h_radix_ids = nullptr;
     int* h_query_offsets = nullptr;
@@ -23,6 +24,7 @@ struct ChunkMetadataV2 {
     int* h_kv_lengths = nullptr;
     int* h_query_to_node = nullptr;
     int* h_token_ids = nullptr;
+    float* h_query_weights = nullptr;
     int* h_rope_positions = nullptr;
     int* h_char_pos = nullptr;
     int* h_query_depth = nullptr;
@@ -40,6 +42,7 @@ static inline void free_chunk_metadata_v2(ChunkMetadataV2& m) {
     std::free(m.h_kv_lengths);
     std::free(m.h_query_to_node);
     std::free(m.h_token_ids);
+    std::free(m.h_query_weights);
     std::free(m.h_rope_positions);
     std::free(m.h_char_pos);
     std::free(m.h_query_depth);
@@ -71,6 +74,7 @@ static inline ChunkMetadataV2 build_chunk_metadata_v2(const TrainerConfig& cfg,
     out.h_kv_lengths = (int*)std::malloc(out.N * sizeof(int));
     out.h_query_to_node = (int*)std::malloc(out.T_q * sizeof(int));
     out.h_token_ids = (int*)std::malloc(out.T_q * sizeof(int));
+    out.h_query_weights = (float*)std::malloc(out.T_q * sizeof(float));
     out.h_rope_positions = (int*)std::malloc((long long)out.T_q * shape.n_heads * sizeof(int));
     out.h_char_pos = (int*)std::malloc(out.T_q * sizeof(int));
     out.h_query_depth = (int*)std::malloc(out.T_q * sizeof(int));
@@ -83,6 +87,7 @@ static inline ChunkMetadataV2 build_chunk_metadata_v2(const TrainerConfig& cfg,
         out.h_radix_ids[i] = r;
         int anc_len = trie.ancestor_char_offsets[r + 1] - trie.ancestor_char_offsets[r];
         int own_len = trie.edge_lens[r];
+        int edge_mass = trie.edge_mass[r] > 0 ? trie.edge_mass[r] : 1;
         int edge_start = trie.edge_starts[r];
         int fcd = trie.edge_first_char_depths[r];
         int sampled_start = -1;
@@ -99,6 +104,8 @@ static inline ChunkMetadataV2 build_chunk_metadata_v2(const TrainerConfig& cfg,
         for (int j = 0; j < own_len; j++) {
             out.h_query_to_node[q_fill + j] = i;
             out.h_token_ids[q_fill + j] = trie.edge_tokens_flat[edge_start + j];
+            out.h_query_weights[q_fill + j] = (float)edge_mass;
+            out.total_query_weight += (double)edge_mass;
             out.h_char_pos[q_fill + j] = edge_start + j;
             out.h_query_depth[q_fill + j] = fcd + j;
             int pos = fcd + j - 1;

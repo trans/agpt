@@ -17,6 +17,7 @@ struct ForwardPassResult {
     const char* message = "forward full-depth scored chunk executed";
     float mean_loss = 0.0f;
     int trained_queries = 0;
+    double trained_events = 0.0;
 };
 
 struct LossTablesV2 {
@@ -75,22 +76,25 @@ static inline ForwardPassResult run_forward_prefix_v2(const TrainerConfig& cfg,
         run_forward_transformer_layer_stage_v2(cfg, layout, meta, device_meta, upload, runtime, buf, cublas, d_rope_cos, d_rope_sin, anc_runtime, l, diag);
     }
 
-    run_forward_output_stage_v2(cfg, layout, meta, loss_tables, upload, runtime, buf, cublas);
+    run_forward_output_stage_v2(cfg, layout, meta, device_meta, loss_tables, upload, runtime, buf, cublas);
 
     AGPT_V2_CUDA_CHECK(cudaDeviceSynchronize());
     float* h_loss = (float*)std::malloc((size_t)T_q * sizeof(float));
     AGPT_V2_CUDA_CHECK(cudaMemcpy(h_loss, buf.output.loss, (size_t)T_q * sizeof(float), cudaMemcpyDeviceToHost));
     double loss_sum = 0.0;
+    double event_sum = 0.0;
     int trained = 0;
     for (int i = 0; i < T_q; i++) {
         if (h_loss[i] > 0.0f) {
             loss_sum += h_loss[i];
+            event_sum += (double)meta.h_query_weights[i];
             trained++;
         }
     }
     std::free(h_loss);
     result.trained_queries = trained;
-    result.mean_loss = trained > 0 ? (float)(loss_sum / trained) : 0.0f;
+    result.trained_events = event_sum;
+    result.mean_loss = event_sum > 0.0 ? (float)(loss_sum / event_sum) : 0.0f;
     return result;
 }
 

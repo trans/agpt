@@ -154,6 +154,7 @@ static inline void run_forward_transformer_layer_stage_v2(const TrainerConfig& c
 static inline void run_forward_output_stage_v2(const TrainerConfig& cfg,
                                                const ModelLayout& layout,
                                                const ChunkMetadataV2& meta,
+                                               const ChunkDeviceMetadataV2& device_meta,
                                                const LossTablesV2& loss_tables,
                                                const ChunkUploadRuntimeV2& upload,
                                                TrainerRuntimeV2& runtime,
@@ -175,7 +176,7 @@ static inline void run_forward_output_stage_v2(const TrainerConfig& cfg,
     launch_agpt_loss_per_query_v2(
         buf.output.logits, upload.d_query_to_node, upload.d_query_offsets, upload.d_radix_ids, upload.d_token_ids,
         loss_tables.d_counts_offset, loss_tables.d_counts_len, loss_tables.d_counts_tok, loss_tables.d_counts_val,
-        buf.output.d_logits, buf.output.loss, T_q, cfg.vocab_size);
+        device_meta.d_query_weights, buf.output.d_logits, buf.output.loss, T_q, cfg.vocab_size);
 }
 
 #endif
