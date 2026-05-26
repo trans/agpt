@@ -1,0 +1,13 @@
+{
+  "shake_ppl": {
+    "name": "shake_ppl",
+    "alias": "shake_ppl",
+    "sample_len": 1,
+    "word_perplexity,none": 494799.7483998008,
+    "word_perplexity_stderr,none": "N/A",
+    "byte_perplexity,none": 10.435262740877512,
+    "byte_perplexity_stderr,none": "N/A",
+    "bits_per_byte,none": 3.3833950202714576,
+    "bits_per_byte_stderr,none": "N/A"
+  }
+}
