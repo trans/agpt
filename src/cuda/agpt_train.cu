@@ -128,7 +128,11 @@ struct Config {
                                  // per-group behavior. Combined with --shuffle-order, K random groups
                                  // are batched per step — addresses pd=2 memorization where few unique
                                  // partitions get repeated solo many times.
-    bool anc_grad = false;      // Descendant→ancestor gradient flow for Wk/Wv.
+    bool anc_grad = true;       // Descendant→ancestor gradient flow for Wk/Wv.
+                                 // Canonical AGPT behavior per the original paper;
+                                 // ON by default. --anc-grad accepted (no-op) for
+                                 // compatibility; --ablate-anc-grad explicitly
+                                 // disables it for ablation runs.
                                  // When set, the ANCESTOR slice of d_dk_pack/d_dv_pack
                                  // (currently dropped) gets scatter-added into per-subtree
                                  // accumulators, and the eventual dW_k/dW_v update at
@@ -238,7 +242,7 @@ enum class LRSchedule { Constant, Cosine, WarmupCosine };
 // Each super-epoch issues `steps` stochastic samples instead of the deterministic
 // 65-root-child sweep. Each sampled subtree is a bounded training unit: its own
 // d_grads zero, accumulated across chunks, one optimizer step. See
-// notes/lightning-training.md for design rationale.
+// notes/trainer/lightning-training.md for design rationale.
 enum class LightningSampler { L1_Uniform, L2_RcDepth, L3_MassWalk, L4_Path };
 struct LightningConfig {
     int               steps      = 0;          // 0 = disabled (deterministic sweep)
@@ -5280,7 +5284,7 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
             fire_weight = 0.0;
         }
 
-        // --- Per-subtree residual measurement (notes/measure-loss-during-training.md) ---
+        // --- Per-subtree residual measurement (notes/trainer/measure-loss-during-training.md) ---
         // During training, aggregate per-query loss into per-subtree sums.
         // At epoch end we print a "residual" ranking = count * max(avg_loss - global_avg, 0)
         // to identify hotspot subtrees that still need refinement.
@@ -7261,7 +7265,11 @@ int main(int argc, char** argv) {
     bool shuffle_order = false;     // --shuffle-order: random partition-group order per SE
     int  mini_batch_groups = 1;     // --mini-batch-groups K: accumulate K partition groups per opt step
     bool per_rc_adam = false;       // --per-rc-adam: per-root-child Adam/RMSprop state (Stage 1 topological optimizer)
-    bool anc_grad = false;          // --anc-grad: descendant→ancestor gradient flow for Wk/Wv
+    // Anc-grad is canonical AGPT default (cfg.anc_grad initialized true).
+    // --anc-grad is accepted (no-op for compat); --ablate-anc-grad disables
+    // it for explicit ablation. Both together → error.
+    bool explicit_anc_grad = false;
+    bool ablate_anc_grad = false;
     const char* per_rc_v_dump_path = nullptr;  // --dump-per-rc-v PATH: write per-rc v buffer at end of training
     unsigned shuffle_seed = 0xa17b1edu;  // --shuffle-seed: RNG seed for shuffle
     OptimizerKind optimizer = OptimizerKind::Adam;
@@ -7459,7 +7467,8 @@ int main(int argc, char** argv) {
         else if (strcmp(argv[i], "--shuffle-order") == 0) shuffle_order = true;
         else if (strcmp(argv[i], "--mini-batch-groups") == 0 && i + 1 < argc) mini_batch_groups = atoi(argv[++i]);
         else if (strcmp(argv[i], "--per-rc-adam") == 0) per_rc_adam = true;
-        else if (strcmp(argv[i], "--anc-grad") == 0) anc_grad = true;
+        else if (strcmp(argv[i], "--anc-grad") == 0) explicit_anc_grad = true;
+        else if (strcmp(argv[i], "--ablate-anc-grad") == 0) ablate_anc_grad = true;
         else if (strcmp(argv[i], "--dump-per-rc-v") == 0 && i + 1 < argc) per_rc_v_dump_path = argv[++i];
         else if (strcmp(argv[i], "--shuffle-seed") == 0 && i + 1 < argc) shuffle_seed = (unsigned)strtoul(argv[++i], NULL, 0);
         else if (strcmp(argv[i], "--lr-rule") == 0 && i + 1 < argc) {
@@ -7679,7 +7688,11 @@ int main(int argc, char** argv) {
     cfg.lbfgs_k = lbfgs_k;
     cfg.mini_batch_groups = (mini_batch_groups < 1) ? 1 : mini_batch_groups;
     cfg.per_rc_adam = per_rc_adam;
-    cfg.anc_grad = anc_grad;
+    if (explicit_anc_grad && ablate_anc_grad) {
+        fprintf(stderr, "ERROR: --anc-grad and --ablate-anc-grad are mutually exclusive\n");
+        return 1;
+    }
+    cfg.anc_grad = !ablate_anc_grad;
     if (cfg.anc_grad && partition_depth != 1) {
         fprintf(stderr, "ERROR: --anc-grad requires --partition-depth 1 (cross-group cache staleness at pd>1 would confound the new gradient flow)\n");
         return 1;
