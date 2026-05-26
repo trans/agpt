@@ -40,3 +40,10 @@ logs/
 
 # Smoke-test runs (transient verification of bin/agpt_experiment).
 rnd/_smoke/
+
+# Orchestrator-generated experiment dirs (rnd/<exp>/<run-id>/): keep
+# config + meta + result.json + train.log; ignore the large regenerable
+# artifacts. Specific older experiment dirs have their own patterns above.
+rnd/**/checkpoint.model
+rnd/**/hf_checkpoint/
+rnd/**/eval.log
