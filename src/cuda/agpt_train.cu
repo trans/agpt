@@ -3658,6 +3658,12 @@ struct ExperimentalFlags {
     // AGPT_CAPTURE_H_CAPS_OUT: output path for the saved h_caps.bin at
     // end of training. Default "data/h_caps.bin" when capture enabled.
     const char* capture_h_caps_out = nullptr;
+    // AGPT_CAPTURE_H_CAPS_IN: input path for loading h_caps.bin at
+    // training start (e.g., from a previous epoch). When set, the buffer
+    // is initialized from disk instead of zero. Header must match the
+    // current trie's radix_count and the model's d_model; on mismatch
+    // the buffer falls back to zero-init with a warning.
+    const char* capture_h_caps_in = nullptr;
 };
 
 static ExperimentalFlags read_experimental_flags() {
@@ -3699,6 +3705,7 @@ static ExperimentalFlags read_experimental_flags() {
     if (f.capture_h_caps && !f.capture_h_caps_out) {
         f.capture_h_caps_out = "data/h_caps.bin";
     }
+    f.capture_h_caps_in = getenv("AGPT_CAPTURE_H_CAPS_IN");
     return f;
 }
 
@@ -3953,6 +3960,12 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                 flags.capture_h_caps_ema,
                 flags.capture_h_caps_out ? flags.capture_h_caps_out : "(none)");
         fflush(stdout);
+        if (flags.capture_h_caps_in) {
+            load_h_cap_table(d_h_cap_ema, trie.radix_count, cfg.d_model,
+                             flags.capture_h_caps_in);
+            report_h_cap_stats(d_h_cap_ema, trie.radix_count, cfg.d_model,
+                               "loaded");
+        }
     }
     if (persist && persist->h_adam_m_io) {
         CUDA_CHECK(cudaMemcpy(d_adam_m, persist->h_adam_m_io, wo.total_floats * sizeof(float), cudaMemcpyHostToDevice));

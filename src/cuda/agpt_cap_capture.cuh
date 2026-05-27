@@ -142,6 +142,73 @@ static inline void report_h_cap_stats(
 }
 
 // ----------------------------------------------------------------------
+// Load h_cap_ema buffer from disk. Validates that header matches the
+// expected radix_count and d_model; on mismatch, prints a warning and
+// returns false (caller should keep the buffer zero-initialized).
+//
+// Format matches save_h_cap_table below. Returns true iff loaded.
+// ----------------------------------------------------------------------
+static inline bool load_h_cap_table(
+    __nv_bfloat16* d_h_cap_ema,
+    int expected_radix_count,
+    int expected_D,
+    const char* path
+) {
+    FILE* f = fopen(path, "rb");
+    if (!f) {
+        fprintf(stderr, "load_h_cap_table: cannot open %s for read; "
+                "starting with zero-init buffer\n", path);
+        return false;
+    }
+
+    uint32_t rc = 0, dm = 0;
+    if (fread(&rc, sizeof(uint32_t), 1, f) != 1 ||
+        fread(&dm, sizeof(uint32_t), 1, f) != 1) {
+        fprintf(stderr, "load_h_cap_table: %s header truncated; "
+                "starting with zero-init buffer\n", path);
+        fclose(f);
+        return false;
+    }
+
+    if ((int)rc != expected_radix_count || (int)dm != expected_D) {
+        fprintf(stderr, "load_h_cap_table: %s header mismatch "
+                "(file rc=%u dm=%u, expected rc=%d dm=%d); "
+                "starting with zero-init buffer\n",
+                path, rc, dm, expected_radix_count, expected_D);
+        fclose(f);
+        return false;
+    }
+
+    size_t total = (size_t)rc * (size_t)dm;
+    __nv_bfloat16* h = (__nv_bfloat16*)malloc(total * sizeof(__nv_bfloat16));
+    if (!h) {
+        fprintf(stderr, "load_h_cap_table: malloc failed (%zu bytes); "
+                "starting with zero-init buffer\n",
+                total * sizeof(__nv_bfloat16));
+        fclose(f);
+        return false;
+    }
+
+    size_t got = fread(h, sizeof(__nv_bfloat16), total, f);
+    fclose(f);
+    if (got != total) {
+        fprintf(stderr, "load_h_cap_table: %s body truncated "
+                "(got %zu of %zu); starting with zero-init buffer\n",
+                path, got, total);
+        free(h);
+        return false;
+    }
+
+    CUDA_CHECK(cudaMemcpy(d_h_cap_ema, h, total * sizeof(__nv_bfloat16),
+                          cudaMemcpyHostToDevice));
+    free(h);
+    fprintf(stdout, "[h_cap] loaded %u radix x %u dim bf16 ← %s\n",
+            rc, dm, path);
+    fflush(stdout);
+    return true;
+}
+
+// ----------------------------------------------------------------------
 // Save h_cap_ema buffer to disk in a simple binary format.
 //
 // Format:
