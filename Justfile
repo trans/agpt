@@ -105,6 +105,13 @@ build-agpt-build-radix: build-stubs
     mkdir -p bin
     timeout 10m crystal build src/tools/build_radix.cr -o bin/agpt_build_radix --release --link-flags="{{root}}/build/kernels.o -lstdc++"
 
+# Build the predecessor-table builder for cap-recurrence. Reads a radix
+# trie + corpus, emits per-radix-id list of (K_prev, count) pairs in CSR
+# format. Consumed by the cap-recurrence h_in lookup at training time.
+build-agpt-build-predecessor-table: build-stubs
+    mkdir -p bin
+    timeout 10m crystal build src/tools/agpt_build_predecessor_table.cr -o bin/agpt_build_predecessor_table --release --link-flags="{{root}}/build/kernels.o -lstdc++"
+
 # Build the corpus → radix builder. Bypasses the leveled-trie intermediate;
 # bounded memory per root-character subtree. Use this for large corpora
 # (5M+ chars at d=32) that OOM the leveled-then-radix pipeline.
