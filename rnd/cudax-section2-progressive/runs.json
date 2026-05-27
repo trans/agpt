@@ -76,5 +76,57 @@
       "agpt_fixed_token_perplexity": 6.935771346292735
     },
     "checkpoint_sha": "7c1b785efacc06d52fe7801510ec9a6745fac99624874f48540babe4afb9c2bc"
+  },
+  {
+    "run_id": "20260527T025333-section2-16x10",
+    "experiment": "cudax-section2-progressive",
+    "wall_seconds": 553.826783655,
+    "train_wall_seconds": 522.741444388,
+    "convert_wall_seconds": 5.346478447,
+    "eval_wall_seconds": 20.416830948,
+    "started_utc": "2026-05-27T02:53:33Z",
+    "ended_utc": "2026-05-27T03:02:47Z",
+    "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+    "eval": {
+      "split": "tail-heldout",
+      "source_path": "rnd/cudax-section2-progressive/20260527T025333-section2-16x10/heldout_corpus.txt",
+      "source_sha256": "8b5a8c8af45905547ad03b7aae6980a277a5dd78924a6e6ac64b75d63d7d40bd",
+      "benchmark": null,
+      "corpus_train_frac": 0.95,
+      "corpus_split_offset": 1059624
+    },
+    "metrics": {
+      "lm_eval_rolling_word_perplexity": 81369.13550972186,
+      "lm_eval_rolling_byte_perplexity": 7.555841996347963,
+      "lm_eval_rolling_bits_per_byte": 2.91759253318888,
+      "agpt_fixed_token_perplexity": 7.059229002720996
+    },
+    "checkpoint_sha": "ba82cc5d38d9a741a4c122367cef0adc68019275b518bfcc12c61cf3a4636459"
+  },
+  {
+    "run_id": "20260527T030528-section2-64x10",
+    "experiment": "cudax-section2-progressive",
+    "wall_seconds": 2013.899970097,
+    "train_wall_seconds": 1983.355087202,
+    "convert_wall_seconds": 5.709548589,
+    "eval_wall_seconds": 20.577505647,
+    "started_utc": "2026-05-27T03:05:28Z",
+    "ended_utc": "2026-05-27T03:39:02Z",
+    "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+    "eval": {
+      "split": "tail-heldout",
+      "source_path": "rnd/cudax-section2-progressive/20260527T030528-section2-64x10/heldout_corpus.txt",
+      "source_sha256": "8b5a8c8af45905547ad03b7aae6980a277a5dd78924a6e6ac64b75d63d7d40bd",
+      "benchmark": null,
+      "corpus_train_frac": 0.95,
+      "corpus_split_offset": 1059624
+    },
+    "metrics": {
+      "lm_eval_rolling_word_perplexity": 75631.39903381107,
+      "lm_eval_rolling_byte_perplexity": 7.457662438128849,
+      "lm_eval_rolling_bits_per_byte": 2.898723496781836,
+      "agpt_fixed_token_perplexity": 6.957615155532482
+    },
+    "checkpoint_sha": "ad1e031812ee7932e15f272343d667ea859ad24e124a8e7aad931d59fc939c12"
   }
 ]
