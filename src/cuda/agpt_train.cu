@@ -3583,6 +3583,7 @@ struct TrainPersistence {
 #include "agpt_chunk_upload_runtime.cuh"
 #include "agpt_cache_runtime.cuh"
 #include "agpt_transformer_chunk_runtime.cuh"
+#include "agpt_cap_capture.cuh"
 
 // ============================================================================
 // Experimental flags
@@ -3643,6 +3644,20 @@ struct ExperimentalFlags {
     // suffix mass values (used by joint_mass mode 2). Loaded at function entry
     // if joint_mass > 0 and path is set. Buffer owned by caller; freed at exit.
     const char* char_suffix_mass_path = nullptr;
+
+    // AGPT_CAPTURE_H_CAPS: enable capture of post-LN hidden state at each
+    // trie-edge endpoint into a persistent per-radix-id EMA buffer.
+    // Phase-1 MVP for cap-recurrence (see notes/seq-len-extension/
+    // cap-recurrence-design.md). When disabled, baseline training is
+    // unaffected (parity property).
+    bool capture_h_caps = false;
+    // AGPT_CAPTURE_H_CAPS_EMA: EMA momentum α used by the capture kernel.
+    // h_cap_new = α * h_cap_old + (1−α) * d_final_out[endpoint]
+    // Default 0.9; range [0, 1).
+    float capture_h_caps_ema = 0.9f;
+    // AGPT_CAPTURE_H_CAPS_OUT: output path for the saved h_caps.bin at
+    // end of training. Default "data/h_caps.bin" when capture enabled.
+    const char* capture_h_caps_out = nullptr;
 };
 
 static ExperimentalFlags read_experimental_flags() {
@@ -3670,6 +3685,20 @@ static ExperimentalFlags read_experimental_flags() {
         if (s) f.subtree_dropout_seed = (unsigned int)atoll(s);
     }
     f.char_suffix_mass_path = getenv("AGPT_CHAR_SUFFIX_MASS_PATH");
+    f.capture_h_caps = (getenv("AGPT_CAPTURE_H_CAPS") != nullptr);
+    {
+        const char* s = getenv("AGPT_CAPTURE_H_CAPS_EMA");
+        if (s) {
+            float v = (float)atof(s);
+            if (v < 0.0f) v = 0.0f;
+            if (v > 0.9999f) v = 0.9999f;
+            f.capture_h_caps_ema = v;
+        }
+    }
+    f.capture_h_caps_out = getenv("AGPT_CAPTURE_H_CAPS_OUT");
+    if (f.capture_h_caps && !f.capture_h_caps_out) {
+        f.capture_h_caps_out = "data/h_caps.bin";
+    }
     return f;
 }
 
@@ -3907,6 +3936,24 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
     CUDA_CHECK(cudaMalloc(&d_grads,   wo.total_floats * sizeof(float)));
     CUDA_CHECK(cudaMalloc(&d_adam_m,  wo.total_floats * sizeof(float)));
     CUDA_CHECK(cudaMalloc(&d_adam_v,  wo.total_floats * sizeof(float)));
+
+    // Cap-recurrence h_cap EMA buffer: bf16 per (radix_id, dim). Allocated
+    // only when AGPT_CAPTURE_H_CAPS is set. Zero-init so unfilled rows are
+    // detectable in stats. See notes/seq-len-extension/cap-recurrence-design.md
+    __nv_bfloat16* d_h_cap_ema = nullptr;
+    if (flags.capture_h_caps) {
+        size_t h_cap_bytes = (size_t)trie.radix_count * (size_t)cfg.d_model *
+                             sizeof(__nv_bfloat16);
+        CUDA_CHECK(cudaMalloc(&d_h_cap_ema, h_cap_bytes));
+        CUDA_CHECK(cudaMemset(d_h_cap_ema, 0, h_cap_bytes));
+        fprintf(stdout, "[h_cap] capture enabled: radix_count=%d d_model=%d "
+                "(%.1f MB bf16), ema_alpha=%.4f, out=%s\n",
+                trie.radix_count, cfg.d_model,
+                (double)h_cap_bytes / (1024.0 * 1024.0),
+                flags.capture_h_caps_ema,
+                flags.capture_h_caps_out ? flags.capture_h_caps_out : "(none)");
+        fflush(stdout);
+    }
     if (persist && persist->h_adam_m_io) {
         CUDA_CHECK(cudaMemcpy(d_adam_m, persist->h_adam_m_io, wo.total_floats * sizeof(float), cudaMemcpyHostToDevice));
     } else {
@@ -6091,6 +6138,19 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                                                     decision_buffer, T_q, V);
                 }
 
+                // Cap-recurrence capture: copy d_final_out at each node's
+                // endpoint query into the persistent per-radix-id EMA buffer.
+                // No-op unless AGPT_CAPTURE_H_CAPS set. Race-safe under the
+                // current single-stream chunk processing — see
+                // agpt_cap_capture.cuh for the assumption.
+                if (d_h_cap_ema != nullptr) {
+                    launch_capture_h_caps(d_final_out,
+                                          d_query_offsets, d_radix_ids,
+                                          d_h_cap_ema,
+                                          N, D, trie.radix_count,
+                                          flags.capture_h_caps_ema);
+                }
+
                 float* h_loss = (float*)malloc(T_q * sizeof(float));
                 CUDA_CHECK(cudaMemcpy(h_loss, d_loss, T_q * sizeof(float), cudaMemcpyDeviceToHost));
                 int chunk_trained = 0;
@@ -7150,6 +7210,17 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
     }
 
     free_chunk_upload_runtime(chunk_upload_runtime);
+
+    // Cap-recurrence: flush stats + save buffer before freeing.
+    if (d_h_cap_ema != nullptr) {
+        report_h_cap_stats(d_h_cap_ema, trie.radix_count, cfg.d_model, "final");
+        if (flags.capture_h_caps_out) {
+            save_h_cap_table(d_h_cap_ema, trie.radix_count, cfg.d_model,
+                             flags.capture_h_caps_out);
+        }
+        cudaFree(d_h_cap_ema);
+        d_h_cap_ema = nullptr;
+    }
 
     cudaFree(d_weights); cudaFree(d_grads); cudaFree(d_adam_m); cudaFree(d_adam_v);
     if (d_dkv_subtree_k) {
