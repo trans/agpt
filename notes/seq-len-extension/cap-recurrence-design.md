@@ -245,19 +245,119 @@ to. So validating the RNN first reduces risk.
 
 Q1, Q2, Q3 resolved. Phased build order:
 
-### Phase 0 — Survey (1 day)
+### Phase 0 — Survey — COMPLETED 2026-05-27
 
-Concrete questions to answer before cutting code:
+Findings below answer the three survey questions, with file:line
+references to the trainer in this branch.
 
-- Where does the trainer currently compute hidden state at the deepest
-  position of each prefix path? Is it materialized as a tensor, or
-  consumed in-place by the loss kernel?
-- What's the cleanest place in `agpt_train.cu`'s fire loop to capture
-  these h_caps per trie node?
-- What identifier do we use to index h_caps — trie node ID? prefix
-  hash? Need a stable per-K key that's already in the trainer.
+#### Hidden state at deepest position — found
 
-Output: a 1-page implementation map appended to this doc.
+Tensor: `d_final_out[T_q, D]` — post-LN, pre-output-projection. Computed
+at `src/cuda/agpt_train.cu:6060` via `cuda_layer_norm_forward`.
+
+- **Type**: float32
+- **Shape**: `[T_q, D]` per chunk, where T_q ∈ ~100–4000 queries
+- **Layout**: flat per-query, indexed as `d_final_out[q * D + i]`
+- **Lifetime**: lives through forward (line 6060), logit GEMM (6062),
+  loss kernel (~6100), and backward GEMM (6145). Available until the
+  buffer is reused for the next chunk's forward pass.
+
+#### Endpoint-query identification — found
+
+Each chunk carries metadata arrays (allocated by an external
+`build_chunk_metadata`, layout to be confirmed during Phase 1):
+
+- `h_radix_ids[N]` — N trie nodes in this chunk, global radix IDs
+- `h_query_offsets[N+1]` — query span [start, end) per trie node
+- `h_query_to_node[T_q]` — reverse map: query → node index in this chunk
+- `h_query_depth[T_q]` — depth of each query
+
+**Endpoint test for query q**:
+```
+node_idx = h_query_to_node[q]
+is_endpoint = (q + 1 == h_query_offsets[node_idx + 1])
+```
+
+When `is_endpoint` is true, query q is the deepest position for trie
+node `h_radix_ids[node_idx]`.
+
+#### Stable per-K key — found
+
+`radix_id` from `h_radix_ids[node_idx]`. Global, deterministic across
+epochs (BFS order is fixed; trie is loaded once at `agpt_train.cu:1217`
+via `load_radix_trie` and never reshuffled). Indexes into immutable
+arrays like `trie.edge_mass[]`, `trie.parents[]`.
+
+This is the right key for the h_cap storage table.
+
+#### Where to capture (CORRECTION to agent's recommendation)
+
+The agent flagged two options:
+1. After chunk loop, before optimizer fire (line ~6530)
+2. Inside chunk loop, after loss kernel (line ~6100)
+
+**Option 1 is wrong** — by the time we exit the chunk loop, only the
+LAST chunk's `d_final_out` is still in the buffer; earlier chunks'
+hidden states have been overwritten. We'd miss most queries.
+
+**Option 2 is correct** — capture inside the chunk loop, after forward
+and (ideally) after backward but before the next chunk starts. This
+gets every chunk's endpoints.
+
+Concretely: insert capture step around line ~6120 (post-loss,
+post-backward, pre-next-chunk). Iterate q in [0, T_q), test endpoint,
+on hits copy `d_final_out[q*D : (q+1)*D]` to a device-side h_cap table
+indexed by `h_radix_ids[h_query_to_node[q]]`.
+
+#### Aggregation note
+
+A given radix_id can appear in multiple chunks within an epoch (and
+across multiple fires). The h_cap table should be an **EMA accumulator
+per radix_id**, not overwrite. EMA momentum (e.g., 0.9) gives smooth
+averaging across the epoch without storing all observations.
+
+#### Open Phase-0 follow-ups (small, resolve during Phase 1)
+
+- **ChunkMetadata struct definition**: external to `agpt_train.cu`.
+  Need to find the build function to confirm exact memory layout of
+  `h_query_offsets` and `h_query_to_node` — likely in
+  `src/cuda/chunk_metadata*.cuh` or similar header.
+- **Total radix_id count**: bounded by trie node count (~10^6 for
+  Shakespeare d=32). Storage at d_model=64 bf16: ~128MB. Manageable.
+- **Device-side vs host-side capture**: capture on device into a
+  persistent radix-id-indexed buffer; flush to host only at fire
+  boundaries. Avoids per-chunk PCIe traffic.
+
+### Phase 0 implementation map
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ Fire loop (agpt_train.cu:5367)                              │
+│  └─ per root-child rc_idx (line 5367)                       │
+│     └─ chunk loop                                            │
+│        ├─ build chunk metadata                              │
+│        ├─ forward pass → d_final_out[T_q, D]  (line 6060)   │
+│        ├─ logits & loss kernel               (~6100)        │
+│        ├─ CAPTURE HOOK ◄── INSERT HERE                      │
+│        │   for q in 0..T_q:                                 │
+│        │     node_idx = h_query_to_node[q]                  │
+│        │     if q+1 == h_query_offsets[node_idx+1]:         │
+│        │       rid = h_radix_ids[node_idx]                  │
+│        │       h_cap_ema[rid] = α·old + (1-α)·d_final_out[q]│
+│        ├─ backward pass                       (line 6145)   │
+│        └─ end chunk                                          │
+│     └─ end rc_idx → optimizer fire             (line 6537)  │
+└─────────────────────────────────────────────────────────────┘
+
+At epoch end:
+  ├─ flush h_cap_ema → disk: data/h_caps_epoch_N.bin
+  ├─ fit personas: k-means(h_cap_ema, k=256)
+  └─ fit per-K mixture weights from h_cap_ema vs personas
+```
+
+The capture is ~30 lines of CUDA. Most of the engineering surface for
+Phase 1 is the persistence layer (load/save h_caps across epochs) and
+the offline persona/weight fitters.
 
 ### Phase 1 — Infrastructure (no model changes, ~3-5 days)
 
