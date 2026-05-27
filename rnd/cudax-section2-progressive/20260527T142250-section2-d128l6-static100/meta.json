@@ -1,0 +1,49 @@
+{
+  "config_sha256": "03e89ee7ba0da2c5fd567ac3d2370401a7caa39baf46064fa7eab6fbe14f455f",
+  "started_utc": "2026-05-27T14:22:50Z",
+  "git_sha": "5eccb218a9228b9e3c374fc34591228ea3128a5e",
+  "git_branch": "main",
+  "git_dirty": true,
+  "host": "neo14",
+  "command": "bin/agpt_experiment",
+  "corpus": {
+    "path": "data/input.txt",
+    "sha256": "86c4e6aa9db7c042ec79f339dcb96d42b0075e16b8fc2e86bf0ca57e2dc565ed",
+    "byte_count": 1115394
+  },
+  "model_init": {
+    "path": "rnd/cudax-section2-progressive/seeds/shake-d128L6-h8-dff512-d16-seed42.model",
+    "sha256": "0f94b19937545123fd3e538d9732b03695503d7ae633e75a1e5e9ea7732b32cc",
+    "header": {
+      "magic": 1296519252,
+      "d_model": 128,
+      "n_heads": 8,
+      "n_layers": 6,
+      "d_ff": 512,
+      "vocab": 65,
+      "seq_len": 16
+    }
+  },
+  "environment": {
+    "cuda": "Cuda compilation tools, release 13.2, V13.2.78",
+    "gpu": "unknown",
+    "crystal": "Crystal 1.20.1 [fb55e8c] (2026-05-03)",
+    "python": "Python 3.14.4",
+    "python_packages": {
+      "torch": "2.11.0",
+      "transformers": "5.5.0",
+      "lm_eval": "0.4.12",
+      "accelerate": "1.13.0",
+      "datasets": "4.8.5"
+    },
+    "env_vars": {
+      "CUDA_PATH": "/opt/cuda",
+      "CUDA_DISABLE_PERF_BOOST": "1"
+    }
+  },
+  "ended_utc": "2026-05-27T15:30:50Z",
+  "wall_seconds": 4079.866033161,
+  "train_wall_seconds": 4029.365515627,
+  "convert_wall_seconds": 5.484031497,
+  "eval_wall_seconds": 38.816112217
+}
