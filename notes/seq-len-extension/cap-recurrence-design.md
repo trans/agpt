@@ -1,7 +1,36 @@
 # Cap-recurrence design — working doc
 
 **Date:** 2026-05-27.
-**Branch:** `agpt-cap-recurrence`.
+**Branch:** `agpt-cap-recurrence` (own worktree at
+`/home/trans/Projects/agpt-cap-recurrence/`).
+
+## RESUME HERE (status as of 2026-05-27)
+
+Done (8 commits; all opt-in via env vars, baseline training unchanged):
+- **Phase 0** — codebase survey complete (see below).
+- **Phase 1** — capture kernel, cross-epoch load/save, predecessor-table
+  builder (`bin/agpt_build_predecessor_table`). Smoke test passed.
+- **Phase 2A** — predecessor lookup + mass-weighted h_in compute. Works
+  (h_in norm mean 1.08, 100% fill).
+- **Phase 2B step 1** — direct h_in injection (no learning). NEGATIVE:
+  scales 0.1-1.0 flat, scale 5-100 hurt PPL (wiring confirmed). Direct
+  addition is too weak — model can't use h_in without a learnable
+  projection. See `rnd/cap-recurrence/20260527-phase2b-step1/README.md`.
+
+**NEXT — Phase 2B step 2:** learnable `W_inject` (d_model × d_model).
+Project `d_x[q_first_of_node] += W_inject @ h_in[node]`; add gradient
+through W_inject (FIRST backward-pass change — highest risk); SGD
+update post-fire; persist W_inject in a sidecar file (not model format).
+If PPL improves, that's the cap-recurrence signal. If flat: reconsider
+injection point (depth-0-only too localized?) or escalate to Q1 option
+B (extra K-token).
+
+Setup notes: `shards install` in the worktree first. Test artifacts in
+/tmp may need rebuilding (repro commands in the rnd READMEs). Persona
+aggregation (Q2-D) deferred — using mass-weighted averaging per user.
+
+---
+
 **Status:** Open-questions document. We resolve these before any code.
 
 ## Goal
