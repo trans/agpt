@@ -484,6 +484,49 @@ static inline void report_h_in_stats(const HInStatsAccumulator& acc, const char*
     fflush(stdout);
 }
 
+// ----------------------------------------------------------------------
+// Phase 2B step 1: direct h_in injection (no learnable projection).
+//
+// For each chunk-local node i, at its FIRST query position
+// (q = h_query_offsets[i]), add `scale * h_in[i, :]` to d_x[q, :].
+// No new weights; diagnostic for whether h_in carries usable signal
+// before we invest in the learnable W_inject projection.
+//
+// One block per chunk-local node, D threads per block.
+// ----------------------------------------------------------------------
+__global__ void agpt_inject_h_in_direct_kernel(
+    const int*   __restrict__ d_query_offsets, // [N+1]
+    const float* __restrict__ d_h_in,          // [N, D]
+    float*                   d_x,              // [T_q, D]
+    int N,
+    int D,
+    float scale
+) {
+    int i = blockIdx.x;
+    if (i >= N) return;
+    int q_first = d_query_offsets[i];
+    for (int d = threadIdx.x; d < D; d += blockDim.x) {
+        d_x[(long long)q_first * D + d] += scale * d_h_in[(long long)i * D + d];
+    }
+}
+
+static inline void launch_inject_h_in_direct(
+    const int*   d_query_offsets,
+    const float* d_h_in,
+    float*       d_x,
+    int N,
+    int D,
+    float scale,
+    cudaStream_t stream = 0
+) {
+    if (N <= 0 || scale == 0.0f) return;
+    int threads = D < 256 ? D : 256;
+    dim3 grid(N);
+    dim3 block(threads);
+    agpt_inject_h_in_direct_kernel<<<grid, block, 0, stream>>>(
+        d_query_offsets, d_h_in, d_x, N, D, scale);
+}
+
 // ======================================================================
 // Save h_cap_ema buffer to disk in a simple binary format.
 //

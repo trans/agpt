@@ -3671,6 +3671,12 @@ struct ExperimentalFlags {
     // predecessor h_cap values. Phase 2A: stats only — h_in is not yet
     // injected into the model. See cap-recurrence-design.md.
     const char* capture_h_caps_pred_table = nullptr;
+    // AGPT_CAPTURE_H_CAPS_INJECT_SCALE: Phase 2B step 1. When > 0 and
+    // h_in is active, add `scale * h_in` directly to the embedding
+    // tensor d_x at each radix node's first query position. No learnable
+    // projection — diagnostic for whether h_in carries usable signal.
+    // Default 0.0 (no injection).
+    float capture_h_caps_inject_scale = 0.0f;
 };
 
 static ExperimentalFlags read_experimental_flags() {
@@ -3714,6 +3720,13 @@ static ExperimentalFlags read_experimental_flags() {
     }
     f.capture_h_caps_in = getenv("AGPT_CAPTURE_H_CAPS_IN");
     f.capture_h_caps_pred_table = getenv("AGPT_CAPTURE_H_CAPS_PRED_TABLE");
+    {
+        const char* s = getenv("AGPT_CAPTURE_H_CAPS_INJECT_SCALE");
+        if (s) {
+            float v = (float)atof(s);
+            f.capture_h_caps_inject_scale = v;
+        }
+    }
     return f;
 }
 
@@ -5860,6 +5873,16 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
 
                 // Embedding gather: d_x[T_q, D]
                 cuda_embedding_gather(d_weights + wo.token_emb, d_token_ids, d_x, T_q, D);
+
+                // Cap-recurrence Phase 2B step 1: direct h_in injection.
+                // Adds scale * h_in to d_x at each radix node's first query
+                // position. Active only when h_in computation is enabled
+                // AND inject_scale > 0.
+                if (cap_h_in_active && flags.capture_h_caps_inject_scale != 0.0f) {
+                    launch_inject_h_in_direct(d_query_offsets, d_cap_h_in,
+                                              d_x, N, D,
+                                              flags.capture_h_caps_inject_scale);
+                }
 
                 float alpha = 1.0f, beta_zero = 0.0f;
                 for (int l = 0; l < L_layers; l++) {
