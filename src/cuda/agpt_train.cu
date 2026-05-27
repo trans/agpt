@@ -3664,6 +3664,13 @@ struct ExperimentalFlags {
     // current trie's radix_count and the model's d_model; on mismatch
     // the buffer falls back to zero-init with a warning.
     const char* capture_h_caps_in = nullptr;
+    // AGPT_CAPTURE_H_CAPS_PRED_TABLE: path to the predecessor table
+    // (.bin from agpt_build_predecessor_table). When set together with
+    // capture_h_caps and capture_h_caps_in, the trainer computes
+    // h_in[N, D] per fire as the mass-weighted average over each K's
+    // predecessor h_cap values. Phase 2A: stats only — h_in is not yet
+    // injected into the model. See cap-recurrence-design.md.
+    const char* capture_h_caps_pred_table = nullptr;
 };
 
 static ExperimentalFlags read_experimental_flags() {
@@ -3706,6 +3713,7 @@ static ExperimentalFlags read_experimental_flags() {
         f.capture_h_caps_out = "data/h_caps.bin";
     }
     f.capture_h_caps_in = getenv("AGPT_CAPTURE_H_CAPS_IN");
+    f.capture_h_caps_pred_table = getenv("AGPT_CAPTURE_H_CAPS_PRED_TABLE");
     return f;
 }
 
@@ -3965,6 +3973,30 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                              flags.capture_h_caps_in);
             report_h_cap_stats(d_h_cap_ema, trie.radix_count, cfg.d_model,
                                "loaded");
+        }
+    }
+
+    // Cap-recurrence Phase 2A: predecessor-table-driven h_in computation.
+    // Activated when both capture_h_caps and capture_h_caps_pred_table are
+    // set. Phase 2A logs stats only; injection into the model comes in
+    // Phase 2B.
+    PredecessorTable cap_pred_table;
+    float* d_cap_h_in = nullptr;
+    HInStatsAccumulator h_in_stats;
+    bool cap_h_in_active = false;
+    if (flags.capture_h_caps && flags.capture_h_caps_pred_table) {
+        if (load_predecessor_table(cap_pred_table, trie.radix_count,
+                                   flags.capture_h_caps_pred_table)) {
+            // Persistent h_in buffer sized for max chunk.
+            size_t h_in_bytes = (size_t)CHUNK_QUERIES * (size_t)cfg.d_model *
+                                sizeof(float);
+            CUDA_CHECK(cudaMalloc(&d_cap_h_in, h_in_bytes));
+            CUDA_CHECK(cudaMemset(d_cap_h_in, 0, h_in_bytes));
+            cap_h_in_active = true;
+            fprintf(stdout, "[h_in] active: d_h_in buffer %.1f MB fp32, "
+                    "stats-only mode (no model injection yet)\n",
+                    (double)h_in_bytes / (1024.0 * 1024.0));
+            fflush(stdout);
         }
     }
     if (persist && persist->h_adam_m_io) {
@@ -5592,6 +5624,15 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                 int* d_own_lengths_cache = device_chunk_meta.d_own_lengths;
                 int* d_query_depth_cache = device_chunk_meta.d_query_depth;
                 int* d_query_d_split_cache = device_chunk_meta.d_query_d_split;
+
+                // Cap-recurrence Phase 2A: compute h_in per chunk-local node
+                // using the predecessor table. Phase 2A only logs stats; no
+                // model injection yet.
+                if (cap_h_in_active && d_cap_h_in != nullptr) {
+                    launch_compute_h_in(d_radix_ids, cap_pred_table,
+                                        d_h_cap_ema, d_cap_h_in, N, D);
+                    accumulate_h_in_stats(h_in_stats, d_cap_h_in, N, D);
+                }
 
                 // Corpus-mass weighting. Raw edge_mass varies by 5+ orders of
                 // magnitude in natural-language tries (common letters vs rare
@@ -7233,6 +7274,12 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
         }
         cudaFree(d_h_cap_ema);
         d_h_cap_ema = nullptr;
+    }
+    if (cap_h_in_active) {
+        report_h_in_stats(h_in_stats, "final");
+        if (d_cap_h_in) { cudaFree(d_cap_h_in); d_cap_h_in = nullptr; }
+        free_predecessor_table(cap_pred_table);
+        cap_h_in_active = false;
     }
 
     cudaFree(d_weights); cudaFree(d_grads); cudaFree(d_adam_m); cudaFree(d_adam_v);

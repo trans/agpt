@@ -208,7 +208,283 @@ static inline bool load_h_cap_table(
     return true;
 }
 
+// ======================================================================
+// Predecessor table (cap-recurrence Phase 2)
 // ----------------------------------------------------------------------
+// CSR-format lookup: for each radix node K, the list of (K_prev, count)
+// pairs where K_prev is the trie node whose path matches the d-window
+// ending at the start of K's occurrence in the corpus.
+//
+// File format ('PRED' magic, version 1) — see
+// src/tools/agpt_build_predecessor_table.cr.
+// ======================================================================
+
+struct PredecessorTable {
+    int radix_count = 0;
+    int d_window = 0;
+    uint64_t total_entries = 0;
+    uint64_t* d_offsets = nullptr;     // [radix_count + 1]
+    uint32_t* d_pred_ids = nullptr;    // [total_entries]
+    uint32_t* d_pred_counts = nullptr; // [total_entries]
+};
+
+// Loads the predecessor table from disk into device-side buffers.
+// Validates header against the trainer's expected radix_count.
+// Returns true iff loaded; on failure prints a warning and returns false.
+static inline bool load_predecessor_table(
+    PredecessorTable& out,
+    int expected_radix_count,
+    const char* path
+) {
+    FILE* f = fopen(path, "rb");
+    if (!f) {
+        fprintf(stderr, "load_predecessor_table: cannot open %s for read\n", path);
+        return false;
+    }
+    uint32_t magic = 0, version = 0, rc = 0, dw = 0;
+    uint64_t te = 0;
+    if (fread(&magic, sizeof(uint32_t), 1, f) != 1 ||
+        fread(&version, sizeof(uint32_t), 1, f) != 1 ||
+        fread(&rc, sizeof(uint32_t), 1, f) != 1 ||
+        fread(&dw, sizeof(uint32_t), 1, f) != 1 ||
+        fread(&te, sizeof(uint64_t), 1, f) != 1) {
+        fprintf(stderr, "load_predecessor_table: %s header truncated\n", path);
+        fclose(f);
+        return false;
+    }
+    if (magic != 0x44455250u) {
+        fprintf(stderr, "load_predecessor_table: %s bad magic 0x%08x (want 0x44455250 'PRED')\n",
+                path, magic);
+        fclose(f);
+        return false;
+    }
+    if ((int)rc != expected_radix_count) {
+        fprintf(stderr, "load_predecessor_table: %s radix_count mismatch (file=%u, expected=%d)\n",
+                path, rc, expected_radix_count);
+        fclose(f);
+        return false;
+    }
+
+    out.radix_count = (int)rc;
+    out.d_window = (int)dw;
+    out.total_entries = te;
+
+    // Read host-side then upload.
+    uint64_t* h_off = (uint64_t*)malloc((size_t)(rc + 1) * sizeof(uint64_t));
+    uint32_t* h_ids = (uint32_t*)malloc((size_t)te * sizeof(uint32_t));
+    uint32_t* h_cnt = (uint32_t*)malloc((size_t)te * sizeof(uint32_t));
+    if (!h_off || !h_ids || !h_cnt) {
+        fprintf(stderr, "load_predecessor_table: malloc failed\n");
+        if (h_off) free(h_off);
+        if (h_ids) free(h_ids);
+        if (h_cnt) free(h_cnt);
+        fclose(f);
+        return false;
+    }
+    if (fread(h_off, sizeof(uint64_t), (size_t)(rc + 1), f) != (size_t)(rc + 1)) {
+        fprintf(stderr, "load_predecessor_table: %s offsets truncated\n", path);
+        free(h_off); free(h_ids); free(h_cnt); fclose(f); return false;
+    }
+    if (fread(h_ids, sizeof(uint32_t), (size_t)te, f) != (size_t)te) {
+        fprintf(stderr, "load_predecessor_table: %s pred_ids truncated\n", path);
+        free(h_off); free(h_ids); free(h_cnt); fclose(f); return false;
+    }
+    if (fread(h_cnt, sizeof(uint32_t), (size_t)te, f) != (size_t)te) {
+        fprintf(stderr, "load_predecessor_table: %s counts truncated\n", path);
+        free(h_off); free(h_ids); free(h_cnt); fclose(f); return false;
+    }
+    fclose(f);
+
+    CUDA_CHECK(cudaMalloc(&out.d_offsets, (size_t)(rc + 1) * sizeof(uint64_t)));
+    CUDA_CHECK(cudaMalloc(&out.d_pred_ids, (size_t)te * sizeof(uint32_t)));
+    CUDA_CHECK(cudaMalloc(&out.d_pred_counts, (size_t)te * sizeof(uint32_t)));
+    CUDA_CHECK(cudaMemcpy(out.d_offsets, h_off, (size_t)(rc + 1) * sizeof(uint64_t),
+                          cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(out.d_pred_ids, h_ids, (size_t)te * sizeof(uint32_t),
+                          cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(out.d_pred_counts, h_cnt, (size_t)te * sizeof(uint32_t),
+                          cudaMemcpyHostToDevice));
+    free(h_off); free(h_ids); free(h_cnt);
+
+    size_t total_bytes = (size_t)(rc + 1) * sizeof(uint64_t) +
+                         (size_t)te * sizeof(uint32_t) * 2;
+    fprintf(stdout, "[h_cap] predecessor table loaded: %d K's, %llu pairs, "
+            "d_window=%d (%.1f MB device) ← %s\n",
+            (int)rc, (unsigned long long)te, (int)dw,
+            (double)total_bytes / (1024.0 * 1024.0), path);
+    fflush(stdout);
+    return true;
+}
+
+static inline void free_predecessor_table(PredecessorTable& t) {
+    if (t.d_offsets) { cudaFree(t.d_offsets); t.d_offsets = nullptr; }
+    if (t.d_pred_ids) { cudaFree(t.d_pred_ids); t.d_pred_ids = nullptr; }
+    if (t.d_pred_counts) { cudaFree(t.d_pred_counts); t.d_pred_counts = nullptr; }
+    t.radix_count = 0;
+    t.d_window = 0;
+    t.total_entries = 0;
+}
+
+// ----------------------------------------------------------------------
+// Compute h_in[N, D] = mass-weighted average over each K's predecessors.
+//
+// For chunk-local node i with radix_id rid:
+//   start, end = pred_offsets[rid], pred_offsets[rid + 1]
+//   total_count = sum(pred_counts[start..end))
+//   h_in[i, d] = (1 / total_count) * sum_j pred_counts[j] * h_cap_ema[pred_ids[j], d]
+//
+// If a K has no predecessors (count==0, e.g., shallow K's with corpus
+// position < d_window), h_in[i] is set to zero — caller should treat
+// as "no recurrence input."
+//
+// One block per chunk-local node, D threads per block.
+// ----------------------------------------------------------------------
+__global__ void agpt_compute_h_in_kernel(
+    const int*      __restrict__ d_radix_ids,    // [N]
+    const uint64_t* __restrict__ d_pred_offsets, // [radix_count + 1]
+    const uint32_t* __restrict__ d_pred_ids,     // [total_entries]
+    const uint32_t* __restrict__ d_pred_counts,  // [total_entries]
+    const __nv_bfloat16* __restrict__ h_cap_ema, // [radix_count, D]
+    float*                       d_h_in,         // [N, D]  (fp32)
+    int N,
+    int D,
+    int radix_count
+) {
+    int i = blockIdx.x;
+    if (i >= N) return;
+
+    int rid = d_radix_ids[i];
+    if (rid < 0 || rid >= radix_count) {
+        // Zero-init this row.
+        for (int d = threadIdx.x; d < D; d += blockDim.x) {
+            d_h_in[(long long)i * D + d] = 0.0f;
+        }
+        return;
+    }
+
+    uint64_t start = d_pred_offsets[rid];
+    uint64_t end   = d_pred_offsets[rid + 1];
+    uint64_t n_preds = end - start;
+    if (n_preds == 0) {
+        for (int d = threadIdx.x; d < D; d += blockDim.x) {
+            d_h_in[(long long)i * D + d] = 0.0f;
+        }
+        return;
+    }
+
+    // Compute total count (small, serial — every thread does it for now).
+    // For typical n_preds ≤ a few dozen this is cheap; for shallow K's
+    // (thousands of preds) it's still bounded.
+    uint64_t total_count = 0;
+    for (uint64_t j = start; j < end; j++) {
+        total_count += d_pred_counts[j];
+    }
+    if (total_count == 0) {
+        for (int d = threadIdx.x; d < D; d += blockDim.x) {
+            d_h_in[(long long)i * D + d] = 0.0f;
+        }
+        return;
+    }
+    float inv_total = 1.0f / (float)total_count;
+
+    // Aggregate dim d across threads.
+    for (int d = threadIdx.x; d < D; d += blockDim.x) {
+        float sum = 0.0f;
+        for (uint64_t j = start; j < end; j++) {
+            uint32_t kp = d_pred_ids[j];
+            uint32_t c  = d_pred_counts[j];
+            float v = __bfloat162float(h_cap_ema[(long long)kp * D + d]);
+            sum += (float)c * v;
+        }
+        d_h_in[(long long)i * D + d] = sum * inv_total;
+    }
+}
+
+static inline void launch_compute_h_in(
+    const int*           d_radix_ids,
+    const PredecessorTable& pred,
+    const __nv_bfloat16* h_cap_ema,
+    float*               d_h_in,
+    int N,
+    int D,
+    cudaStream_t stream = 0
+) {
+    if (N <= 0) return;
+    int threads = D < 256 ? D : 256;
+    dim3 grid(N);
+    dim3 block(threads);
+    agpt_compute_h_in_kernel<<<grid, block, 0, stream>>>(
+        d_radix_ids, pred.d_offsets, pred.d_pred_ids, pred.d_pred_counts,
+        h_cap_ema, d_h_in, N, D, pred.radix_count);
+}
+
+// ----------------------------------------------------------------------
+// Per-fire h_in norm accumulator. Tracks running sum/count over many
+// kernel launches; reported at epoch end.
+// ----------------------------------------------------------------------
+struct HInStatsAccumulator {
+    double sum_norm = 0.0;
+    double sum_norm_sq = 0.0;
+    double max_norm = 0.0;
+    double min_norm = 1e300;
+    long long n_filled = 0;
+    long long n_zero = 0;
+};
+
+static inline void accumulate_h_in_stats(
+    HInStatsAccumulator& acc,
+    const float* d_h_in,
+    int N,
+    int D
+) {
+    if (N <= 0) return;
+    size_t total = (size_t)N * (size_t)D;
+    float* h = (float*)malloc(total * sizeof(float));
+    if (!h) return;
+    CUDA_CHECK(cudaMemcpy(h, d_h_in, total * sizeof(float), cudaMemcpyDeviceToHost));
+    for (int i = 0; i < N; i++) {
+        double sq = 0.0;
+        for (int d = 0; d < D; d++) {
+            float v = h[(long long)i * D + d];
+            sq += (double)v * (double)v;
+        }
+        if (sq > 0.0) {
+            double norm = sqrt(sq);
+            acc.n_filled++;
+            acc.sum_norm += norm;
+            acc.sum_norm_sq += norm * norm;
+            if (norm > acc.max_norm) acc.max_norm = norm;
+            if (norm < acc.min_norm) acc.min_norm = norm;
+        } else {
+            acc.n_zero++;
+        }
+    }
+    free(h);
+}
+
+static inline void report_h_in_stats(const HInStatsAccumulator& acc, const char* label) {
+    long long total = acc.n_filled + acc.n_zero;
+    if (total == 0) {
+        fprintf(stdout, "[h_in stats%s%s] no fires sampled\n",
+                label && label[0] ? " " : "", label && label[0] ? label : "");
+        fflush(stdout);
+        return;
+    }
+    double mean = acc.n_filled > 0 ? acc.sum_norm / (double)acc.n_filled : 0.0;
+    double var  = acc.n_filled > 0 ? (acc.sum_norm_sq / (double)acc.n_filled) - mean * mean : 0.0;
+    double std  = var > 0.0 ? sqrt(var) : 0.0;
+    fprintf(stdout, "[h_in stats%s%s] fires=%lld filled=%lld zero=%lld "
+            "norm: mean=%.4f std=%.4f min=%.4f max=%.4f\n",
+            label && label[0] ? " " : "",
+            label && label[0] ? label : "",
+            total, acc.n_filled, acc.n_zero,
+            mean, std,
+            acc.n_filled > 0 ? acc.min_norm : 0.0,
+            acc.max_norm);
+    fflush(stdout);
+}
+
+// ======================================================================
 // Save h_cap_ema buffer to disk in a simple binary format.
 //
 // Format:
