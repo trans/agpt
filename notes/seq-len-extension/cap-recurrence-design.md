@@ -316,17 +316,48 @@ across multiple fires). The h_cap table should be an **EMA accumulator
 per radix_id**, not overwrite. EMA momentum (e.g., 0.9) gives smooth
 averaging across the epoch without storing all observations.
 
-#### Open Phase-0 follow-ups (small, resolve during Phase 1)
+#### ChunkMetadata struct — RESOLVED 2026-05-27
 
-- **ChunkMetadata struct definition**: external to `agpt_train.cu`.
-  Need to find the build function to confirm exact memory layout of
-  `h_query_offsets` and `h_query_to_node` — likely in
-  `src/cuda/chunk_metadata*.cuh` or similar header.
+Struct at `src/cuda/agpt_chunk_metadata.cuh:50`. Confirmed layout:
+
+```c
+struct ChunkMetadata {
+    int N;       // # trie nodes in chunk
+    int T_q;     // # queries (= sum of edge lengths)
+    // ...
+    int* h_radix_ids;      // [N] — global radix_id per chunk-local node
+    int* h_query_offsets;  // [N+1] — query span [offsets[i], offsets[i+1])
+    int* h_query_to_node;  // [T_q] — reverse map: query → chunk-local node index
+    int* h_query_depth;    // [T_q] — depth of each query in trie
+    // ... and others
+};
+```
+
+Builder (`build_chunk_metadata`, line 95+) fills as follows:
+- Each radix node `r` (= `h_radix_ids[i]`) contributes `L = edge_lens[r]`
+  consecutive queries: `q_fill .. q_fill+L-1`.
+- `h_query_offsets[i] = q_fill` at start of node i; `q_fill += L` after.
+- `h_query_offsets[N] = q_fill` sentinel at end (total queries).
+- For each query j ∈ [0, L): `h_query_to_node[q_fill+j] = i`,
+  `h_query_depth[q_fill+j] = fcd + j` (fcd = `edge_first_char_depths[r]`).
+
+Endpoint of node i's edge is query index `h_query_offsets[i+1] - 1`,
+at trie depth `fcd + L - 1`.
+
+#### Device-side mirrors — CONFIRMED 2026-05-27
+
+`src/cuda/agpt_chunk_upload_runtime.cuh:21-23` exposes:
+- `d_radix_ids`, `d_query_offsets`, `d_query_to_node`
+
+All uploaded host→device at lines 110-114 per chunk. **Capture can run
+entirely on device**: no PCIe round-trip per chunk. Persistent device
+buffer indexed by radix_id, flushed to host only at fire boundaries
+(or at epoch boundary).
+
+#### Other open items
+
 - **Total radix_id count**: bounded by trie node count (~10^6 for
   Shakespeare d=32). Storage at d_model=64 bf16: ~128MB. Manageable.
-- **Device-side vs host-side capture**: capture on device into a
-  persistent radix-id-indexed buffer; flush to host only at fire
-  boundaries. Avoids per-chunk PCIe traffic.
 
 ### Phase 0 implementation map
 
