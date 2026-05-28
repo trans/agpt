@@ -208,6 +208,62 @@ bin/agpt_train --model data/input.model --trie-dir /tmp/shake_d16_radix \
   --mass-weight log --entropy-lambda 1.0
 ```
 
+## Definitive bug-vs-design test: ORACLE h_in (does the path work AT ALL?)
+
+After kv-mass, kv-inv, kv-random, kv-constant, and kv-none all gave the
+same flat result, the natural worry was: maybe the signal isn't reaching
+the training gradient at all (i.e., a bug we haven't found). Testing
+this directly:
+
+**`AGPT_CAP_H_IN_WEIGHT=oracle`** fills `h_in[K]` with a deterministic
+hash-derived vector seeded by K's *modal next-token* (the most common
+token following K, looked up from the trie's per-node count table).
+So h_in literally encodes the answer: same modal token → identical
+h_in; different modal token → different h_in. The model has a perfect
+predictive shortcut available *if* it can use h_in's content at all.
+
+Sweeping the W_k/W_v learning rate (5-ep × 3 seeds per lr):
+
+| condition | lr | mean loss | Δ vs baseline | ‖W_k‖ | ‖W_v‖ |
+|---|---|---|---|---|---|
+| baseline | — | 1.906 | — | — | — |
+| kv-mass | 1e-5 | 1.914 | +0.008 | 0.07 | 0.07 |
+| **kv-oracle** | 1e-5 | 1.901 | −0.005 | 0.06 | 0.12 |
+| **kv-oracle** | 1e-4 | 1.903 | −0.003 | 0.7 | 1.4 |
+| **kv-oracle** | 1e-3 | 1.887 | **−0.019** | 7 | 15 |
+| **kv-oracle** | 1e-2 | **1.810** | **−0.096** | 60 | 103 |
+
+**At lr=1e-2 with oracle, loss drops by 5% — ~10× the within-condition
+noise band.** ‖W_v‖ reaches 100+ as the model learns to route attention
+heavily through the INJ slot. Compare to `kv-mass` at lr=1e-2 from the
+step-1 era, which DEGRADED loss to 2.654 (W exploded but in a
+non-useful direction because real h_in is noise). Same wiring, same
+lr, same architecture; the *only* difference is whether h_in's content
+is real (noise) or oracle (signal).
+
+This **rules out any wiring or signal-flow bug**. The path —
+h_in → K_inject/V_inject → attention output → loss → backward → dW —
+is fully functional. The optimizer finds useful directions when they
+exist. The model uses h_in's content when that content is predictive.
+
+So **every prior null result was an honest measurement.** kv-mass /
+kv-inv / kv-random / kv-constant / kv-none all gave flat results not
+because the mechanism is broken but because **real aggregated
+predecessor caps carry no extractable predictive signal about K's
+continuations**, while a synthetic oracle on the same path does. The
+"redundant" framing has direct empirical support: real h_in is
+operationally noise from the model's perspective; oracle h_in is
+operationally signal; the mechanism distinguishes correctly.
+
+What this *sharpens* about the failure: it's not the aggregation
+function (kv-inv/uniform/random all null), not the gradient path (oracle
+exploits it), not lr (oracle works at lr=1e-3 onward). It's specifically
+that **the h_in we deliver — averages or per-K random or constant —
+contains no information correlated with K's next-token distribution
+beyond what the model already extracts from K's own prefix**. Q2-D
+persona clustering or any other aggregation reform only helps if the
+result is more oracle-like than the current centroid-average.
+
 ## Decomposition: is the +0.008 of kv-mass content or slot-presence? (Tested: slot-presence.)
 
 The interleaved A/B (next section) showed `kv-mass` landing ~+0.008 above

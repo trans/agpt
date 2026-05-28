@@ -3801,11 +3801,15 @@ static ExperimentalFlags read_experimental_flags() {
     {
         const char* s = getenv("AGPT_CAP_H_IN_WEIGHT");
         if (s) {
-            if      (strcmp(s, "mass")    == 0) f.cap_h_in_weight_mode = 0;
-            else if (strcmp(s, "uniform") == 0) f.cap_h_in_weight_mode = 1;
-            else if (strcmp(s, "inverse") == 0) f.cap_h_in_weight_mode = 2;
+            if      (strcmp(s, "mass")        == 0) f.cap_h_in_weight_mode = 0;
+            else if (strcmp(s, "uniform")     == 0) f.cap_h_in_weight_mode = 1;
+            else if (strcmp(s, "inverse")     == 0) f.cap_h_in_weight_mode = 2;
+            else if (strcmp(s, "random")      == 0) f.cap_h_in_weight_mode = 3;
+            else if (strcmp(s, "rand-weights")== 0) f.cap_h_in_weight_mode = 4;
+            else if (strcmp(s, "constant")    == 0) f.cap_h_in_weight_mode = 5;
+            else if (strcmp(s, "oracle")      == 0) f.cap_h_in_weight_mode = 6;
             else fprintf(stderr, "[h_in] WARNING: unknown AGPT_CAP_H_IN_WEIGHT '%s' "
-                                  "(expected mass|uniform|inverse); using mass.\n", s);
+                                  "(expected mass|uniform|inverse|random|rand-weights|constant|oracle); using mass.\n", s);
         }
     }
     return f;
@@ -4089,7 +4093,11 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
             cap_h_in_active = true;
             const char* wmname = flags.cap_h_in_weight_mode == 0 ? "mass"
                               : flags.cap_h_in_weight_mode == 1 ? "uniform"
-                                                                : "inverse";
+                              : flags.cap_h_in_weight_mode == 2 ? "inverse"
+                              : flags.cap_h_in_weight_mode == 3 ? "random"
+                              : flags.cap_h_in_weight_mode == 4 ? "rand-weights"
+                              : flags.cap_h_in_weight_mode == 5 ? "constant"
+                                                                : "oracle";
             fprintf(stdout, "[h_in] active: d_h_in buffer %.1f MB fp32, "
                     "predecessor weighting = %s, stats-only mode (no model injection yet)\n",
                     (double)h_in_bytes / (1024.0 * 1024.0), wmname);
@@ -5851,9 +5859,18 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                 // using the predecessor table. Phase 2A only logs stats; no
                 // model injection yet.
                 if (cap_h_in_active && d_cap_h_in != nullptr) {
-                    launch_compute_h_in(d_radix_ids, cap_pred_table,
-                                        d_h_cap_ema, d_cap_h_in, N, D,
-                                        flags.cap_h_in_weight_mode);
+                    if (flags.cap_h_in_weight_mode == 6) {
+                        // Oracle mode needs the trie's per-K next-token table.
+                        launch_compute_h_in_oracle(
+                            d_radix_ids,
+                            d_radix_counts_offset, d_radix_counts_tok, d_radix_counts_val,
+                            trie.radix_count,
+                            d_cap_h_in, N, D);
+                    } else {
+                        launch_compute_h_in(d_radix_ids, cap_pred_table,
+                                            d_h_cap_ema, d_cap_h_in, N, D,
+                                            flags.cap_h_in_weight_mode);
+                    }
                     accumulate_h_in_stats(h_in_stats, d_cap_h_in, N, D);
                 }
 

@@ -328,11 +328,13 @@ static inline void free_predecessor_table(PredecessorTable& t) {
 // ----------------------------------------------------------------------
 // Compute h_in[N, D] = weighted average over each K's predecessors.
 //
-// Weighting modes (per-predecessor weight w_j as a function of count c_j):
-//   mode 0 (mass):    w_j = c_j               (current default — count-weighted)
-//   mode 1 (uniform): w_j = 1                 (each distinct predecessor equally)
-//   mode 2 (inverse): w_j = 1 / c_j           (importance-sampling toward uniform K_prev;
-//                                              TF-IDF-like: rare predecessors dominate)
+// Weighting modes (per-predecessor weight w_j as a function of count c_j
+// and pred_id_j):
+//   mode 0 (mass):       w_j = c_j         (current default — count-weighted)
+//   mode 1 (uniform):    w_j = 1           (each distinct predecessor equally)
+//   mode 2 (inverse):    w_j = 1 / c_j     (TF-IDF; rare predecessors dominate)
+//   mode 4 (rand-weights): w_j = hash(pred_id_j) / 2^32   (false-signal probe —
+//                                       count-uncorrelated weights on real caps)
 //
 // For chunk-local node i with radix_id rid:
 //   start, end = pred_offsets[rid], pred_offsets[rid + 1]
@@ -352,7 +354,8 @@ __global__ void agpt_compute_h_in_kernel(
     int N,
     int D,
     int radix_count,
-    int weight_mode                              // 0=mass, 1=uniform, 2=inverse
+    int weight_mode                              // 0=mass, 1=uniform, 2=inverse,
+                                                 // 4=rand-weights
 ) {
     int i = blockIdx.x;
     if (i >= N) return;
@@ -380,9 +383,17 @@ __global__ void agpt_compute_h_in_kernel(
     float total_w = 0.0f;
     for (uint64_t j = start; j < end; j++) {
         float c = (float)d_pred_counts[j];
-        float w = (weight_mode == 0) ? c
-                : (weight_mode == 1) ? 1.0f
-                                     : (c > 0.0f ? 1.0f / c : 0.0f);  // mode 2 = inverse
+        float w;
+        if      (weight_mode == 0) w = c;
+        else if (weight_mode == 1) w = 1.0f;
+        else if (weight_mode == 2) w = (c > 0.0f ? 1.0f / c : 0.0f);
+        else /* mode 4 (rand-weights) */ {
+            uint32_t h = d_pred_ids[j] * 0x9E3779B9u;
+            h ^= h >> 16;  h *= 0x7FEB352Du;
+            h ^= h >> 15;  h *= 0x846CA68Bu;
+            h ^= h >> 16;
+            w = (float)h * (1.0f / 4294967296.0f);  // uniform [0, 1)
+        }
         total_w += w;
     }
     if (total_w == 0.0f) {
@@ -399,14 +410,139 @@ __global__ void agpt_compute_h_in_kernel(
         for (uint64_t j = start; j < end; j++) {
             uint32_t kp = d_pred_ids[j];
             float c = (float)d_pred_counts[j];
-            float w = (weight_mode == 0) ? c
-                    : (weight_mode == 1) ? 1.0f
-                                         : (c > 0.0f ? 1.0f / c : 0.0f);
+            float w;
+            if      (weight_mode == 0) w = c;
+            else if (weight_mode == 1) w = 1.0f;
+            else if (weight_mode == 2) w = (c > 0.0f ? 1.0f / c : 0.0f);
+            else /* mode 4 (rand-weights) */ {
+                uint32_t h = kp * 0x9E3779B9u;
+                h ^= h >> 16;  h *= 0x7FEB352Du;
+                h ^= h >> 15;  h *= 0x846CA68Bu;
+                h ^= h >> 16;
+                w = (float)h * (1.0f / 4294967296.0f);
+            }
             float v = __bfloat162float(h_cap_ema[(long long)kp * D + d]);
             sum += w * v;
         }
         d_h_in[(long long)i * D + d] = sum * inv_total;
     }
+}
+
+// Diagnostic mode 3 — fill h_in with deterministic-random vectors per K,
+// IGNORING the actual predecessor caps entirely. Used to verify that
+// h_in content is genuinely irrelevant (if loss matches mass-weighted
+// h_in, the model's not using h_in's content for anything predictive).
+//
+// Per-K seed comes from the radix_id so the SAME K always gets the
+// SAME random vector (stable across fires within an epoch and across
+// epochs — no within-run noise injection, just structurally random).
+// Scaled per-element to give a row-norm ≈ 0.85, matching the natural
+// h_in distribution (so this isn't degrading by being too big/small).
+__global__ void agpt_fill_random_h_in_kernel(
+    const int* __restrict__ d_radix_ids,  // [N]
+    float*                  d_h_in,       // [N, D]
+    int N, int D,
+    float per_elem_scale                  // scale so that per-row norm ~ 0.85
+) {
+    int i = blockIdx.x;
+    if (i >= N) return;
+    int rid = d_radix_ids[i];
+    // Splitmix-like: per (rid, d) hash → uniform → centered & scaled.
+    uint32_t seed_base = (uint32_t)rid * 0x9E3779B9u;
+    for (int d = threadIdx.x; d < D; d += blockDim.x) {
+        uint32_t h = seed_base + (uint32_t)d * 0x85EBCA77u;
+        h ^= h >> 16;  h *= 0x7FEB352Du;
+        h ^= h >> 15;  h *= 0x846CA68Bu;
+        h ^= h >> 16;
+        // Map to [-1, 1) uniform, then scale.
+        float u = (float)((int32_t)h) * (1.0f / 2147483648.0f);
+        d_h_in[(long long)i * D + d] = u * per_elem_scale;
+    }
+}
+
+// Diagnostic mode 5 — same constant vector for EVERY K. Every K's row
+// in d_h_in gets the same per_elem value across all D dims, so all K's
+// have an identical h_in. The model can't extract any per-K information
+// from the slot; only softmax-stealing and constant-shift effects remain.
+__global__ void agpt_fill_const_h_in_kernel(
+    float* d_h_in,    // [N, D]
+    int N, int D,
+    float per_elem
+) {
+    int i = blockIdx.x;
+    if (i >= N) return;
+    for (int d = threadIdx.x; d < D; d += blockDim.x) {
+        d_h_in[(long long)i * D + d] = per_elem;
+    }
+}
+
+// Diagnostic mode 6 — ORACLE: fill h_in[K] with a deterministic vector
+// derived from K's modal next-token (the token with max count among
+// K's endpoint continuations in radix_counts). h_in perfectly correlates
+// with the prediction target: different modal tokens → different
+// h_in vectors. The model has a perfect "cheat" available if it can
+// use h_in content at all — should yield substantial loss reduction
+// if the path is wired correctly. If oracle is also flat, the signal
+// isn't reaching the training gradient (i.e., a bug we haven't found).
+__global__ void agpt_fill_oracle_h_in_kernel(
+    const int* __restrict__ d_radix_ids,           // [N]
+    const int* __restrict__ d_radix_counts_offset, // [radix_count+1]
+    const int* __restrict__ d_radix_counts_tok,    // [total_counts]
+    const int* __restrict__ d_radix_counts_val,    // [total_counts]
+    float*                  d_h_in,                // [N, D]
+    int N, int D,
+    float per_elem_scale,
+    int radix_count
+) {
+    int i = blockIdx.x;
+    if (i >= N) return;
+    int rid = d_radix_ids[i];
+    int modal_token = 0;
+    if (rid >= 0 && rid < radix_count) {
+        int start = d_radix_counts_offset[rid];
+        int end   = d_radix_counts_offset[rid + 1];
+        int best_count = -1;
+        for (int j = start; j < end; j++) {
+            int c = d_radix_counts_val[j];
+            if (c > best_count) {
+                best_count = c;
+                modal_token = d_radix_counts_tok[j];
+            }
+        }
+    }
+    // Hash modal_token to per-dim values (deterministic across runs,
+    // identical for same modal_token across different K).
+    uint32_t seed_base = ((uint32_t)modal_token + 1u) * 0x9E3779B9u;
+    for (int d = threadIdx.x; d < D; d += blockDim.x) {
+        uint32_t h = seed_base + (uint32_t)d * 0x85EBCA77u;
+        h ^= h >> 16;  h *= 0x7FEB352Du;
+        h ^= h >> 15;  h *= 0x846CA68Bu;
+        h ^= h >> 16;
+        float u = (float)((int32_t)h) * (1.0f / 2147483648.0f);
+        d_h_in[(long long)i * D + d] = u * per_elem_scale;
+    }
+}
+
+// Mode 6 launcher: ORACLE — uses K's modal next-token as the signal.
+// Needs access to the trie's per-node next-token count table, hence
+// separate from launch_compute_h_in.
+static inline void launch_compute_h_in_oracle(
+    const int* d_radix_ids,
+    const int* d_radix_counts_offset,
+    const int* d_radix_counts_tok,
+    const int* d_radix_counts_val,
+    int        radix_count,
+    float*     d_h_in,
+    int N, int D,
+    cudaStream_t stream = 0
+) {
+    if (N <= 0) return;
+    int threads = D < 256 ? D : 256;
+    float scale = 0.85f * sqrtf(3.0f / (float)D);
+    agpt_fill_oracle_h_in_kernel<<<dim3(N), dim3(threads), 0, stream>>>(
+        d_radix_ids,
+        d_radix_counts_offset, d_radix_counts_tok, d_radix_counts_val,
+        d_h_in, N, D, scale, radix_count);
 }
 
 static inline void launch_compute_h_in(
@@ -417,11 +553,42 @@ static inline void launch_compute_h_in(
     int N,
     int D,
     int weight_mode = 0,        // 0=mass (default — preserves prior behavior),
-                                // 1=uniform, 2=inverse
+                                // 1=uniform, 2=inverse,
+                                // 3=random (fully random per-K h_in, ignores caps),
+                                // 4=rand-weights (real caps, frequency-uncorrelated weights),
+                                // 5=constant (same vector for every K),
+                                // 6=oracle (USE launch_compute_h_in_oracle INSTEAD —
+                                //   this launcher does NOT have radix_counts access;
+                                //   trainer routes mode-6 to the oracle launcher directly)
     cudaStream_t stream = 0
 ) {
     if (N <= 0) return;
     int threads = D < 256 ? D : 256;
+    if (weight_mode == 3) {
+        // Fully random per-K h_in. Scale: ‖row‖ ≈ scale·sqrt(D/3) for
+        // uniform[-scale, scale] → solve scale ≈ 0.85·sqrt(3/D) for target
+        // norm 0.85 at D=64: scale ≈ 0.184.
+        float scale = 0.85f * sqrtf(3.0f / (float)D);
+        dim3 grid(N);
+        dim3 block(threads);
+        agpt_fill_random_h_in_kernel<<<grid, block, 0, stream>>>(
+            d_radix_ids, d_h_in, N, D, scale);
+        return;
+    }
+    if (weight_mode == 5) {
+        // h_in is the SAME vector for every K. Per-element constant
+        // chosen so ‖row‖ = 0.85 (matches natural h_in distribution).
+        // Tests whether per-K *variation* in h_in matters at all — with
+        // constant content, the model literally cannot extract any per-K
+        // info from the slot, so only the softmax-stealing perturbation
+        // and any constant-shift effect on attention output remain.
+        float per_elem = 0.85f / sqrtf((float)D);
+        dim3 grid(N);
+        dim3 block(threads);
+        agpt_fill_const_h_in_kernel<<<grid, block, 0, stream>>>(
+            d_h_in, N, D, per_elem);
+        return;
+    }
     dim3 grid(N);
     dim3 block(threads);
     agpt_compute_h_in_kernel<<<grid, block, 0, stream>>>(

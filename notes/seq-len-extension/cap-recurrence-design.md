@@ -54,7 +54,7 @@ redundancy at d=16." That was wrong. `h_in` carries the d chars
 out-of-window content. The failure is the aggregation-collapse +
 factorization tension above, not redundancy with within-window content.
 
-**Three-way decomposition (final):** with a `kv-none` condition
+**Three-way decomposition:** with a `kv-none` condition
 (slot exists, K=V=0, W frozen at 1e-12) added to the A/B, the +0.008
 mean Δ of kv-mass over baseline turned out to be **entirely the
 softmax-stealing perturbation from the slot's presence** — kv-none
@@ -62,6 +62,28 @@ landed at the same +0.008. The learned `K_inject`/`V_inject` content
 contributes zero measurable signal on top of slot-presence. Combined
 with kv-inv ≈ kv-mass (aggregation function doesn't matter), this is
 three nested nulls confirming the diagnosis.
+
+**Bug-vs-design test (definitive):** added `AGPT_CAP_H_IN_WEIGHT=oracle`
+which fills h_in[K] with a hash-derived vector seeded by K's modal
+next-token (h_in literally encodes the answer). Sweeping W_k/W_v lr:
+
+  oracle lr=1e-5  → loss 1.901 (Δ −0.005, within noise)
+  oracle lr=1e-4  → loss 1.903 (Δ −0.003)
+  oracle lr=1e-3  → loss 1.887 (Δ −0.019)
+  oracle lr=1e-2  → loss **1.810** (Δ **−0.096**)  ← real, ~10× noise
+                                                       ‖W_v‖ reaches 100+
+
+Compare to kv-mass at the same lr=1e-2 (early step-1 era): loss 2.654,
+worse than baseline (W exploded in a non-useful direction). Same
+wiring, same lr, same architecture — the only difference is whether
+h_in's content is predictive (oracle) or noise (real mass-weighted
+predecessor caps).
+
+This **rules out any signal-flow or wiring bug**. The model uses h_in
+content when that content is predictive of the next token. Every prior
+null was an honest measurement of "real h_in content has no
+extractable predictive signal beyond what attention already gets from
+K's own prefix." The "redundant" framing has direct empirical support.
 
 **Three-state logic** (the eval ablation result):
 
