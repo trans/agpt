@@ -54,6 +54,15 @@ redundancy at d=16." That was wrong. `h_in` carries the d chars
 out-of-window content. The failure is the aggregation-collapse +
 factorization tension above, not redundancy with within-window content.
 
+**Three-way decomposition (final):** with a `kv-none` condition
+(slot exists, K=V=0, W frozen at 1e-12) added to the A/B, the +0.008
+mean Δ of kv-mass over baseline turned out to be **entirely the
+softmax-stealing perturbation from the slot's presence** — kv-none
+landed at the same +0.008. The learned `K_inject`/`V_inject` content
+contributes zero measurable signal on top of slot-presence. Combined
+with kv-inv ≈ kv-mass (aggregation function doesn't matter), this is
+three nested nulls confirming the diagnosis.
+
 **Three-state logic** (the eval ablation result):
 
 - If h_in carried useful signal → eval-with-KV < eval-without-KV ⇒

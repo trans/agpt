@@ -208,6 +208,40 @@ bin/agpt_train --model data/input.model --trie-dir /tmp/shake_d16_radix \
   --mass-weight log --entropy-lambda 1.0
 ```
 
+## Decomposition: is the +0.008 of kv-mass content or slot-presence? (Tested: slot-presence.)
+
+The interleaved A/B (next section) showed `kv-mass` landing ~+0.008 above
+baseline. To isolate whether that came from the learned `K_inject`/`V_inject`
+content vs the slot merely existing in attention (softmax-stealing
+perturbation), we added a `kv-none` condition: `AGPT_CAP_KV_INJECT=1`
+with `AGPT_CAP_KV_INJECT_LR=1e-12` so W stays frozen at zero. The slot
+participates in softmax but its K and V are zero — content adds nothing
+to the attention output, only the slot's presence does (via the
+`exp(0)=1` term in the softmax denominator).
+
+5-ep × 5 single shots (same obsolete heuristic for cross-batch
+comparability with the other conditions):
+
+| condition | mean (5 runs) | Δ vs baseline | what it tests |
+|---|---|---|---|
+| baseline | 1.906 | — | no inject slot at all |
+| kv-none | **1.914** | **+0.008** | slot exists, K=V=0 (softmax-stealing only) |
+| kv-mass | 1.914 | +0.008 | slot + mass-weighted h_in content, lr=1e-5 |
+| kv-inv | 1.904 | −0.003 | slot + inverse-weighted h_in content, lr=1e-5 |
+
+W norms in kv-none stayed at ~6e-9 (truly frozen at zero, as intended).
+
+**kv-none ≡ kv-mass.** The +0.008 attributed to KV-inject is *entirely*
+the slot-presence perturbation; the learned W_k/W_v contribute zero
+measurable signal on top. And the slot-presence effect itself sits at
+one SE of zero — small and likely noise at n=5. kv-inv differs from
+kv-none by −0.010 which is well inside the within-pair spread of ±0.05.
+
+Three nested nulls — slot vs no-slot, content-vs-empty-slot,
+aggregation-function-vs-aggregation-function — each independently
+confirms that there is no extractable predictive signal in aggregated
+predecessor caps in this setup.
+
 ## Cross-check: does the aggregation *function* matter? (Tested: no.)
 
 A natural question is whether the null is specific to mass-weighting, or
