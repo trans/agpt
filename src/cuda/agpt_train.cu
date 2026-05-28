@@ -3707,6 +3707,13 @@ struct ExperimentalFlags {
     // _OUT defaults to data/kv_inject.bin when enabled.
     const char* cap_kv_inject_in = nullptr;
     const char* cap_kv_inject_out = nullptr;
+    // AGPT_CAP_H_IN_WEIGHT: predecessor aggregation mode in h_in compute.
+    //   "mass"    (default) — w_j = count_j  (count-weighted)
+    //   "uniform"           — w_j = 1        (each distinct predecessor equally)
+    //   "inverse"           — w_j = 1/count_j (TF-IDF-like; rare predecessors
+    //                                          dominate; importance-sampling
+    //                                          toward uniform K_prev)
+    int cap_h_in_weight_mode = 0;  // 0=mass, 1=uniform, 2=inverse
 };
 
 static ExperimentalFlags read_experimental_flags() {
@@ -3790,6 +3797,16 @@ static ExperimentalFlags read_experimental_flags() {
                 "AGPT_CAP_W_INJECT (both set); the additive step-2 form "
                 "will be disabled for this run.\n");
         f.cap_w_inject = false;
+    }
+    {
+        const char* s = getenv("AGPT_CAP_H_IN_WEIGHT");
+        if (s) {
+            if      (strcmp(s, "mass")    == 0) f.cap_h_in_weight_mode = 0;
+            else if (strcmp(s, "uniform") == 0) f.cap_h_in_weight_mode = 1;
+            else if (strcmp(s, "inverse") == 0) f.cap_h_in_weight_mode = 2;
+            else fprintf(stderr, "[h_in] WARNING: unknown AGPT_CAP_H_IN_WEIGHT '%s' "
+                                  "(expected mass|uniform|inverse); using mass.\n", s);
+        }
     }
     return f;
 }
@@ -4070,9 +4087,12 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
             CUDA_CHECK(cudaMalloc(&d_cap_h_in, h_in_bytes));
             CUDA_CHECK(cudaMemset(d_cap_h_in, 0, h_in_bytes));
             cap_h_in_active = true;
+            const char* wmname = flags.cap_h_in_weight_mode == 0 ? "mass"
+                              : flags.cap_h_in_weight_mode == 1 ? "uniform"
+                                                                : "inverse";
             fprintf(stdout, "[h_in] active: d_h_in buffer %.1f MB fp32, "
-                    "stats-only mode (no model injection yet)\n",
-                    (double)h_in_bytes / (1024.0 * 1024.0));
+                    "predecessor weighting = %s, stats-only mode (no model injection yet)\n",
+                    (double)h_in_bytes / (1024.0 * 1024.0), wmname);
             fflush(stdout);
         }
     }
@@ -5832,7 +5852,8 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                 // model injection yet.
                 if (cap_h_in_active && d_cap_h_in != nullptr) {
                     launch_compute_h_in(d_radix_ids, cap_pred_table,
-                                        d_h_cap_ema, d_cap_h_in, N, D);
+                                        d_h_cap_ema, d_cap_h_in, N, D,
+                                        flags.cap_h_in_weight_mode);
                     accumulate_h_in_stats(h_in_stats, d_cap_h_in, N, D);
                 }
 

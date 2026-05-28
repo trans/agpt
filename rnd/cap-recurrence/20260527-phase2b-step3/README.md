@@ -85,6 +85,26 @@ Eval C (baset + KV disabled)            1.939
 
 The B vs C gap of 0.058 is *uncontrolled* (single shots, 5-ep run-to-run spread is ~0.05) — the interleaved batch already showed Δ(kvt − baset) = +0.002. Most parsimonious reading: sampling noise.
 
+## Bug check — is the signal even getting through?
+
+The ablation showed `Δ(eval-with-KV − eval-without-KV) ≈ 0`, which is consistent with either "model successfully ignored the slot" or "wiring bug stopped the signal from reaching the model." Distinguishing these matters for the writeup.
+
+**Probe:** load a synthetic sidecar with `W_k`, `W_v` set to a known scale, run forward-only (`lr=1e-12`), measure loss. If forward is invariant under W changes → wiring bug. If forward responds → wiring works and the eval result is honest.
+
+Result (forward-only loss on `data/input.model` seed, 1 epoch, lr=1e-12):
+
+| sidecar | ‖W‖_F | K_inject[0] norm (dumped) | loss |
+|---|---|---|---|
+| no KV (baseline, slot absent) | — | — | 3.464 |
+| W = 0 (slot present, content zero) | 0 | 0.00 | 3.448 |
+| W = random × 0.1 | 6 | 0.5 | 3.446 |
+| W = random × 1.0 | 64 | 4.7–7.0 | 3.448 |
+| W = random × 10.0 | 640 | 47–70 | **3.920** |
+
+With `‖W‖=640`, K_inject magnitude exceeds real K's (~12), the INJ slot dominates softmax, V_inject swamps the attention output, and loss explodes by +0.47. **The signal is reaching the model.** With `‖W‖=64`, K_inject is comparable to real K's (~5 vs ~12), INJ gets ~3% softmax weight, V contribution ~2% of output — that perturbation is real but lost in 1-ep run-to-run noise (~0.012). At the trained `‖W‖≈0.07`, K_inject magnitude is ~0.005, INJ slot's softmax weight is essentially zero, and the slot contributes nothing measurable to the output.
+
+**So the implementation is correct.** And then *why does W stay at ~0.07 instead of growing?* Because the gradient through W requires a consistent loss-reducing direction, and the loss surface is flat in W's directions for this h_in content. The model isn't *deciding* to keep W small — the optimizer just has no signal to grow it. That IS the operational definition of "redundant": no improvement available from extracting anything from `h_in`, so the gradient pressure is ≈ 0, so W random-walks at small magnitude. The eval ablation's `Δ ≈ 0` is then a direct consequence: at that tiny `‖W‖`, the slot's softmax weight is negligible regardless of content.
+
 ## Three-state logical analysis (Thomas's framing)
 
 For any candidate signal in `h_in`:
@@ -97,15 +117,73 @@ For any candidate signal in `h_in`:
 
 Either way, the mechanism doesn't matter at this scale.
 
-## Why this happened — theoretical reading
+## What `h_in[K]` actually is — and why it can't carry usable signal
 
-**1. Training→inference distribution mismatch on the input.** `h_in[K]` at training is a mass-weighted *average* of `h_cap[K'_i]` over K's corpus predecessors. At inference, the predecessor is one specific concrete prefix — no averaging. For high-mass K (many predecessors) the averaging smears across diverse contexts. For low-mass K (few or single predecessor), `h_in` is essentially the cap of one specific corpus context, frozen — a "ghost" not reproducible at inference.
+For a radix node K and each corpus position s where K appears, the predecessor
+table records `K_prev` = the trie node matching `corpus[s−d .. s−1]` (the
+d chars *immediately before* K starts). `h_cap[K_prev]` is the model's
+`d_final_out` (post-final-LN, D=64) at K_prev's endpoint — the model's
+about-to-predict state at corpus position `s−1` having seen those d chars.
 
-**2. Attention can extract structure, not idiosyncrasy.** The W_k/W_v matrices have D² parameters; they can only extract patterns that exist *across the K population*. For idiosyncratic per-K cap content, there's nothing to extract — attention correctly (and successfully) learned to ignore the slot.
+Then:
 
-**3. Compounding redundancy at this scale.** At d=16 on a 1MB char corpus, almost no context exceeds 16 chars. The model's native attention already sees the full prefix. `h_in` largely encodes information the model already has access to in-window. Cap-recurrence is meant to extend effective context *beyond* d; at d=16 on this corpus there is nothing past d to extend. The mechanism is being tested in a regime where it has nothing to offer.
+```
+                     Σᵢ count_i · h_cap[K_prev_i]
+h_in[K]  =        ─────────────────────────────────
+                          Σᵢ count_i
+```
 
-The design doc's Q2-D (persona clustering) was an attempt to address (1) by surfacing only the structural component of `h_cap`. We did not test it — Q2-A (mass-weighted averaging) was the cheaper first cut. Q2-D might extract more, but (3) — in-window redundancy at this scale — would still apply.
+aggregated over the distinct K_prev's that occur immediately before K's
+corpus appearances.
+
+So h_in *does* carry out-of-window content — the d chars BEFORE K start
+are not in K's own attention window. (An earlier draft of this README
+called the failure "in-window redundancy" — that was wrong; correcting.)
+It's not that h_in is redundant with what attention already sees; it's
+that the form of h_in we deliver cannot be used.
+
+### Why this aggregation can't carry usable signal — three compounding reasons
+
+**1. Aggregation is forced by the radix factorization itself.** The whole
+point of AGPT is "process each unique trie node K *once per fire*, not
+once per corpus occurrence" — so for K's training step we need one
+`h_in[K]` value even though K has many distinct K_prev's across the
+corpus. Aggregation is the only way to compress a multi-valued predecessor
+signal into one per-K input. The Q2-C alternative (per-(K, K_prev) pair
+training) would un-factorize the trie back to corpus-length, destroying
+the framework's efficiency. So **averaging is the cost of keeping the
+factorization** — not a design choice we could swap for free.
+
+**2. Mass-stratified mismatch — the regime with information has no
+gradient, the regime with gradient has no information.** Predecessor
+count for K scales with K's corpus mass, not depth per se:
+
+| K's mass | K_prev variety | h_in[K] character | Gradient mass during training |
+|---|---|---|---|
+| 1 (deep, rare) | one predecessor | specific, real, useful | tiny (K fires once per epoch) |
+| many (shallow, common) | many predecessors | heavily averaged → smeared | strong (K fires many times) |
+
+For deep mass-1 K, h_in is genuinely a specific predecessor's cap (no
+real averaging), but the model barely sees K — gradient through W_k/W_v
+from this K is negligible. For shallow high-mass K, the model sees the K
+many times (strong gradient), but h_in is averaged across thousands of
+diverse contexts into something close to a corpus-wide centroid — no
+discriminative per-K signal left to extract. **Neither regime gives the
+model what it would need to learn an extraction.**
+
+**3. Training→inference distribution mismatch.** Even if (2) were
+somehow overcome, the training-time h_in is an average of many
+predecessor caps. At inference, the predecessor is one specific concrete
+prefix. The model can't be trained on averaged ghost predecessors and
+expected to use single concrete ones at generation.
+
+The design doc's Q2-D (persona clustering — codebook over discourse
+states) attempts to address (1) by representing K's predecessor
+distribution as a mixture over a small global vocabulary of "discourse
+states." That would preserve more of the cross-K structural signal than
+centroid-averaging. But (2) and (3) still apply: low-mass K still gives
+weak gradient, and inference still uses one specific predecessor not a
+mixture. Q2-D is a partial mitigation, not a fix.
 
 ## Implementation status
 
@@ -130,12 +208,44 @@ bin/agpt_train --model data/input.model --trie-dir /tmp/shake_d16_radix \
   --mass-weight log --entropy-lambda 1.0
 ```
 
+## Cross-check: does the aggregation *function* matter? (Tested: no.)
+
+A natural question is whether the null is specific to mass-weighting, or
+intrinsic to aggregation. We added `AGPT_CAP_H_IN_WEIGHT={mass|uniform|inverse}`
+(env-var-gated, default `mass` preserves prior behavior) — `inverse` weights
+predecessors by `1/count_j`, the TF-IDF / importance-sampling-toward-uniform
+choice that should be the most discriminative if any aggregation is going to work.
+
+Interleaved 5-pair 5-ep A/B (baseline / KV-inject mass / KV-inject inverse):
+
+```
+pair    baseline   kv-mass    kv-inv    Δ(mass)   Δ(inv)
+ 1      1.918      1.919      1.918     +0.001    -0.000
+ 2      1.907      1.907      1.898     +0.000    -0.009
+ 3      1.906      1.912      1.925     +0.006    +0.019
+ 4      1.872      1.927      1.910     +0.055    +0.038
+ 5      1.928      1.906      1.870     -0.022    -0.058
+                                        ──────    ──────
+mean    1.906      1.914      1.904     +0.008    -0.003
+```
+
+‖W_k‖ across inverse runs: 0.05–0.09 (same magnitude band as mass-weighted).
+
+**Inverse weighting moves nothing of substance.** Mean Δ vs baseline of −0.003
+sits well inside the ±0.05 per-pair spread, exactly like mass-weighted's +0.008.
+Swapping the aggregation function for the most principled alternative does not
+change the null. This confirms the diagnosis: the problem is **aggregation
+itself**, combined with the mass-stratified gradient mismatch and the
+train→inference distribution shift — not the choice of which weighting rule
+defines the aggregate. Any single-value-per-K aggregation has the same fate.
+
 ## What would change the picture
 
-A genuine test of cap-recurrence requires a regime where it has something to add:
+Given the three-way diagnosis (forced aggregation + mass-stratified mismatch + train-inference distribution shift), any "fix" has to address all three at once. None of the following alone is sufficient:
 
-1. **`d` much smaller than the corpus's actual dependency range.** At Shakespeare with d=4 or d=8 (so the model can't see whole words), `h_in` from longer-range context might actually carry information the model lacks. (The corpus is small, so the effect would still be modest.)
-2. **A corpus with strong long-range structure** — narrative coherence, episode-level patterns — where 16+ char context is materially incomplete. Even then, point (1) of the theoretical reading still applies: `h_in` would need to carry generalizable structure, not idiosyncratic memorized state.
-3. **Q2-D persona clustering** instead of Q2-A averaging — explicitly extracting only the structural component of `h_cap` before injection. Addresses theory point (1) but not point (3).
+1. **Persona clustering (Q2-D) instead of mass-weighted averaging.** Preserves more structural signal per K than centroid-averaging. Helps with point (1) but doesn't change the mass-stratified mismatch (point 2) or the inference distribution gap (point 3).
+2. **Larger d / longer-range corpus.** Gives the recurrence more out-of-window context to carry. But the aggregation problem is independent of d — averaging over many predecessors smears regardless.
+3. **Per-(K, K_prev) treatment (Q2-C).** Solves the aggregation problem (each predecessor instance gets its own training signal). But un-factorizes the radix and gives back O(corpus_length) training cost — defeating AGPT's reason to exist.
+4. **A genuinely structural state instead of raw h_cap.** Replace per-trie-node EMA caps with something explicitly designed to be aggregation-stable (e.g., a small clustered discourse-state embedding chosen by routing K's caps into a learned codebook). Combined with (3)-like per-instance routing at inference, this might thread the needle — but it's a substantial new design, not an extension of what's here.
 
-None of these is a small experiment, and the prior from this work is that the basic mechanism (loop hidden state back, train on it) has a deeper false-narrative problem that simpler aggregation tricks won't solve. The persona path is the most principled — it's effectively a learned codebook over discourse states. If anyone returns to cap-recurrence, start there, not here.
+The honest read of this work: cap-recurrence in the form we tested (and likely in any form that preserves the radix factorization) is fundamentally limited by the aggregation/factorization tension that step-2 and step-3 surface. Anyone returning to this should think carefully about whether they're escaping that tension, not just changing the injection mechanism.

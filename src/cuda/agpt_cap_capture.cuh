@@ -326,18 +326,21 @@ static inline void free_predecessor_table(PredecessorTable& t) {
 }
 
 // ----------------------------------------------------------------------
-// Compute h_in[N, D] = mass-weighted average over each K's predecessors.
+// Compute h_in[N, D] = weighted average over each K's predecessors.
+//
+// Weighting modes (per-predecessor weight w_j as a function of count c_j):
+//   mode 0 (mass):    w_j = c_j               (current default — count-weighted)
+//   mode 1 (uniform): w_j = 1                 (each distinct predecessor equally)
+//   mode 2 (inverse): w_j = 1 / c_j           (importance-sampling toward uniform K_prev;
+//                                              TF-IDF-like: rare predecessors dominate)
 //
 // For chunk-local node i with radix_id rid:
 //   start, end = pred_offsets[rid], pred_offsets[rid + 1]
-//   total_count = sum(pred_counts[start..end))
-//   h_in[i, d] = (1 / total_count) * sum_j pred_counts[j] * h_cap_ema[pred_ids[j], d]
+//   total_w = sum(w_j for j in [start, end))
+//   h_in[i, d] = (1 / total_w) * sum_j w_j * h_cap_ema[pred_ids[j], d]
 //
-// If a K has no predecessors (count==0, e.g., shallow K's with corpus
-// position < d_window), h_in[i] is set to zero — caller should treat
-// as "no recurrence input."
-//
-// One block per chunk-local node, D threads per block.
+// If a K has no predecessors, h_in[i] is set to zero — caller treats as
+// "no recurrence input." One block per chunk-local node, D threads per block.
 // ----------------------------------------------------------------------
 __global__ void agpt_compute_h_in_kernel(
     const int*      __restrict__ d_radix_ids,    // [N]
@@ -348,7 +351,8 @@ __global__ void agpt_compute_h_in_kernel(
     float*                       d_h_in,         // [N, D]  (fp32)
     int N,
     int D,
-    int radix_count
+    int radix_count,
+    int weight_mode                              // 0=mass, 1=uniform, 2=inverse
 ) {
     int i = blockIdx.x;
     if (i >= N) return;
@@ -372,29 +376,34 @@ __global__ void agpt_compute_h_in_kernel(
         return;
     }
 
-    // Compute total count (small, serial — every thread does it for now).
-    // For typical n_preds ≤ a few dozen this is cheap; for shallow K's
-    // (thousands of preds) it's still bounded.
-    uint64_t total_count = 0;
+    // Compute total weight under the chosen mode.
+    float total_w = 0.0f;
     for (uint64_t j = start; j < end; j++) {
-        total_count += d_pred_counts[j];
+        float c = (float)d_pred_counts[j];
+        float w = (weight_mode == 0) ? c
+                : (weight_mode == 1) ? 1.0f
+                                     : (c > 0.0f ? 1.0f / c : 0.0f);  // mode 2 = inverse
+        total_w += w;
     }
-    if (total_count == 0) {
+    if (total_w == 0.0f) {
         for (int d = threadIdx.x; d < D; d += blockDim.x) {
             d_h_in[(long long)i * D + d] = 0.0f;
         }
         return;
     }
-    float inv_total = 1.0f / (float)total_count;
+    float inv_total = 1.0f / total_w;
 
-    // Aggregate dim d across threads.
+    // Aggregate dim d across threads under the chosen weighting.
     for (int d = threadIdx.x; d < D; d += blockDim.x) {
         float sum = 0.0f;
         for (uint64_t j = start; j < end; j++) {
             uint32_t kp = d_pred_ids[j];
-            uint32_t c  = d_pred_counts[j];
+            float c = (float)d_pred_counts[j];
+            float w = (weight_mode == 0) ? c
+                    : (weight_mode == 1) ? 1.0f
+                                         : (c > 0.0f ? 1.0f / c : 0.0f);
             float v = __bfloat162float(h_cap_ema[(long long)kp * D + d]);
-            sum += (float)c * v;
+            sum += w * v;
         }
         d_h_in[(long long)i * D + d] = sum * inv_total;
     }
@@ -407,6 +416,8 @@ static inline void launch_compute_h_in(
     float*               d_h_in,
     int N,
     int D,
+    int weight_mode = 0,        // 0=mass (default — preserves prior behavior),
+                                // 1=uniform, 2=inverse
     cudaStream_t stream = 0
 ) {
     if (N <= 0) return;
@@ -415,7 +426,7 @@ static inline void launch_compute_h_in(
     dim3 block(threads);
     agpt_compute_h_in_kernel<<<grid, block, 0, stream>>>(
         d_radix_ids, pred.d_offsets, pred.d_pred_ids, pred.d_pred_counts,
-        h_cap_ema, d_h_in, N, D, pred.radix_count);
+        h_cap_ema, d_h_in, N, D, pred.radix_count, weight_mode);
 }
 
 // ----------------------------------------------------------------------

@@ -16,25 +16,43 @@ flat-to-negative against interleaved baseline:
 | Step 2 — learnable W_inject (additive at d_x) | NEGATIVE | 1-ep dip was cross-batch drift; 5-ep flat to slightly worse. |
 | Step 3 — option B (learnable K/V-token, shared across layers) | NEGATIVE | 5-pair interleaved mean Δ=+0.002. Inference-time ablation: kvt-with-KV vs kvt-without-KV Δ=+0.002 → model learned to ignore the slot. `rnd/cap-recurrence/20260527-phase2b-step3/` |
 
-**Why (in order of importance, per Thomas's framing):**
+**Bug ruled out:** with W forced to ‖W‖≈640 the loss explodes from
+3.448 → 3.920 (INJ slot dominates softmax), proving the K/V signal
+fully reaches attention. The kernels and gradient path are correct.
 
-1. **Train→infer distribution mismatch.** `h_in[K]` at training is a
-   mass-weighted *average* over K's corpus predecessors' caps. At
-   inference, the predecessor is one specific concrete prefix — no
-   averaging. For low-mass K, training feeds the model a "ghost
-   predecessor" not reproducible at inference and not a structural
-   feature of the corpus.
+**Why null (the actual reasons, in order):**
 
-2. **Attention extracts structure, not idiosyncrasy.** W_k/W_v can only
-   learn patterns that exist across the K population. For per-K
-   memorized cap content, there's nothing to extract — attention
-   (correctly) routes around the slot.
+1. **Aggregation is forced by the radix factorization.** AGPT processes
+   each unique trie node K *once per fire*. K has many distinct K_prev
+   contexts across the corpus, but we deliver one `h_in[K]` value.
+   Mass-weighted averaging is the only way to compress predecessor
+   variation into one per-K input without un-factorizing the trie back
+   to corpus-length training. The Q2-C alternative (per-(K, K_prev)
+   pairs) destroys AGPT's efficiency. So **averaging is the cost of
+   keeping the factorization** — not a swappable choice.
 
-3. **In-window redundancy at this scale.** At d=16 on a 1MB char
-   corpus, the model's native attention already sees the full prefix.
-   `h_in` largely encodes information already accessible. Cap-recurrence
-   is meant to extend effective context *beyond* d; on this test setup
-   there is nothing past d to extend.
+2. **Mass-stratified mismatch — info regime ≠ gradient regime.**
+   Predecessor count scales with K's corpus mass. Deep mass-1 K has
+   one predecessor (real specific signal) but fires once per epoch
+   (tiny gradient). Shallow high-mass K fires many times (strong
+   gradient) but its h_in is averaged across thousands of distinct
+   contexts → essentially a corpus-wide centroid with no
+   discriminative per-K signal. The K's that contain information are
+   the K's the model can't learn from; the K's the model can learn
+   from contain no information.
+
+3. **Train→inference distribution mismatch.** Even if (1) and (2)
+   were overcome, training-time h_in is the average over predecessors;
+   inference-time h_in is from one specific concrete predecessor. The
+   model can't be trained on averaged ghosts and use single concrete
+   instances at generation.
+
+**Important correction:** an earlier draft of this block (and a
+mid-investigation rnd writeup) attributed the null to "in-window
+redundancy at d=16." That was wrong. `h_in` carries the d chars
+*before* K starts, which K's own attention does not see — it IS
+out-of-window content. The failure is the aggregation-collapse +
+factorization tension above, not redundancy with within-window content.
 
 **Three-state logic** (the eval ablation result):
 
