@@ -3677,6 +3677,36 @@ struct ExperimentalFlags {
     // projection — diagnostic for whether h_in carries usable signal.
     // Default 0.0 (no injection).
     float capture_h_caps_inject_scale = 0.0f;
+    // AGPT_CAP_W_INJECT: Phase 2B step 2. When set (and h_in is active),
+    // inject proj[i] = W_inject @ h_in[i] (learnable D×D) at each radix
+    // node's first query position, instead of the direct add. Supersedes
+    // INJECT_SCALE. W_inject is zero-initialized (epoch-0 == baseline
+    // parity) and trained by its own RMSProp once per fire. Lives in a
+    // sidecar, not the model format.
+    bool cap_w_inject = false;
+    // AGPT_CAP_W_INJECT_LR: constant learning rate for W_inject's own
+    // RMSProp step (no schedule in v1). Default 1e-2.
+    float cap_w_inject_lr = 1e-2f;
+    // AGPT_CAP_W_INJECT_IN / _OUT: sidecar load/save paths for W_inject
+    // (params + RMSProp accumulator). _OUT defaults to data/w_inject.bin
+    // when W_inject is enabled.
+    const char* cap_w_inject_in = nullptr;
+    const char* cap_w_inject_out = nullptr;
+    // AGPT_CAP_KV_INJECT: Phase 2B step 3 (option B). When set (and h_in
+    // is active), inject K_inject=W_k·h_in and V_inject=W_v·h_in as an
+    // extra K/V slot at p=0 of every attention layer's KV sequence
+    // (shared W across layers). Supersedes AGPT_CAP_W_INJECT when both
+    // are set. W_k/W_v zero-init; trained by their own RMSProp once per
+    // fire. Persisted in a sidecar.
+    bool cap_kv_inject = false;
+    // AGPT_CAP_KV_INJECT_LR: constant learning rate for W_k/W_v RMSProp
+    // (no schedule). Default 1e-5 (matching W_inject's best lr; can
+    // tune up/down).
+    float cap_kv_inject_lr = 1e-5f;
+    // AGPT_CAP_KV_INJECT_IN / _OUT: sidecar paths (W_k+W_v+s_k+s_v).
+    // _OUT defaults to data/kv_inject.bin when enabled.
+    const char* cap_kv_inject_in = nullptr;
+    const char* cap_kv_inject_out = nullptr;
 };
 
 static ExperimentalFlags read_experimental_flags() {
@@ -3726,6 +3756,40 @@ static ExperimentalFlags read_experimental_flags() {
             float v = (float)atof(s);
             f.capture_h_caps_inject_scale = v;
         }
+    }
+    f.cap_w_inject = (getenv("AGPT_CAP_W_INJECT") != nullptr);
+    {
+        const char* s = getenv("AGPT_CAP_W_INJECT_LR");
+        if (s) {
+            float v = (float)atof(s);
+            if (v > 0.0f) f.cap_w_inject_lr = v;
+        }
+    }
+    f.cap_w_inject_in = getenv("AGPT_CAP_W_INJECT_IN");
+    f.cap_w_inject_out = getenv("AGPT_CAP_W_INJECT_OUT");
+    if (f.cap_w_inject && !f.cap_w_inject_out) {
+        f.cap_w_inject_out = "data/w_inject.bin";
+    }
+    f.cap_kv_inject = (getenv("AGPT_CAP_KV_INJECT") != nullptr);
+    {
+        const char* s = getenv("AGPT_CAP_KV_INJECT_LR");
+        if (s) {
+            float v = (float)atof(s);
+            if (v > 0.0f) f.cap_kv_inject_lr = v;
+        }
+    }
+    f.cap_kv_inject_in = getenv("AGPT_CAP_KV_INJECT_IN");
+    f.cap_kv_inject_out = getenv("AGPT_CAP_KV_INJECT_OUT");
+    if (f.cap_kv_inject && !f.cap_kv_inject_out) {
+        f.cap_kv_inject_out = "data/kv_inject.bin";
+    }
+    // KV_INJECT supersedes W_INJECT — they share the h_in path and the
+    // pre-LN-0 injection site is mooted when the K-token form runs.
+    if (f.cap_kv_inject && f.cap_w_inject) {
+        fprintf(stdout, "[kv_inject] WARNING: AGPT_CAP_KV_INJECT supersedes "
+                "AGPT_CAP_W_INJECT (both set); the additive step-2 form "
+                "will be disabled for this run.\n");
+        f.cap_w_inject = false;
     }
     return f;
 }
@@ -4012,6 +4076,110 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
             fflush(stdout);
         }
     }
+
+    // Cap-recurrence Phase 2B step 2: learnable injection W_inject [D, D].
+    // Active only when h_in is active. W_inject is zero-initialized so the
+    // first fire is identical to the baseline forward (proj == 0); it is
+    // trained by its own RMSProp once per fire. d_cap_proj holds the
+    // forward projection, d_cap_ginj the gathered backward gradient — both
+    // sized to a max chunk's node count (≤ CHUNK_QUERIES).
+    bool   cap_w_inject_active = false;
+    float* d_W_inject       = nullptr;  // [D, D] params
+    float* d_W_inject_s     = nullptr;  // [D, D] RMSProp accumulator
+    float* d_W_inject_grad  = nullptr;  // [D, D] grad (accumulated over fire's chunks)
+    float* d_cap_proj       = nullptr;  // [N, D] forward projection scratch
+    float* d_cap_ginj       = nullptr;  // [N, D] gathered dL/d_x at q_first
+    if (flags.cap_w_inject && cap_h_in_active) {
+        size_t wmat_bytes = (size_t)cfg.d_model * (size_t)cfg.d_model * sizeof(float);
+        size_t scratch_bytes = (size_t)CHUNK_QUERIES * (size_t)cfg.d_model * sizeof(float);
+        CUDA_CHECK(cudaMalloc(&d_W_inject,      wmat_bytes));
+        CUDA_CHECK(cudaMalloc(&d_W_inject_s,    wmat_bytes));
+        CUDA_CHECK(cudaMalloc(&d_W_inject_grad, wmat_bytes));
+        CUDA_CHECK(cudaMalloc(&d_cap_proj,      scratch_bytes));
+        CUDA_CHECK(cudaMalloc(&d_cap_ginj,      scratch_bytes));
+        CUDA_CHECK(cudaMemset(d_W_inject,      0, wmat_bytes));
+        CUDA_CHECK(cudaMemset(d_W_inject_s,    0, wmat_bytes));
+        CUDA_CHECK(cudaMemset(d_W_inject_grad, 0, wmat_bytes));
+        if (flags.cap_w_inject_in) {
+            load_w_inject(d_W_inject, d_W_inject_s, cfg.d_model, flags.cap_w_inject_in);
+        }
+        cap_w_inject_active = true;
+        fprintf(stdout, "[w_inject] active: %d x %d learnable injection, lr=%.3g, "
+                "out=%s%s\n",
+                cfg.d_model, cfg.d_model, flags.cap_w_inject_lr,
+                flags.cap_w_inject_out ? flags.cap_w_inject_out : "(none)",
+                flags.cap_w_inject_in ? "" : " (zero-init)");
+        fflush(stdout);
+    }
+
+    // Cap-recurrence Phase 2B step 3 (option B): K/V-token injection via
+    // expanded KV pack. W_k_inject and W_v_inject are SHARED across all
+    // attention layers; K_inject/V_inject are computed once per fire (not
+    // per layer). Per-layer cost: one prepend kernel (forward) + one
+    // extract kernel (backward) + attention runs on expanded pack.
+    bool   cap_kv_inject_active = false;
+    float* d_W_k_inject       = nullptr;  // [D, D] params
+    float* d_W_v_inject       = nullptr;
+    float* d_W_k_inject_s     = nullptr;  // [D, D] RMSProp accumulators
+    float* d_W_v_inject_s     = nullptr;
+    float* d_W_k_inject_grad  = nullptr;  // [D, D] per-fire grad
+    float* d_W_v_inject_grad  = nullptr;
+    float* d_K_inject_pack    = nullptr;  // [N, D] forward, per-fire
+    float* d_V_inject_pack    = nullptr;
+    float* d_dK_inject_fire   = nullptr;  // [N, D] backward, layer-summed
+    float* d_dV_inject_fire   = nullptr;
+    float* d_kv_pack_k_exp    = nullptr;  // [(T_kv_cap+CHUNK_QUERIES), H, HD]
+    float* d_kv_pack_v_exp    = nullptr;
+    float* d_dk_pack_exp      = nullptr;
+    float* d_dv_pack_exp      = nullptr;
+    int*   d_kv_offsets_exp   = nullptr;  // [N+1] per-chunk
+    int*   d_kv_lengths_exp   = nullptr;  // [N]   per-chunk
+    if (flags.cap_kv_inject && cap_h_in_active) {
+        size_t wmat_bytes = (size_t)cfg.d_model * (size_t)cfg.d_model * sizeof(float);
+        size_t inj_bytes  = (size_t)CHUNK_QUERIES * (size_t)cfg.d_model * sizeof(float);
+        // Real per-chunk T_kv bound is T_q_cap * max_kv_per_node (matches
+        // transformer_runtime.T_kv_max — see agpt_transformer_chunk_runtime.cuh).
+        // The vestigial T_kv_cap above is unused. Expanded pack adds +N (≤
+        // CHUNK_QUERIES) for the INJ slots.
+        size_t T_kv_real = (size_t)T_q_cap * (size_t)max_kv_per_node;
+        size_t exp_pack_floats = (T_kv_real + (size_t)CHUNK_QUERIES) * (size_t)cfg.d_model;
+        size_t exp_pack_bytes  = exp_pack_floats * sizeof(float);
+        CUDA_CHECK(cudaMalloc(&d_W_k_inject,       wmat_bytes));
+        CUDA_CHECK(cudaMalloc(&d_W_v_inject,       wmat_bytes));
+        CUDA_CHECK(cudaMalloc(&d_W_k_inject_s,     wmat_bytes));
+        CUDA_CHECK(cudaMalloc(&d_W_v_inject_s,     wmat_bytes));
+        CUDA_CHECK(cudaMalloc(&d_W_k_inject_grad,  wmat_bytes));
+        CUDA_CHECK(cudaMalloc(&d_W_v_inject_grad,  wmat_bytes));
+        CUDA_CHECK(cudaMalloc(&d_K_inject_pack,    inj_bytes));
+        CUDA_CHECK(cudaMalloc(&d_V_inject_pack,    inj_bytes));
+        CUDA_CHECK(cudaMalloc(&d_dK_inject_fire,   inj_bytes));
+        CUDA_CHECK(cudaMalloc(&d_dV_inject_fire,   inj_bytes));
+        CUDA_CHECK(cudaMalloc(&d_kv_pack_k_exp,    exp_pack_bytes));
+        CUDA_CHECK(cudaMalloc(&d_kv_pack_v_exp,    exp_pack_bytes));
+        CUDA_CHECK(cudaMalloc(&d_dk_pack_exp,      exp_pack_bytes));
+        CUDA_CHECK(cudaMalloc(&d_dv_pack_exp,      exp_pack_bytes));
+        CUDA_CHECK(cudaMalloc(&d_kv_offsets_exp,   (size_t)(CHUNK_QUERIES + 1) * sizeof(int)));
+        CUDA_CHECK(cudaMalloc(&d_kv_lengths_exp,   (size_t)CHUNK_QUERIES * sizeof(int)));
+        CUDA_CHECK(cudaMemset(d_W_k_inject,        0, wmat_bytes));
+        CUDA_CHECK(cudaMemset(d_W_v_inject,        0, wmat_bytes));
+        CUDA_CHECK(cudaMemset(d_W_k_inject_s,      0, wmat_bytes));
+        CUDA_CHECK(cudaMemset(d_W_v_inject_s,      0, wmat_bytes));
+        CUDA_CHECK(cudaMemset(d_W_k_inject_grad,   0, wmat_bytes));
+        CUDA_CHECK(cudaMemset(d_W_v_inject_grad,   0, wmat_bytes));
+        if (flags.cap_kv_inject_in) {
+            load_kv_inject(d_W_k_inject, d_W_v_inject,
+                           d_W_k_inject_s, d_W_v_inject_s,
+                           cfg.d_model, flags.cap_kv_inject_in);
+        }
+        cap_kv_inject_active = true;
+        double exp_mb = (double)(4 * exp_pack_bytes + 4 * inj_bytes) / (1024.0 * 1024.0);
+        fprintf(stdout, "[kv_inject] active: %d x %d shared W_k+W_v injection, "
+                "lr=%.3g, expanded buffers %.1f MB, out=%s%s\n",
+                cfg.d_model, cfg.d_model, flags.cap_kv_inject_lr, exp_mb,
+                flags.cap_kv_inject_out ? flags.cap_kv_inject_out : "(none)",
+                flags.cap_kv_inject_in ? "" : " (zero-init)");
+        fflush(stdout);
+    }
     if (persist && persist->h_adam_m_io) {
         CUDA_CHECK(cudaMemcpy(d_adam_m, persist->h_adam_m_io, wo.total_floats * sizeof(float), cudaMemcpyHostToDevice));
     } else {
@@ -4285,9 +4453,12 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
 
     // Per-chunk working buffers. Sized to T_q_cap queries, T_kv_cap packed KV.
     int N_cap = CHUNK_QUERIES;  // worst-case radix count per chunk when edge_len=1
+    // Cap-recurrence option B reserves one extra KV slot per query (the
+    // injection token at p=0), so sv_attn_weights must size for max+1.
+    int max_kv_per_node_alloc = max_kv_per_node + (cap_kv_inject_active ? 1 : 0);
 
     TransformerChunkRuntime transformer_runtime;
-    init_transformer_chunk_runtime(transformer_runtime, T_q_cap, N_cap, D, F, V, L_layers, H, HD, max_kv_per_node);
+    init_transformer_chunk_runtime(transformer_runtime, T_q_cap, N_cap, D, F, V, L_layers, H, HD, max_kv_per_node_alloc);
     float *d_x = transformer_runtime.d_x, *d_ln_out = transformer_runtime.d_ln_out;
     float *d_q = transformer_runtime.d_q, *d_k = transformer_runtime.d_k, *d_v = transformer_runtime.d_v, *d_attn_out = transformer_runtime.d_attn_out, *d_ff_h = transformer_runtime.d_ff_h, *d_ff_out = transformer_runtime.d_ff_out;
     float *d_final_out = transformer_runtime.d_final_out, *d_final_norm_save = transformer_runtime.d_final_norm_save, *d_final_std_inv_save = transformer_runtime.d_final_std_inv_save, *d_logits = transformer_runtime.d_logits, *d_d_logits = transformer_runtime.d_d_logits, *d_loss = transformer_runtime.d_loss, *d_d_final_out = transformer_runtime.d_d_final_out;
@@ -5391,6 +5562,15 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
         // same buffer. A single optimizer step fires after all loops below.
         if (accumulate) {
             CUDA_CHECK(cudaMemset(d_grads, 0, wo.total_floats * sizeof(float)));
+            if (cap_w_inject_active) {
+                CUDA_CHECK(cudaMemset(d_W_inject_grad, 0,
+                    (size_t)cfg.d_model * (size_t)cfg.d_model * sizeof(float)));
+            }
+            if (cap_kv_inject_active) {
+                size_t wb = (size_t)cfg.d_model * (size_t)cfg.d_model * sizeof(float);
+                CUDA_CHECK(cudaMemset(d_W_k_inject_grad, 0, wb));
+                CUDA_CHECK(cudaMemset(d_W_v_inject_grad, 0, wb));
+            }
             fire_events = 0;
             fire_mass = 0;
             fire_weight = 0.0;
@@ -5569,6 +5749,15 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
             // (when no in-flight gradients from prior groups are accumulating).
             if (!accumulate && mb_groups_in_flight == 0) {
                 CUDA_CHECK(cudaMemset(d_grads, 0, wo.total_floats * sizeof(float)));
+                if (cap_w_inject_active) {
+                    CUDA_CHECK(cudaMemset(d_W_inject_grad, 0,
+                        (size_t)cfg.d_model * (size_t)cfg.d_model * sizeof(float)));
+                }
+                if (cap_kv_inject_active) {
+                    size_t wb = (size_t)cfg.d_model * (size_t)cfg.d_model * sizeof(float);
+                    CUDA_CHECK(cudaMemset(d_W_k_inject_grad, 0, wb));
+                    CUDA_CHECK(cudaMemset(d_W_v_inject_grad, 0, wb));
+                }
                 fire_events = 0;
                 fire_mass = 0;
             }
@@ -5645,6 +5834,38 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                     launch_compute_h_in(d_radix_ids, cap_pred_table,
                                         d_h_cap_ema, d_cap_h_in, N, D);
                     accumulate_h_in_stats(h_in_stats, d_cap_h_in, N, D);
+                }
+
+                // Cap-recurrence Phase 2B step 3 (option B): compute the
+                // per-fire K_inject/V_inject from h_in (shared W across all
+                // attention layers, so once per chunk — not per layer), and
+                // the expanded KV offsets/lengths used by the prepend +
+                // attention calls below.
+                if (cap_kv_inject_active) {
+                    float one = 1.0f, zero = 0.0f;
+                    // K_inject[N, D] = W_k_inject[D, D] · h_in[N, D]
+                    // V_inject[N, D] = W_v_inject[D, D] · h_in[N, D]
+                    // Mirrors the WO forward GEMM (same shape).
+                    CUBLAS_CHECK(cublasSgemm(cublas, CUBLAS_OP_N, CUBLAS_OP_N,
+                                              D, N, D,
+                                              &one, d_W_k_inject, D,
+                                              d_cap_h_in, D,
+                                              &zero, d_K_inject_pack, D));
+                    CUBLAS_CHECK(cublasSgemm(cublas, CUBLAS_OP_N, CUBLAS_OP_N,
+                                              D, N, D,
+                                              &one, d_W_v_inject, D,
+                                              d_cap_h_in, D,
+                                              &zero, d_V_inject_pack, D));
+                    launch_compute_kv_offsets_exp(d_kv_offsets, d_kv_lengths,
+                                                  d_kv_offsets_exp, d_kv_lengths_exp,
+                                                  N);
+                    // Reset the per-fire dK/dV_inject accumulators that will
+                    // be atomically summed across layers in backward. (Note:
+                    // these zero each chunk, but the W-grad accumulation
+                    // across chunks happens via d_W_k_inject_grad which is
+                    // zeroed at fire start; see below.)
+                    CUDA_CHECK(cudaMemset(d_dK_inject_fire, 0, (size_t)N * (size_t)D * sizeof(float)));
+                    CUDA_CHECK(cudaMemset(d_dV_inject_fire, 0, (size_t)N * (size_t)D * sizeof(float)));
                 }
 
                 // Corpus-mass weighting. Raw edge_mass varies by 5+ orders of
@@ -5874,11 +6095,25 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                 // Embedding gather: d_x[T_q, D]
                 cuda_embedding_gather(d_weights + wo.token_emb, d_token_ids, d_x, T_q, D);
 
-                // Cap-recurrence Phase 2B step 1: direct h_in injection.
-                // Adds scale * h_in to d_x at each radix node's first query
-                // position. Active only when h_in computation is enabled
-                // AND inject_scale > 0.
-                if (cap_h_in_active && flags.capture_h_caps_inject_scale != 0.0f) {
+                // Cap-recurrence injection into the embedding input d_x at
+                // each radix node's first query position.
+                //   Phase 2B step 2 (cap_w_inject_active): learnable
+                //     proj[i] = W_inject @ h_in[i], scattered into d_x.
+                //   Phase 2B step 1 (inject_scale): direct scale * h_in.
+                // Mutually exclusive — step 2 supersedes step 1.
+                if (cap_w_inject_active) {
+                    // proj[N, D] = W_inject[D, D] · h_in[N, D]. Mirrors the
+                    // WO projection GEMM (D×D weight on a [*, D] activation)
+                    // so forward/backward conventions match exactly.
+                    float one = 1.0f, zero = 0.0f;
+                    CUBLAS_CHECK(cublasSgemm(cublas, CUBLAS_OP_N, CUBLAS_OP_N,
+                                              D, N, D,
+                                              &one, d_W_inject, D,
+                                              d_cap_h_in, D,
+                                              &zero, d_cap_proj, D));
+                    launch_inject_h_in_direct(d_query_offsets, d_cap_proj,
+                                              d_x, N, D, 1.0f);
+                } else if (cap_h_in_active && flags.capture_h_caps_inject_scale != 0.0f) {
                     launch_inject_h_in_direct(d_query_offsets, d_cap_h_in,
                                               d_x, N, D,
                                               flags.capture_h_caps_inject_scale);
@@ -6083,14 +6318,41 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                         }
                     }
 
+                    // Cap-recurrence option B: build the expanded KV pack by
+                    // prepending the per-fire (K_inject, V_inject) at slot 0
+                    // of each node's slice. Attention then runs UNCHANGED on
+                    // the expanded pack with kv_lengths += 1 and max_kv_len
+                    // += 1 — every query implicitly gains one always-visible
+                    // memory slot.
+                    const float* kv_pack_k_use   = d_kv_pack_k;
+                    const float* kv_pack_v_use   = d_kv_pack_v;
+                    const int*   kv_offsets_use  = d_kv_offsets;
+                    const int*   kv_lengths_use  = d_kv_lengths;
+                    int          max_kv_len_use  = max_kv_len;
+                    if (cap_kv_inject_active) {
+                        launch_prepend_inject_kv(d_K_inject_pack, d_kv_pack_k,
+                                                  d_kv_offsets, d_kv_offsets_exp,
+                                                  d_kv_lengths,
+                                                  d_kv_pack_k_exp, N, H, HD);
+                        launch_prepend_inject_kv(d_V_inject_pack, d_kv_pack_v,
+                                                  d_kv_offsets, d_kv_offsets_exp,
+                                                  d_kv_lengths,
+                                                  d_kv_pack_v_exp, N, H, HD);
+                        kv_pack_k_use  = d_kv_pack_k_exp;
+                        kv_pack_v_use  = d_kv_pack_v_exp;
+                        kv_offsets_use = d_kv_offsets_exp;
+                        kv_lengths_use = d_kv_lengths_exp;
+                        max_kv_len_use = max_kv_len + 1;
+                    }
+
                     // L-query varlen attention
                     float scale = 1.0f / sqrtf((float)HD);
                     TIME_K(t_us_attn_fwd, {
                         cuda_batched_varlen_attention_L_queries(
-                            d_q, d_kv_pack_k, d_kv_pack_v,
-                            d_query_to_node, d_query_offsets, d_kv_offsets, d_kv_lengths,
+                            d_q, kv_pack_k_use, kv_pack_v_use,
+                            d_query_to_node, d_query_offsets, kv_offsets_use, kv_lengths_use,
                             d_attn_out /* used as packed output temp */, sv_attn_weights[l],
-                            T_q, H, HD, max_kv_len, scale);
+                            T_q, H, HD, max_kv_len_use, scale);
                     });
 
                     // Stage-3 diagnostic: dump sv_attn_weights[l] IMMEDIATELY after
@@ -6382,9 +6644,45 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                                                lightning.virtual_cycles > 1);
                     });
 
-                    // Zero dK/dV packed buffers
-                    CUDA_CHECK(cudaMemset(d_dk_pack, 0, (long long)T_kv * H * HD * sizeof(float)));
-                    CUDA_CHECK(cudaMemset(d_dv_pack, 0, (long long)T_kv * H * HD * sizeof(float)));
+                    // Cap-recurrence option B: re-build the expanded KV pack
+                    // for backward (forward's expanded pack was overwritten
+                    // by subsequent layers' gathers). K_inject/V_inject from
+                    // the forward are still valid — W_k/W_v are constant
+                    // through the fire. Zero the EXPANDED dK/dV buffers
+                    // (attention backward atomic-adds into them). The
+                    // original-shape d_dk_pack/d_dv_pack receive a fresh
+                    // overwrite from the extract kernel later, so don't
+                    // need pre-zeroing in this mode.
+                    const float* kv_pack_k_bwd  = d_kv_pack_k;
+                    const float* kv_pack_v_bwd  = d_kv_pack_v;
+                    const int*   kv_offsets_bwd = d_kv_offsets;
+                    const int*   kv_lengths_bwd = d_kv_lengths;
+                    int          max_kv_len_bwd = max_kv_len;
+                    float*       dk_pack_target = d_dk_pack;
+                    float*       dv_pack_target = d_dv_pack;
+                    if (cap_kv_inject_active) {
+                        launch_prepend_inject_kv(d_K_inject_pack, d_kv_pack_k,
+                                                  d_kv_offsets, d_kv_offsets_exp,
+                                                  d_kv_lengths,
+                                                  d_kv_pack_k_exp, N, H, HD);
+                        launch_prepend_inject_kv(d_V_inject_pack, d_kv_pack_v,
+                                                  d_kv_offsets, d_kv_offsets_exp,
+                                                  d_kv_lengths,
+                                                  d_kv_pack_v_exp, N, H, HD);
+                        long long exp_floats = ((long long)T_kv + (long long)N) * (long long)H * (long long)HD;
+                        CUDA_CHECK(cudaMemset(d_dk_pack_exp, 0, exp_floats * sizeof(float)));
+                        CUDA_CHECK(cudaMemset(d_dv_pack_exp, 0, exp_floats * sizeof(float)));
+                        kv_pack_k_bwd  = d_kv_pack_k_exp;
+                        kv_pack_v_bwd  = d_kv_pack_v_exp;
+                        kv_offsets_bwd = d_kv_offsets_exp;
+                        kv_lengths_bwd = d_kv_lengths_exp;
+                        max_kv_len_bwd = max_kv_len + 1;
+                        dk_pack_target = d_dk_pack_exp;
+                        dv_pack_target = d_dv_pack_exp;
+                    } else {
+                        CUDA_CHECK(cudaMemset(d_dk_pack, 0, (long long)T_kv * H * HD * sizeof(float)));
+                        CUDA_CHECK(cudaMemset(d_dv_pack, 0, (long long)T_kv * H * HD * sizeof(float)));
+                    }
 
                     float scale = 1.0f / sqrtf((float)HD);
 
@@ -6412,11 +6710,29 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
 
                     TIME_K(t_us_attn_bwd, {
                         cuda_batched_varlen_attention_L_queries_backward(
-                            d_q, d_kv_pack_k, d_kv_pack_v, sv_attn_weights[l], d_d_attn_out,
-                            d_query_to_node, d_query_offsets, d_kv_offsets, d_kv_lengths,
-                            d_dq_pack, d_dk_pack, d_dv_pack,
-                            T_q, H, HD, max_kv_len, scale);
+                            d_q, kv_pack_k_bwd, kv_pack_v_bwd, sv_attn_weights[l], d_d_attn_out,
+                            d_query_to_node, d_query_offsets, kv_offsets_bwd, kv_lengths_bwd,
+                            d_dq_pack, dk_pack_target, dv_pack_target,
+                            T_q, H, HD, max_kv_len_bwd, scale);
                     });
+
+                    // Cap-recurrence option B: split slot 0 of expanded dK/dV
+                    // (per-node inject-grad, atomic-sum into d_dK/dV_inject_fire
+                    // across layers since W is shared) from slots 1..K_i (→
+                    // original-shape d_dk_pack/d_dv_pack that the downstream
+                    // RoPE-inverse + anc-grad scatter expect).
+                    if (cap_kv_inject_active) {
+                        launch_extract_inject_dkv(d_dk_pack_exp,
+                                                   d_kv_offsets, d_kv_offsets_exp,
+                                                   d_kv_lengths,
+                                                   d_dK_inject_fire, d_dk_pack,
+                                                   N, H, HD);
+                        launch_extract_inject_dkv(d_dv_pack_exp,
+                                                   d_kv_offsets, d_kv_offsets_exp,
+                                                   d_kv_lengths,
+                                                   d_dV_inject_fire, d_dv_pack,
+                                                   N, H, HD);
+                    }
 
                     if (trace_fire_target) {
                         emit_diag_jsonl(fire_diag.path,
@@ -6573,6 +6889,45 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                     cuda_layer_norm_backward(d_d_ln_out, sv_ln1_norm[l], sv_ln1_std_inv[l],
                                               G1, d_d_ln_out, dG1, dB1, T_q, D);
                     launch_elem_add(d_dx, d_d_ln_out, T_q * D);  // residual 1 skip
+                }
+
+                // Cap-recurrence Phase 2B step 2: accumulate W_inject grad.
+                // d_dx here holds dL/d_x at the layer-0 input = dL/dproj at
+                // each node's first query position (proj was added to d_x in
+                // the forward). Gather those rows into g[N, D], then
+                //   dL/dW_inject += gᵀ · h_in   (mirrors WO's weight-grad
+                // GEMM, so the convention matches the forward projection).
+                // h_in is a detached constant — no gradient flows into it.
+                // Raw accumulation per chunk (grad_scale); the per-fire 1/N
+                // divisor is applied to d_W_inject_grad at fire-end.
+                if (cap_w_inject_active) {
+                    launch_gather_dx_at_qfirst(d_query_offsets, d_dx, d_cap_ginj, N, D);
+                    CUBLAS_CHECK(cublasSgemm(cublas, CUBLAS_OP_N, CUBLAS_OP_T,
+                                              D, D, N,
+                                              &grad_scale, d_cap_ginj, D,
+                                              d_cap_h_in, D,
+                                              &alpha, d_W_inject_grad, D));
+                }
+
+                // Cap-recurrence Phase 2B step 3 (option B): convert the
+                // per-chunk dK/dV_inject_fire (atomic-summed across layers
+                // since W_k/W_v are shared) into the W-grad contribution.
+                //   dW_k_inject += dK_inject_chunk^T · h_in
+                //   dW_v_inject += dV_inject_chunk^T · h_in
+                // Same convention as the W_inject step-2 GEMM above (and
+                // the WO weight-grad pattern). Raw accumulation per chunk;
+                // per-fire 1/N divisor applied at fire-end.
+                if (cap_kv_inject_active) {
+                    CUBLAS_CHECK(cublasSgemm(cublas, CUBLAS_OP_N, CUBLAS_OP_T,
+                                              D, D, N,
+                                              &grad_scale, d_dK_inject_fire, D,
+                                              d_cap_h_in, D,
+                                              &alpha, d_W_k_inject_grad, D));
+                    CUBLAS_CHECK(cublasSgemm(cublas, CUBLAS_OP_N, CUBLAS_OP_T,
+                                              D, D, N,
+                                              &grad_scale, d_dV_inject_fire, D,
+                                              d_cap_h_in, D,
+                                              &alpha, d_W_v_inject_grad, D));
                 }
 
                 // Embedding backward: scatter_add d_x into token_emb grad
@@ -6820,6 +7175,63 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                 case OptimizerKind::LBFGS:
                     cuda_lbfgs_step(&lbfgs_state, cublas, d_weights, d_grads, step_lr);
                     break;
+            }
+            // Cap-recurrence Phase 2B step 2: W_inject's own RMSProp step,
+            // once per fire alongside the model step. Apply the SAME per-fire
+            // normalization divisor that d_grads received above, then a
+            // constant-lr RMSProp update. d_W_inject_grad is re-zeroed at the
+            // next fire's grad-zero site.
+            if (cap_w_inject_active) {
+                int winj_n = cfg.d_model * cfg.d_model;
+                if (fire_norm_none) {
+                    // raw sum — no divisor (matches d_grads)
+                } else if (fire_norm_by_weight) {
+                    if (fire_weight > 0.0) {
+                        float inv = 1.0f / (float)fire_weight;
+                        CUBLAS_CHECK(cublasSscal(cublas, winj_n, &inv, d_W_inject_grad, 1));
+                    } else if (fire_events > 0) {
+                        float inv = 1.0f / (float)fire_events;
+                        CUBLAS_CHECK(cublasSscal(cublas, winj_n, &inv, d_W_inject_grad, 1));
+                    }
+                } else if (fire_norm_by_mass) {
+                    if (fire_mass > 0) {
+                        float inv = 1.0f / (float)fire_mass;
+                        CUBLAS_CHECK(cublasSscal(cublas, winj_n, &inv, d_W_inject_grad, 1));
+                    }
+                } else if (fire_events > 0) {
+                    float inv = 1.0f / (float)fire_events;
+                    CUBLAS_CHECK(cublasSscal(cublas, winj_n, &inv, d_W_inject_grad, 1));
+                }
+                cuda_rmsprop_bulk(d_W_inject, d_W_inject_grad, d_W_inject_s,
+                                  flags.cap_w_inject_lr, rmsprop_beta, 1e-8f, winj_n);
+            }
+            // Cap-recurrence Phase 2B step 3 (option B): same pattern as the
+            // step-2 step above, but for the shared W_k_inject and
+            // W_v_inject. Each gets its own RMSProp accumulator. Per-fire
+            // normalization mirrors the d_grads divisor (kept inline here to
+            // avoid drift if the upstream block evolves).
+            if (cap_kv_inject_active) {
+                int kvinj_n = cfg.d_model * cfg.d_model;
+                float inv = 0.0f;
+                bool apply = false;
+                if (fire_norm_none) {
+                    /* raw */
+                } else if (fire_norm_by_weight) {
+                    if      (fire_weight > 0.0) { inv = 1.0f / (float)fire_weight; apply = true; }
+                    else if (fire_events > 0)   { inv = 1.0f / (float)fire_events; apply = true; }
+                } else if (fire_norm_by_mass) {
+                    if (fire_mass > 0) { inv = 1.0f / (float)fire_mass; apply = true; }
+                } else if (fire_events > 0) {
+                    inv = 1.0f / (float)fire_events; apply = true;
+                }
+                if (apply) {
+                    CUBLAS_CHECK(cublasSscal(cublas, kvinj_n, &inv, d_W_k_inject_grad, 1));
+                    CUBLAS_CHECK(cublasSscal(cublas, kvinj_n, &inv, d_W_v_inject_grad, 1));
+                }
+                cuda_rmsprop_bulk(d_W_k_inject, d_W_k_inject_grad, d_W_k_inject_s,
+                                  flags.cap_kv_inject_lr, rmsprop_beta, 1e-8f, kvinj_n);
+                cuda_rmsprop_bulk(d_W_v_inject, d_W_v_inject_grad, d_W_v_inject_s,
+                                  flags.cap_kv_inject_lr, rmsprop_beta, 1e-8f, kvinj_n);
             }
             if (run_fire_diag) {
                 CUDA_CHECK(cudaDeviceSynchronize());
@@ -7303,6 +7715,43 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
         if (d_cap_h_in) { cudaFree(d_cap_h_in); d_cap_h_in = nullptr; }
         free_predecessor_table(cap_pred_table);
         cap_h_in_active = false;
+    }
+    // Cap-recurrence Phase 2B step 2: save W_inject sidecar, then free.
+    if (cap_w_inject_active) {
+        if (flags.cap_w_inject_out) {
+            save_w_inject(d_W_inject, d_W_inject_s, cfg.d_model, flags.cap_w_inject_out);
+        }
+        cudaFree(d_W_inject);      d_W_inject = nullptr;
+        cudaFree(d_W_inject_s);    d_W_inject_s = nullptr;
+        cudaFree(d_W_inject_grad); d_W_inject_grad = nullptr;
+        cudaFree(d_cap_proj);      d_cap_proj = nullptr;
+        cudaFree(d_cap_ginj);      d_cap_ginj = nullptr;
+        cap_w_inject_active = false;
+    }
+    // Cap-recurrence Phase 2B step 3 (option B): save sidecar then free.
+    if (cap_kv_inject_active) {
+        if (flags.cap_kv_inject_out) {
+            save_kv_inject(d_W_k_inject, d_W_v_inject,
+                           d_W_k_inject_s, d_W_v_inject_s,
+                           cfg.d_model, flags.cap_kv_inject_out);
+        }
+        cudaFree(d_W_k_inject);       d_W_k_inject = nullptr;
+        cudaFree(d_W_v_inject);       d_W_v_inject = nullptr;
+        cudaFree(d_W_k_inject_s);     d_W_k_inject_s = nullptr;
+        cudaFree(d_W_v_inject_s);     d_W_v_inject_s = nullptr;
+        cudaFree(d_W_k_inject_grad);  d_W_k_inject_grad = nullptr;
+        cudaFree(d_W_v_inject_grad);  d_W_v_inject_grad = nullptr;
+        cudaFree(d_K_inject_pack);    d_K_inject_pack = nullptr;
+        cudaFree(d_V_inject_pack);    d_V_inject_pack = nullptr;
+        cudaFree(d_dK_inject_fire);   d_dK_inject_fire = nullptr;
+        cudaFree(d_dV_inject_fire);   d_dV_inject_fire = nullptr;
+        cudaFree(d_kv_pack_k_exp);    d_kv_pack_k_exp = nullptr;
+        cudaFree(d_kv_pack_v_exp);    d_kv_pack_v_exp = nullptr;
+        cudaFree(d_dk_pack_exp);      d_dk_pack_exp = nullptr;
+        cudaFree(d_dv_pack_exp);      d_dv_pack_exp = nullptr;
+        cudaFree(d_kv_offsets_exp);   d_kv_offsets_exp = nullptr;
+        cudaFree(d_kv_lengths_exp);   d_kv_lengths_exp = nullptr;
+        cap_kv_inject_active = false;
     }
 
     cudaFree(d_weights); cudaFree(d_grads); cudaFree(d_adam_m); cudaFree(d_adam_v);

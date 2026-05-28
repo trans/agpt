@@ -571,3 +571,326 @@ static inline bool save_h_cap_table(
     fflush(stdout);
     return true;
 }
+
+// ======================================================================
+// Phase 2B step 2: learnable injection (W_inject).
+//
+// Forward injects proj[i] = W_inject @ h_in[i] at each node's first
+// query position; the projection GEMM and the scatter-add reuse
+// launch_inject_h_in_direct (scale=1). Backward needs the upstream
+// gradient dL/d_x at those same first-query positions, gathered into a
+// dense [N, D] buffer so a single GEMM can form dL/dW_inject.
+// ----------------------------------------------------------------------
+
+// Gather the layer-0 input gradient (d_dx, aliased to d_x in backward)
+// at each chunk-local node's FIRST query position into g[i, :].
+// Inverse of agpt_inject_h_in_direct_kernel's scatter.
+__global__ void agpt_gather_dx_at_qfirst_kernel(
+    const int*   __restrict__ d_query_offsets, // [N+1]
+    const float* __restrict__ d_dx,            // [T_q, D]
+    float*                   d_g,              // [N, D]
+    int N,
+    int D
+) {
+    int i = blockIdx.x;
+    if (i >= N) return;
+    int q_first = d_query_offsets[i];
+    for (int d = threadIdx.x; d < D; d += blockDim.x) {
+        d_g[(long long)i * D + d] = d_dx[(long long)q_first * D + d];
+    }
+}
+
+static inline void launch_gather_dx_at_qfirst(
+    const int*   d_query_offsets,
+    const float* d_dx,
+    float*       d_g,
+    int N,
+    int D,
+    cudaStream_t stream = 0
+) {
+    if (N <= 0) return;
+    int threads = D < 256 ? D : 256;
+    agpt_gather_dx_at_qfirst_kernel<<<dim3(N), dim3(threads), 0, stream>>>(
+        d_query_offsets, d_dx, d_g, N, D);
+}
+
+// ======================================================================
+// W_inject sidecar persistence. Kept out of the model file format so
+// the experiment doesn't rev the checkpoint layout.
+//
+// Format:
+//   uint32 d_model
+//   float32 W[D*D]   (params)
+//   float32 s[D*D]   (RMSProp second-moment accumulator)
+// ----------------------------------------------------------------------
+static inline bool save_w_inject(
+    const float* d_W, const float* d_s, int D, const char* path
+) {
+    FILE* f = fopen(path, "wb");
+    if (!f) {
+        fprintf(stderr, "save_w_inject: cannot open %s for write\n", path);
+        return false;
+    }
+    size_t total = (size_t)D * (size_t)D;
+    float* h = (float*)malloc(2 * total * sizeof(float));
+    if (!h) { fprintf(stderr, "save_w_inject: malloc failed\n"); fclose(f); return false; }
+    CUDA_CHECK(cudaMemcpy(h, d_W, total * sizeof(float), cudaMemcpyDeviceToHost));
+    CUDA_CHECK(cudaMemcpy(h + total, d_s, total * sizeof(float), cudaMemcpyDeviceToHost));
+    uint32_t dm = (uint32_t)D;
+    fwrite(&dm, sizeof(uint32_t), 1, f);
+    fwrite(h, sizeof(float), 2 * total, f);
+    fclose(f);
+    free(h);
+    fprintf(stdout, "[w_inject] saved %d x %d params + accumulator → %s\n", D, D, path);
+    fflush(stdout);
+    return true;
+}
+
+// Load W (and the RMSProp accumulator) from a sidecar. Returns false if
+// the file is absent or the header mismatches; caller keeps the
+// zero-initialized buffers in that case.
+static inline bool load_w_inject(
+    float* d_W, float* d_s, int D, const char* path
+) {
+    FILE* f = fopen(path, "rb");
+    if (!f) return false;
+    uint32_t dm = 0;
+    if (fread(&dm, sizeof(uint32_t), 1, f) != 1 || (int)dm != D) {
+        fprintf(stderr, "load_w_inject: %s header mismatch (got D=%u, want %d)\n",
+                path, dm, D);
+        fclose(f);
+        return false;
+    }
+    size_t total = (size_t)D * (size_t)D;
+    float* h = (float*)malloc(2 * total * sizeof(float));
+    if (!h) { fprintf(stderr, "load_w_inject: malloc failed\n"); fclose(f); return false; }
+    size_t got = fread(h, sizeof(float), 2 * total, f);
+    fclose(f);
+    if (got != 2 * total) {
+        fprintf(stderr, "load_w_inject: %s body truncated (got %zu of %zu)\n",
+                path, got, 2 * total);
+        free(h);
+        return false;
+    }
+    CUDA_CHECK(cudaMemcpy(d_W, h, total * sizeof(float), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_s, h + total, total * sizeof(float), cudaMemcpyHostToDevice));
+    free(h);
+    fprintf(stdout, "[w_inject] loaded %d x %d params + accumulator ← %s\n", D, D, path);
+    fflush(stdout);
+    return true;
+}
+
+// ======================================================================
+// Phase 2B step 3 (option B): K/V-token injection via expanded KV pack.
+//
+// Idea: prepend one "memory" slot per node at p=0 of every attention
+// layer's KV sequence. The slot's K and V come from learned projections
+// of h_in (shared across layers):
+//   K_inject[i] = W_k_inject @ h_in[i]
+//   V_inject[i] = W_v_inject @ h_in[i]
+// The attention kernel runs UNCHANGED on an expanded pack of size
+// (T_kv + N) — every query implicitly gains one always-visible slot
+// with no RoPE.
+//
+// Backward: attention writes into expanded dK/dV; extract kernel splits
+// slot 0 (→ atomic-add into a fire-level dK_inject_fire accumulator
+// summing across layers, since W is shared) from the rest (→
+// original-shape dk/dv that feeds the existing RoPE-inverse / anc-grad
+// pipeline unchanged).
+// ----------------------------------------------------------------------
+
+// Per-node: kv_offsets_exp[i] = kv_offsets[i] + i (each node gains one
+// slot at the start), kv_lengths_exp[i] = kv_lengths[i] + 1. Also fills
+// the sentinel at kv_offsets_exp[N].
+__global__ void agpt_compute_kv_offsets_exp_kernel(
+    const int* __restrict__ d_kv_offsets,     // [N+1]
+    const int* __restrict__ d_kv_lengths,     // [N]
+    int*                    d_kv_offsets_exp, // [N+1]
+    int*                    d_kv_lengths_exp, // [N]
+    int N
+) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i > N) return;
+    d_kv_offsets_exp[i] = d_kv_offsets[i] + i;
+    if (i < N) d_kv_lengths_exp[i] = d_kv_lengths[i] + 1;
+}
+
+static inline void launch_compute_kv_offsets_exp(
+    const int* d_kv_offsets, const int* d_kv_lengths,
+    int* d_kv_offsets_exp, int* d_kv_lengths_exp,
+    int N, cudaStream_t stream = 0
+) {
+    int threads = 128;
+    int blocks  = (N + 1 + threads - 1) / threads;
+    agpt_compute_kv_offsets_exp_kernel<<<blocks, threads, 0, stream>>>(
+        d_kv_offsets, d_kv_lengths, d_kv_offsets_exp, d_kv_lengths_exp, N);
+}
+
+// Build the expanded KV pack from the original pack + per-node INJ.
+// Called separately for K and V (same kernel, different inputs).
+//   pack_exp layout: [T_kv + N, H, HD]
+//   For each node i: slot 0 = inject[i] (D-dim, reshaped to H*HD),
+//                    slots 1..K_i = original pack[off_orig + 0..K_i-1]
+__global__ void agpt_prepend_inject_kv_kernel(
+    const float* __restrict__ d_inject,        // [N, D=H*HD]
+    const float* __restrict__ d_pack_orig,     // [T_kv, H, HD]
+    const int*   __restrict__ d_kv_offsets,    // [N+1]   original
+    const int*   __restrict__ d_kv_offsets_exp,// [N+1]   expanded
+    const int*   __restrict__ d_kv_lengths,    // [N]     original
+    float*                   d_pack_exp,       // [T_kv + N, H, HD]
+    int N, int H, int HD
+) {
+    int D = H * HD;
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    int nidx = idx / D;
+    int col  = idx % D;
+    if (nidx >= N) return;
+    int head = col / HD;
+    int hcol = col % HD;
+    int K_i      = d_kv_lengths[nidx];
+    int off_orig = d_kv_offsets[nidx];
+    int off_exp  = d_kv_offsets_exp[nidx];
+    // Slot 0 — INJ (no RoPE; per design).
+    d_pack_exp[(((long long)off_exp) * H + head) * HD + hcol] =
+        d_inject[(long long)nidx * D + col];
+    // Slots 1..K_i — copy from original.
+    for (int p = 0; p < K_i; p++) {
+        d_pack_exp[(((long long)off_exp + 1 + p) * H + head) * HD + hcol] =
+            d_pack_orig[(((long long)off_orig + p) * H + head) * HD + hcol];
+    }
+}
+
+static inline void launch_prepend_inject_kv(
+    const float* d_inject, const float* d_pack_orig,
+    const int* d_kv_offsets, const int* d_kv_offsets_exp,
+    const int* d_kv_lengths,
+    float* d_pack_exp,
+    int N, int H, int HD, cudaStream_t stream = 0
+) {
+    if (N <= 0) return;
+    int D = H * HD;
+    int total = N * D;
+    int threads = 256;
+    int blocks = (total + threads - 1) / threads;
+    agpt_prepend_inject_kv_kernel<<<blocks, threads, 0, stream>>>(
+        d_inject, d_pack_orig, d_kv_offsets, d_kv_offsets_exp, d_kv_lengths,
+        d_pack_exp, N, H, HD);
+}
+
+// Reverse of the prepend: split expanded dKV pack into a per-node
+// inject-grad row (atomic-summed across layers into d_dinject_accum, since
+// W_k_inject/W_v_inject are shared across layers) and the original-shape
+// dKV pack (slots 1..K_i of expanded → slots 0..K_i-1 of original).
+//
+// The original-shape pack receives a fresh write (= per-layer, the
+// per-layer atomicAdd accumulation already happened inside the attention
+// backward into dkv_pack_exp; here we just relocate slots 1..K_i to
+// where the downstream RoPE-inverse / anc-grad code expects them).
+__global__ void agpt_extract_inject_dkv_kernel(
+    const float* __restrict__ d_dkv_pack_exp,   // [T_kv + N, H, HD]
+    const int*   __restrict__ d_kv_offsets,     // [N+1]  original
+    const int*   __restrict__ d_kv_offsets_exp, // [N+1]  expanded
+    const int*   __restrict__ d_kv_lengths,     // [N]    original
+    float*                   d_dinject_accum,   // [N, D]  atomicAdd target
+    float*                   d_dkv_pack_orig,   // [T_kv, H, HD]  fresh write
+    int N, int H, int HD
+) {
+    int D = H * HD;
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    int nidx = idx / D;
+    int col  = idx % D;
+    if (nidx >= N) return;
+    int head = col / HD;
+    int hcol = col % HD;
+    int K_i      = d_kv_lengths[nidx];
+    int off_orig = d_kv_offsets[nidx];
+    int off_exp  = d_kv_offsets_exp[nidx];
+    // Slot 0 of expanded → inject grad accumulator (atomic, layer-summed).
+    float dinj = d_dkv_pack_exp[(((long long)off_exp) * H + head) * HD + hcol];
+    atomicAdd(&d_dinject_accum[(long long)nidx * D + col], dinj);
+    // Slots 1..K_i of expanded → slots 0..K_i-1 of original pack.
+    for (int p = 0; p < K_i; p++) {
+        d_dkv_pack_orig[(((long long)off_orig + p) * H + head) * HD + hcol] =
+            d_dkv_pack_exp[(((long long)off_exp + 1 + p) * H + head) * HD + hcol];
+    }
+}
+
+static inline void launch_extract_inject_dkv(
+    const float* d_dkv_pack_exp,
+    const int* d_kv_offsets, const int* d_kv_offsets_exp,
+    const int* d_kv_lengths,
+    float* d_dinject_accum, float* d_dkv_pack_orig,
+    int N, int H, int HD, cudaStream_t stream = 0
+) {
+    if (N <= 0) return;
+    int D = H * HD;
+    int total = N * D;
+    int threads = 256;
+    int blocks = (total + threads - 1) / threads;
+    agpt_extract_inject_dkv_kernel<<<blocks, threads, 0, stream>>>(
+        d_dkv_pack_exp, d_kv_offsets, d_kv_offsets_exp, d_kv_lengths,
+        d_dinject_accum, d_dkv_pack_orig, N, H, HD);
+}
+
+// ======================================================================
+// KV-inject sidecar persistence (option B).
+//
+// Format:
+//   uint32 d_model
+//   float32 W_k[D*D]
+//   float32 W_v[D*D]
+//   float32 s_k[D*D]   (RMSProp accumulator for W_k)
+//   float32 s_v[D*D]   (RMSProp accumulator for W_v)
+// ----------------------------------------------------------------------
+static inline bool save_kv_inject(
+    const float* d_Wk, const float* d_Wv,
+    const float* d_sk, const float* d_sv,
+    int D, const char* path
+) {
+    FILE* f = fopen(path, "wb");
+    if (!f) { fprintf(stderr, "save_kv_inject: cannot open %s\n", path); return false; }
+    size_t total = (size_t)D * (size_t)D;
+    float* h = (float*)malloc(4 * total * sizeof(float));
+    if (!h) { fprintf(stderr, "save_kv_inject: malloc failed\n"); fclose(f); return false; }
+    CUDA_CHECK(cudaMemcpy(h + 0*total, d_Wk, total * sizeof(float), cudaMemcpyDeviceToHost));
+    CUDA_CHECK(cudaMemcpy(h + 1*total, d_Wv, total * sizeof(float), cudaMemcpyDeviceToHost));
+    CUDA_CHECK(cudaMemcpy(h + 2*total, d_sk, total * sizeof(float), cudaMemcpyDeviceToHost));
+    CUDA_CHECK(cudaMemcpy(h + 3*total, d_sv, total * sizeof(float), cudaMemcpyDeviceToHost));
+    uint32_t dm = (uint32_t)D;
+    fwrite(&dm, sizeof(uint32_t), 1, f);
+    fwrite(h, sizeof(float), 4 * total, f);
+    fclose(f); free(h);
+    fprintf(stdout, "[kv_inject] saved %d x %d {W_k,W_v,s_k,s_v} → %s\n", D, D, path);
+    fflush(stdout);
+    return true;
+}
+
+static inline bool load_kv_inject(
+    float* d_Wk, float* d_Wv, float* d_sk, float* d_sv,
+    int D, const char* path
+) {
+    FILE* f = fopen(path, "rb");
+    if (!f) return false;
+    uint32_t dm = 0;
+    if (fread(&dm, sizeof(uint32_t), 1, f) != 1 || (int)dm != D) {
+        fprintf(stderr, "load_kv_inject: %s header mismatch (got %u, want %d)\n", path, dm, D);
+        fclose(f); return false;
+    }
+    size_t total = (size_t)D * (size_t)D;
+    float* h = (float*)malloc(4 * total * sizeof(float));
+    if (!h) { fprintf(stderr, "load_kv_inject: malloc failed\n"); fclose(f); return false; }
+    size_t got = fread(h, sizeof(float), 4 * total, f);
+    fclose(f);
+    if (got != 4 * total) {
+        fprintf(stderr, "load_kv_inject: %s truncated (got %zu of %zu)\n", path, got, 4 * total);
+        free(h); return false;
+    }
+    CUDA_CHECK(cudaMemcpy(d_Wk, h + 0*total, total * sizeof(float), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_Wv, h + 1*total, total * sizeof(float), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_sk, h + 2*total, total * sizeof(float), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_sv, h + 3*total, total * sizeof(float), cudaMemcpyHostToDevice));
+    free(h);
+    fprintf(stdout, "[kv_inject] loaded %d x %d {W_k,W_v,s_k,s_v} ← %s\n", D, D, path);
+    fflush(stdout);
+    return true;
+}
