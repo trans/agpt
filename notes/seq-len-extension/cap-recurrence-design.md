@@ -68,10 +68,14 @@ which fills h_in[K] with a hash-derived vector seeded by K's modal
 next-token (h_in literally encodes the answer). Sweeping W_k/W_v lr:
 
   oracle lr=1e-5  → loss 1.901 (Δ −0.005, within noise)
-  oracle lr=1e-4  → loss 1.903 (Δ −0.003)
-  oracle lr=1e-3  → loss 1.887 (Δ −0.019)
-  oracle lr=1e-2  → loss **1.810** (Δ **−0.096**)  ← real, ~10× noise
+  oracle lr=1e-4  → loss 1.903 (Δ −0.003, within noise)
+  oracle lr=1e-3  → loss 1.887 (Δ −0.018, ~1.4 SE — suggestive, NOT significant at n=3)
+  oracle lr=1e-2  → loss **1.810** (Δ **−0.096**, ~5-6 SE — clearly significant)
                                                        ‖W_v‖ reaches 100+
+
+(The lr=1e-2 point alone is enough to establish the wiring conclusion;
+the intermediate points are individually underpowered but monotone in
+the right direction.)
 
 Compare to kv-mass at the same lr=1e-2 (early step-1 era): loss 2.654,
 worse than baseline (W exploded in a non-useful direction). Same

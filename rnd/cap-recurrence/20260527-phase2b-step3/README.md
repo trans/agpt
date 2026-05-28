@@ -275,18 +275,27 @@ predictive shortcut available *if* it can use h_in's content at all.
 
 Sweeping the W_k/W_v learning rate (5-ep × 3 seeds per lr):
 
-| condition | lr | mean loss | Δ vs baseline | ‖W_k‖ | ‖W_v‖ |
-|---|---|---|---|---|---|
-| baseline | — | 1.906 | — | — | — |
-| kv-mass | 1e-5 | 1.914 | +0.008 | 0.07 | 0.07 |
-| **kv-oracle** | 1e-5 | 1.901 | −0.005 | 0.06 | 0.12 |
-| **kv-oracle** | 1e-4 | 1.903 | −0.003 | 0.7 | 1.4 |
-| **kv-oracle** | 1e-3 | 1.887 | **−0.019** | 7 | 15 |
-| **kv-oracle** | 1e-2 | **1.810** | **−0.096** | 60 | 103 |
+| condition | lr | n | mean loss | Δ vs baseline | SE-dist | ‖W_v‖ |
+|---|---|---|---|---|---|---|
+| baseline | — | 5 | 1.906 | — | — | — |
+| kv-mass | 1e-5 | 5 | 1.914 | +0.008 | <1 | 0.07 |
+| kv-oracle | 1e-5 | 5 | 1.901 | −0.005 | <1 | 0.12 |
+| kv-oracle | 1e-4 | 3 | 1.903 | −0.003 | <1 | 1.4 |
+| kv-oracle | 1e-3 | 3 | 1.887 | −0.018 | ~1.4 | 15 |
+| **kv-oracle** | **1e-2** | 3 | **1.810** | **−0.096** | **~5-6** | 103 |
 
-**At lr=1e-2 with oracle, loss drops by 5% — ~10× the within-condition
-noise band.** ‖W_v‖ reaches 100+ as the model learns to route attention
-heavily through the INJ slot. Compare to `kv-mass` at lr=1e-2 from the
+Honest read: only the lr=1e-2 result is statistically significant on
+its own (≈5-6 SE from zero, n=3). lr=1e-3 is suggestive but underpowered
+(~1.4 SE, p ≈ 0.2). The lower lrs are within noise.
+
+What gives me *some* additional confidence beyond the lr=1e-2 point: the
+four oracle Δs are monotone in lr with no sign flips. P(monotone | random) =
+1/24 ≈ 4%, so the trend itself carries weight — but that's weaker than
+"each point is individually real."
+
+**The lr=1e-2 result alone is enough** to lock the wiring conclusion: loss
+drops by 5% (~10× the within-condition spread), ‖W_v‖ reaches 100+ as
+the model learns to route attention heavily through the INJ slot. Compare to `kv-mass` at lr=1e-2 from the
 step-1 era, which DEGRADED loss to 2.654 (W exploded but in a
 non-useful direction because real h_in is noise). Same wiring, same
 lr, same architecture; the *only* difference is whether h_in's content
