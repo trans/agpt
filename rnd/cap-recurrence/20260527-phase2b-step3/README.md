@@ -295,7 +295,23 @@ four oracle Δs are monotone in lr with no sign flips. P(monotone | random) =
 
 **The lr=1e-2 result alone is enough** to lock the wiring conclusion: loss
 drops by 5% (~10× the within-condition spread), ‖W_v‖ reaches 100+ as
-the model learns to route attention heavily through the INJ slot. Compare to `kv-mass` at lr=1e-2 from the
+the model learns to route attention heavily through the INJ slot.
+
+### 25-ep showcase (single-shot, predicted by Thomas to "do quite well")
+
+| condition | loss @ ep 25 | PPL | ‖W_k‖ | ‖W_v‖ |
+|---|---|---|---|---|
+| baseline (25 ep) | 1.716 | 5.56 | — | — |
+| kv-oracle lr=1e-2 (25 ep) | **1.513** | **4.54** | 71 | 133 |
+
+Δ = −0.203 nats → **12% loss reduction, ~18% PPL reduction.** Baseline
+plateaued (last 5 epochs: 1.720→1.716); oracle still declining slowly
+(1.522→1.513). Establishes that the architecture has substantial spare
+predictive capacity — ~12% — that real attention on K's prefix is
+leaving on the table, and that a strong-signal side-input via the
+inject slot can claim it. **Real h_in just doesn't carry signal worth
+that capacity** (every kv-mass condition we tested sat at or near
+baseline). Compare to `kv-mass` at lr=1e-2 from the
 step-1 era, which DEGRADED loss to 2.654 (W exploded but in a
 non-useful direction because real h_in is noise). Same wiring, same
 lr, same architecture; the *only* difference is whether h_in's content
@@ -388,6 +404,52 @@ change the null. This confirms the diagnosis: the problem is **aggregation
 itself**, combined with the mass-stratified gradient mismatch and the
 train→inference distribution shift — not the choice of which weighting rule
 defines the aggregate. Any single-value-per-K aggregation has the same fate.
+
+## Theoretical ceilings (the deeper "why")
+
+After all the empirical work, three theoretical ceilings explain WHY cap-recurrence in this form is bounded *below* what attention already delivers — making the negative result predicted from first principles, not just observed.
+
+### Ceiling 1 — The KN ceiling (deepest)
+
+**What cap-recurrence is trying to compute is essentially soft-Kneser-Ney over predecessor distributions.** For each K, look at all contexts that precede K in the corpus, aggregate their "what comes next" predictions, deliver as side-input. That's a soft version of KN's "frequency of context X transitioning to next-token Y, smoothed by frequency of X."
+
+Two consequences:
+
+1. **The h_in pathway is mechanistically equivalent to learned soft-KN at best.** With mass-weighting it weights each predecessor by count, normalizes, aggregates — that's a continuous embedding-space analog of KN's discrete count-based aggregation. The *information content* of the aggregate can't exceed what's in the predecessor count distribution.
+2. **Standard transformer attention already does this implicitly, and better.** Attention is a learned weighted average over context tokens with per-query weighting — the model already implicitly does predecessor-aggregation when processing K's prefix. Cap-recurrence offers a *redundant*, *less expressive* (one fixed-D vector per K, no per-query learnable weighting), reformulation of information attention has at its disposal.
+
+So the theoretical upper bound on what cap-recurrence can deliver, even with everything else working perfectly, is **soft-KN-on-predecessor-distributions**. KN on Shakespeare 1MB char-level reaches ~4-5 PPL. Our baseline at 25ep reaches PPL ~5.6 still declining; a fully-trained attention baseline beats KN. **The ceiling cap-recurrence can offer is below the floor of what attention already achieves.** The empirical nulls are predicted by this alone.
+
+### Ceiling 2 — Aggregation collapse (stack with KN)
+
+Even if h_in delivered information attention couldn't already extract, the mass-weighted average across K's many distinct predecessors collapses per-instance signal into a centroid. Training-time h_in is a centroid; inference-time h_in is one specific concrete predecessor's cap. The distributions don't match.
+
+This is independent of and stacks with the KN ceiling: the mechanism *can't deliver more than soft-KN* (ceiling 1), AND *delivers less because of the centroid-vs-instance mismatch* (ceiling 2).
+
+### Ceiling 3 — Detached-gradient staleness (Gemini's point)
+
+`h_cap` is a detached input to the next training step — no backprop flows through to revise the past states it summarizes. So the model can learn to USE whatever h_cap happens to contain, but never to ENCODE useful information INTO h_cap via the recurrence. h_caps are produced under the model's *prior* training trajectory; the current model trains to use *stale* representations.
+
+End-to-end gradient flow through the recurrence would address this (at substantial implementation + compute cost), but doesn't touch ceilings 1 or 2. Even with perfect h_caps, the soft-KN upper bound and the aggregation-vs-instance mismatch remain.
+
+These three ceilings stack. Any of them alone would produce a null in this setup; together they leave no path for cap-recurrence in this form to beat baseline attention.
+
+## Methodology caveat — training loss only, no held-out PPL
+
+Every comparison in this writeup measured **training loss**, not canonical
+held-out `byte_perplexity` via `bin/agpt_experiment` (the
+lm-evaluation-harness rolling-PPL protocol that CLAUDE.md flags as the
+canonical metric). For a clear null on training loss, that's sufficient
+— "doesn't even help on training" implies "doesn't help on test."
+
+But it leaves one prediction unverified: **at large W with real h_in,
+the model might "neutralize" the noise content on training while
+silently fitting a false-narrative pattern that worsens held-out PPL**.
+We saw kv-mass at lr=1e-3 return to ≈baseline on training loss; whether
+held-out PPL would have stayed at baseline or drifted worse is untested.
+
+Future work that revisits cap-recurrence should run at least one
+canonical-PPL eval per condition.
 
 ## What would change the picture
 

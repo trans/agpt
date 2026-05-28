@@ -89,6 +89,45 @@ null was an honest measurement of "real h_in content has no
 extractable predictive signal beyond what attention already gets from
 K's own prefix." The "redundant" framing has direct empirical support.
 
+**Three theoretical ceilings** explain why this was predictable from
+first principles, not just observed:
+
+1. **KN ceiling.** Cap-recurrence is mechanistically equivalent to soft
+   Kneser-Ney over predecessor distributions: for each K, aggregate
+   counts/states of preceding contexts, deliver as side-input. The
+   information content can't exceed soft-KN's. Standard transformer
+   attention already does this implicitly and more expressively
+   (learnable per-query weighting, full context tokens, not one
+   aggregated D-vector). The mechanism's theoretical upper bound is
+   below the floor of what trained attention already achieves.
+2. **Aggregation collapse.** Training-time h_in is a mass-weighted
+   centroid over many distinct predecessors; inference-time h_in
+   would be from one concrete predecessor. The distributions don't
+   match, so even if the centroid contained useful structural signal
+   it wouldn't transfer.
+3. **Detached-gradient staleness (Gemini's point).** h_cap is a
+   detached input — no backprop flows back to revise the past states
+   it summarizes. The model can learn to USE h_cap but never to ENCODE
+   useful information INTO h_cap via the recurrence. End-to-end
+   gradient flow would address this at substantial cost but doesn't
+   touch ceilings 1 or 2.
+
+These stack. Any one alone produces a null in this setup.
+
+**25-ep showcase:** baseline 1.716 (PPL 5.56) vs kv-oracle lr=1e-2
+1.513 (PPL 4.54). 12% loss reduction, 18% PPL reduction. The
+architecture has ~12% spare predictive capacity that real attention
+doesn't claim and that strong-signal side-input fills. Real h_in
+fills none of it.
+
+**Methodology caveat:** all measurements are *training loss*, not
+canonical held-out byte_perplexity. For a clear training-loss null
+that's sufficient — "doesn't even help train" implies "doesn't help
+test." But it leaves untested whether large-W kv-mass silently fits a
+false-narrative pattern that would worsen held-out PPL even when
+neutral on train. Any future cap-recurrence revisit should include at
+least one canonical-PPL eval per condition.
+
 **Three-state logic** (the eval ablation result):
 
 - If h_in carried useful signal → eval-with-KV < eval-without-KV ⇒
