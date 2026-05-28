@@ -4496,11 +4496,12 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                n_root_children, min_sz, max_sz, (double)total_sz / n_root_children, total_sz);
     }
 
-    // Single-subtree mode: collapse all 65 root-child subtrees into one.
+    // pd=0 / single-subtree mode: collapse all root-child subtrees into one.
     // This tests whether the 65-way partitioning is introducing asymmetric
     // gradient behavior (e.g., early common-letter subtrees dominating Adam's
-    // running stats). Trade-off: 1 Adam step per epoch instead of 65.
-    if (single_subtree) {
+    // running stats in non-accumulating runs). The training unit spans the
+    // whole trie, so the optimizer fires once for the epoch.
+    if (partition_depth == 0 || single_subtree) {
         int* big = (int*)malloc(trie.radix_count * sizeof(int));
         int fill = 0;
         // Collect all subtree nodes in root-child order, preserving BFS within each
@@ -4541,7 +4542,13 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
             free(sorted); free(bucket_counts); free(cursors);
         }
         n_root_children = 1;
-        if (!quiet) printf("  single-subtree mode: one subtree of %d radix nodes (BFS-sorted)\n", fill);
+        if (!quiet) {
+            if (partition_depth == 0) {
+                printf("  partition-depth=0: one full-trie training unit of %d radix nodes (BFS-sorted)\n", fill);
+            } else {
+                printf("  single-subtree mode: one subtree of %d radix nodes (BFS-sorted)\n", fill);
+            }
+        }
     }
 
     // ------------------------------------------------------------
@@ -7559,7 +7566,7 @@ int main(int argc, char** argv) {
         }
     }
     if (subtree_splits < 1) subtree_splits = 1;
-    if (partition_depth < 1) partition_depth = 1;
+    if (partition_depth < 0) partition_depth = 0;
 
     // Validate model source: exactly one of --model and --init.
     if (model_path && init_mode) {
@@ -7593,6 +7600,7 @@ int main(int argc, char** argv) {
                         "                                (default) it's harmless work-division.\n"
                         "  [--partition-depth N]       — n-gram partition: group radix nodes by their\n"
                         "                                depth-N ancestor. Pure work-division by default.\n"
+                        "                                0 = one full-trie training unit.\n"
                         "                                1 = per-root-child (65 groups at vocab=65).\n"
                         "                                2 = per-bigram (~1139 groups at d=16 Shakespeare).\n"
                         "                                3 = per-trigram; etc.\n"
@@ -7713,11 +7721,11 @@ int main(int argc, char** argv) {
         return 1;
     }
     cfg.anc_grad = !ablate_anc_grad;
-    if (cfg.anc_grad && partition_depth != 1) {
-        fprintf(stderr, "ERROR: --anc-grad requires --partition-depth 1 (cross-group cache staleness at pd>1 would confound the new gradient flow)\n");
+    if (cfg.anc_grad && partition_depth > 1) {
+        fprintf(stderr, "ERROR: --anc-grad requires --partition-depth 0 or 1 (cross-group cache staleness at pd>1 would confound the new gradient flow)\n");
         return 1;
     }
-    if (cfg.anc_grad && accumulate) {
+    if (cfg.anc_grad && accumulate && partition_depth != 0 && !single_subtree) {
         fprintf(stderr, "ERROR: --anc-grad requires --no-accumulate (gradient flow is per-subtree-fire)\n");
         return 1;
     }

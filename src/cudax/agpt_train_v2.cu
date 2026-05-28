@@ -416,10 +416,11 @@ static void run_train_epoch_on_radix_host_v2(const agpt_v2::TrainerConfig& cfg,
                                              const agpt_v2::PositionSamplingStageV2* pos_stage = nullptr) {
     double t_total0 = wall_seconds_v2();
     agpt_v2::CacheLayout cache = agpt_v2::make_cache_layout(shape);
-    agpt_v2::TrainingPlan training_plan = agpt_v2::build_pd1_training_plan(trie);
+    agpt_v2::TrainingPlan training_plan =
+        agpt_v2::build_training_plan_for_partition_depth(trie, cfg.partition_depth);
     if (training_plan.unit_count <= 0) {
-        std::printf("  train-growth-stage: skipped, no pd=1 training units at radix_nodes=%d\n",
-                    trie.radix_count);
+        std::printf("  train-growth-stage: skipped, no pd=%d training units at radix_nodes=%d\n",
+                    cfg.partition_depth, trie.radix_count);
         agpt_v2::free_training_plan(training_plan);
         return;
     }
@@ -681,7 +682,7 @@ int main(int argc, char** argv) {
                      "       agpt_train_v2 --mode train-growth --model <path> --corpus <path>\n"
                      "  [--growth-frontiers LIST | --growth-divisions N [--growth-final-frontier N | --growth-train-frac F]]\n"
                      "  [--growth-max-depth N]\n"
-                     "  [--epochs N] [--partition-depth 1] [--chunk-queries N] [--lr F] [--optimizer adam|sgd|momentum|rmsprop]\n"
+                     "  [--epochs N] [--partition-depth 0|1] [--chunk-queries N] [--lr F] [--optimizer adam|sgd|momentum|rmsprop]\n"
                      "  [--momentum-beta F] [--rmsprop-beta F] [--lr-schedule constant|warmup-cosine]\n"
                      "  [--warmup-epochs N] [--growth-min-epochs N] [--growth-epoch-schedule fixed|linear-ramp] [--steps N]\n"
                      "  [--rope-position-mode depth|sampled-bin] [--position-data DIR] [--pos-sample-seed N]\n"
@@ -694,9 +695,9 @@ int main(int argc, char** argv) {
                          "                         [--run-forward-prefix] [--run-backward-head]\n");
         return 1;
     }
-    if (cfg.partition_depth != 1) {
+    if (cfg.partition_depth < 0 || cfg.partition_depth > 1) {
         std::fprintf(stderr,
-                     "agpt_train_v2: only --partition-depth 1 is supported in the v2 baseline planner\n");
+                     "agpt_train_v2: only --partition-depth 0 or 1 is supported in the v2 baseline planner\n");
         return 1;
     }
     if (explicit_anc_grad && ablate_anc_grad) {
@@ -947,7 +948,8 @@ int main(int argc, char** argv) {
     cfg.seq_len = shape.seq_len;
     agpt_v2::ModelLayout model = agpt_v2::make_model_layout(shape);
     agpt_v2::CacheLayout cache = agpt_v2::make_cache_layout(shape);
-    agpt_v2::TrainingPlan training_plan = agpt_v2::build_pd1_training_plan(trie);
+    agpt_v2::TrainingPlan training_plan =
+        agpt_v2::build_training_plan_for_partition_depth(trie, cfg.partition_depth);
     agpt_v2::ExecutionPlan plan = agpt_v2::build_execution_plan(trie, training_plan, cfg.chunk_queries);
     agpt_v2::ChunkPlanList largest_chunks = {};
     if (plan.largest_by_queries) {
@@ -985,8 +987,9 @@ int main(int argc, char** argv) {
     std::printf("  cache contract: K=%s compact_slot_indexed=%s\n",
                 cache.k_space == agpt_v2::KCoordinateSpace::PostRope ? "post-RoPE" : "pre-RoPE",
                 cache.compact_slot_indexed ? "true" : "false");
-    std::printf("  pd=1 plan: %d root-child training units, %lld node-visits, %lld query positions,\n"
-                "             %lld compact chars, ~%lld chunks/epoch at chunk_queries=%d\n",
+    std::printf("  pd=%d plan: %d training units, %lld node-visits, %lld query positions,\n"
+                "           %lld compact chars, ~%lld chunks/epoch at chunk_queries=%d\n",
+                cfg.partition_depth,
                 plan.training_unit_count, plan.total_node_count, plan.total_query_count,
                 plan.total_compact_char_count, plan.estimated_chunk_count, cfg.chunk_queries);
     if (plan.largest_by_queries) {
@@ -1436,7 +1439,7 @@ int main(int argc, char** argv) {
         std::printf("  runtime objects: not instantiated (pass --instantiate-runtime to exercise CUDA allocation)\n");
         std::printf("  chunk upload: not instantiated (pass --instantiate-chunk-upload to exercise metadata upload)\n");
     }
-    std::printf("  status: v2 currently validates file formats, plans baseline pd=1 execution,\n"
+    std::printf("  status: v2 currently validates file formats, plans baseline pd=0/pd=1 execution,\n"
                 "          and exercises the full-depth chunk upload/cache/forward/loss path,\n"
                 "          plus output-head/final-LN backward, train-epoch/train-small accumulation, and one-step SGD/RMSProp/multi-step/save-reload sanity modes when requested.\n");
 

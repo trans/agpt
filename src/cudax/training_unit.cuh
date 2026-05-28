@@ -11,6 +11,7 @@
 namespace agpt_v2 {
 
 enum class TrainingUnitKind {
+    WholeTrie,
     RootChildSubtree,
     PartitionGroup,
     LightningSample,
@@ -128,6 +129,39 @@ static inline TrainingPlan build_pd1_training_plan(const RadixTrieStructure& tri
     std::free(rc_to_unit);
     std::free(fills);
     return plan;
+}
+
+static inline TrainingPlan build_pd0_training_plan(const RadixTrieStructure& trie) {
+    TrainingPlan plan;
+    if (trie.radix_count <= 1) return plan;
+
+    plan.unit_count = 1;
+    plan.units = (TrainingUnit*)std::calloc(1, sizeof(TrainingUnit));
+
+    TrainingUnit& unit = plan.units[0];
+    unit.kind = TrainingUnitKind::WholeTrie;
+    unit.unit_index = 0;
+    unit.root_child_id = 0;
+    unit.node_count = trie.radix_count - 1;
+    unit.radix_ids = (int*)std::malloc(unit.node_count * sizeof(int));
+
+    int fill = 0;
+    for (int r = 1; r < trie.radix_count; r++) {
+        unit.radix_ids[fill++] = r;
+        unit.query_count += trie.edge_lens[r];
+        if (trie.edge_mass[r] > 1) unit.compact_char_count += trie.edge_lens[r];
+        int endpoint_depth = trie.edge_first_char_depths[r] + trie.edge_lens[r] - 1;
+        if (endpoint_depth > unit.max_endpoint_depth) unit.max_endpoint_depth = endpoint_depth;
+    }
+    sort_training_unit_radix_ids_by_endpoint_depth(trie, unit);
+
+    return plan;
+}
+
+static inline TrainingPlan build_training_plan_for_partition_depth(const RadixTrieStructure& trie,
+                                                                   int partition_depth) {
+    if (partition_depth == 0) return build_pd0_training_plan(trie);
+    return build_pd1_training_plan(trie);
 }
 
 }  // namespace agpt_v2
