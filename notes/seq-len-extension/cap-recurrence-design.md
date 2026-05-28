@@ -4,9 +4,66 @@
 **Branch:** `agpt-cap-recurrence` (own worktree at
 `/home/trans/Projects/agpt-cap-recurrence/`).
 
-## RESUME HERE (status as of 2026-05-27)
+## FINAL OUTCOME (as of 2026-05-28) — Phase 2B closed, NEGATIVE
 
-Done (8 commits; all opt-in via env vars, baseline training unchanged):
+Three forms of cap-recurrence injection tested in sequence. Implementations
+verified correct (forward parity, gradient flow, weights move). All three
+flat-to-negative against interleaved baseline:
+
+| Form | Status | Numbers |
+|---|---|---|
+| Step 1 — direct add (no learning) | NEGATIVE | Flat at small scale; degrades at large. `rnd/cap-recurrence/20260527-phase2b-step1/` |
+| Step 2 — learnable W_inject (additive at d_x) | NEGATIVE | 1-ep dip was cross-batch drift; 5-ep flat to slightly worse. |
+| Step 3 — option B (learnable K/V-token, shared across layers) | NEGATIVE | 5-pair interleaved mean Δ=+0.002. Inference-time ablation: kvt-with-KV vs kvt-without-KV Δ=+0.002 → model learned to ignore the slot. `rnd/cap-recurrence/20260527-phase2b-step3/` |
+
+**Why (in order of importance, per Thomas's framing):**
+
+1. **Train→infer distribution mismatch.** `h_in[K]` at training is a
+   mass-weighted *average* over K's corpus predecessors' caps. At
+   inference, the predecessor is one specific concrete prefix — no
+   averaging. For low-mass K, training feeds the model a "ghost
+   predecessor" not reproducible at inference and not a structural
+   feature of the corpus.
+
+2. **Attention extracts structure, not idiosyncrasy.** W_k/W_v can only
+   learn patterns that exist across the K population. For per-K
+   memorized cap content, there's nothing to extract — attention
+   (correctly) routes around the slot.
+
+3. **In-window redundancy at this scale.** At d=16 on a 1MB char
+   corpus, the model's native attention already sees the full prefix.
+   `h_in` largely encodes information already accessible. Cap-recurrence
+   is meant to extend effective context *beyond* d; on this test setup
+   there is nothing past d to extend.
+
+**Three-state logic** (the eval ablation result):
+
+- If h_in carried useful signal → eval-with-KV < eval-without-KV ⇒
+  *falsified*.
+- If h_in carried false-narrative content the model latched onto →
+  kvt-eval-without-KV worse than baseline-eval-without-KV ⇒ *falsified*.
+- If h_in is redundant/noise → kvt ignores it, all three eval losses
+  cluster ⇒ *what we observed*.
+
+Either way, the mechanism doesn't matter at this scale.
+
+**What was not tested.** Q2-D persona clustering (extract only the
+structural component of h_cap via codebook over discourse states)
+addresses theory point (1) but not (3). A regime where d is much
+smaller than corpus dependencies addresses (3) but not (1). Anyone
+returning to cap-recurrence should start with Q2-D in a regime where
+contexts actually exceed d — not with the form here.
+
+**Repo status.** Branch `agpt-cap-recurrence` is 9+ commits ahead of
+main; Phase 2B step-2 and step-3 implementations are uncommitted in
+the worktree. Disciplined call: keep the branch as a record of "this
+was tried, doesn't work, here's why" — do not merge to main.
+
+---
+
+## Original RESUME HERE block (2026-05-27, planning state)
+
+Done at that point (8 commits; all opt-in via env vars, baseline training unchanged):
 - **Phase 0** — codebase survey complete (see below).
 - **Phase 1** — capture kernel, cross-epoch load/save, predecessor-table
   builder (`bin/agpt_build_predecessor_table`). Smoke test passed.
@@ -17,17 +74,8 @@ Done (8 commits; all opt-in via env vars, baseline training unchanged):
   addition is too weak — model can't use h_in without a learnable
   projection. See `rnd/cap-recurrence/20260527-phase2b-step1/README.md`.
 
-**NEXT — Phase 2B step 2:** learnable `W_inject` (d_model × d_model).
-Project `d_x[q_first_of_node] += W_inject @ h_in[node]`; add gradient
-through W_inject (FIRST backward-pass change — highest risk); SGD
-update post-fire; persist W_inject in a sidecar file (not model format).
-If PPL improves, that's the cap-recurrence signal. If flat: reconsider
-injection point (depth-0-only too localized?) or escalate to Q1 option
-B (extra K-token).
-
-Setup notes: `shards install` in the worktree first. Test artifacts in
-/tmp may need rebuilding (repro commands in the rnd READMEs). Persona
-aggregation (Q2-D) deferred — using mass-weighted averaging per user.
+Plan at that point was to do step 2, escalate to option B if flat.
+Both done and both flat — see FINAL OUTCOME above.
 
 ---
 
