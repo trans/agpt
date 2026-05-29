@@ -36,7 +36,7 @@ build-stubs:
 #
 # Cost: "modest" softmax slowdown vs the prior fast-math build (the
 # original justification for --use_fast_math). Determinism by default
-# is worth the cost — see notes/agpt/forward-parity.md if/when written.
+# is worth the cost — see notes/trainer/forward-parity.md if/when written.
 #
 # Distinct from build/kernels.o (CPU stubs for Crystal-side tools, see
 # build-stubs); we use build/kernels_gpu.o to avoid filename collision.
@@ -94,6 +94,20 @@ build-agpt-seed:
     mkdir -p bin
     /opt/cuda/bin/nvcc --allow-unsupported-compiler -std=c++17 -O3 \
         src/cudax/agpt_seed.cu -o bin/agpt-seed
+
+# Build the corpus carve tool — pre-processing step that produces
+# train_corpus.txt + heldout_corpus.txt + heldout_chunks/ + manifest.json
+# at data/.splits/<hash>/. Pure Crystal; no CUDA kernels.
+build-agpt-carve:
+    mkdir -p bin
+    timeout 5m crystal build src/tools/agpt_carve.cr -o bin/agpt_carve --release
+
+# Build the microgpt YAML adapter — translates a config in the new
+# canonical YAML schema (docs/yaml-schema.md) into microgpt's existing
+# CLI flags and exec's bin/microgpt. Zero changes to microgpt itself.
+build-microgpt-yaml:
+    mkdir -p bin
+    timeout 5m crystal build src/tools/microgpt_yaml.cr -o bin/microgpt_yaml --release
 
 # Build the leveled-trie index builder.
 build-agpt-build-index: build-stubs
@@ -170,7 +184,7 @@ build-agpt-parrot-sample: build-stubs
     timeout 10m crystal build src/tools/agpt_parrot_sample.cr -o bin/agpt_parrot_sample --release --link-flags="{{root}}/build/kernels.o -lstdc++"
 
 # Build sliding-window perplexity prototype. v1 of sliding-window AGPT
-# inference (see notes/sliding_window_agpt.md, rnd/sliding-window-v1).
+# inference (see notes/seq-len-extension/sliding_window_agpt.md, rnd/sliding-window-v1).
 # Logit-pooling perplexity: for each target position, runs d contributing
 # windows and pools their log-prob predictions.
 build-agpt-sliding-window-perplexity:
@@ -256,7 +270,7 @@ build-convergence: build-stubs
 # Build the experiment runner that orchestrates YAML-configured runs.
 # Pure Crystal; no model loading, no CUDA. Spawns trainer + lm-eval
 # subprocesses and bundles config+logs+checkpoint+result into one dir.
-# See notes/experiment-runner-design.md.
+# See notes/operations/experiment-runner-design.md.
 build-agpt-experiment:
     mkdir -p bin
     timeout 5m crystal build src/tools/agpt_experiment.cr -o bin/agpt_experiment --release

@@ -430,6 +430,71 @@ def sliding_window_ppl(
     return math.exp(total_nll / n_targets), n_targets, target_start, target_stop
 
 
+def depth_profile_ppl(
+    model,
+    tokens,
+    d_window,
+    max_positions,
+    device,
+    batch_size=256,
+    eval_start=None,
+    eval_end=None,
+    eval_tail_frac=None,
+):
+    """Per-position PPL for dense causal sliding-window positions.
+
+    Position k uses the logits at within-window position k-1 to predict the
+    next token in a normal dense sequence. This is intentionally not the same
+    as AGPT trie-depth PPL: compact radix edges train non-endpoint characters
+    to predict the next character inside the edge, and only edge endpoints
+    train the empirical branch distribution.
+    """
+    model.eval()
+    N = len(tokens)
+    if N < d_window + 1:
+        raise ValueError(f"need ≥ d_window+1 = {d_window + 1} tokens, got {N}")
+    target_start, target_stop = resolve_target_range(
+        N,
+        d_window,
+        max_positions,
+        eval_start,
+        eval_end,
+        eval_tail_frac,
+        needs_full_future_window=True,
+    )
+    n_targets = target_stop - target_start
+
+    tokens_t = torch.tensor(tokens, dtype=torch.long, device=device)
+    totals = [0.0 for _ in range(d_window)]
+    with torch.no_grad():
+        for start in range(target_start, target_stop, batch_size):
+            stop = min(start + batch_size, target_stop)
+            i_range = torch.arange(start, stop, device=device)
+            tgt = tokens_t[i_range]
+            offsets = torch.arange(d_window, device=device).view(1, -1)
+            for j in range(d_window):
+                w_start = i_range - 1 - j
+                if (w_start < 0).any():
+                    continue
+                idx = w_start.view(-1, 1) + offsets
+                ctx = tokens_t[idx]
+                logits_j = model(ctx)[:, j, :]
+                log_probs = F.log_softmax(logits_j, dim=-1)
+                nll = -log_probs.gather(1, tgt.unsqueeze(1)).squeeze(1)
+                totals[j] += nll.sum().item()
+
+    profile = [
+        {
+            'depth': j + 1,
+            'perplexity': math.exp(total / n_targets),
+            'mean_nll': total / n_targets,
+            'tokens_evaluated': n_targets,
+        }
+        for j, total in enumerate(totals)
+    ]
+    return profile, n_targets, target_start, target_stop
+
+
 def main():
     ap = argparse.ArgumentParser(
         description="Independent PyTorch reference PPL for AGPT models"
@@ -474,13 +539,14 @@ def main():
     ap.add_argument(
         '--mode',
         default='fixed',
-        choices=['fixed', 'uniform', 'depth_w', 'both'],
+        choices=['fixed', 'uniform', 'depth_w', 'both', 'depth_profile'],
         help=(
             "PPL protocol:\n"
             "  fixed   — standard PPL: predict from last position only (matches Crystal --pool deep_only)\n"
             "  uniform — logit-pooled sliding window, uniform weights (matches Crystal --pool uniform)\n"
             "  depth_w — logit-pooled sliding window, depth-weighted (matches Crystal --pool depth_w)\n"
-            "  both    — print fixed and uniform PPLs"
+            "  both    — print fixed and uniform PPLs\n"
+            "  depth_profile — print dense causal PPL for each within-window position"
         ),
     )
     args = ap.parse_args()
@@ -525,7 +591,7 @@ def main():
         print(f"Eval target range: [{start}, {stop})", file=sys.stderr)
         print(f"Tokens evaluated: {n}", file=sys.stderr)
         print(f"Perplexity:    {ppl:.4f}")
-    else:  # both
+    elif args.mode == 'both':
         ppl_f, n_f, start_f, stop_f = fixed_window_ppl(
             model, tokens, args.d, args.max_positions, args.device, args.batch_size,
             args.eval_start, args.eval_end, args.eval_tail_frac,
@@ -541,6 +607,20 @@ def main():
         print(f"Tokens evaluated fixed={n_f} uniform={n_u}", file=sys.stderr)
         print(f"Perplexity (fixed):   {ppl_f:.4f}")
         print(f"Perplexity (uniform): {ppl_u:.4f}")
+    else:  # depth_profile
+        profile, n, start, stop = depth_profile_ppl(
+            model, tokens, args.d, args.max_positions, args.device, args.batch_size,
+            args.eval_start, args.eval_end, args.eval_tail_frac,
+        )
+        print(f"Eval target range: [{start}, {stop})", file=sys.stderr)
+        print(f"Tokens evaluated: {n}", file=sys.stderr)
+        print("depth\tppl\tmean_nll")
+        for row in profile:
+            print(
+                f"{row['depth']}\t"
+                f"{row['perplexity']:.4f}\t"
+                f"{row['mean_nll']:.6f}"
+            )
 
 
 if __name__ == '__main__':

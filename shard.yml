@@ -11,6 +11,10 @@ targets:
     main: src/tools/build_index.cr
   synth_wrap_corpus:
     main: src/tools/synth_wrap_corpus.cr
+  agpt_carve:
+    main: src/tools/agpt_carve.cr
+  microgpt_yaml:
+    main: src/tools/microgpt_yaml.cr
   radix-verify:
     main: src/tools/radix_verify.cr
   trie-profile:
