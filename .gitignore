@@ -57,6 +57,10 @@ rnd/**/heldout_corpus.txt
 # Python bytecode in experiment dirs.
 rnd/**/__pycache__/
 
+# Hugging Face datasets cache that lm-eval leaks into run dirs.
+# Cached arrow files; regenerable from corpus + lm-eval invocation.
+rnd/**/.hf/
+
 # Content-hashed caches produced by bin/agpt_carve and bin/agpt_build_radix_corpus.
 # Regenerable from corpus.path + carve params / trie params; hashes are recorded
 # in meta.json + manifest.json inside each cache dir.
