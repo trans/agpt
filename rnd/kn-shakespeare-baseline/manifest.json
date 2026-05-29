@@ -1,0 +1,87 @@
+{
+  "source_corpus": "/home/trans/Projects/agpt/data/input.txt",
+  "source_corpus_sha256": "86c4e6aa9db7c042ec79f339dcb96d42b0075e16b8fc2e86bf0ca57e2dc565ed",
+  "source_corpus_size": 1115394,
+  "k": 10,
+  "holdout_frac": 0.05,
+  "chunk_size": 5576,
+  "seed": 42,
+  "chunks": [
+    {
+      "index": 0,
+      "start": 52451,
+      "end": 58027,
+      "size": 5576,
+      "sha256": "993ce9ffce0a9f2297dd70f3a968a3f7ac50ff807d0e9bbfd78902b06ab22cd8"
+    },
+    {
+      "index": 1,
+      "start": 66653,
+      "end": 72229,
+      "size": 5576,
+      "sha256": "a5470a3139ae0c4f321af2ac012a0520c9b23bd703a811ee757b1027927624f7"
+    },
+    {
+      "index": 2,
+      "start": 182323,
+      "end": 187899,
+      "size": 5576,
+      "sha256": "fe163437c238d7261f6008c423db419a06e5ad946d9e5d8a49cb3eba8db584e5"
+    },
+    {
+      "index": 3,
+      "start": 214947,
+      "end": 220523,
+      "size": 5576,
+      "sha256": "d7ada9d1bc909ea50685e5dd3eb5465b8b1986d9fdb00f5f6b6fb600c98dd101"
+    },
+    {
+      "index": 4,
+      "start": 233478,
+      "end": 239054,
+      "size": 5576,
+      "sha256": "53c6ef6bf47838fec2367fb067c2d885d78cc20e7f7847d37e95ce4dfe11d3d3"
+    },
+    {
+      "index": 5,
+      "start": 292632,
+      "end": 298208,
+      "size": 5576,
+      "sha256": "97659cd554dff2f7555b4f0c3f4ab6d723fca201e55599056832f181ba0fd200"
+    },
+    {
+      "index": 6,
+      "start": 468106,
+      "end": 473682,
+      "size": 5576,
+      "sha256": "7fc2ae4db1813c71a74bb8c159bdb5d39656d75eb464ae50635c662aeb596eec"
+    },
+    {
+      "index": 7,
+      "start": 513575,
+      "end": 519151,
+      "size": 5576,
+      "sha256": "b570c95a590d238d1021405355211c5605e8149d1bb429483345587d24c473f0"
+    },
+    {
+      "index": 8,
+      "start": 576778,
+      "end": 582354,
+      "size": 5576,
+      "sha256": "323deb4bb8c914ef4f6e1601dd05f782d672cfeddf877eafd92f96d22efda098"
+    },
+    {
+      "index": 9,
+      "start": 884834,
+      "end": 890410,
+      "size": 5576,
+      "sha256": "acbb18447fd7e9fb246f48181ce53bf93e127d52f6944bea8e64e9d63ee0aa8a"
+    }
+  ],
+  "train_size": 1059634,
+  "train_sha256": "ab2abadce1f67a6ef2fe9ae8104b74df01990909ccd79cf21464936f35537e7b",
+  "heldout_size": 55760,
+  "heldout_sha256": "93b7a360d211431b09e186920193b15efc927998e9b6f52bc67a023555decefa",
+  "seams_in_train": 10,
+  "seam_char_neighborhood_for_d16": 320
+}

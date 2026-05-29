@@ -1,0 +1,16 @@
+# KN sweep — Shakespeare 1M, multi-chunk 95/5 disjoint held-out
+# Split: build_multi_chunk_split.py --k 10 --holdout-frac 0.05 --seed 42
+# Date: 2026-05-28T17:25:25Z
+# Train sha256: ab2abadce1f67a6ef2fe9ae8104b74df01990909ccd79cf21464936f35537e7b
+# Heldout sha256: 93b7a360d211431b09e186920193b15efc927998e9b6f52bc67a023555decefa
+
+order    ppl                    tokens
+3        7.251416795775896      53681
+4        5.034637876514373      53681
+5        4.33797427092435       53681
+6        4.144368125011728      53681
+7        4.114338385962136      53681
+8        4.119647400428577      53681
+9        4.129910285298258      53681
+10       4.132349046776784      53681
+12       4.127312488361127      53681
