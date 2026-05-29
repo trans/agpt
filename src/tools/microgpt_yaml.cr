@@ -261,24 +261,26 @@ warmup_steps = warmup_epochs > 0 ? (warmup_epochs * (corpus_size / seq_len)).to_
 # Apply --seed override if given
 final_seed = seed_override || seed_val
 
-# Resolve model checkpoint path. Microgpt's --model is overloaded
-# (load if exists, save at end). Map init_file/save_file:
-#   - both specified, different paths → error (microgpt can't do this)
-#   - both specified, same path        → use that path
-#   - only init_file                    → load + save back (overwrite)
-#   - only save_file                    → fresh init, save here
-#   - neither                           → microgpt's default (derived from corpus name)
-model_path : String? = nil
+# Resolve model checkpoint paths. As of microgpt's --save addition,
+# --model is load-only when --save is also given. Map init_file/save_file:
+#   - both specified, different → --model init_file --save save_file
+#   - both specified, same      → --model save_file (microgpt loads + saves to same path)
+#   - only init_file            → --model init_file (load + save back; microgpt's overload)
+#   - only save_file            → --save save_file (fresh init, save here)
+#   - neither                   → microgpt's default (derived from corpus name)
+load_path : String? = nil
+save_path : String? = nil
 if init_file && save_file
-  if init_file != save_file
-    STDERR.puts "Error: microgpt cannot use distinct init_file (#{init_file}) and save_file (#{save_file}) — they must be the same path"
-    exit 1
+  if init_file == save_file
+    load_path = init_file
+  else
+    load_path = init_file
+    save_path = save_file
   end
-  model_path = init_file
 elsif init_file
-  model_path = init_file
+  load_path = init_file
 elsif save_file
-  model_path = save_file
+  save_path = save_file
 end
 
 # Build microgpt argv
@@ -294,13 +296,14 @@ argv << "--lookahead" << lookahead.to_s if lookahead != 0
 argv << "--lr" << lr.to_s
 argv << "--lr-schedule" << lr_schedule if lr_schedule != "constant"
 argv << "--warmup-steps" << warmup_steps.to_s if warmup_steps > 0
-if mp = model_path
-  argv << "--model" << mp
+if lp = load_path
+  argv << "--model" << lp
 end
-# Microgpt's --no-save: if user gave init_file only (no save_file), they
-# probably want to load + save back (overwriting). If they gave only
-# save_file, they want to save. Neither + no defaults → microgpt's
-# auto-derived path. No-save is set when no model_path resolves.
+if sp = save_path
+  argv << "--save" << sp
+end
+# Neither load nor save → microgpt's auto-derived path takes over and saves
+# back to it (matching its default behavior for ad-hoc runs).
 
 unless quiet
   STDERR.puts "microgpt_yaml: invoking #{microgpt_bin} with:"

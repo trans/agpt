@@ -164,9 +164,15 @@ def _extract_lm_eval_metrics(results: dict, task_name: str) -> dict:
 
 
 def _run_fixed_token_ppl(args: argparse.Namespace) -> dict:
-    """Compute AGPT fixed-window token PPL on the same local text file."""
-    if not args.text_file:
-        raise ValueError("fixed-token PPL requires --text-file")
+    """Compute AGPT fixed-window token PPL.
+
+    Source: --text-file (single corpus) or --chunks-dir (multi-chunk carve).
+    For chunks-dir, each chunk is scored independently with its own fixed
+    window pass; per-chunk NLL totals are summed and the aggregate PPL is
+    exp(total_nll / total_tokens). No chunk-boundary contamination.
+    """
+    if not (args.text_file or args.chunks_dir):
+        raise ValueError("fixed-token PPL requires --text-file or --chunks-dir")
     if not args.agpt_model:
         raise ValueError("fixed-token PPL requires --agpt-model")
     if not args.vocab_file:
@@ -176,27 +182,61 @@ def _run_fixed_token_ppl(args: argparse.Namespace) -> dict:
     d_window = args.fixed_context or cfg["seq_len"]
     device = args.fixed_device or args.device
     char_to_id, vocab_size = agpt_ppl.build_vocab(args.vocab_file)
-
-    text = Path(args.text_file).read_text(encoding="utf-8", errors="replace")
-    tokens = [char_to_id[c] for c in text if c in char_to_id]
     model = agpt_ppl.AGPTModel(cfg, sd, device=device).to(device)
-    ppl, n, start, stop = agpt_ppl.fixed_window_ppl(
-        model,
-        tokens,
-        d_window,
-        args.fixed_max_positions,
-        device,
-        args.fixed_batch_size,
-    )
+
+    # Gather sources: one path (text_file) or many (chunks_dir).
+    if args.text_file:
+        sources = [Path(args.text_file)]
+    else:
+        sources, _ = _resolve_chunks(Path(args.chunks_dir))
+
+    total_nll = 0.0
+    total_tokens = 0
+    per_chunk: list[dict] = []
+    for src_path in sources:
+        text = src_path.read_text(encoding="utf-8", errors="replace")
+        tokens = [char_to_id[c] for c in text if c in char_to_id]
+        if not tokens:
+            continue
+        ppl, n, start, stop = agpt_ppl.fixed_window_ppl(
+            model,
+            tokens,
+            d_window,
+            args.fixed_max_positions,
+            device,
+            args.fixed_batch_size,
+        )
+        if n > 0:
+            # Reconstruct sum-NLL from per-token PPL so we can pool across chunks.
+            chunk_nll = math.log(ppl) * n
+            total_nll += chunk_nll
+            total_tokens += n
+            per_chunk.append({
+                "path": str(src_path),
+                "perplexity": ppl,
+                "tokens_evaluated": n,
+                "target_start": start,
+                "target_stop": stop,
+            })
+
+    if total_tokens == 0:
+        raise ValueError("fixed-token PPL: no tokens evaluated across all sources")
+    agg_ppl = math.exp(total_nll / total_tokens)
+    # target_start/target_stop are token offsets inside a single source array.
+    # For a single source we report them at top level (preserves the previous
+    # shape). For multi-source they live per-chunk only — the values from
+    # separate sources don't combine into a continuous range.
+    single_source = len(per_chunk) == 1
     return {
         "protocol": "agpt_fixed_token",
-        "perplexity": ppl,
-        "tokens_evaluated": n,
-        "target_start": start,
-        "target_stop": stop,
+        "perplexity": agg_ppl,
+        "tokens_evaluated": total_tokens,
+        "target_start": per_chunk[0]["target_start"] if single_source else None,
+        "target_stop": per_chunk[0]["target_stop"] if single_source else None,
         "context_tokens": d_window,
         "vocab_size": vocab_size,
         "model_seq_len": cfg["seq_len"],
+        "per_chunk": per_chunk if not single_source else None,
     }
 
 
@@ -289,8 +329,8 @@ def main() -> None:
     )
     args = p.parse_args()
 
-    if args.agpt_model and not args.text_file:
-        p.error("--agpt-model fixed-token PPL currently requires --text-file")
+    if args.agpt_model and not (args.text_file or args.chunks_dir):
+        p.error("--agpt-model fixed-token PPL requires --text-file or --chunks-dir")
     if args.agpt_model and not args.vocab_file:
         p.error("--agpt-model fixed-token PPL requires --vocab-file")
 
