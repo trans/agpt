@@ -6,6 +6,7 @@
 /tools/kenlm/
 /tools/kenlm_venv/
 *.dwarf
+*.log
 results.tsv
 .env
 /.mcp.json
