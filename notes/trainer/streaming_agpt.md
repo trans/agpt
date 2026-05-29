@@ -177,7 +177,7 @@ or extra steps on growing tries don't help in the way we expect.
 ## Files
 
 ```
-notes/streaming_agpt.md             — this file
+notes/trainer/streaming_agpt.md             — this file
 rnd/streaming-agpt-v1/
 ├── README.md                             — experiment plan
 ├── findings.md                           — results once we have them

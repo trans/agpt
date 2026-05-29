@@ -1,7 +1,7 @@
 # Streaming AGPT v1 — 5-checkpoint linear cadence
 
 **Status:** planning (started 2026-05-16)
-**Design doc:** `notes/streaming_agpt.md`
+**Design doc:** `notes/trainer/streaming_agpt.md`
 
 ## Goal
 

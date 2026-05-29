@@ -137,4 +137,4 @@ Whether the "live parent loss" mass-weighting + cap-bias is enough to
 make pair-mode genuinely AG-distinct from SGD-at-seq=2d, or whether
 breaking the d=seq_len ceiling requires a more fundamental
 mechanism (the topological-navigation attention bridge from
-notes/topological-navigation.md).
+notes/prefix-suffix/topological-navigation.md).

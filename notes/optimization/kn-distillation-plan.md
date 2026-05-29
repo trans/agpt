@@ -105,5 +105,5 @@ NOT worth doing if:
 - `src/agpt/kn_model.cr`
 - `src/agpt/kn_cache.cr`
 - `src/cuda/agpt_train.cu` (CLI + loss kernel changes)
-- `notes/kn-distillation-plan.md` (this file)
+- `notes/optimization/kn-distillation-plan.md` (this file)
 - `rnd/kn-distillation/` (experiment results when run)

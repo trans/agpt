@@ -10,7 +10,7 @@ buckets — so the "t"-subtree has its own `v` separate from "w"-subtree —
 extracts a structural signal that pooled `v` is averaging away.
 
 This is the cheapest precursor to the broader **topological optimizer state**
-program (see `notes/suffix_weighted_curvature.md`): tests whether
+program (see `notes/optimization/suffix_weighted_curvature.md`): tests whether
 *any* form of trie-structured optimizer state helps, before paying the
 engineering cost of within-step suffix-ensemble F_p (Stage 2).
 

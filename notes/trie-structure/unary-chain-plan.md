@@ -9,7 +9,7 @@ Branch: `agpt-sibling-attention`
 To get back into context:
 ```
 git log --oneline -8         # recent work
-cat notes/bottleneck-analysis.md   # why we're doing this
+cat notes/trainer/bottleneck-analysis.md   # why we're doing this
 crystal spec spec/agpt_chain_compression_spec.cr --link-flags="$(pwd)/build/kernels.o"
 ```
 

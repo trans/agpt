@@ -10,7 +10,7 @@ the same family as virtual-tree experiments which regressed empirically
 the design ever gets revisited, the v1 algorithm here is the natural
 starting point.
 
-The other two mechanisms in `notes/prefix-suffix-fold-architecture.md`
+The other two mechanisms in `notes/prefix-suffix/prefix-suffix-fold-architecture.md`
 (prefix-suffix Bayesian bridging, AGPT-aggregated training) are
 independent of cap-folding and remain open follow-ups.
 
@@ -24,7 +24,7 @@ independent of cap-folding and remain open follow-ups.
 
 ## Read this first
 
-1. **`notes/prefix-suffix-fold-architecture.md`** — the full
+1. **`notes/prefix-suffix/prefix-suffix-fold-architecture.md`** — the full
    design synthesis for the unified prefix-suffix-fold architecture.
    This document is the canonical reference; everything else is
    subordinate.
@@ -151,7 +151,7 @@ Document the results in `rnd/prefix-suffix-bayes/fold_map_v1_findings.md`:
 - Don't modify the radix-trie reader (`src/agpt/radix_trie_reader.cr`)
   beyond adding read-only methods you need
 - Don't implement substring-match v2 — wait for the architecture
-  decision in `notes/prefix-suffix-fold-architecture.md` to
+  decision in `notes/prefix-suffix/prefix-suffix-fold-architecture.md` to
   evolve
 - Don't train any models in this worktree
 

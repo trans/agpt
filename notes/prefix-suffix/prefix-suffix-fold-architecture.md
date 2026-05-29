@@ -430,12 +430,12 @@ the question is whether they compound or interfere.
 
 ## 6. Connections to other notes
 
-- `notes/invariants.md` — the bounded-subtree training object;
+- `notes/core/invariants.md` — the bounded-subtree training object;
   this architecture preserves it (each AGPT subtree fires a single
   Adam step including all three KL terms)
 - `notes/trie-attention-framing.md` — K=decision/V=identity
   framing that motivates the cap-fold idea
-- `notes/meaning-as-suffix-distribution.md` — semantic foundation
+- `notes/core/meaning-as-suffix-distribution.md` — semantic foundation
   for why the suffix tree carries equivalent information to the
   forward tree
 - `rnd/prefix-suffix-bayes/` — empirical math validation

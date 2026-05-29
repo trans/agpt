@@ -5,7 +5,7 @@ Tests whether replacing the unary-tunnel walk with a structural
 useful training signal. Two dumb-baseline variants compared head-to-head
 against the existing `synth_wrap` walk-and-bridge pipeline.
 
-See `notes/topological-navigation.md` for the framing and the
+See `notes/prefix-suffix/topological-navigation.md` for the framing and the
 larger architectural sketch (full-attention bridge, BayesInv suffix
 coupling, Cycle Consistency Loss). This experiment is the *minimal*
 structural baseline — single-token routing, no learned attention.

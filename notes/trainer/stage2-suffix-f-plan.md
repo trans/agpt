@@ -1,7 +1,7 @@
 # Stage 2: Within-Step Suffix-Ensemble F_p — Plan
 
 Stage 2 of topological optimizer state. Builds on the suffix-weighted
-curvature proposal in `notes/suffix_weighted_curvature.md` and the
+curvature proposal in `notes/optimization/suffix_weighted_curvature.md` and the
 Stage 1 closure documented in `rnd/per-rc-adam-v1/findings.md`.
 
 ## Why Stage 2 and not more Stage 1 variants
