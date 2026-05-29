@@ -1,22 +1,29 @@
-# Experiment runner — binds config, checkpoint, logs, and result.json into
-# one immutable artifact per run.
+# Experiment runner — binds carved corpus, trie, checkpoint, logs, and
+# result.json into one immutable per-run artifact.
 #
-# Workflow: read YAML config → create rnd/<experiment>/<run-id>/ →
-# spawn trainer → convert checkpoint to HF format → spawn lm-eval driver →
-# parse PPL → write result.json + meta.json → update runs.json + README.md.
+# Workflow:
+#   1. Read YAML config (new-schema; see docs/yaml-schema.md).
+#   2. Verify carved files; invoke bin/agpt_carve if missing + carve block present.
+#   3. (AGPT only) build/cache radix trie at data/.tries/<hash>/ when trie.path absent.
+#   4. Apply defaults (model.save_file → <rundir>/checkpoint.model; trie.path → cache).
+#   5. Write resolved_config.yml to the run dir.
+#   6. Spawn the trainer chosen via --trainer (v1|v2|microgpt|<path>).
+#   7. Convert checkpoint → HF; run agpt_lm_eval.py against held-out / external / benchmark.
+#   8. Parse metrics → write result.json + update meta.json + runs.json + README table.
 #
-# See notes/operations/experiment-runner-design.md for the full spec.
+# See notes/operations/experiment-runner-design.md for the prose spec and
+# notes/operations/orchestrator-rewrite-plan.md for the #29 rewrite plan.
 #
 # Usage:
-#   bin/agpt_experiment --config configs/foo.yml [--rnd-root rnd]
-#   bin/agpt_experiment --validate configs/foo.yml   # parse + show resolved, do nothing
+#   bin/agpt_experiment --config FOO.yml --trainer <v1|v2|microgpt|/path/to/binary> [--seed N]
+#   bin/agpt_experiment --validate FOO.yml
 #
 # Exit codes:
 #   0 success
 #   2 config validation error
 #   3 trainer failed
 #   4 evaluator failed
-#   5 duplicate run (same config hash + corpus sha already exists)
+#   5 duplicate run (same config hash already present under rnd/<experiment>/)
 
 require "yaml"
 require "json"
@@ -26,122 +33,189 @@ require "file_utils"
 require "time"
 
 module AgptExperiment
-  VERSION = "0.1.0"
+  VERSION = "0.2.0"
 
   # ---------------------------------------------------------------------------
-  # Config types
+  # Config types — mirror docs/yaml-schema.md.
+  # Round-tripped via YAML::Serializable to produce resolved_config.yml.
   # ---------------------------------------------------------------------------
 
-  struct MetaBlock
+  struct CarveBlock
     include YAML::Serializable
     include JSON::Serializable
-    property description : String
-    property experiment : String
-    property hypothesis_ref : String?
-    property run_slug : String?
+    property source : String
+    property mode : String       # "sample" | "tail"
+    property ratio : Float64
+    property chunks : Int32?
+    property seed : Int32?
   end
 
   struct CorpusBlock
     include YAML::Serializable
     include JSON::Serializable
     property path : String
-    # vocab_source defaults to `path` when nil.
+    property heldout : String?
     property vocab_source : String?
-    # Fraction of the corpus used for training (0 < frac <= 1). When < 1.0
-    # the orchestrator carves the corpus into train_corpus.txt (head) and
-    # heldout_corpus.txt (tail) inside the run dir; the trainer only sees
-    # the head, and eval.split=tail-heldout uses the tail.
-    property train_frac : Float64 = 1.0
+    property carve : CarveBlock?
+  end
+
+  struct TrieBlock
+    include YAML::Serializable
+    include JSON::Serializable
+    property max_depth : Int32?
+    property prune_min_mass : Int32 = 1
+    property prune_min_depth : Int32 = 0
+    property path : String?
+    property virtual_tree : Bool = false
   end
 
   struct ModelBlock
     include YAML::Serializable
     include JSON::Serializable
-    property init_from : String
+    property d_model : Int32?
+    property n_layers : Int32?
+    property n_heads : Int32?
+    property d_ff : Int32?
+    property head_dim : Int32?
+    property init_file : String?
+    property init_seed : Int32?
+    property save_file : String?
   end
 
-  # train: block — fields map to agpt_train_v2 flags. `flags:` is a free
-  # map for anything not covered by named fields.
+  struct BudgetBlock
+    include YAML::Serializable
+    include JSON::Serializable
+    property unit : String        # "epochs" | "steps" | "wall_seconds"
+    property value : Int32
+  end
+
+  struct OptimizerBlock
+    include YAML::Serializable
+    include JSON::Serializable
+    property name : String
+    property lr : Float64?
+    property beta : Float64?
+    property momentum_beta : Float64?
+    property weight_decay : Float64?
+    property grad_clip_norm : Float64?
+  end
+
+  struct LrScheduleBlock
+    include YAML::Serializable
+    include JSON::Serializable
+    property name : String = "constant"
+    property warmup_epochs : Int32 = 0
+  end
+
+  struct GrowthBlock
+    include YAML::Serializable
+    include JSON::Serializable
+    property divisions : Int32
+    property min_epochs : Int32
+    property epoch_ramp : String = "fixed"
+  end
+
   struct TrainBlock
     include YAML::Serializable
     include JSON::Serializable
-    property tool : String = "bin/agpt_train_v2"
-    property mode : String = "train-growth"
-    property growth_frontiers : String?
-    property growth_divisions : Int32?
-    property growth_max_depth : Int32?
-    property growth_min_epochs : Int32?
-    property growth_epoch_ramp : String?
-    property epochs : Int32?
-    property optimizer : String?
-    property lr : Float64?
-    property rmsprop_beta : Float64?
-    property momentum_beta : Float64?
-    property lr_schedule : String?
-    property warmup_epochs : Int32?
+    property budget : BudgetBlock
+    property seed : Int32 = 42
+    property quiet : Bool = true
+    property optimizer : OptimizerBlock
+    property lr_schedule : LrScheduleBlock?
+    # Context window — at least one required (cross-check rule if both set).
+    property max_depth : Int32?
+    property seq_len : Int32?
+    # AGPT-only knobs.
     property partition_depth : Int32?
     property chunk_queries : Int32?
-    property anc_grad : Bool = false
-    property accumulate : Bool? # nil = don't pass either flag
-    property quiet : Bool = true
-    property extra_args : Array(String) = [] of String
+    property anc_grad : Bool?
+    property mass_weight : String?
+    property fire_norm : String?
+    property entropy_lambda : Float64?
+    property ce_only : Bool?
+    property growth : GrowthBlock?
+    # Microgpt-only.
+    property backend : String?
+    property heads : String?
+    property lookahead : Int32?
   end
 
-  # eval: block — runs agpt_lm_eval.py against an HF-converted checkpoint.
-  # `split` MUST be set explicitly; there is no safe default. Numbers from
-  # different splits are not comparable, so result.json records the split.
   struct EvalBlock
     include YAML::Serializable
     include JSON::Serializable
-    property tool : String = "src/tools/agpt_lm_eval.py"
-    # split: train | tail-heldout | external-heldout | benchmark
-    property split : String
-    # Required when split=external-heldout — path to a text file that the
-    # model never saw during training.
     property external_file : String?
-    # Required when split=benchmark — built-in lm-eval task name.
     property benchmark : String?
-    property task_name : String = "experiment_ppl"
+    property train_sanity : Bool = false
     property batch_size : Int32 = 1
     property device : String = "cpu"
     property limit : Int32?
-
-    def validate!(corpus : CorpusBlock) : Nil
-      case split
-      when "train"
-        # ok — evaluator gets the train slice
-      when "tail-heldout"
-        if corpus.train_frac >= 1.0
-          raise "eval.split=tail-heldout requires corpus.train_frac < 1.0 " \
-                "(else there is no held-out tail)"
-        end
-      when "external-heldout"
-        ext = external_file
-        raise "eval.split=external-heldout requires eval.external_file" if ext.nil?
-        raise "eval.external_file does not exist: #{ext}" unless File.exists?(ext.not_nil!)
-      when "benchmark"
-        raise "eval.split=benchmark requires eval.benchmark" if benchmark.nil?
-      else
-        raise "eval.split must be one of: train | tail-heldout | external-heldout | benchmark"
-      end
-    end
   end
 
-  struct Config
+  class Config
     include YAML::Serializable
     include JSON::Serializable
-    property meta : MetaBlock
+    property description : String
+    property experiment : String
+    property run_slug : String?
     property corpus : CorpusBlock
-    property model : ModelBlock
+    property trie : TrieBlock?
+    property model : ModelBlock?
     property train : TrainBlock
-    property eval : EvalBlock
+    property eval : EvalBlock?
+    # Free-form pass-through for in-development knobs. The orchestrator does
+    # NOT validate field names inside `experimental`; trainers warn on
+    # unknown keys. See docs/yaml-schema.md "experimental" section.
+    property experimental : Hash(String, YAML::Any)?
 
+    # Top-level shape validation. Trainer-domain validation (typo detection
+    # on within-block fields) happens at the trainer itself.
     def validate! : Nil
-      raise "meta.experiment is required" if meta.experiment.empty?
-      raise "corpus.path does not exist: #{corpus.path}" unless File.exists?(corpus.path)
-      raise "model.init_from does not exist: #{model.init_from}" unless File.exists?(model.init_from)
-      raise "corpus.train_frac must be in (0, 1]" unless 0.0 < corpus.train_frac <= 1.0
-      eval.validate!(corpus)
+      raise "description is required" if description.empty?
+      raise "experiment is required" if experiment.empty?
+
+      raise "corpus.path is required" if corpus.path.empty?
+      if c = corpus.carve
+        raise "corpus.carve.source is required" if c.source.empty?
+        unless {"sample", "tail"}.includes?(c.mode)
+          raise "corpus.carve.mode must be sample|tail (got #{c.mode.inspect})"
+        end
+        raise "corpus.carve.ratio must be in (0, 1)" unless 0.0 < c.ratio < 1.0
+        if c.mode == "sample"
+          raise "corpus.carve.chunks required when mode=sample" if c.chunks.nil?
+          raise "corpus.carve.seed required when mode=sample" if c.seed.nil?
+        end
+      end
+
+      unless {"epochs", "steps", "wall_seconds"}.includes?(train.budget.unit)
+        raise "train.budget.unit must be epochs|steps|wall_seconds (got #{train.budget.unit.inspect})"
+      end
+      raise "train.budget.value must be positive" unless train.budget.value > 0
+
+      # Context-window cross-check.
+      sl = train.seq_len
+      md = train.max_depth
+      if sl && md && sl != md
+        raise "train.seq_len (#{sl}) != train.max_depth (#{md}); AGPT cannot support unequal values today"
+      end
+
+      if ev = eval
+        if ev.external_file && ev.benchmark
+          raise "eval.external_file and eval.benchmark are mutually exclusive"
+        end
+      end
+    end
+
+    def eval_or_default : EvalBlock
+      eval || EvalBlock.from_yaml("{}")
+    end
+
+    def trie_or_default : TrieBlock
+      trie || TrieBlock.from_yaml("{}")
+    end
+
+    def model_or_default : ModelBlock
+      model || ModelBlock.from_yaml("{}")
     end
   end
 
@@ -154,26 +228,20 @@ module AgptExperiment
   end
 
   # Parse the .model header (matches src/cuda/agpt_train.cu's save_model_weights).
-  # Returns nil if file too short or magic mismatch.
   def self.read_model_header(path : String) : Hash(String, Int32 | UInt32)?
     return nil unless File.exists?(path) && File.size(path) >= 28
     File.open(path, "rb") do |io|
       magic = io.read_bytes(UInt32, IO::ByteFormat::LittleEndian)
       return nil if magic != 0x4D475054_u32
-      d_model = io.read_bytes(Int32, IO::ByteFormat::LittleEndian)
-      n_heads = io.read_bytes(Int32, IO::ByteFormat::LittleEndian)
+      d_model  = io.read_bytes(Int32, IO::ByteFormat::LittleEndian)
+      n_heads  = io.read_bytes(Int32, IO::ByteFormat::LittleEndian)
       n_layers = io.read_bytes(Int32, IO::ByteFormat::LittleEndian)
-      d_ff = io.read_bytes(Int32, IO::ByteFormat::LittleEndian)
-      vocab = io.read_bytes(Int32, IO::ByteFormat::LittleEndian)
-      seq_len = io.read_bytes(Int32, IO::ByteFormat::LittleEndian)
+      d_ff     = io.read_bytes(Int32, IO::ByteFormat::LittleEndian)
+      vocab    = io.read_bytes(Int32, IO::ByteFormat::LittleEndian)
+      seq_len  = io.read_bytes(Int32, IO::ByteFormat::LittleEndian)
       {
-        "magic"     => magic,
-        "d_model"   => d_model,
-        "n_heads"   => n_heads,
-        "n_layers"  => n_layers,
-        "d_ff"      => d_ff,
-        "vocab"     => vocab,
-        "seq_len"   => seq_len,
+        "magic" => magic, "d_model" => d_model, "n_heads" => n_heads,
+        "n_layers" => n_layers, "d_ff" => d_ff, "vocab" => vocab, "seq_len" => seq_len,
       } of String => Int32 | UInt32
     end
   end
@@ -189,43 +257,46 @@ module AgptExperiment
     } of String => String | Bool
   end
 
-  # Capture the host/runtime environment so a result can be reproduced or
-  # debugged across machines. None of these are required to exist; missing
-  # fields are recorded as "unknown" so the meta.json shape is stable.
+  # Capture host/runtime environment for reproducibility. AGPT_* env vars are
+  # NOT recorded — they were removed from the schema (see "Removed / not in
+  # the schema" in docs/yaml-schema.md). If any are set we emit a warning so
+  # users notice. CUDA_VISIBLE_DEVICES / OMP_NUM_THREADS / CUBLAS_WORKSPACE_CONFIG
+  # remain permitted and are recorded for provenance.
   def self.environment_info : Hash(String, String | Hash(String, String))
-    # nvcc may be at /opt/cuda/bin/nvcc on Arch; fall back to PATH.
     cuda_version = if File.exists?("/opt/cuda/bin/nvcc")
       `/opt/cuda/bin/nvcc --version 2>/dev/null | grep release | head -1`.strip
     else
       `nvcc --version 2>/dev/null | grep release | head -1`.strip
     end
     nvidia_smi_query = `nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader 2>/dev/null | head -1`.strip
-    # nvidia-smi sometimes prints "Failed to initialize NVML: ..." on stdout
-    # even with exit 0. Treat any "Failed" prefix as unknown.
     nvidia_smi_query = "" if nvidia_smi_query.starts_with?("Failed")
     crystal_version = `crystal --version 2>/dev/null | head -1`.strip
-    python_version = `python3 --version 2>/dev/null`.strip
+    python_version  = `python3 --version 2>/dev/null`.strip
     pkg = {} of String => String
     {"torch", "transformers", "lm_eval", "accelerate", "datasets"}.each do |mod|
       out = `python3 -c "import #{mod}; print(#{mod}.__version__)" 2>/dev/null`.strip
       pkg[mod] = out.empty? ? "unknown" : out
     end
-    agpt_env = {} of String => String
-    ENV.each do |k, v|
-      agpt_env[k] = v if k.starts_with?("AGPT_") || k.starts_with?("CUDA_") || k == "CUBLAS_WORKSPACE_CONFIG"
+    permitted_env = {} of String => String
+    {"CUDA_VISIBLE_DEVICES", "OMP_NUM_THREADS", "CUBLAS_WORKSPACE_CONFIG"}.each do |k|
+      if v = ENV[k]?
+        permitted_env[k] = v
+      end
     end
-    cuda = cuda_version.empty? ? "unknown" : cuda_version
-    gpu = nvidia_smi_query.empty? ? "unknown" : nvidia_smi_query
-    crystal = crystal_version.empty? ? "unknown" : crystal_version
-    py = python_version.empty? ? "unknown" : python_version
     {
-      "cuda"             => cuda,
-      "gpu"              => gpu,
-      "crystal"          => crystal,
-      "python"           => py,
-      "python_packages"  => pkg,
-      "env_vars"         => agpt_env,
+      "cuda"            => cuda_version.empty? ? "unknown" : cuda_version,
+      "gpu"             => nvidia_smi_query.empty? ? "unknown" : nvidia_smi_query,
+      "crystal"         => crystal_version.empty? ? "unknown" : crystal_version,
+      "python"          => python_version.empty? ? "unknown" : python_version,
+      "python_packages" => pkg,
+      "env_vars"        => permitted_env,
     } of String => String | Hash(String, String)
+  end
+
+  def self.warn_about_agpt_env_vars : Nil
+    found = ENV.keys.select &.starts_with?("AGPT_")
+    return if found.empty?
+    STDERR.puts "warning: AGPT_* env vars are no longer honored; ignoring: #{found.join(", ")}"
   end
 
   def self.utc_stamp : String
@@ -233,15 +304,18 @@ module AgptExperiment
   end
 
   def self.slugify(s : String) : String
-    s.downcase
-      .gsub(/[^a-z0-9]+/, "-")
-      .gsub(/^-+|-+$/, "")
-      .[0, 60]
+    s.downcase.gsub(/[^a-z0-9]+/, "-").gsub(/^-+|-+$/, "")[0, 60]
   end
 
-  def self.config_sha(cfg : Config) : String
-    # Serialize back to YAML so the hash is invariant to comment/whitespace.
-    Digest::SHA256.hexdigest(cfg.to_yaml)
+  def self.config_sha(yaml_text : String) : String
+    Digest::SHA256.hexdigest(yaml_text)
+  end
+
+  # Hash for the trie cache dir: SHA256 of (corpus_sha, max_depth, prune_min_mass,
+  # prune_min_depth, virtual_tree). Identical inputs → identical hash → cache reuse.
+  def self.trie_cache_key(corpus_sha : String, trie : TrieBlock, max_depth : Int32) : String
+    parts = "#{corpus_sha}|#{max_depth}|#{trie.prune_min_mass}|#{trie.prune_min_depth}|#{trie.virtual_tree}"
+    Digest::SHA256.hexdigest(parts)[0, 16]
   end
 
   # ---------------------------------------------------------------------------
@@ -258,30 +332,15 @@ module AgptExperiment
       @path = File.join(@root, @experiment, @run_id)
     end
 
-    def config_yml : String      ; File.join(@path, "config.yml") ; end
-    def resolved_json : String   ; File.join(@path, "resolved_config.json") ; end
-    def meta_json : String       ; File.join(@path, "meta.json") ; end
-    def train_log : String       ; File.join(@path, "train.log") ; end
-    def eval_log : String        ; File.join(@path, "eval.log") ; end
-    def checkpoint : String      ; File.join(@path, "checkpoint.model") ; end
-    def hf_dir : String          ; File.join(@path, "hf_checkpoint") ; end
-    def result_json : String     ; File.join(@path, "result.json") ; end
-    def eval_raw_json : String   ; File.join(@path, "eval_raw.json") ; end
-    def train_corpus : String    ; File.join(@path, "train_corpus.txt") ; end
-    def heldout_corpus : String  ; File.join(@path, "heldout_corpus.txt") ; end
-  end
-
-  # Carve corpus.path into train_corpus.txt and heldout_corpus.txt under
-  # the run dir. Returns the byte offset where the split happens.
-  # When train_frac == 1.0, returns nil and writes nothing.
-  def self.carve_corpus(corpus : CorpusBlock, run : RunDir) : Int64?
-    return nil if corpus.train_frac >= 1.0
-    bytes = File.read(corpus.path).to_slice
-    total = bytes.size.to_i64
-    split = (total.to_f64 * corpus.train_frac).to_i64
-    File.write(run.train_corpus, String.new(bytes[0, split]))
-    File.write(run.heldout_corpus, String.new(bytes[split, (total - split).to_i32]))
-    split
+    def config_yml : String        ; File.join(@path, "config.yml")            ; end
+    def resolved_yml : String      ; File.join(@path, "resolved_config.yml")   ; end
+    def meta_json : String         ; File.join(@path, "meta.json")             ; end
+    def train_log : String         ; File.join(@path, "train.log")             ; end
+    def eval_log : String          ; File.join(@path, "eval.log")              ; end
+    def checkpoint : String        ; File.join(@path, "checkpoint.model")      ; end
+    def hf_dir : String            ; File.join(@path, "hf_checkpoint")         ; end
+    def result_json : String       ; File.join(@path, "result.json")           ; end
+    def eval_raw_json : String     ; File.join(@path, "eval_raw.json")         ; end
   end
 
   def self.find_duplicate(rnd_root : String, experiment : String, target_hash : String) : String?
@@ -292,8 +351,7 @@ module AgptExperiment
       next unless File.exists?(meta_path)
       begin
         meta = JSON.parse(File.read(meta_path))
-        existing_hash = meta["config_sha256"]?.try &.as_s?
-        return run_id if existing_hash == target_hash
+        return run_id if meta["config_sha256"]?.try &.as_s? == target_hash
       rescue
         # malformed meta.json — skip
       end
@@ -302,42 +360,12 @@ module AgptExperiment
   end
 
   # ---------------------------------------------------------------------------
-  # Trainer + evaluator subprocess wrappers
+  # Subprocess wrappers
   # ---------------------------------------------------------------------------
 
-  def self.build_trainer_args(cfg : Config, run : RunDir, train_corpus_path : String) : Array(String)
-    args = [] of String
-    args << "--mode" << cfg.train.mode
-    args << "--model" << cfg.model.init_from
-    args << "--corpus" << train_corpus_path
-    args << "--save" << run.checkpoint
-
-    if v = cfg.train.growth_frontiers      ; args << "--growth-frontiers" << v ; end
-    if v = cfg.train.growth_divisions      ; args << "--growth-divisions" << v.to_s ; end
-    if v = cfg.train.growth_max_depth      ; args << "--growth-max-depth" << v.to_s ; end
-    if v = cfg.train.growth_min_epochs     ; args << "--growth-min-epochs" << v.to_s ; end
-    if v = cfg.train.growth_epoch_ramp     ; args << "--growth-epoch-ramp" << v ; end
-    if v = cfg.train.epochs                ; args << "--epochs" << v.to_s ; end
-    if v = cfg.train.optimizer             ; args << "--optimizer" << v ; end
-    if v = cfg.train.lr                    ; args << "--lr" << v.to_s ; end
-    if v = cfg.train.rmsprop_beta          ; args << "--rmsprop-beta" << v.to_s ; end
-    if v = cfg.train.momentum_beta         ; args << "--momentum-beta" << v.to_s ; end
-    if v = cfg.train.lr_schedule           ; args << "--lr-schedule" << v ; end
-    if v = cfg.train.warmup_epochs         ; args << "--warmup-epochs" << v.to_s ; end
-    if v = cfg.train.partition_depth       ; args << "--partition-depth" << v.to_s ; end
-    if v = cfg.train.chunk_queries         ; args << "--chunk-queries" << v.to_s ; end
-    args << "--anc-grad" if cfg.train.anc_grad
-    case cfg.train.accumulate
-    when true  then args << "--accumulate"
-    when false then args << "--no-accumulate"
-    end
-    args << "--quiet" if cfg.train.quiet
-    args.concat(cfg.train.extra_args)
-    args
-  end
-
-  def self.spawn_tee(cmd : String, args : Array(String), log_path : String) : Process::Status
-    File.open(log_path, "w") do |log_io|
+  def self.spawn_tee(cmd : String, args : Array(String), log_path : String, append : Bool = false) : Process::Status
+    mode = append ? "a" : "w"
+    File.open(log_path, mode) do |log_io|
       proc = Process.new(
         cmd, args,
         input: Process::Redirect::Close,
@@ -354,11 +382,199 @@ module AgptExperiment
     end
   end
 
-  # Parse the JSON produced by agpt_lm_eval.py --out-json. Pick the metrics
-  # we care about. Returns nil on failure.
+  # ---------------------------------------------------------------------------
+  # Carve invocation — delegates to bin/agpt_carve when corpus files missing.
+  # ---------------------------------------------------------------------------
+
+  def self.ensure_carved!(cfg : Config, log_path : String) : Nil
+    need_train = !File.exists?(cfg.corpus.path)
+    heldout = cfg.corpus.heldout
+    need_heldout = heldout && !File.exists?(heldout)
+    return unless need_train || need_heldout
+
+    if cfg.corpus.carve.nil?
+      raise "corpus.path (or corpus.heldout) missing on disk and no corpus.carve block provided. " \
+            "Either pre-carve via bin/agpt_carve or add a corpus.carve block to the YAML."
+    end
+
+    STDERR.puts "agpt_experiment: invoking bin/agpt_carve --config (carved files missing)"
+    cmd = "bin/agpt_carve"
+    args = ["--config", @@_input_config_path.not_nil!, "--quiet"]
+    status = spawn_tee(cmd, args, log_path, append: true)
+    unless status.success?
+      raise "bin/agpt_carve failed (exit #{status.exit_code}); see #{log_path}"
+    end
+    # Sanity: the files we expected now exist.
+    raise "carve reported success but corpus.path still missing: #{cfg.corpus.path}" unless File.exists?(cfg.corpus.path)
+    if heldout
+      raise "carve reported success but corpus.heldout still missing: #{heldout}" unless File.exists?(heldout)
+    end
+  end
+
+  # Stash the input config path so ensure_carved! can pass it to agpt_carve.
+  # (Could be threaded through, but a module-level slot keeps the call sites tidy.)
+  @@_input_config_path : String? = nil
+
+  # ---------------------------------------------------------------------------
+  # Trie build — auto-cache at data/.tries/<hash>/ for AGPT trainers.
+  # ---------------------------------------------------------------------------
+
+  def self.ensure_trie!(cfg : Config, log_path : String) : String
+    trie = cfg.trie_or_default
+    if p = trie.path
+      raise "trie.path set to #{p} but directory does not exist" unless Dir.exists?(p)
+      return p
+    end
+    max_depth = trie.max_depth || cfg.train.max_depth ||
+      raise "trie.path not set and no train.max_depth (or trie.max_depth) given; cannot auto-build trie"
+    corpus_sha = sha256_file(cfg.corpus.path)
+    key = trie_cache_key(corpus_sha, trie, max_depth)
+    cache_dir = File.join("data", ".tries", key)
+    manifest = File.join(cache_dir, "manifest.json")
+
+    if Dir.exists?(cache_dir) && File.exists?(manifest)
+      STDERR.puts "agpt_experiment: trie cache hit at #{cache_dir}"
+      return cache_dir
+    end
+
+    STDERR.puts "agpt_experiment: building trie at #{cache_dir} (depth=#{max_depth}, prune_min_mass=#{trie.prune_min_mass}, prune_min_depth=#{trie.prune_min_depth})"
+    FileUtils.mkdir_p(cache_dir)
+    args = [
+      "--corpus", cfg.corpus.path,
+      "--max-depth", max_depth.to_s,
+      "--out", cache_dir,
+      "--prune-min-mass", trie.prune_min_mass.to_s,
+      "--prune-min-depth", trie.prune_min_depth.to_s,
+    ]
+    if vs = cfg.corpus.vocab_source
+      args << "--vocab-file" << vs
+    end
+    status = spawn_tee("bin/agpt_build_radix_corpus", args, log_path, append: true)
+    unless status.success?
+      raise "bin/agpt_build_radix_corpus failed (exit #{status.exit_code}); see #{log_path}"
+    end
+    File.write(manifest, {
+      "corpus_path"     => cfg.corpus.path,
+      "corpus_sha256"   => corpus_sha,
+      "max_depth"       => max_depth,
+      "prune_min_mass"  => trie.prune_min_mass,
+      "prune_min_depth" => trie.prune_min_depth,
+      "virtual_tree"    => trie.virtual_tree,
+    }.to_pretty_json)
+    cache_dir
+  end
+
+  # ---------------------------------------------------------------------------
+  # Resolved YAML — Config struct + applied defaults, round-tripped to YAML.
+  # ---------------------------------------------------------------------------
+
+  def self.apply_defaults!(cfg : Config, run : RunDir, trie_path : String?) : Nil
+    model = cfg.model_or_default
+    model.save_file = run.checkpoint if model.save_file.nil?
+    cfg.model = model
+
+    if trie_path
+      trie = cfg.trie_or_default
+      trie.path = trie_path if trie.path.nil?
+      cfg.trie = trie
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Trainer selection
+  # ---------------------------------------------------------------------------
+
+  enum Trainer
+    V1
+    V2
+    Microgpt
+    Custom
+  end
+
+  def self.resolve_trainer(name : String) : {Trainer, String}
+    case name
+    when "v1"       then {Trainer::V1,       "bin/agpt_train"}
+    when "v2"       then {Trainer::V2,       "bin/agpt_train_v2"}
+    when "microgpt" then {Trainer::Microgpt, "bin/microgpt_yaml"}
+    else
+      if name.includes?('/') && File.exists?(name)
+        {Trainer::Custom, name}
+      else
+        raise "unknown --trainer #{name.inspect}; expected v1|v2|microgpt or a path to a binary"
+      end
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # v1 bridge — translates new-schema Config → legacy bin/agpt_train CLI flags.
+  #
+  # v1 doesn't accept --config yet (task #28). Historically the orchestrator
+  # never invoked v1 directly (all rnd/ configs target v2 or microgpt), so
+  # the bridge is a thin path covering the common-case knobs only. It will
+  # be deleted once #28 lands and v1 honors --config like v2.
+  # ---------------------------------------------------------------------------
+
+  def self.build_v1_bridge_args(cfg : Config, resolved_path : String, seed_override : Int32?) : Array(String)
+    model = cfg.model_or_default
+    init_file = model.init_file || raise "v1 bridge: model.init_file required (no fresh-init bridge)"
+    save_path = model.save_file || raise "v1 bridge: model.save_file required (orchestrator should fill it)"
+    trie_path = cfg.trie_or_default.path || raise "v1 bridge: trie.path required (orchestrator should build it)"
+    if cfg.train.growth
+      raise "v1 bridge: train.growth not supported in v1 yet (see task #31); use --trainer v2 for growth runs"
+    end
+
+    args = [] of String
+    args << "--model" << init_file
+    args << "--trie-dir" << trie_path
+    args << "--save" << save_path
+
+    case cfg.train.budget.unit
+    when "epochs" then args << "--epochs" << cfg.train.budget.value.to_s
+    else
+      raise "v1 bridge: budget.unit=#{cfg.train.budget.unit} not supported (v1 takes epochs only today)"
+    end
+
+    seed_val = seed_override || cfg.train.seed
+    args << "--seed" << seed_val.to_s
+
+    args << "--optimizer" << cfg.train.optimizer.name
+    if lr = cfg.train.optimizer.lr               ; args << "--lr" << lr.to_s ; end
+    if b  = cfg.train.optimizer.beta             ; args << "--rmsprop-beta" << b.to_s ; end
+    if mb = cfg.train.optimizer.momentum_beta    ; args << "--momentum-beta" << mb.to_s ; end
+    if wd = cfg.train.optimizer.weight_decay     ; args << "--weight-decay" << wd.to_s ; end
+    if gc = cfg.train.optimizer.grad_clip_norm   ; args << "--grad-clip-norm" << gc.to_s ; end
+
+    if sched = cfg.train.lr_schedule
+      args << "--lr-schedule" << sched.name
+      args << "--warmup-epochs" << sched.warmup_epochs.to_s if sched.warmup_epochs > 0
+    end
+
+    if pd = cfg.train.partition_depth  ; args << "--partition-depth" << pd.to_s ; end
+    if cq = cfg.train.chunk_queries    ; args << "--chunk-queries" << cq.to_s ; end
+    if mw = cfg.train.mass_weight      ; args << "--mass-weight" << mw ; end
+    if el = cfg.train.entropy_lambda   ; args << "--entropy-lambda" << el.to_s ; end
+
+    args
+  end
+
+  # ---------------------------------------------------------------------------
+  # Eval result parsing (unchanged from prior orchestrator).
+  # ---------------------------------------------------------------------------
+
   def self.parse_eval_json(json_path : String, task_name : String) : Hash(String, Float64)?
     return nil unless File.exists?(json_path)
     parsed = JSON.parse(File.read(json_path))
+    if metrics_any = parsed["metrics"]?
+      if metrics_h = metrics_any.as_h?
+        h = {} of String => Float64
+        metrics_h.each do |k, v|
+          if f = v.as_f?
+            h[k] = f
+          end
+        end
+        return h unless h.empty?
+      end
+    end
     task_results = parsed[task_name]? || parsed.as_h.values.first?
     return nil unless task_results
     h = {} of String => Float64
@@ -397,23 +613,23 @@ module AgptExperiment
     runs = JSON.parse(File.read(runs_json)).as_a
 
     table = String.build do |sb|
-      sb << "| Run ID | byte_ppl | bits/byte | word_ppl | wall (s) |\n"
-      sb << "|--------|---------:|----------:|---------:|---------:|\n"
+      sb << "| Run ID | byte_perplexity | bits/byte | train (s) | total (s) |\n"
+      sb << "|--------|----------------:|----------:|----------:|----------:|\n"
       runs.each do |r|
         run_id = r["run_id"]?.try(&.as_s?) || "?"
-        bp = r["metrics"]?.try(&.["byte_perplexity"]?).try(&.as_f?)
-        bpb = r["metrics"]?.try(&.["bits_per_byte"]?).try(&.as_f?)
-        wp = r["metrics"]?.try(&.["word_perplexity"]?).try(&.as_f?)
+        metrics = r["metrics"]?
+        bp  = metrics.try(&.["byte_perplexity"]?).try(&.as_f?)
+        bpb = metrics.try(&.["bits_per_byte"]?).try(&.as_f?)
+        train_wall = r["train_wall_seconds"]?.try(&.as_f?)
         wall = r["wall_seconds"]?.try(&.as_f?)
         sb << "| `" << run_id << "` | "
         sb << (bp ? bp.round(4).to_s : "—") << " | "
         sb << (bpb ? bpb.round(4).to_s : "—") << " | "
-        sb << (wp ? wp.round(2).to_s : "—") << " | "
+        sb << (train_wall ? train_wall.round(0).to_s : "—") << " | "
         sb << (wall ? wall.round(0).to_s : "—") << " |\n"
       end
     end
 
-    # Preserve existing README prose; regenerate only the table inside markers.
     body = File.exists?(readme_path) ? File.read(readme_path) : default_readme(experiment)
     start_marker = "<!-- agpt-experiment-table:start -->"
     end_marker = "<!-- agpt-experiment-table:end -->"
@@ -436,19 +652,11 @@ module AgptExperiment
 
     (fill in)
 
-    ## Scope
-
-    (fill in)
-
     ## Results
 
     <!-- agpt-experiment-table:start -->
     (table will be auto-populated by agpt_experiment)
     <!-- agpt-experiment-table:end -->
-
-    ## Conclusion
-
-    (fill in once enough runs have landed)
     MD
   end
 
@@ -458,31 +666,40 @@ module AgptExperiment
 
   def self.main(argv : Array(String))
     config_path = nil
+    trainer_name = nil
     rnd_root = "rnd"
-    run_slug_override = nil
+    seed_override : Int32? = nil
     validate_only = false
 
     OptionParser.parse(argv) do |p|
-      p.banner = "Usage: agpt_experiment --config X.yml [--rnd-root rnd]"
+      p.banner = "Usage: agpt_experiment --config X.yml --trainer <v1|v2|microgpt|path> [--seed N]"
       p.on("--config PATH", "YAML config path (required)") { |v| config_path = v }
+      p.on("--trainer NAME", "Trainer: v1|v2|microgpt|<path>") { |v| trainer_name = v }
       p.on("--rnd-root PATH", "Root dir for experiments (default: rnd)") { |v| rnd_root = v }
-      p.on("--run-slug SLUG", "Override run slug component") { |v| run_slug_override = v }
-      p.on("--validate", "Parse + show resolved config, take no other action") { validate_only = true }
+      p.on("--seed N", "Override train.seed for this run") { |v| seed_override = v.to_i }
+      p.on("--validate PATH", "Parse + show resolved config, take no other action") do |v|
+        config_path = v
+        validate_only = true
+      end
       p.on("-h", "--help", "Show help") { puts p ; exit 0 }
     end
 
+    warn_about_agpt_env_vars
+
     cp = config_path
     if cp.nil?
-      STDERR.puts "error: --config is required"
+      STDERR.puts "error: --config (or --validate) is required"
       exit 2
     end
     unless File.exists?(cp)
       STDERR.puts "error: config file not found: #{cp}"
       exit 2
     end
+    @@_input_config_path = File.expand_path(cp)
 
+    input_yaml_text = File.read(cp)
     cfg = begin
-      Config.from_yaml(File.read(cp))
+      Config.from_yaml(input_yaml_text)
     rescue ex
       STDERR.puts "error: cannot parse YAML: #{ex.message}"
       exit 2
@@ -500,57 +717,95 @@ module AgptExperiment
       exit 0
     end
 
-    run_slug = run_slug_override || cfg.meta.run_slug || "auto"
-    run_id = "#{utc_stamp}-#{slugify(run_slug)}"
-    run = RunDir.new(rnd_root, cfg.meta.experiment, run_id)
+    tn = trainer_name
+    if tn.nil?
+      STDERR.puts "error: --trainer is required (one of: v1|v2|microgpt|<path>)"
+      exit 2
+    end
+    trainer, trainer_bin = begin
+      resolve_trainer(tn)
+    rescue ex
+      STDERR.puts "error: #{ex.message}"
+      exit 2
+    end
 
-    cfg_hash = config_sha(cfg)
-    if existing = find_duplicate(rnd_root, cfg.meta.experiment, cfg_hash)
+    run_slug = cfg.run_slug || "auto"
+    run_id = "#{utc_stamp}-#{slugify(run_slug)}"
+    run = RunDir.new(rnd_root, cfg.experiment, run_id)
+
+    cfg_hash = config_sha(input_yaml_text)
+    if existing = find_duplicate(rnd_root, cfg.experiment, cfg_hash)
       STDERR.puts "error: same config already run as #{existing}"
       exit 5
     end
 
     FileUtils.mkdir_p(run.path)
-    File.write(run.config_yml, File.read(cp))
-    File.write(run.resolved_json, cfg.to_json)
+    File.write(run.config_yml, input_yaml_text)
 
     started = Time.utc
-    corpus_sha = sha256_file(cfg.corpus.path)
-    init_sha = sha256_file(cfg.model.init_from)
-    init_header = read_model_header(cfg.model.init_from) || ({} of String => Int32 | UInt32)
     git = git_info
 
+    # ---- carve (delegated) ----
+    ensure_carved!(cfg, run.train_log)
+    corpus_sha = sha256_file(cfg.corpus.path)
+
+    # ---- trie (AGPT trainers only) ----
+    trie_path : String? = nil
+    if trainer == Trainer::V1 || trainer == Trainer::V2
+      trie_path = ensure_trie!(cfg, run.train_log)
+    end
+
+    # ---- apply defaults + write resolved YAML ----
+    apply_defaults!(cfg, run, trie_path)
+    File.write(run.resolved_yml, cfg.to_yaml)
+
+    # ---- model header (for provenance) ----
+    init_file = cfg.model_or_default.init_file
+    init_sha = init_file ? sha256_file(init_file) : nil
+    init_header = init_file ? (read_model_header(init_file) || ({} of String => Int32 | UInt32)) : ({} of String => Int32 | UInt32)
+
     meta = {
-      "config_sha256"  => cfg_hash,
-      "started_utc"    => started.to_rfc3339,
-      "git_sha"        => git["git_sha"],
-      "git_branch"     => git["git_branch"],
-      "git_dirty"      => git["git_dirty"],
-      "host"           => `hostname`.strip,
-      "command"        => (["bin/agpt_experiment"] + ARGV).join(" "),
-      "corpus"         => {
+      "config_sha256" => cfg_hash,
+      "started_utc"   => started.to_rfc3339,
+      "trainer"       => tn,
+      "trainer_bin"   => trainer_bin,
+      "git_sha"       => git["git_sha"],
+      "git_branch"    => git["git_branch"],
+      "git_dirty"     => git["git_dirty"],
+      "host"          => `hostname`.strip,
+      "command"       => (["bin/agpt_experiment"] + ARGV).join(" "),
+      "corpus"        => {
         "path"       => cfg.corpus.path,
         "sha256"     => corpus_sha,
         "byte_count" => File.size(cfg.corpus.path),
+        "carve"      => cfg.corpus.carve,
       },
       "model_init" => {
-        "path"   => cfg.model.init_from,
+        "path"   => init_file,
         "sha256" => init_sha,
         "header" => init_header,
       },
+      "trie_path"   => trie_path,
       "environment" => environment_info,
     }
-    File.write(run.meta_json, meta.to_json)
-
-    # ---- carve corpus (no-op when train_frac == 1.0) ----
-    split_offset = carve_corpus(cfg.corpus, run)
-    train_corpus_path = split_offset ? run.train_corpus : cfg.corpus.path
+    File.write(run.meta_json, JSON.parse(meta.to_json).to_pretty_json)
 
     # ---- train ----
-    trainer_args = build_trainer_args(cfg, run, train_corpus_path)
-    full_cmd = "#{cfg.train.tool} #{trainer_args.join(" ")}"
-    STDERR.puts "agpt_experiment: trainer cmd: #{full_cmd}"
-    train_status = spawn_tee(cfg.train.tool, trainer_args, run.train_log)
+    trainer_args = case trainer
+                   when Trainer::V1
+                     build_v1_bridge_args(cfg, run.resolved_yml, seed_override)
+                   else
+                     args = ["--config", run.resolved_yml]
+                     if so = seed_override
+                       args << "--seed" << so.to_s
+                     end
+                     args
+                   end
+    STDERR.puts "agpt_experiment: trainer cmd: #{trainer_bin} #{trainer_args.join(" ")}"
+    train_started = Time.utc
+    train_status = spawn_tee(trainer_bin, trainer_args, run.train_log, append: true)
+    train_ended = Time.utc
+    train_wall = (train_ended - train_started).total_seconds
     unless train_status.success?
       STDERR.puts "trainer failed (exit #{train_status.exit_code}); tail of #{run.train_log}:"
       STDERR.puts File.read(run.train_log).split('\n').last(20).join('\n')
@@ -569,7 +824,10 @@ module AgptExperiment
       "--vocab-file", vocab_source,
       "--out", run.hf_dir,
     ]
+    convert_started = Time.utc
     convert_status = spawn_tee("python3", convert_args, run.eval_log)
+    convert_ended = Time.utc
+    convert_wall = (convert_ended - convert_started).total_seconds
     unless convert_status.success?
       STDERR.puts "HF convert failed; tail of #{run.eval_log}:"
       STDERR.puts File.read(run.eval_log).split('\n').last(20).join('\n')
@@ -577,37 +835,58 @@ module AgptExperiment
     end
 
     # ---- eval ----
-    # Resolve eval text source from the split.
+    ev = cfg.eval_or_default
+    task_base = slugify(run_slug)
+    task_name : String
     eval_source_path : String? = nil
+    eval_chunks_dir : String? = nil
+    eval_split_kind : String
     eval_args = [
-      cfg.eval.tool,
+      "src/tools/agpt_lm_eval.py",
       "--hf-dir", run.hf_dir,
-      "--task-name", cfg.eval.task_name,
-      "--batch-size", cfg.eval.batch_size.to_s,
-      "--device", cfg.eval.device,
+      "--batch-size", ev.batch_size.to_s,
+      "--device", ev.device,
       "--out-json", run.eval_raw_json,
     ]
-    case cfg.eval.split
-    when "train"
-      eval_source_path = train_corpus_path
-      eval_args << "--text-file" << eval_source_path
-    when "tail-heldout"
-      eval_source_path = run.heldout_corpus
-      eval_args << "--text-file" << eval_source_path
-    when "external-heldout"
-      eval_source_path = cfg.eval.external_file.not_nil!
-      eval_args << "--text-file" << eval_source_path
-    when "benchmark"
-      eval_args << "--builtin-task" << cfg.eval.benchmark.not_nil!
+    if bench = ev.benchmark
+      task_name = bench
+      eval_split_kind = "benchmark"
+      eval_args << "--builtin-task" << bench
+    elsif ext = ev.external_file
+      raise "eval.external_file does not exist: #{ext}" unless File.exists?(ext)
+      eval_source_path = ext
+      task_name = "#{task_base}_external"
+      eval_split_kind = "external-heldout"
+      eval_args << "--text-file" << ext << "--task-name" << task_name
+    else
+      heldout = cfg.corpus.heldout || raise "eval requires corpus.heldout (or eval.external_file / eval.benchmark)"
+      raise "corpus.heldout does not exist: #{heldout}" unless File.exists?(heldout)
+      # Multi-chunk if a heldout_chunks/ sits alongside the heldout file.
+      heldout_dir = File.dirname(heldout)
+      chunks_dir = File.join(heldout_dir, "heldout_chunks")
+      task_name = "#{task_base}_holdout"
+      eval_split_kind = "tail-heldout"
+      if Dir.exists?(chunks_dir)
+        eval_chunks_dir = chunks_dir
+        eval_args << "--chunks-dir" << chunks_dir << "--task-name" << task_name
+        eval_split_kind = "multi-chunk-heldout"
+      else
+        eval_source_path = heldout
+        eval_args << "--text-file" << heldout << "--task-name" << task_name
+      end
     end
-    if v = cfg.eval.limit
+    if eval_source_path || eval_chunks_dir
+      eval_args << "--agpt-model" << run.checkpoint
+      eval_args << "--vocab-file" << vocab_source
+    end
+    if v = ev.limit
       eval_args << "--limit" << v.to_s
     end
-    # Append to the existing eval.log (which has the HF-convert output).
-    File.open(run.eval_log, "a") do |io|
-      io.puts "\n--- lm-eval run ---"
-    end
-    eval_status = spawn_tee_append("python3", eval_args, run.eval_log)
+    File.open(run.eval_log, "a") { |io| io.puts "\n--- lm-eval run ---" }
+    eval_started = Time.utc
+    eval_status = spawn_tee("python3", eval_args, run.eval_log, append: true)
+    eval_ended = Time.utc
+    eval_wall = (eval_ended - eval_started).total_seconds
     unless eval_status.success?
       STDERR.puts "lm-eval failed; tail of #{run.eval_log}:"
       STDERR.puts File.read(run.eval_log).split('\n').last(20).join('\n')
@@ -615,67 +894,66 @@ module AgptExperiment
     end
 
     # ---- write result.json ----
-    metrics = parse_eval_json(run.eval_raw_json, cfg.eval.task_name) || {} of String => Float64
+    metrics = parse_eval_json(run.eval_raw_json, task_name) || {} of String => Float64
     ended = Time.utc
     wall = (ended - started).total_seconds
 
     eval_record = {
-      "split"               => cfg.eval.split,
-      "source_path"         => eval_source_path,
-      "source_sha256"       => eval_source_path ? sha256_file(eval_source_path.not_nil!) : nil,
-      "benchmark"           => cfg.eval.benchmark,
-      "corpus_train_frac"   => cfg.corpus.train_frac,
-      "corpus_split_offset" => split_offset,
+      "split"           => eval_split_kind,
+      "source_path"     => eval_source_path,
+      "source_sha256"   => eval_source_path ? sha256_file(eval_source_path.not_nil!) : nil,
+      "chunks_dir"      => eval_chunks_dir,
+      "benchmark"       => ev.benchmark,
+      "task_name"       => task_name,
     }
 
+    # Record any experimental keys present in the input so canonical-vs-experimental
+    # runs are filterable. Namespaced by --trainer choice; we record what was sent,
+    # not what the trainer ultimately honored (the trainer's WARN lines distinguish).
+    experimental_used : Hash(String, Array(String)) | Nil = nil
+    if exp = cfg.experimental
+      if !exp.empty?
+        experimental_used = {tn => exp.keys.sort}
+      end
+    end
+
     result = {
-      "run_id"          => run_id,
-      "experiment"      => cfg.meta.experiment,
-      "wall_seconds"    => wall,
-      "started_utc"     => started.to_rfc3339,
-      "ended_utc"       => ended.to_rfc3339,
-      "evaluator"       => "lm-evaluation-harness via agpt_lm_eval.py",
-      "eval"            => eval_record,
-      "metrics"         => metrics,
-      "checkpoint_sha"  => sha256_file(run.checkpoint),
+      "run_id"               => run_id,
+      "experiment"           => cfg.experiment,
+      "wall_seconds"         => wall,
+      "train_wall_seconds"   => train_wall,
+      "convert_wall_seconds" => convert_wall,
+      "eval_wall_seconds"    => eval_wall,
+      "started_utc"          => started.to_rfc3339,
+      "ended_utc"            => ended.to_rfc3339,
+      "trainer"              => tn,
+      "evaluator"            => "lm-evaluation-harness via agpt_lm_eval.py",
+      "eval"                 => eval_record,
+      "metrics"              => metrics,
+      "checkpoint_sha"       => sha256_file(run.checkpoint),
+      "experimental_used"    => experimental_used,
     }
     File.write(run.result_json, JSON.parse(result.to_json).to_pretty_json)
 
-    # Update meta with end-time fields too.
+    # Update meta with end-time fields.
     updated_meta = JSON.parse(File.read(run.meta_json)).as_h
     updated_meta["ended_utc"] = JSON::Any.new(ended.to_rfc3339)
     updated_meta["wall_seconds"] = JSON::Any.new(wall)
+    updated_meta["train_wall_seconds"] = JSON::Any.new(train_wall)
+    updated_meta["convert_wall_seconds"] = JSON::Any.new(convert_wall)
+    updated_meta["eval_wall_seconds"] = JSON::Any.new(eval_wall)
     File.write(run.meta_json, JSON.parse(updated_meta.to_json).to_pretty_json)
 
-    # ---- aggregate ----
-    update_runs_json(rnd_root, cfg.meta.experiment)
-    regenerate_readme(rnd_root, cfg.meta.experiment)
+    update_runs_json(rnd_root, cfg.experiment)
+    regenerate_readme(rnd_root, cfg.experiment)
 
     STDERR.puts "agpt_experiment: done."
     STDERR.puts "  run dir : #{run.path}"
     metrics.each do |k, v|
       STDERR.puts "  #{k} = #{v.round(4)}"
     end
+    STDERR.puts "  train   : #{train_wall.round(1)}s"
     STDERR.puts "  wall    : #{wall.round(1)}s"
-  end
-
-  # Variant of spawn_tee that appends to the log instead of truncating.
-  def self.spawn_tee_append(cmd : String, args : Array(String), log_path : String) : Process::Status
-    File.open(log_path, "a") do |log_io|
-      proc = Process.new(
-        cmd, args,
-        input: Process::Redirect::Close,
-        output: Process::Redirect::Pipe,
-        error: Process::Redirect::Pipe,
-      )
-      done = Channel(Nil).new(2)
-      spawn { IO.copy(proc.output, log_io) ; done.send(nil) }
-      spawn { IO.copy(proc.error, log_io)  ; done.send(nil) }
-      status = proc.wait
-      done.receive ; done.receive
-      log_io.flush
-      status
-    end
   end
 end
 

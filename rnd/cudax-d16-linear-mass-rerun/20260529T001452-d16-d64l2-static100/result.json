@@ -1,0 +1,27 @@
+{
+  "run_id": "20260529T001452-d16-d64l2-static100",
+  "experiment": "cudax-d16-linear-mass-rerun",
+  "wall_seconds": 627.615104677,
+  "train_wall_seconds": 599.04353911,
+  "convert_wall_seconds": 4.585023455,
+  "eval_wall_seconds": 18.476828203,
+  "started_utc": "2026-05-29T00:14:52Z",
+  "ended_utc": "2026-05-29T00:25:20Z",
+  "trainer": "v2",
+  "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+  "eval": {
+    "split": "tail-heldout",
+    "source_path": "data/.splits/2b7ded401e96b610/heldout_corpus.txt",
+    "source_sha256": "9be7061b07c454cbc4d25a5152958caf6a4817e70a7a1c841c616733535eb285",
+    "chunks_dir": null,
+    "benchmark": null,
+    "task_name": "d16-d64l2-static100_holdout"
+  },
+  "metrics": {
+    "lm_eval_rolling_word_perplexity": 58504.64474519219,
+    "lm_eval_rolling_byte_perplexity": 7.123165860106507,
+    "lm_eval_rolling_bits_per_byte": 2.8325185832634965,
+    "agpt_fixed_token_perplexity": 6.657130678276197
+  },
+  "checkpoint_sha": "34b991c603971ed8b68ab072b6033ee6b7e8ce10a85fac8857e4363fb644690f"
+}

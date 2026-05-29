@@ -1,0 +1,134 @@
+[
+  {
+    "run_id": "20260528T165653-d16-d64l2-static25",
+    "experiment": "cudax-d16-linear-mass-rerun",
+    "wall_seconds": 185.222179761,
+    "train_wall_seconds": 152.028100879,
+    "convert_wall_seconds": 5.166973373,
+    "eval_wall_seconds": 22.861094179,
+    "started_utc": "2026-05-28T16:56:53Z",
+    "ended_utc": "2026-05-28T16:59:58Z",
+    "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+    "eval": {
+      "split": "tail-heldout",
+      "source_path": "rnd/cudax-d16-linear-mass-rerun/20260528T165653-d16-d64l2-static25/heldout_corpus.txt",
+      "source_sha256": "8b5a8c8af45905547ad03b7aae6980a277a5dd78924a6e6ac64b75d63d7d40bd",
+      "benchmark": null,
+      "corpus_train_frac": 0.95,
+      "corpus_split_offset": 1059624
+    },
+    "metrics": {
+      "lm_eval_rolling_word_perplexity": 150962.13546053742,
+      "lm_eval_rolling_byte_perplexity": 8.438986155982814,
+      "lm_eval_rolling_bits_per_byte": 3.077069686658362,
+      "agpt_fixed_token_perplexity": 8.096753722363918
+    },
+    "checkpoint_sha": "4d02f07e4171c70e5318789324d80de1d10e7b19db7119c3f59ce2b48877096f"
+  },
+  {
+    "run_id": "20260528T170108-d16-d64l2-static100",
+    "experiment": "cudax-d16-linear-mass-rerun",
+    "wall_seconds": 663.375862656,
+    "train_wall_seconds": 633.745020055,
+    "convert_wall_seconds": 5.338427406,
+    "eval_wall_seconds": 19.135067974,
+    "started_utc": "2026-05-28T17:01:08Z",
+    "ended_utc": "2026-05-28T17:12:12Z",
+    "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+    "eval": {
+      "split": "tail-heldout",
+      "source_path": "rnd/cudax-d16-linear-mass-rerun/20260528T170108-d16-d64l2-static100/heldout_corpus.txt",
+      "source_sha256": "8b5a8c8af45905547ad03b7aae6980a277a5dd78924a6e6ac64b75d63d7d40bd",
+      "benchmark": null,
+      "corpus_train_frac": 0.95,
+      "corpus_split_offset": 1059624
+    },
+    "metrics": {
+      "lm_eval_rolling_word_perplexity": 52122.06341376041,
+      "lm_eval_rolling_byte_perplexity": 6.977255163566742,
+      "lm_eval_rolling_bits_per_byte": 2.802659595069852,
+      "agpt_fixed_token_perplexity": 6.512057389970236
+    },
+    "checkpoint_sha": "35e20648c51c5fdba60a906d3ebea0defff81c07dab1f1955ef137ebd0c04447"
+  },
+  {
+    "run_id": "20260528T171523-d16-d64l2-static250",
+    "experiment": "cudax-d16-linear-mass-rerun",
+    "wall_seconds": 1543.352023387,
+    "train_wall_seconds": 1510.263513972,
+    "convert_wall_seconds": 5.210645536,
+    "eval_wall_seconds": 22.525041382,
+    "started_utc": "2026-05-28T17:15:23Z",
+    "ended_utc": "2026-05-28T17:41:06Z",
+    "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+    "eval": {
+      "split": "tail-heldout",
+      "source_path": "rnd/cudax-d16-linear-mass-rerun/20260528T171523-d16-d64l2-static250/heldout_corpus.txt",
+      "source_sha256": "8b5a8c8af45905547ad03b7aae6980a277a5dd78924a6e6ac64b75d63d7d40bd",
+      "benchmark": null,
+      "corpus_train_frac": 0.95,
+      "corpus_split_offset": 1059624
+    },
+    "metrics": {
+      "lm_eval_rolling_word_perplexity": 59623.785344667434,
+      "lm_eval_rolling_byte_perplexity": 7.147096382579838,
+      "lm_eval_rolling_bits_per_byte": 2.8373572439515566,
+      "agpt_fixed_token_perplexity": 6.6583673247518345
+    },
+    "checkpoint_sha": "3a759577a7ca3cd5d9441669ed369c486767dbe59632e85e8fc3b3c11ee5341c"
+  },
+  {
+    "run_id": "20260528T230843-d16-d64l2-static100",
+    "experiment": "cudax-d16-linear-mass-rerun",
+    "wall_seconds": 579.868807431,
+    "train_wall_seconds": 551.920857373,
+    "convert_wall_seconds": 3.791509121,
+    "eval_wall_seconds": 17.920097761,
+    "started_utc": "2026-05-28T23:08:43Z",
+    "ended_utc": "2026-05-28T23:18:23Z",
+    "trainer": "v2",
+    "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+    "eval": {
+      "split": "tail-heldout",
+      "source_path": "data/.splits/2b7ded401e96b610/heldout_corpus.txt",
+      "source_sha256": "9be7061b07c454cbc4d25a5152958caf6a4817e70a7a1c841c616733535eb285",
+      "chunks_dir": null,
+      "benchmark": null,
+      "task_name": "d16-d64l2-static100_holdout"
+    },
+    "metrics": {
+      "lm_eval_rolling_word_perplexity": 65765.04801962462,
+      "lm_eval_rolling_byte_perplexity": 7.273779728315272,
+      "lm_eval_rolling_bits_per_byte": 2.8627052373581585,
+      "agpt_fixed_token_perplexity": 6.813364662766872
+    },
+    "checkpoint_sha": "f82c345076bf1eea0fa04db6f93a43442510305133716ed20ec7ffd2c450c4f2"
+  },
+  {
+    "run_id": "20260529T001452-d16-d64l2-static100",
+    "experiment": "cudax-d16-linear-mass-rerun",
+    "wall_seconds": 627.615104677,
+    "train_wall_seconds": 599.04353911,
+    "convert_wall_seconds": 4.585023455,
+    "eval_wall_seconds": 18.476828203,
+    "started_utc": "2026-05-29T00:14:52Z",
+    "ended_utc": "2026-05-29T00:25:20Z",
+    "trainer": "v2",
+    "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+    "eval": {
+      "split": "tail-heldout",
+      "source_path": "data/.splits/2b7ded401e96b610/heldout_corpus.txt",
+      "source_sha256": "9be7061b07c454cbc4d25a5152958caf6a4817e70a7a1c841c616733535eb285",
+      "chunks_dir": null,
+      "benchmark": null,
+      "task_name": "d16-d64l2-static100_holdout"
+    },
+    "metrics": {
+      "lm_eval_rolling_word_perplexity": 58504.64474519219,
+      "lm_eval_rolling_byte_perplexity": 7.123165860106507,
+      "lm_eval_rolling_bits_per_byte": 2.8325185832634965,
+      "agpt_fixed_token_perplexity": 6.657130678276197
+    },
+    "checkpoint_sha": "34b991c603971ed8b68ab072b6033ee6b7e8ce10a85fac8857e4363fb644690f"
+  }
+]

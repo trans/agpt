@@ -1,0 +1,40 @@
+# Migrated from section2-256x6.yml via tools/migrate_config.py.
+# Run with: bin/agpt_experiment --config <this> --trainer v2
+
+description: 'CUDAX progressive growth with Section 2 event-count weighting: 256 divisions
+  x 6 epochs'
+experiment: cudax-section2-progressive
+run_slug: section2-256x6
+corpus:
+  path: data/.splits/2b7ded401e96b610/train_corpus.txt
+  heldout: data/.splits/2b7ded401e96b610/heldout_corpus.txt
+  vocab_source: data/input.txt
+  carve:
+    source: data/input.txt
+    mode: tail
+    ratio: 0.05
+model:
+  init_file: data/input.model
+train:
+  budget:
+    unit: epochs
+    value: 6
+  quiet: true
+  optimizer:
+    name: rmsprop
+    lr: 0.003
+    beta: 0.999
+  lr_schedule:
+    name: warmup-cosine
+    warmup_epochs: 0
+  max_depth: 16
+  partition_depth: 1
+  chunk_queries: 50000
+  anc_grad: true
+  growth:
+    divisions: 256
+    min_epochs: 6
+    epoch_ramp: fixed
+eval:
+  batch_size: 1
+  device: cpu

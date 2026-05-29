@@ -1,0 +1,29 @@
+# Migrated from v1-25SE.yml via tools/migrate_config.py.
+
+description: "v1 (legacy CUDA trainer), standard pd=1, 25 SE \u2014 for comparison\
+  \ to v2 progressive runs"
+experiment: v1-vs-v2-comparison
+run_slug: v1-25SE
+corpus:
+  path: /tmp/agpt_input_prefix95.txt
+  vocab_source: data/input.txt
+model:
+  init_file: data/input.model
+train:
+  budget:
+    unit: epochs
+    value: 25
+  quiet: true
+  optimizer:
+    name: rmsprop
+    lr: 0.003
+    beta: 0.999
+  lr_schedule:
+    name: warmup-cosine
+    warmup_epochs: 0
+  max_depth: 16
+  partition_depth: 1
+eval:
+  external_file: /tmp/shake_heldout5_v1eval.txt
+  batch_size: 1
+  device: cuda

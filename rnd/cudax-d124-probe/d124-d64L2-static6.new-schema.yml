@@ -1,0 +1,39 @@
+# Migrated from d124-d64L2-static6.yml via tools/migrate_config.py.
+# Run with: bin/agpt_experiment --config <this> --trainer v2
+
+description: 'CUDAX d124 probe: baseline-size d64 L2, six static epochs'
+experiment: cudax-d124-probe
+run_slug: d124-d64L2-static6
+corpus:
+  path: data/.splits/2b7ded401e96b610/train_corpus.txt
+  heldout: data/.splits/2b7ded401e96b610/heldout_corpus.txt
+  vocab_source: data/input.txt
+  carve:
+    source: data/input.txt
+    mode: tail
+    ratio: 0.05
+model:
+  init_file: rnd/cudax-d124-probe/seeds/shake-d64L2-h4-dff256-d124-seed42.model
+train:
+  budget:
+    unit: epochs
+    value: 6
+  quiet: true
+  optimizer:
+    name: rmsprop
+    lr: 0.003
+    beta: 0.999
+  lr_schedule:
+    name: warmup-cosine
+    warmup_epochs: 0
+  max_depth: 124
+  partition_depth: 1
+  chunk_queries: 50000
+  anc_grad: true
+  growth:
+    divisions: 1
+    min_epochs: 6
+    epoch_ramp: fixed
+eval:
+  batch_size: 1
+  device: cpu
