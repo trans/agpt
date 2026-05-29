@@ -87,7 +87,7 @@ build-agpt-train-v2: build-cuda-kernels
         -gencode=arch=compute_80,code=sm_80 \
         -gencode=arch=compute_89,code=sm_89 \
         -gencode=arch=compute_90,code=sm_90 \
-        src/cudax/agpt_train_v2.cu build/kernels_gpu.o -lcublas -o bin/agpt_train_v2
+        src/cudax/agpt_train_v2.cu build/kernels_gpu.o -lcublas $(pkg-config --cflags --libs yam) -o bin/agpt_train_v2
 
 # Build standalone cudax seed-model generator.
 build-agpt-seed:

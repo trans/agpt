@@ -3,6 +3,14 @@
 #include <cstring>
 #include <cmath>
 #include <chrono>
+#include <cerrno>
+#include <climits>
+#include <string>
+#include <unordered_map>
+#include <unordered_set>
+#include <vector>
+
+#include <yam/yam.h>
 
 #include "types.cuh"
 #include "io.cuh"
@@ -275,6 +283,8 @@ static const char* rope_position_mode_name_v2(agpt_v2::RopePositionModeV2 mode) 
     }
     return "unknown";
 }
+
+#include "yaml_config_v2.cuh"
 
 static float scheduled_lr(const agpt_v2::TrainerConfig& cfg,
                           long long step_index,
@@ -566,6 +576,7 @@ static void run_train_epoch_on_radix_host_v2(const agpt_v2::TrainerConfig& cfg,
 
 int main(int argc, char** argv) {
     agpt_v2::TrainerConfig cfg;
+    const char* config_path = nullptr;
     const char* model_path = nullptr;
     const char* trie_dir = nullptr;
     const char* corpus_path = nullptr;
@@ -583,6 +594,9 @@ int main(int argc, char** argv) {
     GrowthEpochScheduleV2 growth_epoch_schedule = GrowthEpochScheduleV2::Fixed;
     bool explicit_anc_grad = false;
     bool ablate_anc_grad = false;
+    bool seed_override_set = false;
+    int seed_override = 0;
+    bool validate_only = false;
 
     cfg.epochs = 1;
     cfg.partition_depth = 1;
@@ -595,8 +609,32 @@ int main(int argc, char** argv) {
     cfg.warmup_epochs = 0;
     cfg.accumulate = true;
 
+    bool saw_non_config_arg = false;
     for (int i = 1; i < argc; i++) {
-        if (std::strcmp(argv[i], "--model") == 0 && i + 1 < argc) model_path = argv[++i];
+        if (std::strcmp(argv[i], "--config") == 0 && i + 1 < argc) {
+            config_path = argv[++i];
+        } else if (std::strcmp(argv[i], "--seed") == 0 && i + 1 < argc) {
+            seed_override = std::atoi(argv[++i]);
+            seed_override_set = true;
+        } else if (std::strcmp(argv[i], "--validate-only") == 0) {
+            validate_only = true;
+        } else {
+            saw_non_config_arg = true;
+        }
+    }
+    if (validate_only && !config_path) {
+        std::fprintf(stderr, "agpt_train_v2: --validate-only requires --config\n");
+        return 1;
+    }
+    if (config_path && saw_non_config_arg) {
+        std::fprintf(stderr, "agpt_train_v2: --config may only be combined with --seed and --validate-only\n");
+        return 1;
+    }
+
+    for (int i = 1; i < argc; i++) {
+        if (config_path) {
+            break;
+        } else if (std::strcmp(argv[i], "--model") == 0 && i + 1 < argc) model_path = argv[++i];
         else if (std::strcmp(argv[i], "--trie-dir") == 0 && i + 1 < argc) trie_dir = argv[++i];
         else if (std::strcmp(argv[i], "--corpus") == 0 && i + 1 < argc) corpus_path = argv[++i];
         else if (std::strcmp(argv[i], "--growth-frontiers") == 0 && i + 1 < argc) growth_frontiers_arg = argv[++i];
@@ -672,12 +710,32 @@ int main(int argc, char** argv) {
         }
     }
 
+    YamlConfigV2 yaml_cfg;
+    if (config_path) {
+        if (!apply_yaml_config_v2(config_path, cfg, yaml_cfg, mode, steps, unit_limit,
+                                  growth_max_depth, growth_min_epochs, growth_divisions,
+                                  growth_final_frontier, growth_train_frac, growth_epoch_schedule,
+                                  explicit_anc_grad, ablate_anc_grad)) {
+            return 1;
+        }
+        if (seed_override_set) {
+            yaml_cfg.seed = seed_override;
+            yaml_cfg.seed_set = true;
+            cfg.pos_sample_seed = (unsigned)seed_override;
+        }
+        model_path = yaml_cfg.model_path.c_str();
+        trie_dir = yaml_cfg.trie_dir.empty() ? nullptr : yaml_cfg.trie_dir.c_str();
+        corpus_path = yaml_cfg.corpus_path.c_str();
+        save_path = yaml_cfg.save_path.empty() ? nullptr : yaml_cfg.save_path.c_str();
+    }
+
     bool has_growth_schedule =
         growth_frontiers_arg || growth_divisions > 0 || growth_final_frontier > 0 || growth_train_frac < 1.0;
     bool missing_required = !model_path ||
         (mode == V2Mode::TrainGrowth ? (!corpus_path || !has_growth_schedule) : !trie_dir);
     if (missing_required) {
         std::fprintf(stderr,
+                     "Usage: agpt_train_v2 --config <path> [--seed N] [--validate-only]\n"
                      "Usage: agpt_train_v2 --model <path> --trie-dir <path>\n"
                      "       agpt_train_v2 --mode train-growth --model <path> --corpus <path>\n"
                      "  [--growth-frontiers LIST | --growth-divisions N [--growth-final-frontier N | --growth-train-frac F]]\n"
@@ -720,17 +778,51 @@ int main(int argc, char** argv) {
     }
     if (cfg.chunk_queries <= 0) cfg.chunk_queries = 50000;
     if (steps <= 0) steps = 3;
+    if (config_path && !validate_only && !save_path) {
+        std::fprintf(stderr,
+                     "WARN: model.save_file not set; trained model not persisted.\n");
+    }
     DiagFireProbeV2 diag_probe = read_diag_fire_probe_v2();
 
     agpt_v2::ModelHeader header = agpt_v2::load_model_header(model_path);
     agpt_v2::RuntimeShape shape = header.shape;
     int header_seq_len = shape.seq_len;
+    if (config_path) {
+        if ((yaml_cfg.has_model_d_model && yaml_cfg.model_d_model != shape.d_model) ||
+            (yaml_cfg.has_model_n_layers && yaml_cfg.model_n_layers != shape.n_layers) ||
+            (yaml_cfg.has_model_n_heads && yaml_cfg.model_n_heads != shape.n_heads) ||
+            (yaml_cfg.has_model_d_ff && yaml_cfg.model_d_ff != shape.d_ff) ||
+            (yaml_cfg.has_model_head_dim && yaml_cfg.model_head_dim != shape.head_dim)) {
+            std::fprintf(stderr,
+                         "agpt_train_v2: YAML model architecture does not match checkpoint header "
+                         "(checkpoint d_model=%d n_layers=%d n_heads=%d d_ff=%d head_dim=%d)\n",
+                         shape.d_model, shape.n_layers, shape.n_heads, shape.d_ff, shape.head_dim);
+            return 1;
+        }
+        if (yaml_cfg.has_seq_len && yaml_cfg.seq_len != header_seq_len) {
+            std::fprintf(stderr,
+                         "agpt_train_v2: YAML train.seq_len (%d) must match checkpoint seq_len (%d)\n",
+                         yaml_cfg.seq_len, header_seq_len);
+            return 1;
+        }
+    }
     cfg.d_model = shape.d_model;
     cfg.n_heads = shape.n_heads;
     cfg.n_layers = shape.n_layers;
     cfg.d_ff = shape.d_ff;
     cfg.vocab_size = shape.vocab_size;
     if (mode == V2Mode::TrainGrowth) {
+        if (validate_only) {
+            std::FILE* corpus_file = std::fopen(corpus_path, "rb");
+            if (!corpus_file) {
+                std::fprintf(stderr, "agpt_train_v2: failed to read corpus.path for YAML validation: %s\n",
+                             corpus_path);
+                return 1;
+            }
+            std::fclose(corpus_file);
+            std::printf("agpt_train_v2: YAML config validated (mode=train-growth)\n");
+            return 0;
+        }
         int vocab_size_from_corpus = 0;
         std::vector<int> tokens = agpt_v2::tokenize_corpus_sorted_unique_utf8_v2(corpus_path, &vocab_size_from_corpus);
         if ((int)tokens.size() < 2) {
@@ -945,6 +1037,19 @@ int main(int argc, char** argv) {
     }
     agpt_v2::RadixTrieStructure trie = agpt_v2::load_radix_structure_minimal(trie_dir);
     shape.seq_len = effective_seq_len_from_trie_v2(trie);
+    if (config_path && yaml_cfg.has_max_depth && yaml_cfg.max_depth != shape.seq_len) {
+        std::fprintf(stderr,
+                     "agpt_train_v2: YAML train.max_depth (%d) must match trie effective depth (%d)\n",
+                     yaml_cfg.max_depth, shape.seq_len);
+        agpt_v2::free_radix_trie_structure(trie);
+        return 1;
+    }
+    if (validate_only) {
+        std::printf("agpt_train_v2: YAML config validated (mode=%s, trie_depth=%d)\n",
+                    v2_mode_name(mode), shape.seq_len);
+        agpt_v2::free_radix_trie_structure(trie);
+        return 0;
+    }
     cfg.seq_len = shape.seq_len;
     agpt_v2::ModelLayout model = agpt_v2::make_model_layout(shape);
     agpt_v2::CacheLayout cache = agpt_v2::make_cache_layout(shape);
