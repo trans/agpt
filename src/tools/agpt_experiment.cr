@@ -506,58 +506,6 @@ module AgptExperiment
   end
 
   # ---------------------------------------------------------------------------
-  # v1 bridge — translates new-schema Config → legacy bin/agpt_train CLI flags.
-  #
-  # v1 doesn't accept --config yet (task #28). Historically the orchestrator
-  # never invoked v1 directly (all rnd/ configs target v2 or microgpt), so
-  # the bridge is a thin path covering the common-case knobs only. It will
-  # be deleted once #28 lands and v1 honors --config like v2.
-  # ---------------------------------------------------------------------------
-
-  def self.build_v1_bridge_args(cfg : Config, resolved_path : String, seed_override : Int32?) : Array(String)
-    model = cfg.model_or_default
-    init_file = model.init_file || raise "v1 bridge: model.init_file required (no fresh-init bridge)"
-    save_path = model.save_file || raise "v1 bridge: model.save_file required (orchestrator should fill it)"
-    trie_path = cfg.trie_or_default.path || raise "v1 bridge: trie.path required (orchestrator should build it)"
-    if cfg.train.growth
-      raise "v1 bridge: train.growth not supported in v1 yet (see task #31); use --trainer v2 for growth runs"
-    end
-
-    args = [] of String
-    args << "--model" << init_file
-    args << "--trie-dir" << trie_path
-    args << "--save" << save_path
-
-    case cfg.train.budget.unit
-    when "epochs" then args << "--epochs" << cfg.train.budget.value.to_s
-    else
-      raise "v1 bridge: budget.unit=#{cfg.train.budget.unit} not supported (v1 takes epochs only today)"
-    end
-
-    seed_val = seed_override || cfg.train.seed
-    args << "--seed" << seed_val.to_s
-
-    args << "--optimizer" << cfg.train.optimizer.name
-    if lr = cfg.train.optimizer.lr               ; args << "--lr" << lr.to_s ; end
-    if b  = cfg.train.optimizer.beta             ; args << "--rmsprop-beta" << b.to_s ; end
-    if mb = cfg.train.optimizer.momentum_beta    ; args << "--momentum-beta" << mb.to_s ; end
-    if wd = cfg.train.optimizer.weight_decay     ; args << "--weight-decay" << wd.to_s ; end
-    if gc = cfg.train.optimizer.grad_clip_norm   ; args << "--grad-clip-norm" << gc.to_s ; end
-
-    if sched = cfg.train.lr_schedule
-      args << "--lr-schedule" << sched.name
-      args << "--warmup-epochs" << sched.warmup_epochs.to_s if sched.warmup_epochs > 0
-    end
-
-    if pd = cfg.train.partition_depth  ; args << "--partition-depth" << pd.to_s ; end
-    if cq = cfg.train.chunk_queries    ; args << "--chunk-queries" << cq.to_s ; end
-    if mw = cfg.train.mass_weight      ; args << "--mass-weight" << mw ; end
-    if el = cfg.train.entropy_lambda   ; args << "--entropy-lambda" << el.to_s ; end
-
-    args
-  end
-
-  # ---------------------------------------------------------------------------
   # Eval result parsing (unchanged from prior orchestrator).
   # ---------------------------------------------------------------------------
 
@@ -791,16 +739,11 @@ module AgptExperiment
     File.write(run.meta_json, JSON.parse(meta.to_json).to_pretty_json)
 
     # ---- train ----
-    trainer_args = case trainer
-                   when Trainer::V1
-                     build_v1_bridge_args(cfg, run.resolved_yml, seed_override)
-                   else
-                     args = ["--config", run.resolved_yml]
-                     if so = seed_override
-                       args << "--seed" << so.to_s
-                     end
-                     args
-                   end
+    # All trainers (v1, v2, microgpt, custom) now accept `--config <yaml> [--seed N]`.
+    trainer_args = ["--config", run.resolved_yml]
+    if so = seed_override
+      trainer_args << "--seed" << so.to_s
+    end
     STDERR.puts "agpt_experiment: trainer cmd: #{trainer_bin} #{trainer_args.join(" ")}"
     train_started = Time.utc
     train_status = spawn_tee(trainer_bin, trainer_args, run.train_log, append: true)

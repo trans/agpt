@@ -18,9 +18,15 @@
 #include <cublas_v2.h>
 #include <cuda_runtime.h>
 #include <cuda_bf16.h>
+#include <cerrno>
 #include <random>
+#include <string>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 #include <algorithm>
+
+#include <yam/yam.h>
 
 #include "../common/init_weights.h"
 #include "../common/diag_tensor_dump.h"
@@ -289,6 +295,55 @@ struct LBFGSState {
     float* d_q = nullptr;         // n scratch for two-loop
     bool first_step = true;
 };
+
+// ============================================================================
+// YAML config (--config <path>) — new canonical schema, see docs/yaml-schema.md.
+// Mirrors src/cudax/yaml_config_v2.cuh. The legacy CLI surface is still the
+// authoritative path for research-only flags (rope-*, lightning-*, per-rc-*,
+// curriculum, etc.) — --config covers the canonical schema fields only.
+// ============================================================================
+
+static bool parse_optimizer_kind_v1(const char* s, OptimizerKind& out) {
+    if      (strcmp(s, "adam")     == 0) { out = OptimizerKind::Adam;     return true; }
+    else if (strcmp(s, "sgd")      == 0) { out = OptimizerKind::SGD;      return true; }
+    else if (strcmp(s, "momentum") == 0) { out = OptimizerKind::Momentum; return true; }
+    else if (strcmp(s, "rmsprop")  == 0) { out = OptimizerKind::RMSProp;  return true; }
+    else if (strcmp(s, "lbfgs")    == 0) { out = OptimizerKind::LBFGS;    return true; }
+    return false;
+}
+
+static bool parse_lr_schedule_v1(const char* s, LRSchedule& out) {
+    if      (strcmp(s, "constant")      == 0) { out = LRSchedule::Constant;     return true; }
+    else if (strcmp(s, "cosine")        == 0) { out = LRSchedule::Cosine;       return true; }
+    else if (strcmp(s, "warmup-cosine") == 0) { out = LRSchedule::WarmupCosine; return true; }
+    return false;
+}
+
+static bool parse_mass_weight_v1(const char* s, MassWeightMode& out) {
+    if      (strcmp(s, "off")        == 0) { out = MassWeightMode::Off;       return true; }
+    else if (strcmp(s, "log")        == 0) { out = MassWeightMode::Log;       return true; }
+    else if (strcmp(s, "sqrt")       == 0) { out = MassWeightMode::Sqrt;      return true; }
+    else if (strcmp(s, "linear")     == 0) { out = MassWeightMode::Linear;    return true; }
+    else if (strcmp(s, "inv-log")    == 0) { out = MassWeightMode::InvLog;    return true; }
+    else if (strcmp(s, "inv-linear") == 0) { out = MassWeightMode::InvLinear; return true; }
+    return false;
+}
+
+// fire_norm enum (schema: events|mass|weight|none) → v1's three bool flags.
+// "events" = all three false (legacy behavior, divide by event count).
+// "mass"   = fire_norm_by_mass=true   (default; divide by total event mass).
+// "weight" = fire_norm_by_weight=true (divide by Σ w_q; takes precedence over mass).
+// "none"   = fire_norm_none=true      (no normalization at all).
+static bool parse_fire_norm_v1(const char* s, bool& by_mass, bool& by_weight, bool& none) {
+    by_mass = by_weight = none = false;
+    if      (strcmp(s, "events") == 0) { return true; }
+    else if (strcmp(s, "mass")   == 0) { by_mass   = true; return true; }
+    else if (strcmp(s, "weight") == 0) { by_weight = true; return true; }
+    else if (strcmp(s, "none")   == 0) { none      = true; return true; }
+    return false;
+}
+
+#include "yaml_config_v1.cuh"
 
 // L-BFGS one-step update. Two-loop recursion using cuBLAS.
 //
@@ -7314,7 +7369,39 @@ int main(int argc, char** argv) {
                                       // unigram-d=16 reference recipe (65 steps/pass).
     LightningConfig lightning;  // defaults: steps=0 (off), sampler=L3, p_stop=0.3, seed=0x5c115e1
 
-    for (int i = 1; i < argc; i++) {
+    // --- Pre-pass: --config / --seed / --validate-only ---
+    // When --config is set, the legacy CLI parsing below is skipped entirely
+    // and locals are populated from YAML via apply_yaml_config_v1. --seed
+    // overrides train.seed; --validate-only parses + checks then exits 0.
+    const char* config_path = nullptr;
+    bool seed_override_set = false;
+    int seed_override = 0;
+    bool validate_only = false;
+    {
+        bool saw_non_config_arg = false;
+        for (int i = 1; i < argc; i++) {
+            if (strcmp(argv[i], "--config") == 0 && i + 1 < argc) {
+                config_path = argv[++i];
+            } else if (strcmp(argv[i], "--seed") == 0 && i + 1 < argc) {
+                seed_override = atoi(argv[++i]);
+                seed_override_set = true;
+            } else if (strcmp(argv[i], "--validate-only") == 0) {
+                validate_only = true;
+            } else {
+                saw_non_config_arg = true;
+            }
+        }
+        if (validate_only && !config_path) {
+            fprintf(stderr, "agpt_train: --validate-only requires --config\n");
+            return 1;
+        }
+        if (config_path && saw_non_config_arg) {
+            fprintf(stderr, "agpt_train: --config may only be combined with --seed and --validate-only\n");
+            return 1;
+        }
+    }
+
+    for (int i = 1; i < argc && !config_path; i++) {
         if (strcmp(argv[i], "--model") == 0 && i + 1 < argc) model_path = argv[++i];
         else if (strcmp(argv[i], "--init") == 0) init_mode = true;
         else if (strcmp(argv[i], "--init-d-model") == 0 && i + 1 < argc) init_d_model = atoi(argv[++i]);
@@ -7567,6 +7654,68 @@ int main(int argc, char** argv) {
     }
     if (subtree_splits < 1) subtree_splits = 1;
     if (partition_depth < 0) partition_depth = 0;
+
+    // --- YAML config application (--config <path>) ---
+    // Overwrites the locals above with whatever the YAML specifies. The
+    // YAML schema covers the canonical knobs only; research-only flags
+    // (rope-*, lightning-*, per-rc-*, curriculum, etc.) stay at their
+    // legacy CLI defaults under --config.
+    YamlConfigV1 yaml_cfg;
+    if (config_path) {
+        if (!apply_yaml_config_v1(config_path, yaml_cfg)) return 1;
+        if (seed_override_set) {
+            yaml_cfg.shuffle_seed = (unsigned)seed_override;
+            yaml_cfg.seed = seed_override;
+            yaml_cfg.seed_set = true;
+            yaml_cfg.init_seed = (uint32_t)seed_override;
+        }
+
+        // Copy YAML values into v1's locals
+        model_path = yaml_cfg.model_path.empty() ? nullptr : yaml_cfg.model_path.c_str();
+        trie_dir   = yaml_cfg.trie_dir.c_str();
+        save_path  = yaml_cfg.save_path.empty() ? nullptr : yaml_cfg.save_path.c_str();
+        init_mode  = yaml_cfg.init_mode;
+        if (init_mode) {
+            init_d_model  = yaml_cfg.init_d_model;
+            init_n_heads  = yaml_cfg.init_n_heads;
+            init_n_layers = yaml_cfg.init_n_layers;
+            init_d_ff     = yaml_cfg.init_d_ff;
+            init_seed     = yaml_cfg.init_seed;
+        }
+        epochs              = yaml_cfg.epochs;
+        lr                  = yaml_cfg.lr;
+        entropy_lambda      = yaml_cfg.entropy_lambda;
+        mass_weight         = yaml_cfg.mass_weight;
+        fire_norm_by_mass   = yaml_cfg.fire_norm_by_mass;
+        fire_norm_by_weight = yaml_cfg.fire_norm_by_weight;
+        fire_norm_none      = yaml_cfg.fire_norm_none;
+        partition_depth     = yaml_cfg.partition_depth;
+        chunk_queries       = yaml_cfg.chunk_queries;
+        ce_only             = yaml_cfg.ce_only;
+        explicit_anc_grad   = yaml_cfg.explicit_anc_grad;
+        ablate_anc_grad     = yaml_cfg.ablate_anc_grad;
+        shuffle_seed        = yaml_cfg.shuffle_seed;
+        optimizer           = yaml_cfg.optimizer;
+        momentum_beta       = yaml_cfg.momentum_beta;
+        rmsprop_beta        = yaml_cfg.rmsprop_beta;
+        lr_schedule         = yaml_cfg.lr_schedule;
+        warmup_epochs       = yaml_cfg.warmup_epochs;
+        weight_decay        = yaml_cfg.weight_decay;
+        grad_clip_norm      = yaml_cfg.grad_clip_norm;
+        // Under --config, force --no-accumulate semantics: the canonical AGPT
+        // mode is per-subtree-fire (anc_grad=true + pd>=1), which v1 rejects
+        // unless accumulate=false. The schema does not expose --accumulate;
+        // partition_depth=0 expresses "single fire over whole trie" instead.
+        accumulate = false;
+
+        if (!save_path && !validate_only) {
+            fprintf(stderr, "WARN: model.save_file not set; trained model will not be persisted\n");
+        }
+        if (validate_only) {
+            fprintf(stderr, "agpt_train: --validate-only OK\n");
+            return 0;
+        }
+    }
 
     // Validate model source: exactly one of --model and --init.
     if (model_path && init_mode) {

@@ -76,7 +76,7 @@ build-agpt-train: build-cuda-kernels
         -gencode=arch=compute_80,code=sm_80 \
         -gencode=arch=compute_89,code=sm_89 \
         -gencode=arch=compute_90,code=sm_90 \
-        src/cuda/agpt_train.cu build/kernels_gpu.o -lcublas -o bin/agpt_train
+        src/cuda/agpt_train.cu build/kernels_gpu.o -lcublas $(pkg-config --cflags --libs yam) -o bin/agpt_train
 
 # Build AGPT CUDA training engine v2 skeleton.
 # Shares build/kernels_gpu.o with v1; same flags — load-bearing for
