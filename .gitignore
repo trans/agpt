@@ -56,3 +56,9 @@ rnd/**/heldout_corpus.txt
 
 # Python bytecode in experiment dirs.
 rnd/**/__pycache__/
+
+# Content-hashed caches produced by bin/agpt_carve and bin/agpt_build_radix_corpus.
+# Regenerable from corpus.path + carve params / trie params; hashes are recorded
+# in meta.json + manifest.json inside each cache dir.
+data/.splits/
+data/.tries/
