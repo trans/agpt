@@ -1,0 +1,12 @@
+--- kenlm order 3 ---
+Perplexity excluding OOVs:	8.603636403017294
+Tokens:	53491
+--- kenlm order 4 ---
+Perplexity excluding OOVs:	6.355922405241521
+Tokens:	53491
+--- kenlm order 6 ---
+Perplexity excluding OOVs:	5.248989149502878
+Tokens:	53491
+--- kenlm order 8 ---
+Perplexity excluding OOVs:	5.23739619292357
+Tokens:	53491

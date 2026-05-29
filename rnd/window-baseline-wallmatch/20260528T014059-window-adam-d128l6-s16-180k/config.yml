@@ -1,0 +1,30 @@
+meta:
+  description: "Standard window-training baseline: d128 L6 seq_len=16, ~wall-time matched to CUDAX d128/L6 static200"
+  experiment: window-baseline-wallmatch
+  run_slug: window-adam-d128L6-s16-180k
+
+corpus:
+  path: data/input.txt
+  train_frac: 0.95
+  vocab_source: data/input.txt
+
+model:
+  init_from: rnd/cudax-section2-progressive/seeds/shake-d128L6-h8-dff512-d16-seed42.model
+
+train:
+  kind: microgpt-sgd
+  tool: bin/microgpt
+  steps: 180000
+  seq_len: 16
+  d_model: 128
+  n_layers: 6
+  lr: 0.0003
+  lr_schedule: constant
+  backend: openblas
+  seed: 42
+
+eval:
+  split: tail-heldout
+  task_name: shake_window_adam_ppl
+  batch_size: 1
+  device: cpu

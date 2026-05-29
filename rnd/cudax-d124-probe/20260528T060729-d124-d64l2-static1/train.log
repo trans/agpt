@@ -1,0 +1,81 @@
+AGPT CUDA Trainer V2
+  mode: train-growth
+  model: d=64 heads=4 layers=2 ff=256 vocab=65 seq=124 head_dim=16
+  corpus: rnd/cudax-d124-probe/20260528T060729-d124-d64l2-static1/train_corpus.txt tokens=1059624 full_starts=1059623
+  growth: stages=1 epochs_per_stage=1 min_epochs=1 epoch_schedule=fixed scheduled_epochs=1 optimizer=rmsprop schedule=warmup-cosine materializer=incremental-radix estimated_total_unit_steps=65
+  growth-frontiers: source=generated-divisions divisions=1 train_frac=1.000000 final_frontier=1059623
+  config: lr=0.003000 warmup_epochs=0 partition_depth=1 chunk_queries=50000 anc_grad=true
+  rope-position: mode=depth
+  growth-stage 1/1: frontier_starts=1059623 ingested_starts=1059623 radix_nodes=1584865 edge_chars=123189067 counts=2644418 flat_counts=5353351
+  train-growth-stage: epochs=1 units=65 optimizer=rmsprop radix_nodes=1584865 edge_chars=123189067
+    stage-epoch 1/1
+      unit 1/65 rc=17 chunks=86 trained_queries=4283062 trained_events=4670471 mean_loss=4.595246 lr=0.003 step=stateful RMSProp step applied
+      unit 2/65 rc=6 chunks=374 trained_queries=18661859 trained_events=20055906 mean_loss=4.405281 lr=0.00299825 step=stateful RMSProp step applied
+      unit 3/65 rc=597 chunks=5 trained_queries=234506 trained_events=249488 mean_loss=6.379383 lr=0.002993 step=stateful RMSProp step applied
+      unit 4/65 rc=1027293 chunks=1 trained_queries=124 trained_events=124 mean_loss=5.803458 lr=0.00298426 step=stateful RMSProp step applied
+      unit 5/65 rc=111938 chunks=1 trained_queries=365 trained_events=372 mean_loss=5.508085 lr=0.00297206 step=stateful RMSProp step applied
+      unit 6/65 rc=384 chunks=14 trained_queries=689527 trained_events=729120 mean_loss=4.962733 lr=0.00295641 step=stateful RMSProp step applied
+      unit 7/65 rc=54 chunks=44 trained_queries=2182526 trained_events=2339320 mean_loss=4.140891 lr=0.00293737 step=stateful RMSProp step applied
+      unit 8/65 rc=2093 chunks=5 trained_queries=212409 trained_events=221836 mean_loss=3.852527 lr=0.00291497 step=stateful RMSProp step applied
+      unit 9/65 rc=74 chunks=17 trained_queries=824408 trained_events=916249 mean_loss=3.650643 lr=0.00288926 step=stateful RMSProp step applied
+      unit 10/65 rc=882313 chunks=1 trained_queries=2708 trained_events=3348 mean_loss=3.671632 lr=0.00286031 step=stateful RMSProp step applied
+      unit 11/65 rc=16 chunks=23 trained_queries=1118787 trained_events=1200145 mean_loss=3.535121 lr=0.00282818 step=stateful RMSProp step applied
+      unit 12/65 rc=556 chunks=9 trained_queries=402908 trained_events=427924 mean_loss=3.244286 lr=0.00279295 step=stateful RMSProp step applied
+      unit 13/65 rc=213 chunks=6 trained_queries=265773 trained_events=288300 mean_loss=3.316810 lr=0.00275471 step=stateful RMSProp step applied
+      unit 14/65 rc=78 chunks=17 trained_queries=834115 trained_events=894861 mean_loss=3.215148 lr=0.00271353 step=stateful RMSProp step applied
+      unit 15/65 rc=18 chunks=6 trained_queries=296769 trained_events=319176 mean_loss=3.160729 lr=0.00266951 step=stateful RMSProp step applied
+      unit 16/65 rc=7 chunks=9 trained_queries=416424 trained_events=452848 mean_loss=3.163201 lr=0.00262277 step=stateful RMSProp step applied
+      unit 17/65 rc=6318 chunks=5 trained_queries=224634 trained_events=244528 mean_loss=3.234467 lr=0.0025734 step=stateful RMSProp step applied
+      unit 18/65 rc=3129 chunks=14 trained_queries=656402 trained_events=713248 mean_loss=3.153659 lr=0.00252152 step=stateful RMSProp step applied
+      unit 19/65 rc=1 chunks=4 trained_queries=199346 trained_events=215884 mean_loss=3.066649 lr=0.00246726 step=stateful RMSProp step applied
+      unit 20/65 rc=14974 chunks=6 trained_queries=263799 trained_events=288300 mean_loss=3.048103 lr=0.00241074 step=stateful RMSProp step applied
+      unit 21/65 rc=3051 chunks=7 trained_queries=331867 trained_events=358236 mean_loss=3.014602 lr=0.0023521 step=stateful RMSProp step applied
+      unit 22/65 rc=506 chunks=26 trained_queries=1281767 trained_events=1382126 mean_loss=2.979913 lr=0.00229146 step=stateful RMSProp step applied
+      unit 23/65 rc=14596 chunks=1 trained_queries=36794 trained_events=39556 mean_loss=2.975943 lr=0.00222898 step=stateful RMSProp step applied
+      unit 24/65 rc=62437 chunks=4 trained_queries=171115 trained_events=191208 mean_loss=2.999829 lr=0.00216479 step=stateful RMSProp step applied
+      unit 25/65 rc=425 chunks=9 trained_queries=424575 trained_events=458428 mean_loss=2.959269 lr=0.00209905 step=stateful RMSProp step applied
+      unit 26/65 rc=314 chunks=7 trained_queries=314647 trained_events=338892 mean_loss=2.932931 lr=0.00203191 step=stateful RMSProp step applied
+      unit 27/65 rc=531 chunks=11 trained_queries=528936 trained_events=574692 mean_loss=2.927321 lr=0.00196353 step=stateful RMSProp step applied
+      unit 28/65 rc=620 chunks=12 trained_queries=567606 trained_events=609782 mean_loss=2.912448 lr=0.00189406 step=stateful RMSProp step applied
+      unit 29/65 rc=8062 chunks=4 trained_queries=160626 trained_events=173228 mean_loss=2.918799 lr=0.00182368 step=stateful RMSProp step applied
+      unit 30/65 rc=97778 chunks=1 trained_queries=24821 trained_events=28644 mean_loss=2.965986 lr=0.00175254 step=stateful RMSProp step applied
+      unit 31/65 rc=226 chunks=11 trained_queries=522108 trained_events=564898 mean_loss=2.942135 lr=0.0016808 step=stateful RMSProp step applied
+      unit 32/65 rc=85 chunks=10 trained_queries=488847 trained_events=525016 mean_loss=2.890452 lr=0.00160865 step=stateful RMSProp step applied
+      unit 33/65 rc=2725 chunks=16 trained_queries=754625 trained_events=807195 mean_loss=2.858963 lr=0.00153625 step=stateful RMSProp step applied
+      unit 34/65 rc=3135 chunks=8 trained_queries=366260 trained_events=400520 mean_loss=2.862245 lr=0.00146375 step=stateful RMSProp step applied
+      unit 35/65 rc=1739 chunks=2 trained_queries=87562 trained_events=94736 mean_loss=2.852946 lr=0.00139135 step=stateful RMSProp step applied
+      unit 36/65 rc=373 chunks=8 trained_queries=386604 trained_events=414982 mean_loss=2.854039 lr=0.00131919 step=stateful RMSProp step applied
+      unit 37/65 rc=452305 chunks=1 trained_queries=13040 trained_events=13888 mean_loss=2.835079 lr=0.00124746 step=stateful RMSProp step applied
+      unit 38/65 rc=141 chunks=4 trained_queries=195453 trained_events=209808 mean_loss=2.852240 lr=0.00117632 step=stateful RMSProp step applied
+      unit 39/65 rc=260398 chunks=1 trained_queries=18549 trained_events=19964 mean_loss=2.827412 lr=0.00110594 step=stateful RMSProp step applied
+      unit 40/65 rc=41 chunks=124 trained_queries=6163183 trained_events=6532996 mean_loss=2.839264 lr=0.00103647 step=stateful RMSProp step applied
+      unit 41/65 rc=569 chunks=26 trained_queries=1259071 trained_events=1333052 mean_loss=2.827927 lr=0.000968093 step=stateful RMSProp step applied
+      unit 42/65 rc=36 chunks=35 trained_queries=1745157 trained_events=1848439 mean_loss=2.826658 lr=0.000900953 step=stateful RMSProp step applied
+      unit 43/65 rc=39 chunks=70 trained_queries=3489609 trained_events=3701941 mean_loss=2.813559 lr=0.000835213 step=stateful RMSProp step applied
+      unit 44/65 rc=14 chunks=211 trained_queries=10509349 trained_events=11170444 mean_loss=2.812318 lr=0.000771025 step=stateful RMSProp step applied
+      unit 45/65 rc=21 chunks=36 trained_queries=1758042 trained_events=1864623 mean_loss=2.809282 lr=0.00070854 step=stateful RMSProp step applied
+      unit 46/65 rc=550 chunks=30 trained_queries=1491599 trained_events=1575272 mean_loss=2.809231 lr=0.000647903 step=stateful RMSProp step applied
+      unit 47/65 rc=51 chunks=114 trained_queries=5673809 trained_events=6048192 mean_loss=2.797034 lr=0.000589256 step=stateful RMSProp step applied
+      unit 48/65 rc=2 chunks=102 trained_queries=5051998 trained_events=5357586 mean_loss=2.804754 lr=0.000532736 step=stateful RMSProp step applied
+      unit 49/65 rc=1069 chunks=2 trained_queries=71644 trained_events=75516 mean_loss=2.804424 lr=0.000478476 step=stateful RMSProp step applied
+      unit 50/65 rc=73 chunks=16 trained_queries=790720 trained_events=835488 mean_loss=2.798778 lr=0.000426602 step=stateful RMSProp step applied
+      unit 51/65 rc=79 chunks=75 trained_queries=3736786 trained_events=3953843 mean_loss=2.795929 lr=0.000377234 step=stateful RMSProp step applied
+      unit 52/65 rc=63 chunks=50 trained_queries=2471897 trained_events=2621838 mean_loss=2.802653 lr=0.000330488 step=stateful RMSProp step applied
+      unit 53/65 rc=15 chunks=108 trained_queries=5390515 trained_events=5717589 mean_loss=2.792372 lr=0.000286474 step=stateful RMSProp step applied
+      unit 54/65 rc=22 chunks=147 trained_queries=7317596 trained_events=7770966 mean_loss=2.791018 lr=0.000245295 step=stateful RMSProp step applied
+      unit 55/65 rc=32 chunks=25 trained_queries=1208977 trained_events=1277820 mean_loss=2.791892 lr=0.000207045 step=stateful RMSProp step applied
+      unit 56/65 rc=8446 chunks=2 trained_queries=69102 trained_events=73284 mean_loss=2.793891 lr=0.000171816 step=stateful RMSProp step applied
+      unit 57/65 rc=3 chunks=110 trained_queries=5457031 trained_events=5779345 mean_loss=2.790177 lr=0.000139688 step=stateful RMSProp step applied
+      unit 58/65 rc=4 chunks=111 trained_queries=5516836 trained_events=5854709 mean_loss=2.786805 lr=0.000110738 step=stateful RMSProp step applied
+      unit 59/65 rc=5 chunks=149 trained_queries=7411233 trained_events=7899836 mean_loss=2.784320 lr=8.50322e-05 step=stateful RMSProp step applied
+      unit 60/65 rc=48 chunks=60 trained_queries=2973228 trained_events=3145342 mean_loss=2.788509 lr=6.26312e-05 step=stateful RMSProp step applied
+      unit 61/65 rc=164 chunks=18 trained_queries=871265 trained_events=922669 mean_loss=2.792209 lr=4.35872e-05 step=stateful RMSProp step applied
+      unit 62/65 rc=28 chunks=39 trained_queries=1945234 trained_events=2065842 mean_loss=2.785215 lr=2.79448e-05 step=stateful RMSProp step applied
+      unit 63/65 rc=9786 chunks=2 trained_queries=59517 trained_events=62372 mean_loss=2.798378 lr=1.57404e-05 step=stateful RMSProp step applied
+      unit 64/65 rc=44 chunks=46 trained_queries=2269131 trained_events=2417215 mean_loss=2.783488 lr=7.00253e-06 step=stateful RMSProp step applied
+      unit 65/65 rc=13 chunks=1 trained_queries=40285 trained_events=42160 mean_loss=2.811723 lr=1.75166e-06 step=stateful RMSProp step applied
+    stage-epoch 1 summary trained_queries=123189067 trained_events=131385626 mean_loss=3.184550
+  train-growth-stage-timing: plan=0.178s setup=0.437s train=163.406s copy_back=0.001s cleanup=0.035s total=164.057s
+  growth-stage-timing 1/1: ingest=4.545s materialize=0.000s train_stage=164.057s free_radix=0.000s total=168.602s
+  train-growth: saved final weights to rnd/cudax-d124-probe/20260528T060729-d124-d64l2-static1/checkpoint.model
+  train-growth: completed stages=1 optimizer_steps=65

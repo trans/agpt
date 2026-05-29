@@ -1,0 +1,26 @@
+{
+  "run_id": "20260526T220612-v1-100se-mwlinear",
+  "experiment": "v1-vs-v2-comparison",
+  "wall_seconds": 598.231783082,
+  "train_wall_seconds": 571.898894369,
+  "convert_wall_seconds": 4.362634819,
+  "eval_wall_seconds": 16.30420798,
+  "started_utc": "2026-05-26T22:06:12Z",
+  "ended_utc": "2026-05-26T22:16:11Z",
+  "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+  "eval": {
+    "split": "external-heldout",
+    "source_path": "/tmp/shake_heldout5_v1eval.txt",
+    "source_sha256": "8b5a8c8af45905547ad03b7aae6980a277a5dd78924a6e6ac64b75d63d7d40bd",
+    "benchmark": null,
+    "corpus_train_frac": 1.0,
+    "corpus_split_offset": null
+  },
+  "metrics": {
+    "lm_eval_rolling_word_perplexity": 139425.38191672752,
+    "lm_eval_rolling_byte_perplexity": 8.31983923053312,
+    "lm_eval_rolling_bits_per_byte": 3.0565556505354117,
+    "agpt_fixed_token_perplexity": 8.009742481128452
+  },
+  "checkpoint_sha": "6d4b90311df6b9b63cf20849fb5f5ac45a8960edb494a13aee4102d39e55b693"
+}

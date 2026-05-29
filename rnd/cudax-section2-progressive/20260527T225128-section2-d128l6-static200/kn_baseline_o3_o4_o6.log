@@ -1,0 +1,13 @@
+Train: 1059624 chars, 65 vocab
+Heldout: 55770 chars (after OOV filter)
+Orders to fit: [3, 4, 6]
+
+--- order 3 ---
+  Fit: 6.7s  Score: 13.1s  evaluated=55768
+--- order 4 ---
+  Fit: 9.2s  Score: 52.8s  evaluated=55767
+--- order 6 ---
+  Fit: 17.4s  Score: 718.4s  evaluated=55765
+Order 3: Perplexity:    8.2108
+Order 4: Perplexity:    6.2930
+Order 6: Perplexity:    7.0498

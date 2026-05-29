@@ -1,0 +1,26 @@
+{
+  "run_id": "20260527T192634-section2-d128l8-static200-cq25k",
+  "experiment": "cudax-section2-progressive",
+  "wall_seconds": 10605.401691244,
+  "train_wall_seconds": 10550.452000444,
+  "convert_wall_seconds": 4.834448161,
+  "eval_wall_seconds": 44.591955861,
+  "started_utc": "2026-05-27T19:26:34Z",
+  "ended_utc": "2026-05-27T22:23:19Z",
+  "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+  "eval": {
+    "split": "tail-heldout",
+    "source_path": "rnd/cudax-section2-progressive/20260527T192634-section2-d128l8-static200-cq25k/heldout_corpus.txt",
+    "source_sha256": "8b5a8c8af45905547ad03b7aae6980a277a5dd78924a6e6ac64b75d63d7d40bd",
+    "benchmark": null,
+    "corpus_train_frac": 0.95,
+    "corpus_split_offset": 1059624
+  },
+  "metrics": {
+    "lm_eval_rolling_word_perplexity": 33364.867144855576,
+    "lm_eval_rolling_byte_perplexity": 6.442193147015744,
+    "lm_eval_rolling_bits_per_byte": 2.687551915620529,
+    "agpt_fixed_token_perplexity": 5.933205859425329
+  },
+  "checkpoint_sha": "9eca584d8ab517c258deee0fcceadbf2ce60868cdfcb4bf0af68b78f4f77b4c0"
+}

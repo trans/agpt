@@ -1,0 +1,26 @@
+{
+  "run_id": "20260526T184941-v1-25se-mwlog",
+  "experiment": "v1-vs-v2-comparison",
+  "wall_seconds": 163.109764959,
+  "train_wall_seconds": 140.571223547,
+  "convert_wall_seconds": 3.852851527,
+  "eval_wall_seconds": 14.761608312,
+  "started_utc": "2026-05-26T18:49:41Z",
+  "ended_utc": "2026-05-26T18:52:24Z",
+  "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+  "eval": {
+    "split": "external-heldout",
+    "source_path": "/tmp/shake_heldout5_v1eval.txt",
+    "source_sha256": "8b5a8c8af45905547ad03b7aae6980a277a5dd78924a6e6ac64b75d63d7d40bd",
+    "benchmark": null,
+    "corpus_train_frac": 1.0,
+    "corpus_split_offset": null
+  },
+  "metrics": {
+    "lm_eval_rolling_word_perplexity": 241417.08301633436,
+    "lm_eval_rolling_byte_perplexity": 9.17824700954259,
+    "lm_eval_rolling_bits_per_byte": 3.1982186337982177,
+    "agpt_fixed_token_perplexity": 8.295544478864693
+  },
+  "checkpoint_sha": "96e65032b88b31acac428fb02267693b3efbcc724b2f15854fae60abcf75a441"
+}

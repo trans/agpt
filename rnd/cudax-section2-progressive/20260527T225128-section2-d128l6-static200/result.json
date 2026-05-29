@@ -1,0 +1,26 @@
+{
+  "run_id": "20260527T225128-section2-d128l6-static200",
+  "experiment": "cudax-section2-progressive",
+  "wall_seconds": 8212.22167626,
+  "train_wall_seconds": 8162.311871391,
+  "convert_wall_seconds": 5.542547929,
+  "eval_wall_seconds": 39.012528067,
+  "started_utc": "2026-05-27T22:51:28Z",
+  "ended_utc": "2026-05-28T01:08:20Z",
+  "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+  "eval": {
+    "split": "tail-heldout",
+    "source_path": "rnd/cudax-section2-progressive/20260527T225128-section2-d128l6-static200/heldout_corpus.txt",
+    "source_sha256": "8b5a8c8af45905547ad03b7aae6980a277a5dd78924a6e6ac64b75d63d7d40bd",
+    "benchmark": null,
+    "corpus_train_frac": 0.95,
+    "corpus_split_offset": 1059624
+  },
+  "metrics": {
+    "lm_eval_rolling_word_perplexity": 26057.444565631125,
+    "lm_eval_rolling_byte_perplexity": 6.163562553444307,
+    "lm_eval_rolling_bits_per_byte": 2.6237644730837784,
+    "agpt_fixed_token_perplexity": 5.652863434936437
+  },
+  "checkpoint_sha": "794a11227b36059fc444b901a34cfc1c592c1ebaf674ae4603a9f46fb7d6839b"
+}

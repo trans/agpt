@@ -1,0 +1,36 @@
+# Standard Crystal µGPT SGD/window baseline:
+# - same init checkpoint as AGPT/CUDAX runs
+# - same 95/5 train/heldout split owned by agpt_experiment
+# - seq_len=16 to match current trie depth
+# - 10k standard sliding-window optimizer steps
+
+meta:
+  description: "Crystal µGPT SGD baseline, Shakespeare d64 L2 seq_len=16 10k steps"
+  experiment: shake-sgd-baseline
+  run_slug: d64L2-s16-10k
+
+corpus:
+  path: data/input.txt
+  train_frac: 0.95
+  vocab_source: data/input.txt
+
+model:
+  init_from: data/input.model
+
+train:
+  kind: microgpt-sgd
+  tool: /home/trans/Projects/microgpt/bin/microgpt
+  steps: 10000
+  seq_len: 16
+  d_model: 64
+  n_layers: 2
+  lr: 0.0003
+  lr_schedule: constant
+  backend: openblas
+  seed: 42
+
+eval:
+  split: tail-heldout
+  task_name: shake_sgd_ppl
+  batch_size: 1
+  device: cpu
