@@ -1,0 +1,25 @@
+{
+  "run_id": "20260526T135924-cudax-256x6",
+  "experiment": "progressive-growth-sgd-comparison",
+  "wall_seconds": 4634.205464701,
+  "started_utc": "2026-05-26T13:59:24Z",
+  "ended_utc": "2026-05-26T15:16:38Z",
+  "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+  "eval": {
+    "split": "tail-heldout",
+    "source_path": "rnd/progressive-growth-sgd-comparison/20260526T135924-cudax-256x6/heldout_corpus.txt",
+    "source_sha256": "8b5a8c8af45905547ad03b7aae6980a277a5dd78924a6e6ac64b75d63d7d40bd",
+    "benchmark": null,
+    "corpus_train_frac": 0.95,
+    "corpus_split_offset": 1059624
+  },
+  "metrics": {
+    "lm_eval_rolling_word_perplexity": 254232.06531626033,
+    "lm_eval_rolling_byte_perplexity": 9.263547748536482,
+    "lm_eval_rolling_bits_per_byte": 3.211564821886072,
+    "agpt_fixed_token_perplexity": 6.7331050516554445
+  },
+  "checkpoint_sha": "c36736b8b874db7eb9491dedc23e154a33f03050e04f2b5f89e1a4b02e8a7ed1",
+  "train_wall_seconds": 4604.156,
+  "train_wall_seconds_source": "sum_growth_stage_timing_total"
+}
