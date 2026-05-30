@@ -232,7 +232,7 @@ split caches, tries are content-hashed and cached at
 |---|---|---|---|---|
 | `train.partition_depth` | int ≥ 0 | 1 | v1, v2 | Subtree partitioning depth. `pd=0` = single fire over whole trie. **Migration:** `pd=0` semantics must be implemented in v1/v2 (currently they clamp/reject) before `--accumulate` can be removed. |
 | `train.chunk_queries` | int | 50000 | v1, v2 | Per-chunk T_q budget. |
-| `train.checkpoint_epochs` | list<int> | absent | v2, orch | Optional epoch checkpoints for static v2 training. Checkpoints are saved beside `model.save_file` using the save-file stem, e.g. `checkpoint.epoch_000004.model`; orchestrated runs evaluate each checkpoint and record `checkpoint_results` in `result.json`. |
+| `train.checkpoint_epochs` | list<int> | absent | v2, orch | Optional epoch checkpoints for static v2 training. Checkpoints are saved beside `model.save_file` using the save-file stem, e.g. `checkpoint.epoch_000004.model`; orchestrated runs evaluate each checkpoint and record `checkpoint_results` in `result.json`, including cumulative `train_wall_seconds` when the trainer reports it. |
 | `train.anc_grad` | bool | true | v1, v2 | Descendant→ancestor gradient flow. |
 | `train.mass_weight` | enum | `linear` | v1, v2 | `off` \| `linear` \| `sqrt` \| `log` \| `inv-log` \| `inv-linear`. Per-event loss weighting. |
 | `train.fire_norm` | enum | `mass` | v1, v2 | `events` \| `mass` \| `weight` \| `none`. Per-fire gradient divisor. |

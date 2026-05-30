@@ -1259,6 +1259,7 @@ int main(int argc, char** argv) {
                 long long total_unit_steps = (long long)epochs * (long long)units_to_run;
                 long long warmup_unit_steps = (long long)cfg.warmup_epochs * (long long)units_to_run;
                 if (total_unit_steps < 1) total_unit_steps = 1;
+                double train_loop_start = wall_seconds_v2();
                 for (int epoch = 0; epoch < epochs; epoch++) {
                     double epoch_loss_sum = 0.0;
                     double epoch_events = 0.0;
@@ -1357,6 +1358,9 @@ int main(int argc, char** argv) {
                                 epoch + 1, epoch_trained, epoch_events, epoch_mean);
                     if (save_path && checkpoint_epoch_requested_v2(yaml_cfg.checkpoint_epochs, epoch + 1)) {
                         std::string checkpoint_path = epoch_checkpoint_path_v2(save_path, epoch + 1);
+                        double checkpoint_train_wall = wall_seconds_v2() - train_loop_start;
+                        std::printf("  train-epoch-checkpoint: epoch=%d train_wall_seconds=%.6f path=%s\n",
+                                    epoch + 1, checkpoint_train_wall, checkpoint_path.c_str());
                         save_device_weights_checkpoint_v2("train-epoch", epoch + 1,
                                                           checkpoint_path, model, runtime.d_weights);
                     }

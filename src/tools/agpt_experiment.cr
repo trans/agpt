@@ -572,6 +572,17 @@ module AgptExperiment
     nil
   end
 
+  def self.parse_checkpoint_train_wall_seconds(log_path : String) : Hash(Int32, Float64)
+    times = {} of Int32 => Float64
+    return times unless File.exists?(log_path)
+    File.each_line(log_path) do |line|
+      if m = line.match(/train-epoch-checkpoint: epoch=(\d+) train_wall_seconds=([0-9]+(?:\.[0-9]+)?)/)
+        times[m[1].to_i] = m[2].to_f
+      end
+    end
+    times
+  end
+
   # ---------------------------------------------------------------------------
   # Aggregation: runs.json + README table
   # ---------------------------------------------------------------------------
@@ -793,6 +804,7 @@ module AgptExperiment
       STDERR.puts "trainer succeeded but checkpoint not at #{run.checkpoint}"
       exit 3
     end
+    checkpoint_train_walls = parse_checkpoint_train_wall_seconds(run.train_log)
 
     # ---- convert to HF ----
     vocab_source = cfg.corpus.vocab_source || cfg.corpus.path
@@ -946,6 +958,7 @@ module AgptExperiment
           "hf_dir"               => hf_dir,
           "eval_raw_json"        => raw_json,
           "task_name"            => checkpoint_task_name,
+          "train_wall_seconds"   => checkpoint_train_walls[epoch]?,
           "convert_wall_seconds" => checkpoint_convert_wall,
           "eval_wall_seconds"    => checkpoint_eval_wall,
           "metrics"              => checkpoint_metrics,
