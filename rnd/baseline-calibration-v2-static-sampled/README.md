@@ -27,3 +27,20 @@ using the standard sampled heldout carve.
 |--------|----------------:|----------:|----------:|----------:|
 | `20260530T084221-d64l2-depth16-pd0-128ep` | 10.094 | 3.3354 | 727.0 | 950.0 |
 <!-- agpt-experiment-table:end -->
+
+## Checkpoint Trajectory
+
+This is a `partition_depth=0` single-fire run: one optimizer update per full
+trie epoch. It is a pd=0 calibration record, not an optimizer-step-budget match
+for the older pd=1 static baselines.
+
+| Epoch | fixed_token_ppl | rolling_byte_ppl | bits/byte |
+|------:|----------------:|-----------------:|----------:|
+| 1 | 86.9399 | 87.2196 | 6.4466 |
+| 2 | 1148.6918 | 1135.4918 | 10.1491 |
+| 4 | 168.6218 | 166.9190 | 7.3830 |
+| 8 | 27.1075 | 26.8082 | 4.7446 |
+| 16 | 18.1265 | 18.1461 | 4.1816 |
+| 32 | 13.2884 | 13.3642 | 3.7403 |
+| 64 | 10.6293 | 10.7694 | 3.4289 |
+| 128 | 9.8714 | 10.0940 | 3.3354 |
