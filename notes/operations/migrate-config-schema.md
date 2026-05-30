@@ -155,17 +155,11 @@ Breakdown by trainer hint:
     whole trie" (the closest equivalent, not necessarily semantically
     identical to legacy `--no-accumulate`).
 
-**Swap status (as of 2026-05-29):** 42 of 48 configs have been
-swapped in-place — `<name>.new-schema.yml` content moved to `<name>.yml`,
-sibling `.new-schema.yml` removed. The remaining 6 are the
-`rnd/harmonic-bias-prototype/configs/*` files: their legacy `extra_args`
-(`--harmonic-bias --bias-window --bias-n-freq`) are real research flags
-the harmonic-bias prototype tool depends on, and the canonical schema
-doesn't model them. They land in the canonical layout once those
-fields move under `experimental:` (with trainer-side support in the
-harmonic-bias tool) or graduate to real schema entries.
+**Swap status (as of 2026-05-30):** all 48 configs are now on the
+canonical `.yml` single-file layout — no `.new-schema.yml` siblings
+remain.
 
-The `rnd/v1-vs-v2-comparison/configs/*` configs were initially deferred
+The `rnd/v1-vs-v2-comparison/configs/*` (6) were initially deferred
 because their legacy YAML set `accumulate: false`. On review, the
 schema's canonical mode is the per-subtree-fire path (each
 `partition_depth=1` group does its own optimizer step), which under
@@ -175,4 +169,16 @@ dropping `accumulate: false` in migration is semantically faithful for
 v1, not lossy. The legacy `tool: rnd/v1-vs-v2-comparison/tools/v1_train.py`
 wrapper (which pre-positioned the radix and translated flags) is
 likewise obsoleted by the new orchestrator's auto-trie-build at
-`data/.tries/<hash>/`. All 6 swapped 2026-05-29.
+`data/.tries/<hash>/`. Swapped 2026-05-29.
+
+The `rnd/harmonic-bias-prototype/configs/*` (6) were initially deferred
+because their legacy `extra_args` (`--harmonic-bias --bias-window
+--bias-n-freq`) are real research flags the harmonic-bias prototype
+tool depends on. Resolution path used: the prototype trainer was
+taught to read `--config <yaml>` directly (no separate adapter
+binary), and the bias-specific flags moved under `experimental:`. The
+trainer recognizes a fixed allowlist of experimental keys
+(`harmonic_bias`, `bias_window`, `bias_n_freq`, `batch_size`,
+`save_beta`, `eval_heldout_frac`) and emits the canonical
+`WARN: unknown experimental flag <name>; ignoring` for anything else.
+Swapped 2026-05-30.

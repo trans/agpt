@@ -36,6 +36,7 @@ from pathlib import Path
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import yaml
 
 _HERE = Path(__file__).resolve().parent
 _REPO_ROOT = _HERE.parents[2]  # rnd/<exp>/tools/ → repo root
@@ -250,26 +251,30 @@ def train(args: argparse.Namespace) -> None:
               f"elapsed={elapsed:.1f}s",
               file=sys.stderr)
 
-    print(f"[{time.strftime('%H:%M:%S')}] saving {args.save}", file=sys.stderr)
-    # .model save uses the underlying AGPT backbone (β is not part of the
-    # native format; saved separately if --save-beta given). Override
-    # seq_len = d_window so downstream evaluators don't probe untrained
-    # RoPE positions.
-    save_model(args.save, hf_model, seq_len_override=d_window)
-    print(f"  wrote {args.save} (seq_len={d_window})", file=sys.stderr)
-    if chord_table is not None:
-        beta_path = args.save_beta
-        if beta_path is None:
-            # Convention: <save_dir>/checkpoint.beta.pt next to checkpoint.model
-            save_p = Path(args.save).resolve()
-            beta_path = str(save_p.parent / "checkpoint.beta.pt")
-        torch.save({
-            'beta': model.beta.detach().cpu(),
-            'n_freq': model.n_freq,
-            'd_window': d_window,
-            'window_W': args.bias_window,
-        }, beta_path)
-        print(f"  wrote bias state to {beta_path}", file=sys.stderr)
+    if args.save:
+        print(f"[{time.strftime('%H:%M:%S')}] saving {args.save}", file=sys.stderr)
+        # .model save uses the underlying AGPT backbone (β is not part of the
+        # native format; saved separately if --save-beta given). Override
+        # seq_len = d_window so downstream evaluators don't probe untrained
+        # RoPE positions.
+        save_model(args.save, hf_model, seq_len_override=d_window)
+        print(f"  wrote {args.save} (seq_len={d_window})", file=sys.stderr)
+        if chord_table is not None:
+            beta_path = args.save_beta
+            if beta_path is None:
+                # Convention: <save_dir>/checkpoint.beta.pt next to checkpoint.model
+                save_p = Path(args.save).resolve()
+                beta_path = str(save_p.parent / "checkpoint.beta.pt")
+            torch.save({
+                'beta': model.beta.detach().cpu(),
+                'n_freq': model.n_freq,
+                'd_window': d_window,
+                'window_W': args.bias_window,
+            }, beta_path)
+            print(f"  wrote bias state to {beta_path}", file=sys.stderr)
+    else:
+        print(f"[{time.strftime('%H:%M:%S')}] skipping save (no model.save_file set)",
+              file=sys.stderr)
 
     # PyTorch eval on the carved tail. β is exercised here (lm-eval
     # can't since the .model format has no slot for β).
@@ -306,13 +311,199 @@ def train(args: argparse.Namespace) -> None:
 # CLI
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# YAML config loader (--config <path>) — new canonical schema.
+#
+# Mirrors v1/v2's pattern: when --config is given, populate args from YAML,
+# emit WARN per unknown experimental flag, hard-error on unknown
+# canonical fields. Most canonical fields (partition_depth, anc_grad,
+# chunk_queries, growth.*, fire_norm, ...) are silently accepted but
+# unused — this is a sliding-window prototype trainer, not the AGPT
+# subtree-fire path, and the schema is intentionally a superset.
+# ---------------------------------------------------------------------------
+
+_CONSUMED_YAML_FIELDS = {
+    "corpus.path", "corpus.vocab_source",
+    "model.d_model", "model.n_layers", "model.n_heads", "model.d_ff",
+    "model.head_dim", "model.init_file", "model.init_seed", "model.save_file",
+    "train.budget.unit", "train.budget.value",
+    "train.seed", "train.quiet",
+    "train.optimizer.name", "train.optimizer.lr", "train.optimizer.beta",
+    "train.optimizer.momentum_beta", "train.optimizer.weight_decay",
+    "train.optimizer.grad_clip_norm",
+    "train.lr_schedule.name", "train.lr_schedule.warmup_epochs",
+    "train.max_depth", "train.seq_len",
+    # canonical AGPT trainer knobs — accepted, ignored by this sliding-window
+    # prototype (which has its own fixed sgd-style schedule)
+    "train.partition_depth", "train.chunk_queries", "train.anc_grad",
+    "train.mass_weight", "train.fire_norm", "train.entropy_lambda",
+    "train.ce_only",
+    "train.growth.divisions", "train.growth.min_epochs", "train.growth.epoch_ramp",
+    # trie block: irrelevant to a sliding-window trainer
+    "trie.max_depth", "trie.prune_min_mass", "trie.prune_min_depth",
+    "trie.path", "trie.virtual_tree",
+    # microgpt-only fields: accept silently if present
+    "train.backend", "train.heads", "train.lookahead",
+    # eval fields used by this trainer for device selection
+    "eval.batch_size", "eval.device", "eval.limit",
+    "eval.external_file", "eval.benchmark", "eval.train_sanity",
+}
+
+_IGNORED_YAML_PREFIXES = ("corpus.carve.",)
+_IGNORED_YAML_FIELDS = {"description", "experiment", "run_slug", "corpus.heldout"}
+
+_KNOWN_BLOCKS = {
+    "corpus", "corpus.carve", "trie", "model", "train",
+    "train.budget", "train.optimizer", "train.lr_schedule", "train.growth",
+    "eval", "experimental",
+}
+
+_KNOWN_EXPERIMENTAL = {
+    "harmonic_bias", "bias_window", "bias_n_freq",
+    "batch_size", "save_beta", "eval_heldout_frac",
+}
+
+
+def _walk_yaml(node, prefix, scalars, blocks):
+    if isinstance(node, dict):
+        if prefix:
+            blocks.add(prefix)
+        for k, v in node.items():
+            key = f"{prefix}.{k}" if prefix else k
+            _walk_yaml(v, key, scalars, blocks)
+    elif isinstance(node, list):
+        raise ValueError(
+            f"harmonic-bias train.py: YAML sequences are not part of the "
+            f"trainer config schema at {prefix}"
+        )
+    else:
+        scalars[prefix] = node
+
+
+def _is_consumed(path: str) -> bool:
+    return path in _CONSUMED_YAML_FIELDS
+
+
+def _is_ignored(path: str) -> bool:
+    if path in _IGNORED_YAML_FIELDS:
+        return True
+    return any(path.startswith(p) for p in _IGNORED_YAML_PREFIXES)
+
+
+def _apply_yaml_config(args: argparse.Namespace, config_path: str) -> None:
+    with open(config_path) as f:
+        doc = yaml.safe_load(f)
+    if not isinstance(doc, dict):
+        raise ValueError("YAML config must be a top-level mapping")
+
+    scalars: dict[str, object] = {}
+    blocks: set[str] = set()
+    _walk_yaml(doc, "", scalars, blocks)
+
+    # Strict-validate blocks + fields
+    for blk in blocks:
+        if blk not in _KNOWN_BLOCKS:
+            raise ValueError(f"harmonic-bias train.py: unknown YAML block: {blk}")
+    for path in sorted(scalars):
+        if path.startswith("experimental."):
+            name = path[len("experimental."):]
+            if name not in _KNOWN_EXPERIMENTAL:
+                print(f"WARN: unknown experimental flag {name}; ignoring", file=sys.stderr)
+            continue
+        if _is_consumed(path) or _is_ignored(path):
+            continue
+        raise ValueError(f"harmonic-bias train.py: unknown YAML field: {path}")
+
+    # Required canonical fields
+    if "model.init_file" not in scalars:
+        raise ValueError("harmonic-bias train.py: YAML field model.init_file is required")
+    if "corpus.path" not in scalars:
+        raise ValueError("harmonic-bias train.py: YAML field corpus.path is required")
+    args.model = scalars["model.init_file"]
+    args.corpus = scalars["corpus.path"]
+    if "model.save_file" in scalars:
+        args.save = scalars["model.save_file"]
+    if "corpus.vocab_source" in scalars:
+        args.vocab_file = scalars["corpus.vocab_source"]
+
+    # Budget (epochs only)
+    if "train.budget.unit" in scalars:
+        unit = scalars["train.budget.unit"]
+        if unit != "epochs":
+            raise ValueError(
+                f"harmonic-bias train.py: YAML train.budget.unit={unit!r} not "
+                f"supported (epochs only)"
+            )
+        if "train.budget.value" not in scalars:
+            raise ValueError("harmonic-bias train.py: train.budget.value is required")
+        args.epochs = int(scalars["train.budget.value"])
+
+    # Seed / quiet
+    if "train.seed" in scalars:
+        args.seed = int(scalars["train.seed"])
+    if "train.quiet" in scalars:
+        args.quiet = bool(scalars["train.quiet"])
+
+    # Optimizer
+    if "train.optimizer.name" in scalars:
+        opt = scalars["train.optimizer.name"]
+        if opt not in ("rmsprop", "adam", "sgd"):
+            raise ValueError(
+                f"harmonic-bias train.py: YAML train.optimizer.name={opt!r} not "
+                f"supported by this trainer (rmsprop|adam|sgd)"
+            )
+        args.optimizer = opt
+    if "train.optimizer.lr" in scalars:
+        args.lr = float(scalars["train.optimizer.lr"])
+    if "train.optimizer.beta" in scalars:
+        args.rmsprop_beta = float(scalars["train.optimizer.beta"])
+
+    # LR schedule
+    if "train.lr_schedule.name" in scalars:
+        args.lr_schedule = scalars["train.lr_schedule.name"]
+    if "train.lr_schedule.warmup_epochs" in scalars:
+        args.warmup_epochs = float(scalars["train.lr_schedule.warmup_epochs"])
+
+    # Context window: train.max_depth wins, fall back to trie.max_depth.
+    md = scalars.get("train.max_depth")
+    if md is None:
+        md = scalars.get("trie.max_depth")
+    if md is not None:
+        args.growth_max_depth = int(md)
+
+    # Eval device propagates to torch device (the eval batch_size is separate
+    # from the sgd batch_size, which lives under experimental:).
+    if "eval.device" in scalars:
+        args.device = scalars["eval.device"]
+
+    # Experimental knobs
+    if "experimental.harmonic_bias" in scalars:
+        args.harmonic_bias = bool(scalars["experimental.harmonic_bias"])
+    if "experimental.bias_window" in scalars:
+        args.bias_window = int(scalars["experimental.bias_window"])
+    if "experimental.bias_n_freq" in scalars:
+        args.bias_n_freq = int(scalars["experimental.bias_n_freq"])
+    if "experimental.batch_size" in scalars:
+        args.batch_size = int(scalars["experimental.batch_size"])
+    if "experimental.save_beta" in scalars:
+        args.save_beta = scalars["experimental.save_beta"]
+    if "experimental.eval_heldout_frac" in scalars:
+        args.eval_heldout_frac = float(scalars["experimental.eval_heldout_frac"])
+
+
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    p.add_argument('--model', required=True, help='Init .model checkpoint')
-    p.add_argument('--corpus', required=True, help='Training corpus text')
+    p.add_argument('--config', default=None,
+                   help='YAML config file (new canonical schema). When given, '
+                        'most other flags are read from it; --seed overrides '
+                        'the YAML value.')
+    p.add_argument('--validate-only', action='store_true',
+                   help='Requires --config: parse + validate + exit 0.')
+    p.add_argument('--model', help='Init .model checkpoint (or use --config)')
+    p.add_argument('--corpus', help='Training corpus text (or use --config)')
     p.add_argument('--vocab-file', default=None,
                    help='Explicit vocab corpus (defaults to --corpus)')
-    p.add_argument('--save', required=True, help='Output .model path')
+    p.add_argument('--save', help='Output .model path (or use --config)')
     p.add_argument('--epochs', type=int, default=10)
     p.add_argument('--lr', type=float, default=3e-3)
     p.add_argument('--rmsprop-beta', type=float, default=0.999)
@@ -355,6 +546,29 @@ def main() -> None:
                         '(0 disables). Bias is exercised at eval.')
 
     args = p.parse_args()
+    if args.config:
+        _apply_yaml_config(args, args.config)
+    elif args.validate_only:
+        p.error("--validate-only requires --config")
+
+    missing = [n for n in ("model", "corpus") if not getattr(args, n)]
+    if missing:
+        p.error(
+            "the following are required (via CLI or --config): "
+            + ", ".join("--" + m for m in missing)
+        )
+
+    if not args.save and not args.validate_only:
+        # Match v1/v2 behavior: warn + proceed without persisting weights.
+        print(
+            "WARN: model.save_file not set; trained model will not be persisted",
+            file=sys.stderr,
+        )
+
+    if args.validate_only:
+        print("harmonic-bias train.py: --validate-only OK", file=sys.stderr)
+        return
+
     train(args)
 
 

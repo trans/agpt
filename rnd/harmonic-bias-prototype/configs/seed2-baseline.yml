@@ -1,36 +1,35 @@
-# Variance check, seed 2, no bias. Pair with seed2-bias.yml.
-
-meta:
-  description: "Baseline (no harmonic bias), seed 2"
-  experiment: harmonic-bias-prototype
-  run_slug: seed2-baseline
+description: "Variance check, seed 2, no bias. Pairs with seed2-bias.yml."
+experiment: harmonic-bias-prototype
+run_slug: seed2-baseline
 
 corpus:
-  path: data/input.txt
-  train_frac: 0.95
+  path: data/.splits/2b7ded401e96b610/train_corpus.txt
+  heldout: data/.splits/2b7ded401e96b610/heldout_corpus.txt
+  vocab_source: data/input.txt
+  carve:
+    source: data/input.txt
+    mode: tail
+    ratio: 0.05
 
 model:
-  init_from: data/input.model
+  init_file: data/input.model
 
 train:
-  tool: rnd/harmonic-bias-prototype/tools/train.py
-  mode: train-growth          # ignored by pytorch trainer; orchestrator passes it
-  growth_max_depth: 16
-  epochs: 10
-  optimizer: rmsprop
-  lr: 0.003
-  rmsprop_beta: 0.999
-  lr_schedule: warmup-cosine
-  warmup_epochs: 1            # 1 (0.5*2) — pytorch trainer epoch-based warmup
+  budget: { unit: epochs, value: 10 }
+  seed: 2
   quiet: true
-  extra_args:
-    - "--seed"
-    - "2"
-    - "--batch-size"
-    - "128"
+  optimizer:
+    name: rmsprop
+    lr: 0.003
+    beta: 0.999
+  lr_schedule:
+    name: warmup-cosine
+    warmup_epochs: 1
+  max_depth: 16
+
+experimental:
+  batch_size: 128
 
 eval:
-  split: tail-heldout
-  task_name: bias_proto_ppl
   batch_size: 64
   device: cuda
