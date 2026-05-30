@@ -95,15 +95,14 @@ For `d=16, B=4`: 20 K/V slots per query, vs the current 16. ~25% slot-count incr
 
 5. **Shared Q/K/V parameters**: the same `W_q`, `W_k`, `W_v` matrices project both path-ancestor states and backoff states into the attention space. No new parameters introduced. Preserves apples-to-apples ablation vs current AGPT (baseline = same architecture with `B=0`).
 
-6. **Position encoding for backoff slots**: **RoPE at sentinel position `d+i`** for the `i`-th backoff slot. This is the simplest scheme that distinguishes backoff slots from path slots positionally without adding parameters.
+6. **Position encoding for backoff slots — A/B test in Step 0**: two candidate schemes, both run as paired experimental conditions:
 
-   Position encoding is expected to be a rich vein of variants — flagged for follow-up exploration once Step 0 results are in:
-   - RoPE at `K_back`'s actual depth `d-i` (gives the model the "this is a position-(d-i) token" signal but introduces position-duplication with the path-ancestor at depth `d-i`).
-   - Learnable backoff embeddings (one per backoff level; most expressive, adds parameters).
-   - Zero RoPE (no rotation; rely on content + attention head selection alone).
-   - Per-head specialization (some heads RoPE at sentinel, others at actual depth).
+   - **(a) Sentinel `d+i`**: simplest scheme; distinguishes backoff slots from path slots by giving them a position the path never visits. Argument: cheap, no position duplication, model learns "slot at d+i = backoff slot of level i."
+   - **(b) Depth-relative `d−i`** (K_back_i's own endpoint depth): preserves RoPE's shift-invariance property. K_back_i is a *suffix-shifted view* of the same temporal context, and `d−i` is its true semantic offset relative to K's query. Two slots end up at the same RoPE rotation (K's path-ancestor at depth `d−i` and the backoff cousin); they are disambiguated by content. This is effectively a soft mixture of "what your path knows at this depth" and "what the suffix-shifted cousin would say at the equivalent depth" — mechanistically the KN interpolation with attention learning the mixing weights.
 
-   For the first run we pick the obvious cheap option (sentinel) and see what gives.
+   Both are zero-parameter changes. Sentinel `d+i` is the simpler implementation, depth-relative `d−i` is the theoretically cleaner mapping. Empirically settling which wins is cheap (one extra pair of runs) and is the kind of question that's much faster to answer here than as a "Phase 1.5 follow-up." Step 0 runs both.
+
+   Other position-encoding variants — learnable per-level embeddings, zero RoPE, per-head specialization — remain Phase 1.5 follow-ups once we know whether sentinel or depth-relative is the better starting point.
 
 7. **No within-fire dedup of `K_back` paths**: queries in the same chunk that share a `K_back` independently include that `K_back`'s path as a parallel mini-path inside the depth-batched forward (see below). Cost is bounded (~4–5× compute per query); within-fire dedup is a Step-0.5 optimization.
 
@@ -218,14 +217,19 @@ Implementation order: this sidecar comes first, because the fire-kernel widening
 - 25 epochs to start (enough to see clear separation from baseline; matches cap-recurrence comparison anchors).
 - Multiple shuffle seeds for noise control. 3 pairs minimum, 5+ if results are noisy.
 - Eval: canonical `byte_perplexity` via `bin/agpt_experiment` + canonical heldout.
-- Conditions: `B=0` (baseline) vs `B=4` (Step 0).
+- Conditions (3 per shuffle seed):
+  - **`B=0`** — baseline, current AGPT (no backoff).
+  - **`B=4, position=sentinel`** — backoff slots at RoPE position `d+i`.
+  - **`B=4, position=depth-relative`** — backoff slots at RoPE position `d−i` (K_back_i's own endpoint depth).
+- Schema gate: `experimental.backoff_slots: B` and `experimental.backoff_position: sentinel|depth-relative` (default `sentinel`).
 
 ## Success criteria
 
-- **Strong success**: `B=4` `byte_PPL` ≤ KN's ~4 on Shakespeare. The architecture beats KN.
-- **Soft success**: `B=4` `byte_PPL` better than baseline but worse than KN. Mechanism works; tuning/scale needed to close the KN gap.
-- **Null**: `B=4` `byte_PPL` ≈ baseline. Mechanism didn't take. Diagnostic: instrument `‖attention-weight-mass-on-backoff-slots‖` to see whether the model uses the new slots at all.
-- **Hurt**: `B=4` `byte_PPL` > baseline. Position encoding or gradient flow has a bug; debug before drawing architectural conclusions.
+- **Strong success**: either `B=4` condition's `byte_PPL` ≤ KN's ~4 on Shakespeare. The architecture beats KN.
+- **Soft success**: at least one `B=4` condition's `byte_PPL` better than baseline but worse than KN. Mechanism works; tuning/scale needed to close the KN gap. The better-performing position-encoding becomes the canonical choice going forward.
+- **Null**: both `B=4` conditions ≈ baseline. Mechanism didn't take. Diagnostics: instrument `‖attention-weight-mass-on-backoff-slots‖` to see whether the model uses the new slots at all; check gradient magnitudes on K_back's params to confirm the new gradient signal is flowing.
+- **Hurt**: both `B=4` conditions > baseline. Implementation bug or fundamental architectural problem; debug before drawing conclusions. If sentinel hurts but depth-relative helps (or vice versa), the position encoding was the issue — informative either way.
+- **Split**: sentinel helps and depth-relative hurts (or vice versa). The position-encoding A/B has done its job — go with the winner, document the failure mode of the loser.
 
 ## Risks and mitigations
 
@@ -234,18 +238,25 @@ Implementation order: this sidecar comes first, because the fire-kernel widening
 - **Peak chunk batch size**: satellites added to the chunk multiply the *peak* batch by `(1+B)` at depth 0. The active set shrinks as satellites drop out at their endpoints, so average chunk batch is ~3× baseline, but the peak-at-depth-0 is ~5×. If this exceeds GPU memory headroom, lower `chunk_queries` before lowering `B`.
 - **Training instability**: backoff `K_back` parameters now receive richer gradient signal (endpoint + upstream). May destabilize early training. Mitigations: gradient clipping (`--grad-clip-norm 1.0`), warmup-cosine LR (already canonical).
 - **Trie sparsity**: deep `K_back` may not exist for some prefixes. The sidecar marks missing entries with a sentinel value; the chunk-load step skips those satellites — no chunk position added, the K/V gather produces no contribution for that slot. Log the skip rate as a health metric. If frequent, this signals a corpus-coverage issue more than an architecture issue.
-- **RoPE position semantics**: the sentinel-position choice (`d+i`) is the simplest but not necessarily the best. Open question for Phase 1.5 / follow-up — see decision (6) above for variants.
+- **RoPE position semantics**: sentinel vs depth-relative is now an A/B in Step 0 (decision 6). Further variants (learnable per-level, zero RoPE, per-head specialization) remain Phase 1.5 follow-ups once Step 0 picks a winner.
 - **pd=1 generalization**: Step 0 runs at pd=0 (decision 8) where K and K_back_i are always in the same fire. The pd=1 case is genuinely harder — it requires either importing K_back chunk data across subtree fires, or accepting detached gradient on the cross-subtree K_back (which collapses to the cap-recurrence regime). That's a deliberate Step-N+ concern, not a Step 0 risk.
 - **Backward-pass parity check**: when `experimental.backoff_slots: 0`, the kernel must produce identical forward AND backward results to the baseline (no-backoff) build. This is a non-negotiable regression check before any `B>0` runs.
 
 ## After Step 0
 
-- **If strong/soft success**: Phase 1.5 — add landmark slots (root, high-mass shallow hubs). Then position-encoding alternatives. Then Phase 2 (learnable routing).
-- **If null**: diagnose the gradient flow and attention-mass instrumentation before declaring the mechanism doesn't work. Check that `K_back`'s parameters are actually receiving the new gradient signal.
-- **If hurt**: position encoding is the prime suspect. Try RoPE-at-actual-depth; try learnable backoff embeddings; try zero RoPE.
+- **If strong/soft success**: Phase 1.5 — add landmark slots (root, high-mass shallow hubs); try further position-encoding variants (learnable per-level, zero RoPE, per-head); within-fire K_back path dedup; pd=1 generalization. Then Phase 2 (learnable routing).
+- **If null on both position encodings**: diagnose the gradient flow and attention-mass instrumentation before declaring the mechanism doesn't work. Check that `K_back`'s parameters are actually receiving the new gradient signal. Consider B=2 to rule out training-instability-from-richer-signal as a confound.
+- **If hurt on both**: either an implementation bug (the B=0 backward-parity check should catch most of these) or a fundamental issue with in-flight gradient flow at this scale. Try smaller models / shorter epochs to localize.
+- **If split** (one encoding helps, the other hurts): adopt the winner. The split itself is information about what RoPE positions are doing for the model.
 
 ## Connection to prior work
 
 - **Cap-recurrence** (closed, `project-cap-recurrence-null`): the null was about centroid aggregation + detached gradient + single slot. Step 0 is none of those (per-instance slots, in-flight gradient, multiple slots) — the closure doesn't apply.
 - **Existing path-ancestor attention**: Step 0 is a strict superset; `B=0` recovers current AGPT exactly.
 - **KN baseline**: known floor at ~4 byte_PPL on Shakespeare. Step 0 target.
+
+## Rejected design alternatives
+
+- **Static KV cache + top-1 in-flight hybrid** (proposed in external review). The idea: B−1 backoff slots use globally cached `h_p` from previous super-epochs (detached gradient); 1 slot runs in-flight (gradient-connected). Compute drops to ~1.5× baseline. **Reject** — this recreates cap-recurrence's failure regime for B−1 of the B slots. Detached `h_p` cannot reshape its upstream representation; the cap-recurrence investigation (`project-cap-recurrence-null`) tested this directly across mass / inverse / random / rand-weights / constant / none aggregation modes at 5-ep and 25-ep, with both training loss and canonical byte_PPL. Null at every condition. Additionally, cached KV from prior super-epochs is *stale* (KN's coefficients are stationary; cached KV is not). The right ways to save compute without touching the mechanism are: lower B (e.g., B=2, still ~2.5× compute, full gradient flow on all B slots), within-fire dedup of shared K_back paths (Step 0.5 optimization), or smaller `chunk_queries` (reduces stash buffer linearly).
+
+- **Stream compaction at every depth-step boundary** (proposed in external review as a warp-divergence fix). Reasonable kernel-level optimization for Step 0.5 if profiling shows warp divergence. Not needed for Step 0 correctness: the existing depth-sorted chunk structure clusters positions by their current active depth, so warps at a given depth step process homogeneous workloads. Stream compaction would replace the implicit clustering with explicit per-step compaction; cleaner conceptually but not free in implementation effort.
