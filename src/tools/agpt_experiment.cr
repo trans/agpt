@@ -9,7 +9,7 @@
 #   5. Write resolved_config.yml to the run dir.
 #   6. Spawn the trainer chosen via --trainer (v1|v2|microgpt|<path>).
 #   7. Convert checkpoint → HF; run agpt_lm_eval.py against held-out / external / benchmark.
-#   8. Parse metrics → write result.json + update meta.json + runs.json + README table.
+#   8. Parse metrics → write result.json + update meta.json + runs.json.
 #
 # See notes/operations/experiment-runner-design.md for the prose spec and
 # notes/operations/orchestrator-rewrite-plan.md for the #29 rewrite plan.
@@ -564,17 +564,6 @@ module AgptExperiment
     nil
   end
 
-  def self.metric_float(metrics : JSON::Any?, *keys : String) : Float64?
-    keys.each do |key|
-      if value = metrics.try(&.[key]?)
-        if f = value.as_f?
-          return f
-        end
-      end
-    end
-    nil
-  end
-
   def self.parse_checkpoint_train_wall_seconds(log_path : String) : Hash(Int32, Float64)
     times = {} of Int32 => Float64
     return times unless File.exists?(log_path)
@@ -587,7 +576,7 @@ module AgptExperiment
   end
 
   # ---------------------------------------------------------------------------
-  # Aggregation: runs.json + README table
+  # Aggregation: runs.json
   # ---------------------------------------------------------------------------
 
   def self.update_runs_json(rnd_root : String, experiment : String) : Array(JSON::Any)
@@ -600,61 +589,6 @@ module AgptExperiment
     end
     File.write(File.join(exp_dir, "runs.json"), JSON.parse(runs.to_json).to_pretty_json)
     runs
-  end
-
-  def self.regenerate_readme(rnd_root : String, experiment : String) : Nil
-    exp_dir = File.join(rnd_root, experiment)
-    readme_path = File.join(exp_dir, "README.md")
-    runs_json = File.join(exp_dir, "runs.json")
-    return unless File.exists?(runs_json)
-    runs = JSON.parse(File.read(runs_json)).as_a
-
-    table = String.build do |sb|
-      sb << "| Run ID | byte_perplexity | bits/byte | train (s) | total (s) |\n"
-      sb << "|--------|----------------:|----------:|----------:|----------:|\n"
-      runs.each do |r|
-        run_id = r["run_id"]?.try(&.as_s?) || "?"
-        metrics = r["metrics"]?
-        bp = metric_float(metrics, "lm_eval_rolling_byte_perplexity", "byte_perplexity")
-        bpb = metric_float(metrics, "lm_eval_rolling_bits_per_byte", "bits_per_byte")
-        train_wall = r["train_wall_seconds"]?.try(&.as_f?)
-        wall = r["wall_seconds"]?.try(&.as_f?)
-        sb << "| `" << run_id << "` | "
-        sb << (bp ? bp.round(4).to_s : "—") << " | "
-        sb << (bpb ? bpb.round(4).to_s : "—") << " | "
-        sb << (train_wall ? train_wall.round(0).to_s : "—") << " | "
-        sb << (wall ? wall.round(0).to_s : "—") << " |\n"
-      end
-    end
-
-    body = File.exists?(readme_path) ? File.read(readme_path) : default_readme(experiment)
-    start_marker = "<!-- agpt-experiment-table:start -->"
-    end_marker = "<!-- agpt-experiment-table:end -->"
-    block = "#{start_marker}\n#{table}#{end_marker}"
-    if body.includes?(start_marker) && body.includes?(end_marker)
-      body = body.sub(/#{Regex.escape(start_marker)}.*?#{Regex.escape(end_marker)}/m, block)
-    else
-      body = "#{body.rstrip}\n\n## Results\n\n#{block}\n"
-    end
-    File.write(readme_path, body)
-  end
-
-  def self.default_readme(experiment : String) : String
-    <<-MD
-    # #{experiment}
-
-    **Status:** active
-
-    ## Hypothesis
-
-    (fill in)
-
-    ## Results
-
-    <!-- agpt-experiment-table:start -->
-    (table will be auto-populated by agpt_experiment)
-    <!-- agpt-experiment-table:end -->
-    MD
   end
 
   # ---------------------------------------------------------------------------
@@ -1023,7 +957,6 @@ module AgptExperiment
     File.write(run.meta_json, JSON.parse(updated_meta.to_json).to_pretty_json)
 
     update_runs_json(rnd_root, cfg.experiment)
-    regenerate_readme(rnd_root, cfg.experiment)
 
     STDERR.puts "agpt_experiment: done."
     STDERR.puts "  run dir : #{run.path}"
