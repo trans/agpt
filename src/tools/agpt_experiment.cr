@@ -561,6 +561,17 @@ module AgptExperiment
     nil
   end
 
+  def self.metric_float(metrics : JSON::Any?, *keys : String) : Float64?
+    keys.each do |key|
+      if value = metrics.try(&.[key]?)
+        if f = value.as_f?
+          return f
+        end
+      end
+    end
+    nil
+  end
+
   # ---------------------------------------------------------------------------
   # Aggregation: runs.json + README table
   # ---------------------------------------------------------------------------
@@ -590,8 +601,8 @@ module AgptExperiment
       runs.each do |r|
         run_id = r["run_id"]?.try(&.as_s?) || "?"
         metrics = r["metrics"]?
-        bp  = metrics.try(&.["byte_perplexity"]?).try(&.as_f?)
-        bpb = metrics.try(&.["bits_per_byte"]?).try(&.as_f?)
+        bp = metric_float(metrics, "lm_eval_rolling_byte_perplexity", "byte_perplexity")
+        bpb = metric_float(metrics, "lm_eval_rolling_bits_per_byte", "bits_per_byte")
         train_wall = r["train_wall_seconds"]?.try(&.as_f?)
         wall = r["wall_seconds"]?.try(&.as_f?)
         sb << "| `" << run_id << "` | "
