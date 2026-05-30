@@ -1,41 +1,29 @@
-# v1 trainer (bin/agpt_train) — standard pd=1, --no-accumulate, 100 SE
-# on Shakespeare prefix-95 (pre-built radix at /tmp/agpt_input_prefix95_d16_radix)
-# Paired with v1-100SE.yml for the SE comparison the user requested.
-#
-# corpus.train_frac=1.0 because the radix is built on prefix-95 already;
-# the orchestrator should not re-carve. Eval uses an external heldout file
-# (last 5% of full Shakespeare), pre-staged at /tmp/shake_heldout5_v1eval.txt.
+# Migrated from v1-100SE.yml via tools/migrate_config.py.
 
-meta:
-  description: "v1 (legacy CUDA trainer), standard pd=1, 100 SE — for comparison to v2 progressive runs"
-  experiment: v1-vs-v2-comparison
-  run_slug: v1-100SE
-
+description: "v1 (legacy CUDA trainer), standard pd=1, 100 SE \u2014 for comparison\
+  \ to v2 progressive runs"
+experiment: v1-vs-v2-comparison
+run_slug: v1-100SE
 corpus:
-  path: /tmp/agpt_input_prefix95.txt   # train side (first 95% of input.txt)
-  vocab_source: data/input.txt          # full vocab (must match training)
-  train_frac: 1.0                       # no orchestrator carving — corpus is already prefix-95
-
+  path: /tmp/agpt_input_prefix95.txt
+  vocab_source: data/input.txt
 model:
-  init_from: data/input.model
-
+  init_file: data/input.model
 train:
-  tool: rnd/v1-vs-v2-comparison/tools/v1_train.py
-  mode: train                           # ignored by v1 wrapper; orchestrator emits it
-  growth_max_depth: 16                  # used by wrapper to find radix at d=16
-  epochs: 100
-  optimizer: rmsprop
-  lr: 0.003
-  rmsprop_beta: 0.999
-  lr_schedule: warmup-cosine
-  warmup_epochs: 0
-  partition_depth: 1
-  accumulate: false
+  budget:
+    unit: epochs
+    value: 100
   quiet: true
-
+  optimizer:
+    name: rmsprop
+    lr: 0.003
+    beta: 0.999
+  lr_schedule:
+    name: warmup-cosine
+    warmup_epochs: 0
+  max_depth: 16
+  partition_depth: 1
 eval:
-  split: external-heldout
   external_file: /tmp/shake_heldout5_v1eval.txt
-  task_name: v1_shake_ppl
   batch_size: 1
   device: cuda

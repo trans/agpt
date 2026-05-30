@@ -155,12 +155,24 @@ Breakdown by trainer hint:
     whole trie" (the closest equivalent, not necessarily semantically
     identical to legacy `--no-accumulate`).
 
-**Swap status (as of 2026-05-29):** the safe 36 of 48 configs have been
+**Swap status (as of 2026-05-29):** 42 of 48 configs have been
 swapped in-place — `<name>.new-schema.yml` content moved to `<name>.yml`,
-sibling `.new-schema.yml` removed. The 12 unsafe ones (harmonic-bias + 
-v1-vs-v2-comparison, listed above) still carry both files: their legacy
-`.yml` contains fields the schema doesn't model yet (`extra_args` for
-the harmonic-bias prototype flags, `accumulate: false` for v1-vs-v2),
-and the `.new-schema.yml` sibling is the structural map only — not
-semantically equivalent until those fields land somewhere (canonical
-schema entry or `experimental:`).
+sibling `.new-schema.yml` removed. The remaining 6 are the
+`rnd/harmonic-bias-prototype/configs/*` files: their legacy `extra_args`
+(`--harmonic-bias --bias-window --bias-n-freq`) are real research flags
+the harmonic-bias prototype tool depends on, and the canonical schema
+doesn't model them. They land in the canonical layout once those
+fields move under `experimental:` (with trainer-side support in the
+harmonic-bias tool) or graduate to real schema entries.
+
+The `rnd/v1-vs-v2-comparison/configs/*` configs were initially deferred
+because their legacy YAML set `accumulate: false`. On review, the
+schema's canonical mode is the per-subtree-fire path (each
+`partition_depth=1` group does its own optimizer step), which under
+v1's constraint matrix requires `accumulate=false` — and the v1 YAML
+loader (`src/cuda/yaml_config_v1.cuh`) forces that automatically. So
+dropping `accumulate: false` in migration is semantically faithful for
+v1, not lossy. The legacy `tool: rnd/v1-vs-v2-comparison/tools/v1_train.py`
+wrapper (which pre-positioned the radix and translated flags) is
+likewise obsoleted by the new orchestrator's auto-trie-build at
+`data/.tries/<hash>/`. All 6 swapped 2026-05-29.
