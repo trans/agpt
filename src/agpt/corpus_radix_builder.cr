@@ -137,7 +137,17 @@ module MicroGPT
 
         build_started = Time.instant
 
-        # Index the corpus once: positions[c] = sorted list of i such that
+        # Use circular lookahead at the corpus tail: suffix starts remain
+        # limited to the original corpus, but each start can read a full
+        # max-depth context by wrapping into the first max_depth tokens.
+        # This avoids skewed end-of-corpus partial suffixes.
+        build_tokens = @corpus_tokens
+        if @max_depth > 0 && !@corpus_tokens.empty?
+          wrap_len = Math.min(@max_depth, @corpus_tokens.size)
+          build_tokens = @corpus_tokens + @corpus_tokens[0, wrap_len]
+        end
+
+        # Index the original corpus once: positions[c] = sorted list of i such that
         # corpus_tokens[i] == c. Then a subtree's D-gram set is just D-gram(i)
         # for each i in positions[c]. ~vocab_size lists, total size = corpus
         # length.
@@ -161,7 +171,7 @@ module MicroGPT
           starts = positions[root_char]
           next if starts.empty?
 
-          char_root = build_char_trie(starts, root_char)
+          char_root = build_char_trie(starts, root_char, build_tokens)
 
           # Walk the subtree, emitting radix records. The subtree root
           # represents the depth-1 character (root_char itself); its parent in
@@ -250,7 +260,7 @@ module MicroGPT
       # Build a character-level trie of the D-grams whose first char is
       # root_char, by inserting each D-gram one position at a time. The root
       # of the returned trie represents the depth-1 character (root_char).
-      private def build_char_trie(starts : Array(Int32), root_char : Int32) : CompactCharTrie
+      private def build_char_trie(starts : Array(Int32), root_char : Int32, token_source : Array(Int32)) : CompactCharTrie
         trie = CompactCharTrie.new
         # Root node id 0 = the subtree's depth-1 node (representing root_char).
         # Set its token explicitly (the constructor stub'd it as -1).
@@ -264,10 +274,10 @@ module MicroGPT
           # the depth-max_depth radix nodes; no radix record is emitted at
           # depth > max_depth.
           last = i + @max_depth + 1
-          last = @corpus_tokens.size if last > @corpus_tokens.size
+          last = token_source.size if last > token_source.size
           j = i + 1
           while j < last
-            tok = @corpus_tokens.unsafe_fetch(j)
+            tok = token_source.unsafe_fetch(j)
             current_id = trie.get_or_add_child(current_id, tok)
             trie.counts[current_id] += 1
             j += 1

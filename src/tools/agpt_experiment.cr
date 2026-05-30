@@ -329,10 +329,12 @@ module AgptExperiment
     Digest::SHA256.hexdigest(yaml_text)
   end
 
+  TRIE_CACHE_BOUNDARY_MODE = "tail-wrap-front-v1"
+
   # Hash for the trie cache dir: SHA256 of (corpus_sha, max_depth, prune_min_mass,
-  # prune_min_depth, virtual_tree). Identical inputs → identical hash → cache reuse.
+  # prune_min_depth, virtual_tree, boundary_mode). Identical inputs → identical hash → cache reuse.
   def self.trie_cache_key(corpus_sha : String, trie : TrieBlock, max_depth : Int32) : String
-    parts = "#{corpus_sha}|#{max_depth}|#{trie.prune_min_mass}|#{trie.prune_min_depth}|#{trie.virtual_tree}"
+    parts = "#{corpus_sha}|#{max_depth}|#{trie.prune_min_mass}|#{trie.prune_min_depth}|#{trie.virtual_tree}|#{TRIE_CACHE_BOUNDARY_MODE}"
     Digest::SHA256.hexdigest(parts)[0, 16]
   end
 
@@ -484,6 +486,7 @@ module AgptExperiment
       "prune_min_mass"  => trie.prune_min_mass,
       "prune_min_depth" => trie.prune_min_depth,
       "virtual_tree"    => trie.virtual_tree,
+      "boundary_mode"   => TRIE_CACHE_BOUNDARY_MODE,
     }.to_pretty_json)
     cache_dir
   end
