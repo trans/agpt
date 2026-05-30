@@ -1,0 +1,33 @@
+{
+  "schema": "agpt_eval.v1",
+  "metrics": {
+    "lm_eval_rolling_word_perplexity": 1705135.0683069734,
+    "lm_eval_rolling_byte_perplexity": 13.020566563233487,
+    "lm_eval_rolling_bits_per_byte": 3.702720320670771,
+    "agpt_fixed_token_perplexity": 13.220307410227468
+  },
+  "lm_eval": {
+    "d64l2-depth16-pd1-adam-lr0015-tail-128ep_epoch_000002_holdout": {
+      "name": "d64l2-depth16-pd1-adam-lr0015-tail-128ep_epoch_000002_holdout",
+      "alias": "d64l2-depth16-pd1-adam-lr0015-tail-128ep_epoch_000002_holdout",
+      "sample_len": 1,
+      "word_perplexity,none": 1705135.0683069734,
+      "word_perplexity_stderr,none": "N/A",
+      "byte_perplexity,none": 13.020566563233487,
+      "byte_perplexity_stderr,none": "N/A",
+      "bits_per_byte,none": 3.702720320670771,
+      "bits_per_byte_stderr,none": "N/A"
+    }
+  },
+  "agpt_fixed": {
+    "protocol": "agpt_fixed_token",
+    "perplexity": 13.220307410227468,
+    "tokens_evaluated": 55753,
+    "target_start": 16,
+    "target_stop": 55769,
+    "context_tokens": 16,
+    "vocab_size": 65,
+    "model_seq_len": 16,
+    "per_chunk": null
+  }
+}
