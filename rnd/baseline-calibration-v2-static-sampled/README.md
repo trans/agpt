@@ -9,30 +9,25 @@ using the standard sampled heldout carve.
 
 ## Protocol
 
-- Trainer: `bin/agpt_train_v2`
-- Mode: static full-trie training
-- Corpus source: `data/input.txt`
-- Heldout: sampled 5%, 10 chunks, seed 42
-- Model init: `data/seeds/shake-d64L2-h4-dff256-s128-seed42.model`
-- Depth/window: 16
-- Partition depth: 0
-- Optimizer: RMSProp, `lr=0.003`, `beta=0.999`
-- Schedule: warmup-cosine, no warmup
-- Checkpoints: epochs 1, 2, 4, 8, 16, 32, 64, 128
+Shared settings: `bin/agpt_train_v2`, static full-trie training, `data/input.txt`,
+sampled heldout 5% x 10 chunks seed 42, init
+`data/seeds/shake-d64L2-h4-dff256-s128-seed42.model`, `d64 L2 h4 ff256`,
+depth/window 16, RMSProp `lr=0.003` `beta=0.999`, warmup-cosine with no
+warmup, `anc_grad=true`, `chunk_queries=50000`.
+
+`partition_depth=0` means single-fire training: one optimizer update per full
+trie epoch. These numbers are pd=0 calibration records, not
+optimizer-step-budget matches for older pd=1 static baselines.
 
 ## Results
 
 <!-- agpt-experiment-table:start -->
-| Run ID | byte_perplexity | bits/byte | train (s) | total (s) |
-|--------|----------------:|----------:|----------:|----------:|
-| `20260530T084221-d64l2-depth16-pd0-128ep` | 10.094 | 3.3354 | 727.0 | 950.0 |
+| Run ID | Config Delta | fixed_token_ppl | rolling_byte_ppl | bits/byte | train (s) | total (s) |
+|--------|--------------|----------------:|-----------------:|----------:|----------:|----------:|
+| `20260530T084221-d64l2-depth16-pd0-128ep` | `pd=0`, 128 epochs, checkpoints at powers of two | 9.8714 | 10.0940 | 3.3354 | 727.0 | 950.0 |
 <!-- agpt-experiment-table:end -->
 
 ## Checkpoint Trajectory
-
-This is a `partition_depth=0` single-fire run: one optimizer update per full
-trie epoch. It is a pd=0 calibration record, not an optimizer-step-budget match
-for the older pd=1 static baselines.
 
 | Epoch | fixed_token_ppl | rolling_byte_ppl | bits/byte |
 |------:|----------------:|-----------------:|----------:|
