@@ -51,7 +51,9 @@ rnd/_smoke/runs.json
 # and large regenerable artifacts. Specific older experiment dirs have their
 # own patterns above.
 rnd/**/checkpoint.model
+rnd/**/*.model
 rnd/**/hf_checkpoint/
+rnd/**/hf_checkpoint_epoch_*/
 rnd/**/eval.log
 # Carved corpus slices (regenerable from corpus.path + train_frac;
 # the split offset is recorded in result.json + meta.json).

@@ -134,6 +134,7 @@ module AgptExperiment
     property fire_norm : String?
     property entropy_lambda : Float64?
     property ce_only : Bool?
+    property checkpoint_epochs : Array(Int32)?
     property growth : GrowthBlock?
     # Microgpt-only.
     property backend : String?
@@ -191,6 +192,14 @@ module AgptExperiment
         raise "train.budget.unit must be epochs|steps|wall_seconds (got #{train.budget.unit.inspect})"
       end
       raise "train.budget.value must be positive" unless train.budget.value > 0
+      if ce = train.checkpoint_epochs
+        ce.each do |epoch|
+          raise "train.checkpoint_epochs values must be positive (got #{epoch})" unless epoch > 0
+          if train.budget.unit == "epochs" && epoch > train.budget.value
+            raise "train.checkpoint_epochs value #{epoch} exceeds train.budget.value #{train.budget.value}"
+          end
+        end
+      end
 
       # Context-window cross-check.
       sl = train.seq_len
@@ -225,6 +234,15 @@ module AgptExperiment
 
   def self.sha256_file(path : String) : String
     Digest::SHA256.hexdigest(&.file(path))
+  end
+
+  def self.epoch_checkpoint_path(save_path : String, epoch : Int32) : String
+    suffix = ".epoch_#{epoch.to_s.rjust(6, '0')}.model"
+    if save_path.ends_with?(".model")
+      save_path[0, save_path.size - ".model".size] + suffix
+    else
+      save_path + suffix
+    end
   end
 
   # Parse the .model header (matches src/cuda/agpt_train.cu's save_model_weights).
@@ -338,6 +356,12 @@ module AgptExperiment
     def train_log : String         ; File.join(@path, "train.log")             ; end
     def eval_log : String          ; File.join(@path, "eval.log")              ; end
     def checkpoint : String        ; File.join(@path, "checkpoint.model")      ; end
+    def epoch_hf_dir(epoch : Int32) : String
+      File.join(@path, "hf_checkpoint_epoch_#{epoch.to_s.rjust(6, '0')}")
+    end
+    def epoch_eval_raw_json(epoch : Int32) : String
+      File.join(@path, "eval_raw_epoch_#{epoch.to_s.rjust(6, '0')}.json")
+    end
     def hf_dir : String            ; File.join(@path, "hf_checkpoint")         ; end
     def result_json : String       ; File.join(@path, "result.json")           ; end
     def eval_raw_json : String     ; File.join(@path, "eval_raw.json")         ; end
@@ -836,6 +860,89 @@ module AgptExperiment
       exit 4
     end
 
+    checkpoint_results = [] of JSON::Any
+    if checkpoint_epochs = cfg.train.checkpoint_epochs
+      checkpoint_epochs.uniq.sort.each do |epoch|
+        checkpoint_path = epoch_checkpoint_path(run.checkpoint, epoch)
+        unless File.exists?(checkpoint_path)
+          STDERR.puts "trainer did not write requested checkpoint epoch #{epoch}: #{checkpoint_path}"
+          exit 3
+        end
+
+        hf_dir = run.epoch_hf_dir(epoch)
+        raw_json = run.epoch_eval_raw_json(epoch)
+        checkpoint_convert_args = [
+          "src/tools/agpt_hf.py", "convert",
+          "--model", checkpoint_path,
+          "--vocab-file", vocab_source,
+          "--out", hf_dir,
+        ]
+        checkpoint_convert_started = Time.utc
+        File.open(run.eval_log, "a") { |io| io.puts "\n--- convert checkpoint epoch #{epoch} ---" }
+        checkpoint_convert_status = spawn_tee("python3", checkpoint_convert_args, run.eval_log, append: true)
+        checkpoint_convert_ended = Time.utc
+        checkpoint_convert_wall = (checkpoint_convert_ended - checkpoint_convert_started).total_seconds
+        unless checkpoint_convert_status.success?
+          STDERR.puts "HF convert failed for checkpoint epoch #{epoch}; tail of #{run.eval_log}:"
+          STDERR.puts File.read(run.eval_log).split('\n').last(20).join('\n')
+          exit 4
+        end
+
+        checkpoint_task_name = task_name
+        checkpoint_eval_args = [
+          "src/tools/agpt_lm_eval.py",
+          "--hf-dir", hf_dir,
+          "--batch-size", ev.batch_size.to_s,
+          "--device", ev.device,
+          "--out-json", raw_json,
+        ]
+        if bench = ev.benchmark
+          checkpoint_eval_args << "--builtin-task" << bench
+        elsif ext = ev.external_file
+          checkpoint_task_name = "#{task_base}_epoch_#{epoch.to_s.rjust(6, '0')}_external"
+          checkpoint_eval_args << "--text-file" << ext << "--task-name" << checkpoint_task_name
+        elsif eval_chunks_dir
+          checkpoint_task_name = "#{task_base}_epoch_#{epoch.to_s.rjust(6, '0')}_holdout"
+          checkpoint_eval_args << "--chunks-dir" << eval_chunks_dir.not_nil! << "--task-name" << checkpoint_task_name
+        elsif eval_source_path
+          checkpoint_task_name = "#{task_base}_epoch_#{epoch.to_s.rjust(6, '0')}_holdout"
+          checkpoint_eval_args << "--text-file" << eval_source_path.not_nil! << "--task-name" << checkpoint_task_name
+        end
+        if eval_source_path || eval_chunks_dir
+          checkpoint_eval_args << "--agpt-model" << checkpoint_path
+          checkpoint_eval_args << "--vocab-file" << vocab_source
+        end
+        if v = ev.limit
+          checkpoint_eval_args << "--limit" << v.to_s
+        end
+
+        File.open(run.eval_log, "a") { |io| io.puts "\n--- lm-eval checkpoint epoch #{epoch} ---" }
+        checkpoint_eval_started = Time.utc
+        checkpoint_eval_status = spawn_tee("python3", checkpoint_eval_args, run.eval_log, append: true)
+        checkpoint_eval_ended = Time.utc
+        checkpoint_eval_wall = (checkpoint_eval_ended - checkpoint_eval_started).total_seconds
+        unless checkpoint_eval_status.success?
+          STDERR.puts "lm-eval failed for checkpoint epoch #{epoch}; tail of #{run.eval_log}:"
+          STDERR.puts File.read(run.eval_log).split('\n').last(20).join('\n')
+          exit 4
+        end
+
+        checkpoint_metrics = parse_eval_json(raw_json, checkpoint_task_name) || {} of String => Float64
+        checkpoint_result = {
+          "epoch"                => epoch,
+          "checkpoint_path"      => checkpoint_path,
+          "checkpoint_sha"       => sha256_file(checkpoint_path),
+          "hf_dir"               => hf_dir,
+          "eval_raw_json"        => raw_json,
+          "task_name"            => checkpoint_task_name,
+          "convert_wall_seconds" => checkpoint_convert_wall,
+          "eval_wall_seconds"    => checkpoint_eval_wall,
+          "metrics"              => checkpoint_metrics,
+        }
+        checkpoint_results << JSON.parse(checkpoint_result.to_json)
+      end
+    end
+
     # ---- write result.json ----
     metrics = parse_eval_json(run.eval_raw_json, task_name) || {} of String => Float64
     ended = Time.utc
@@ -874,6 +981,7 @@ module AgptExperiment
       "eval"                 => eval_record,
       "metrics"              => metrics,
       "checkpoint_sha"       => sha256_file(run.checkpoint),
+      "checkpoint_results"   => checkpoint_results.empty? ? nil : checkpoint_results,
       "experimental_used"    => experimental_used,
     }
     File.write(run.result_json, JSON.parse(result.to_json).to_pretty_json)

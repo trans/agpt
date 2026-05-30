@@ -8,6 +8,7 @@ struct YamlScalarV2 {
 
 struct YamlDocV2 {
     std::unordered_map<std::string, YamlScalarV2> scalars;
+    std::unordered_map<std::string, std::vector<YamlScalarV2>> sequences;
     std::unordered_set<std::string> blocks;
 };
 
@@ -35,6 +36,7 @@ struct YamlConfigV2 {
     int model_n_heads = 0;
     int model_d_ff = 0;
     int model_head_dim = 0;
+    std::vector<int> checkpoint_epochs;
 };
 
 static std::string yam_str_to_std_v2(yam_str s) {
@@ -94,8 +96,26 @@ static bool parse_yaml_node_v2(const std::vector<yam_event>& events,
         return true;
     }
     if (evt.type == YAM_EVT_SEQUENCE_START) {
-        error = "YAML sequences are not part of the trainer config schema at " + path;
-        return false;
+        if (path.empty()) {
+            error = "top-level YAML document must be a mapping";
+            return false;
+        }
+        std::vector<YamlScalarV2> values;
+        while (idx < events.size() && events[idx].type != YAM_EVT_SEQUENCE_END) {
+            const yam_event& item_evt = events[idx++];
+            if (item_evt.type != YAM_EVT_SCALAR) {
+                error = "YAML sequence items must be scalars at " + path;
+                return false;
+            }
+            values.push_back(YamlScalarV2{yam_str_to_std_v2(item_evt.value), item_evt.start});
+        }
+        if (idx >= events.size() || events[idx].type != YAM_EVT_SEQUENCE_END) {
+            error = "unterminated YAML sequence at " + path;
+            return false;
+        }
+        idx++;
+        doc.sequences[path] = std::move(values);
+        return true;
     }
     if (evt.type == YAM_EVT_ALIAS) {
         error = "unresolved YAML alias at " + path;
@@ -204,6 +224,7 @@ static bool yaml_is_consumed_field_v2(const std::string& path) {
         "train.max_depth",
         "train.partition_depth",
         "train.chunk_queries",
+        "train.checkpoint_epochs",
         "train.anc_grad",
         "train.mass_weight",
         "train.fire_norm",
@@ -236,6 +257,11 @@ static bool warn_unknown_experimental_flags_v2(const YamlDocV2& doc) {
         if (!yaml_is_experimental_field_v2(path)) continue;
         flags.push_back(path.substr(std::strlen("experimental.")));
     }
+    for (const auto& item : doc.sequences) {
+        const std::string& path = item.first;
+        if (!yaml_is_experimental_field_v2(path)) continue;
+        flags.push_back(path.substr(std::strlen("experimental.")));
+    }
     std::sort(flags.begin(), flags.end());
     for (const std::string& flag : flags) {
         std::fprintf(stderr, "WARN: unknown experimental flag %s; ignoring\n", flag.c_str());
@@ -264,6 +290,17 @@ static bool validate_yaml_registry_v2(const YamlDocV2& doc) {
         }
     }
     for (const auto& item : doc.scalars) {
+        const std::string& path = item.first;
+        if (yaml_is_experimental_field_v2(path)) continue;
+        if (yaml_is_ignored_field_v2(path) || yaml_is_consumed_field_v2(path)) continue;
+        if (yaml_is_known_non_v2_field_v2(path)) {
+            std::fprintf(stderr, "agpt_train_v2: YAML field is not supported by v2: %s\n", path.c_str());
+        } else {
+            std::fprintf(stderr, "agpt_train_v2: unknown YAML field: %s\n", path.c_str());
+        }
+        return false;
+    }
+    for (const auto& item : doc.sequences) {
         const std::string& path = item.first;
         if (yaml_is_experimental_field_v2(path)) continue;
         if (yaml_is_ignored_field_v2(path) || yaml_is_consumed_field_v2(path)) continue;
@@ -353,6 +390,19 @@ static bool yaml_get_bool_v2(const YamlDocV2& doc, const char* field, bool& out,
     if (present) *present = scalar != nullptr;
     if (!scalar) return true;
     return yaml_parse_bool_v2(field, *scalar, out);
+}
+
+static bool yaml_get_int_sequence_v2(const YamlDocV2& doc, const char* field, std::vector<int>& out) {
+    auto it = doc.sequences.find(field);
+    if (it == doc.sequences.end()) return true;
+    out.clear();
+    out.reserve(it->second.size());
+    for (const YamlScalarV2& scalar : it->second) {
+        int value = 0;
+        if (!yaml_parse_int_v2(field, scalar, value)) return false;
+        out.push_back(value);
+    }
+    return true;
 }
 
 static bool yaml_expect_string_v2(const YamlDocV2& doc, const char* field, std::string& out, bool required) {
@@ -509,6 +559,7 @@ static bool apply_yaml_config_v2(const char* config_path,
 
     if (!yaml_get_int_v2(doc, "train.partition_depth", cfg.partition_depth)) return false;
     if (!yaml_get_int_v2(doc, "train.chunk_queries", cfg.chunk_queries)) return false;
+    if (!yaml_get_int_sequence_v2(doc, "train.checkpoint_epochs", yaml_cfg.checkpoint_epochs)) return false;
     if (!yaml_get_bool_v2(doc, "train.anc_grad", cfg.anc_grad)) return false;
 
     if (!yaml_get_int_v2(doc, "train.max_depth", yaml_cfg.max_depth, &yaml_cfg.has_max_depth)) return false;
@@ -590,6 +641,19 @@ static bool apply_yaml_config_v2(const char* config_path,
     if (cfg.epochs <= 0) {
         std::fprintf(stderr, "agpt_train_v2: train.budget.value must be positive for epoch budgets\n");
         return false;
+    }
+    if (yaml_cfg.has_growth && !yaml_cfg.checkpoint_epochs.empty()) {
+        std::fprintf(stderr,
+                     "agpt_train_v2: train.checkpoint_epochs is currently supported only for static v2 training (no train.growth block)\n");
+        return false;
+    }
+    for (int epoch : yaml_cfg.checkpoint_epochs) {
+        if (epoch <= 0 || epoch > cfg.epochs) {
+            std::fprintf(stderr,
+                         "agpt_train_v2: train.checkpoint_epochs values must be in [1, train.budget.value] (got %d, budget=%d)\n",
+                         epoch, cfg.epochs);
+            return false;
+        }
     }
     if (growth_divisions < 0 || growth_min_epochs < 0 || unit_limit < 0) {
         std::fprintf(stderr, "agpt_train_v2: YAML numeric fields must be non-negative where applicable\n");

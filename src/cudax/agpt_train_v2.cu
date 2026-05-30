@@ -2,6 +2,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <cmath>
+#include <algorithm>
 #include <chrono>
 #include <cerrno>
 #include <climits>
@@ -132,6 +133,40 @@ static std::vector<int> make_growth_division_frontiers_v2(int final_frontier, in
     }
     frontiers.erase(std::unique(frontiers.begin(), frontiers.end()), frontiers.end());
     return frontiers;
+}
+
+static bool checkpoint_epoch_requested_v2(const std::vector<int>& checkpoint_epochs, int epoch) {
+    return std::find(checkpoint_epochs.begin(), checkpoint_epochs.end(), epoch) != checkpoint_epochs.end();
+}
+
+static std::string epoch_checkpoint_path_v2(const std::string& save_path, int epoch) {
+    char suffix[64];
+    std::snprintf(suffix, sizeof(suffix), ".epoch_%06d.model", epoch);
+    const std::string model_suffix = ".model";
+    if (save_path.size() >= model_suffix.size() &&
+        save_path.compare(save_path.size() - model_suffix.size(), model_suffix.size(), model_suffix) == 0) {
+        return save_path.substr(0, save_path.size() - model_suffix.size()) + suffix;
+    }
+    return save_path + suffix;
+}
+
+static void save_device_weights_checkpoint_v2(const char* label,
+                                              int epoch,
+                                              const std::string& path,
+                                              const agpt_v2::ModelLayout& model,
+                                              const float* d_weights) {
+    std::printf("  %s: saving epoch %d checkpoint to %s\n", label, epoch, path.c_str());
+    float* h_updated = (float*)std::malloc((size_t)model.total_floats * sizeof(float));
+    if (!h_updated) {
+        std::fprintf(stderr, "agpt_train_v2: failed to allocate checkpoint host buffer\n");
+        std::exit(1);
+    }
+    AGPT_V2_CUDA_CHECK(cudaMemcpy(h_updated, d_weights,
+                                  (size_t)model.total_floats * sizeof(float),
+                                  cudaMemcpyDeviceToHost));
+    agpt_v2::save_model_weights_v2(path.c_str(), model, h_updated);
+    std::free(h_updated);
+    std::printf("  %s: saved epoch %d checkpoint to %s\n", label, epoch, path.c_str());
 }
 
 static const char* v2_mode_name(V2Mode mode) {
@@ -727,6 +762,10 @@ int main(int argc, char** argv) {
         trie_dir = yaml_cfg.trie_dir.empty() ? nullptr : yaml_cfg.trie_dir.c_str();
         corpus_path = yaml_cfg.corpus_path.c_str();
         save_path = yaml_cfg.save_path.empty() ? nullptr : yaml_cfg.save_path.c_str();
+        std::sort(yaml_cfg.checkpoint_epochs.begin(), yaml_cfg.checkpoint_epochs.end());
+        yaml_cfg.checkpoint_epochs.erase(
+            std::unique(yaml_cfg.checkpoint_epochs.begin(), yaml_cfg.checkpoint_epochs.end()),
+            yaml_cfg.checkpoint_epochs.end());
     }
 
     bool has_growth_schedule =
@@ -1086,6 +1125,14 @@ int main(int argc, char** argv) {
     std::printf("  config: epochs=%d lr=%.6f optimizer=%s schedule=%s warmup_epochs=%d partition_depth=%d chunk_queries=%d accumulate=%s\n",
                 cfg.epochs, cfg.lr, v2_optimizer_name(cfg.optimizer), v2_lr_schedule_name(cfg.lr_schedule), cfg.warmup_epochs,
                 cfg.partition_depth, cfg.chunk_queries, cfg.accumulate ? "true" : "false");
+    if (!yaml_cfg.checkpoint_epochs.empty()) {
+        std::printf("  checkpoint_epochs:");
+        for (int epoch : yaml_cfg.checkpoint_epochs) std::printf(" %d", epoch);
+        std::printf("\n");
+        if (!save_path) {
+            std::printf("  checkpoint_epochs: ignored because model.save_file is not set\n");
+        }
+    }
     if (cfg.anc_grad) {
         std::printf("  anc-grad: enabled (descendant->ancestor scatter into Wk/Wv)\n");
     }
@@ -1308,6 +1355,11 @@ int main(int argc, char** argv) {
                     double epoch_mean = epoch_events > 0.0 ? (epoch_loss_sum / epoch_events) : 0.0;
                     std::printf("  train-epoch: epoch %d summary trained_queries=%lld trained_events=%.0f mean_loss=%.6f\n",
                                 epoch + 1, epoch_trained, epoch_events, epoch_mean);
+                    if (save_path && checkpoint_epoch_requested_v2(yaml_cfg.checkpoint_epochs, epoch + 1)) {
+                        std::string checkpoint_path = epoch_checkpoint_path_v2(save_path, epoch + 1);
+                        save_device_weights_checkpoint_v2("train-epoch", epoch + 1,
+                                                          checkpoint_path, model, runtime.d_weights);
+                    }
                 }
                 if (save_path) {
                     std::printf("  train-epoch: saving final weights to %s\n", save_path);
