@@ -11,9 +11,14 @@ sampled heldout carve.
 
 Shared settings: `bin/agpt_train_v2`, static full-trie training, `data/input.txt`,
 sampled heldout 5% x 10 chunks seed 42, init
-`data/seeds/shake-d64L2-h4-dff256-s128-seed42.model`, `d64 L2 h4 ff256`,
+`data/seeds/shake-d64L2-h4-dff256-s128-seed42.model`, model architecture
+`d_model=64`, `n_layers=2`, `n_heads=4`, `d_ff=256`, effective AGPT
 depth/window 16, RMSProp `lr=0.003` `beta=0.999`, warmup-cosine with no
 warmup, `anc_grad=true`, `chunk_queries=50000`, checkpoints at powers of two.
+
+The seed filename's `s128` is the checkpoint header sequence length. These
+runs reconcile that seed checkpoint to effective `train.max_depth=16` for AGPT
+training and evaluation.
 
 `partition_depth` is the varied setting. `pd=0` is single-fire training: one
 optimizer update per full trie epoch. `pd=1` fires once per root-child group.
