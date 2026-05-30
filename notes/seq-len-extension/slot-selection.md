@@ -107,50 +107,87 @@ For `d=16, B=4`: 20 K/V slots per query, vs the current 16. ~25% slot-count incr
 
 7. **No within-fire dedup of `K_back` paths**: queries in the same chunk that share a `K_back` independently include that `K_back`'s path as a parallel mini-path inside the depth-batched forward (see below). Cost is bounded (~4–5× compute per query); within-fire dedup is a Step-0.5 optimization.
 
+8. **Start at `partition_depth: 0`** (single fire per epoch over the whole trie). At pd=1 the trie is sharded into 65 root-children that fire separately, and K_back_i lives in a *different* shard from K — bringing its forward into K's fire means importing chunk data across shards. At pd=0 there is only one fire, K and every K_back_i are already part of the same training unit, and the cross-subtree concern dissolves into a much smaller within-fire chunk-membership concern (do K and K_back_i fall in the same `chunk_queries`-sized chunk?). Step 0 runs at pd=0. Once we know the architecture works, the pd=1 generalization is a separate (harder) implementation step that crosses subtree fires.
+
 ## Implementation sketch
 
-### The correct mental model: depth-batched, not path-by-path
+### How AGPT v1's fire works today
 
-AGPT v1's per-fire kernel does **not** walk each query's path serially. Chunks are sorted by depth (lowest first), and at each depth `d` the kernel processes *all positions in the chunk at depth `d`* in parallel as one batched layer step. The inputs at depth `d` are the `h_{d-1}` values computed during the previous depth step plus the new char at depth `d`. The fire walks depth-by-depth, layer-by-layer, with batch dimension = "all positions at this depth."
+A "fire" in v1 = one per-subtree forward + backward + optimizer step. At `--partition-depth 1` the trie is partitioned by root char (65 root-children for Shakespeare ASCII), and one fire processes one root-child's subtree. **At pd=0 there is only one fire per epoch over the whole trie** — the trainer chunks for memory (via `--chunk-queries`, default 50000) but otherwise treats the entire trie as a single training unit. Step 0 runs at pd=0 (decision 8) — every K and every K_back_i are members of the same fire by construction, no cross-subtree imports.
 
-So at the moment K reaches its final depth `d` in this fire, only K's own path ancestors have been forward-passed *within this fire's autograd graph*. K_back's hidden states are not present: K_back lives in a different root-child subtree (its own subtree fires separately during its own fire), and its training-time hidden state from those other fires is not part of K's autograd graph (even if cached, the gradient would be detached — the failure mode we ruled out in cap-recurrence).
+Within a fire, the kernel **does not walk paths serially**. Chunks of positions are sorted by depth, and at each depth `j` the kernel processes *all chunk positions whose endpoint depth is ≥ `j`* in parallel as one batched layer step. Positions whose endpoint depth equals `j` consume their loss target at that depth step and **drop out of the batch**; deeper steps process only the still-growing paths. The active batch naturally shrinks from depth 0 to `max_depth`.
 
-### The implementation that falls out: widen the per-depth batches
+So the kernel already knows how to handle "positions with different endpoint depths sharing one chunk." Adding backoff slots reuses exactly this machinery — we don't add a new masking concept.
 
-To make `h_p[K_back_i]` part of K's autograd graph in-flight, we add `K_back_1..B`'s paths to K's fire as **parallel mini-paths** processed alongside K's path at the same depth tempo:
+### The implementation: satellite positions with null loss + stash buffer
 
-- At depth 0, the per-depth batch consists of K's path position-0 (1 entry per query) AND each `K_back_i`'s position-0 (B entries per query). All processed as one wider batch by the same layer ops.
-- At depth 1, similarly: K's path position-1 + K_back_1..B's position-1. Inputs at this step are the corresponding `h_0` from the previous step.
-- Continues until depth `d−i−1`: at this depth, `K_back_i`'s path finishes (it has only `d−i` chars). Its final hidden state is stashed into a "backoff slot output buffer" for K. K_back_i drops out of the active batch for subsequent depth steps.
-- At depth `d−1`: K's own path finishes. Now the K/V stack for K's attention is assembled from:
-  - The `d` path-ancestor K/V values (existing behavior).
-  - The `B` stashed `h_p[K_back_i]` values from when each backoff finished.
-- The stashed `h_p[K_back_i]` is projected to K/V using the shared `W_k`/`W_v` and applied to RoPE at the sentinel position `d+i` before being slotted into K's attention.
-- Run final-depth attention as normal over `d + B` slots.
+Each "primary query" K in the chunk (a real radix endpoint at depth d) gets `B` satellite positions added to the chunk:
 
-Per-query compute: `d` path positions + `Σ_{i=1..B} (d−i) = Bd − B(B+1)/2` backoff positions. For `d=16, B=4`: 16 + 54 = 70 vs baseline 16 ≈ 4.4× compute. Same ratio as the cap-recurrence-era estimate, but achieved through wider batches at each depth — not through `B` separate side-fires per query.
+- `K_back_1`'s path (endpoint at depth `d−1`)
+- `K_back_2`'s path (endpoint at depth `d−2`)
+- ...
+- `K_back_B`'s path (endpoint at depth `d−B`)
 
-Backward: free via autodiff. Every K_back mini-path was part of the forward graph; gradient flows back to K_back's parameters along the same edges the path-ancestor forward uses. Two gradient signals per epoch stack on `K_back`'s params (its own fire's endpoint-predictor gradient, plus the new "be a useful upstream representation" gradient from every fire that backed off to it).
+Two ways these satellites differ from a normal chunk position:
 
-### What's actually hard
+1. **No loss target.** A normal position contributes a cross-entropy loss at its endpoint depth. Satellites do not — K_back_i's own loss is computed during a different processing of K_back_i (when its own row in the chunk reaches its endpoint as a primary query). For the satellite, the loss kernel is skipped.
 
-The above is conceptually clean but has three real engineering concerns at the kernel level:
+2. **Hidden state stashed into a backoff slot buffer.** When the satellite hits its endpoint depth, its final hidden state is written to a per-fire scratch buffer indexed by `(primary_query_id, backoff_level i)`. Later, when the primary query K hits its endpoint depth `d−1`, it reads back those `B` stashed values to assemble its K/V stack.
 
-1. **Per-position active-path masking.** Each mini-path has a different "max active depth": K's path is active 0..d−1; K_back_i is active 0..(d−i−1). Once a path finishes, its entries in the batch tensor must not be re-processed at deeper steps — masked-out positions still occupy slots in the batch but contribute zero to the layer ops. The simplest implementation maintains a per-batch-position `active[d]` mask updated each step. The kernel either skips inactive entries (control divergence on warp) or zero-pads and trusts the mask (memory waste). Plain control-flow masking is the cleanest start; vectorization can come later if it bottlenecks.
+Everything else — the depth-by-depth batch shrinking, the layer ops, the existing drop-out-at-endpoint logic — is unchanged. The satellite is just "a normal chunk position with two extra bookkeeping flags: skip-loss, stash-output." The "masking" framing in the previous draft was overcomplicated; the existing endpoint-drop-out handles "this position only runs to depth d−i" for free.
 
-2. **Hidden-state stash for finished mini-paths.** When K_back_i finishes at depth `d−i−1`, its final hidden state needs to be saved until K's own attention step at depth `d−1`. Memory cost: per-query × B × n_layers × d_model. For typical fires with thousands of queries this is real but bounded — well under the existing KV-cache size. Allocate one per-fire scratch buffer of shape `(num_queries, B, n_layers, d_model)`; index into it by `(query, backoff_level)` at stash and gather time.
+### At K's endpoint: gather + sentinel-position projection
 
-3. **K/V stack construction at K's final depth + sentinel-position RoPE projection.** K's existing attention currently gathers `d` slots from the path forward. New: also gather `B` slots from the stash buffer, project them through `W_k`/`W_v`, and apply RoPE at position `d+i` (not at K_back's own depth). Implementation is a separate gather kernel that runs once at K's depth-`d−1` step before the existing attention math. The shared-parameter choice means we reuse the existing `W_k`/`W_v` projection — only the position passed to the RoPE rotation differs.
+When the primary query K finishes at depth `d−1`, K's attention K/V stack is assembled from:
+
+- The `d` path-ancestor K/V values (existing — produced by K's own path forward at depths 0..d−1).
+- The `B` stashed `h_p[K_back_i]` values from the scratch buffer.
+
+For each stashed backoff value:
+- Project it through the shared `W_k` / `W_v` (no new parameters).
+- Apply RoPE at the sentinel position `d + i` (NOT at K_back_i's own depth).
+- Slot it into K's K/V stack after the `d` path slots.
+
+K's attention runs as normal over `d + B = 20` slots.
+
+### Per-fire compute and memory
+
+Per primary query, the fire adds `Σ_{i=1..B} (d − i) = Bd − B(B+1)/2` satellite-position layer steps. For `d=16, B=4`: 16 path positions + 54 satellite positions = 70 total vs baseline 16. Roughly **4.4× per-query compute**.
+
+Stash buffer memory: `(num_queries_in_chunk, B, n_layers, d_model)` float scratch. For a Shakespeare chunk of 50000 queries × 4 × 2 × 64 × 4 bytes ≈ 100 MB per fire. Real but well under the existing KV-cache footprint.
+
+The depth-batched shape *doesn't* multiply naive memory by 4.4×: satellites drop out at their own endpoints, so the chunk's *peak* batch size happens at depth 0 (where everything is alive) and shrinks monotonically afterwards. Peak per-chunk position count ≈ `(1+B) × num_queries` = 5× at depth 0, then dropping. Average is ~3×. Not architecture-breaking.
+
+### Backward
+
+Free via autodiff. Every satellite position was part of the forward graph by construction; its gradient flows back to K_back_i's parameters along the same path-forward edges that the path-ancestor positions use. Two gradient signals per epoch stack on `K_back`'s params:
+
+- The existing endpoint-predictor signal from K_back_i's own loss target (when K_back_i appears in the chunk as a primary query).
+- The new "be a useful upstream representation" signal from every K whose chunk includes K_back_i as a satellite.
+
+This is the gradient flow that distinguishes Step 0 from the cached/detached approach. Cap-recurrence's null is direct evidence the detached version collapses to a soft-KN information ceiling. The in-flight forward is the price we pay (4.4× compute) for the new gradient signal.
+
+### What's actually new vs the existing kernel
+
+In the order needed by the kernel:
+
+1. **Chunk extension.** At chunk-load time, after gathering primary queries, expand the chunk by appending B satellite positions per primary query. Satellite chunk entries carry: path chars, endpoint depth (= primary depth − backoff level), a `skip_loss` flag, and a `stash_slot` index `(primary_query_id, backoff_level)`.
+
+2. **Skip-loss handling.** At depth-step `j`, the loss kernel currently fires for any chunk position whose endpoint depth equals `j`. Add a check: if the position has `skip_loss=true`, write its final hidden state to the stash buffer at `stash_slot` and skip the cross-entropy.
+
+3. **Endpoint-time K/V gather.** At a primary query's endpoint depth, before its existing attention math runs, gather the `B` stashed values from the scratch buffer, project through `W_k`/`W_v`, apply RoPE at sentinel positions `d+i`, and append to the K/V stack.
+
+4. **Stash buffer allocation.** Allocate one per-fire scratch buffer of shape `(num_queries_in_chunk, B, n_layers, d_model)` at fire setup.
+
+5. **Sidecar lookup.** At chunk-load time, identify K_back_i for each primary query via the `agpt_build_backoff_table` sidecar (below). When a sidecar entry is the sentinel value (suffix not in trie), mark that satellite as inactive — no chunk position added, the K/V gather produces no contribution for that slot, and we log the skip rate as a health metric.
 
 ### Other observations
 
-- **Chunk metadata for K_back paths.** Identifying K_back_i's character sequence per query happens upstream, at chunk-loading time, via a precomputed sidecar table (see `agpt_build_backoff_table` below). The fire kernel just reads `(K_back_i.path_chars, K_back_i.depth)` for each query; no runtime trie walk needed inside the kernel.
+- **RoPE position-of-record within K_back's path forward.** Within the depth-batched forward, K_back_i's position-`j` uses RoPE at position `j` — same as a normal path position uses its own depth. Only at the *endpoint-time gather* into K's K/V stack does the sentinel-position swap happen, because that's where K's attention sees the backoff slot. Within K_back's own walk, RoPE-at-own-depth keeps the forward semantics standard.
 
-- **Position-of-record for K_back's own forward steps.** Within the depth-batched forward, K_back_i's position-`j` should use RoPE at position `j` (its own depth), exactly the same as path positions use their own depths. Only at the *final gather* into K's K/V stack does the sentinel-position swap matter — that's where K's attention layer sees the backoff slot, and that's where the model needs to know "this is a backoff slot, not a depth-(d-i) path token." Within K_back's own depth-by-depth walk, RoPE-at-own-depth keeps the forward semantics standard.
+- **Within-fire dedup.** Multiple primary queries can share a K_back. Step 0 does not dedup: each shared K_back's path forward runs once per query that names it. Step 0.5 optimization: dedup the satellite paths at chunk-load time and broadcast the result. This is straightforward but adds bookkeeping; not worth doing until Step 0 results are in.
 
-- **Trie-sparsity handling.** When K_back_i does not exist in the trie (suffix never occurred), the sidecar table marks that slot as inactive for all positions of K_back_i. The mask code from concern (1) handles it for free; the K/V gather produces no contribution for that slot. We log the skip rate as a health metric.
-
-- **Schema gate.** `experimental.backoff_slots: B` (with `B=0` = disabled, recovering current AGPT exactly). Trainer-side wired through v1's `apply_yaml_config_v1` as a recognized experimental key.
+- **Schema gate.** `experimental.backoff_slots: B` (with `B=0` disabled, recovering current AGPT exactly). Trainer-side wired through v1's `apply_yaml_config_v1` as a recognized experimental key.
 
 ### Precomputed sidecar: `agpt_build_backoff_table`
 
@@ -166,18 +203,18 @@ Implementation order: this sidecar comes first, because the fire-kernel widening
 ### Order of implementation
 
 1. **`agpt_build_backoff_table`** — Crystal tool, mirrors `agpt_build_radix_corpus`. Standalone; verifiable independently. Output is a `uint32` table you can dump and spot-check against the radix trie's structure.
-2. **Chunk-loader extension** — when loading per-query chunk metadata, also load the `B` K_back paths' chunk metadata via the sidecar. Quiet preparation step before the kernel changes.
-3. **Per-depth batch widening + active-path mask** — the meaty kernel change. Forward only first; verify per-position outputs against a CPU reference at small d.
-4. **Hidden-state stash buffer** — allocate, write at finish-depth per backoff level, read at K's depth-`d−1` gather.
-5. **K/V gather + sentinel-position RoPE projection** — final-depth gather kernel that fills K's attention K/V stack with `d + B` entries.
-6. **Wire backward** — autodiff propagates through everything we built; verify gradient parity (e.g., `B=0` recovers baseline gradients bit-exact).
-7. **YAML gate + smoke** — `experimental.backoff_slots: B` recognized; `B=0` produces identical results to baseline; `B=4` runs end-to-end and produces a checkpoint.
+2. **Chunk extension at load time** — sidecar-driven. For each primary query, append `B` satellite chunk entries marked `skip_loss=true` with a `stash_slot` index. Skip satellites where the sidecar entry is the sentinel value (suffix not in trie).
+3. **Stash buffer allocation** — per-fire scratch of shape `(num_queries_in_chunk, B, n_layers, d_model)`.
+4. **Skip-loss + stash-output in the loss kernel** — at endpoint-depth step, route satellite positions to "write hidden state to stash buffer" instead of "compute cross-entropy."
+5. **Endpoint-time K/V gather** — at the primary query's endpoint depth, gather B stashed values, project through `W_k`/`W_v`, apply RoPE at sentinel positions `d+i`, append to K's K/V stack.
+6. **Backward parity check** — with `experimental.backoff_slots: 0`, forward AND backward must be bit-exact vs the baseline build. Non-negotiable before any `B>0` runs.
+7. **YAML gate + smoke** — `experimental.backoff_slots: B` recognized in v1's `apply_yaml_config_v1`; `B=0` produces identical results to baseline; `B=4` runs end-to-end and produces a checkpoint.
 
 ## Experimental setup
 
 - Canonical Shakespeare d=16 baseline. Carved at `data/.splits/2b7ded401e96b610/`.
 - Init: `data/input.model` (d_model=64, n_layers=2, n_heads=4, d_ff=256).
-- Canonical training: `--mass-weight linear`, `--fire-norm-mass` default-on, `--partition-depth 1`, `--no-accumulate` (forced under YAML — see schema).
+- Canonical training: `--mass-weight linear`, `--fire-norm-mass` default-on, **`--partition-depth 0`** (per decision 8; single fire per epoch, K and K_back always in the same fire). Note this means one optimizer step per epoch, which is a slow learning regime — Step 0 is a feasibility check, not a high-throughput training run.
 - 25 epochs to start (enough to see clear separation from baseline; matches cap-recurrence comparison anchors).
 - Multiple shuffle seeds for noise control. 3 pairs minimum, 5+ if results are noisy.
 - Eval: canonical `byte_perplexity` via `bin/agpt_experiment` + canonical heldout.
@@ -192,12 +229,13 @@ Implementation order: this sidecar comes first, because the fire-kernel widening
 
 ## Risks and mitigations
 
-- **Compute**: ~4.4× per-query forward+backward compute. Real but per-fire wall is still ~30s on the existing setup; 25-ep runs go from ~2.5 min to ~10 min. Acceptable for PoC. The widened-batch design preserves the kernel's existing depth-by-depth execution pattern, so peak occupancy should be similar — wider batches at each depth, not separate side-fires.
-- **Per-position active-path masking**: the natural depth-batched layout puts entries with different max-depths into the same batch tensor. Control divergence on the warp from skipping inactive entries is a perf concern but not a correctness one. Start with plain control-flow masking; profile and vectorize if it bottlenecks.
-- **Hidden-state stash buffer**: per-fire scratch of shape `(num_queries, B, n_layers, d_model)`. For Shakespeare d=16 / d_model=64 / L=2 / typical chunk ~5000 queries: 5000 × 4 × 2 × 64 × 4 bytes ≈ 10 MB per fire — well under the existing KV-cache footprint. Larger configs scale linearly.
+- **Compute**: ~4.4× per-query forward+backward compute (`d` path positions + `Σ(d−i) = 54` satellite positions for d=16, B=4). Real but per-fire wall is still ~30s on the existing setup; 25-ep runs go from ~2.5 min to ~10 min. Acceptable for PoC. The satellite design reuses the kernel's existing depth-by-depth + endpoint-drop-out machinery — no new control-flow concept, just more positions per chunk.
+- **Stash buffer memory**: per-fire scratch of shape `(num_queries_in_chunk, B, n_layers, d_model)`. For Shakespeare d=16 / d_model=64 / L=2 at the default `chunk_queries=50000`: 50000 × 4 × 2 × 64 × 4 bytes ≈ 100 MB per fire. Real but well under the existing KV-cache footprint. Larger configs scale linearly; lower `chunk_queries` directly reduces this.
+- **Peak chunk batch size**: satellites added to the chunk multiply the *peak* batch by `(1+B)` at depth 0. The active set shrinks as satellites drop out at their endpoints, so average chunk batch is ~3× baseline, but the peak-at-depth-0 is ~5×. If this exceeds GPU memory headroom, lower `chunk_queries` before lowering `B`.
 - **Training instability**: backoff `K_back` parameters now receive richer gradient signal (endpoint + upstream). May destabilize early training. Mitigations: gradient clipping (`--grad-clip-norm 1.0`), warmup-cosine LR (already canonical).
-- **Trie sparsity**: deep `K_back` may not exist for some prefixes. The sidecar marks missing entries inactive; the mask handles it for free. Log the skip rate as a health metric. If frequent, this signals a corpus-coverage issue more than an architecture issue.
+- **Trie sparsity**: deep `K_back` may not exist for some prefixes. The sidecar marks missing entries with a sentinel value; the chunk-load step skips those satellites — no chunk position added, the K/V gather produces no contribution for that slot. Log the skip rate as a health metric. If frequent, this signals a corpus-coverage issue more than an architecture issue.
 - **RoPE position semantics**: the sentinel-position choice (`d+i`) is the simplest but not necessarily the best. Open question for Phase 1.5 / follow-up — see decision (6) above for variants.
+- **pd=1 generalization**: Step 0 runs at pd=0 (decision 8) where K and K_back_i are always in the same fire. The pd=1 case is genuinely harder — it requires either importing K_back chunk data across subtree fires, or accepting detached gradient on the cross-subtree K_back (which collapses to the cap-recurrence regime). That's a deliberate Step-N+ concern, not a Step 0 risk.
 - **Backward-pass parity check**: when `experimental.backoff_slots: 0`, the kernel must produce identical forward AND backward results to the baseline (no-backoff) build. This is a non-negotiable regression check before any `B>0` runs.
 
 ## After Step 0
