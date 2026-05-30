@@ -25,10 +25,11 @@ rnd/<experiment>/                          # one experiment = one hypothesis
     config.yml                             # the input — human-edited
     resolved_config.json                   # config.yml + defaults applied
     meta.json                              # git_sha, command, corpus_sha, ...
-    train.log                              # tee'd stdout/stderr of trainer
-    eval.log                               # tee'd stdout/stderr of evaluator
-    checkpoint.model                       # final trained model
     result.json                            # canonical numbers
+    eval_raw.json                          # compact evaluator output
+    train.log                              # ignored raw trainer trace
+    eval.log                               # ignored raw evaluator trace
+    checkpoint.model                       # ignored final trained model
 ```
 
 Rules:
@@ -38,6 +39,9 @@ Rules:
   results table inside it is regenerated from `runs.json`.
 - `runs.json` is a single-file aggregate of all `<run-id>/result.json` under
   the experiment, kept in sync by the orchestrator.
+- Raw logs and checkpoints remain in the run directory for local debugging but
+  are ignored by default. Force-add a `train.log` only when the exact trace is
+  part of a postmortem.
 
 ### Run-id format
 

@@ -39,14 +39,17 @@ rnd/legacy-rebaseline/**/*.model
 # stay tracked.
 logs/
 
-# Smoke-test runs (transient verification of bin/agpt_experiment). Ignore
-# the per-run subdirs (which start with a UTC timestamp), but keep
-# rnd/_smoke/configs/ and rnd/_smoke/README.md tracked.
+# Smoke-test runs/state (transient verification of bin/agpt_experiment).
+# Keep already-tracked configs available; ignore generated run dirs and
+# indexes unless force-added for a specific reason.
 rnd/_smoke/[0-9]*/
+rnd/_smoke/README.md
+rnd/_smoke/runs.json
 
 # Orchestrator-generated experiment dirs (rnd/<exp>/<run-id>/): keep
-# config + meta + result.json + train.log; ignore the large regenerable
-# artifacts. Specific older experiment dirs have their own patterns above.
+# config/resolved_config + meta + result.json/eval_raw.json; ignore raw logs
+# and large regenerable artifacts. Specific older experiment dirs have their
+# own patterns above.
 rnd/**/checkpoint.model
 rnd/**/hf_checkpoint/
 rnd/**/eval.log
@@ -67,3 +70,6 @@ rnd/**/.hf/
 # in meta.json + manifest.json inside each cache dir.
 data/.splits/
 data/.tries/
+
+# Ad hoc radix cache dumps under rnd/; regenerable binary materialization.
+rnd/radix-depth*/**/*.bin

@@ -25,10 +25,11 @@ A run directory contains (committed files in **bold**):
 - **`resolved_config.json`** — input + defaults applied
 - **`meta.json`** — provenance (git sha/branch/dirty, corpus sha,
   init model header, environment, full command line)
-- **`train.log`** — trainer output (small, useful for postmortem)
 - **`result.json`** — the canonical numbers (with `eval.split` recorded
   so a number is never ambiguous about what it measured)
 - **`eval_raw.json`** — full lm-eval output (small)
+- `train.log` — trainer output (gitignored raw debug trace; force-add only
+  for a specific postmortem)
 - `eval.log` — verbose tqdm/eval output (gitignored, large)
 - `checkpoint.model` — native trainer checkpoint (gitignored, regenerable)
 - `hf_checkpoint/` — HF-format model (gitignored, regenerable from
