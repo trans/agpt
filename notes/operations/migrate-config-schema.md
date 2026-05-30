@@ -155,7 +155,12 @@ Breakdown by trainer hint:
     whole trie" (the closest equivalent, not necessarily semantically
     identical to legacy `--no-accumulate`).
 
-Legacy `.yml` files are preserved alongside their `.new-schema.yml`
-siblings. The decision on when to swap (overwrite the old `.yml` with
-the new content) is held until trainer-side experimental support lands
-and the custom-tool configs above are decided on.
+**Swap status (as of 2026-05-29):** the safe 36 of 48 configs have been
+swapped in-place — `<name>.new-schema.yml` content moved to `<name>.yml`,
+sibling `.new-schema.yml` removed. The 12 unsafe ones (harmonic-bias + 
+v1-vs-v2-comparison, listed above) still carry both files: their legacy
+`.yml` contains fields the schema doesn't model yet (`extra_args` for
+the harmonic-bias prototype flags, `accumulate: false` for v1-vs-v2),
+and the `.new-schema.yml` sibling is the structural map only — not
+semantically equivalent until those fields land somewhere (canonical
+schema entry or `experimental:`).

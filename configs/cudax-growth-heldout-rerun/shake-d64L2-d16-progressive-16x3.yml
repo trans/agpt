@@ -1,37 +1,38 @@
-# Re-run of rnd/cudax-growth progressive 16x3 under the YAML experiment harness.
+# Migrated from shake-d64L2-d16-progressive-16x3.yml via tools/migrate_config.py.
+# Run with: bin/agpt_experiment --config <this> --trainer v2
 
-meta:
-  description: "CUDAX progressive growth held-out rerun: 16 divisions x 3 epochs"
-  experiment: cudax-growth-heldout-rerun
-  run_slug: progressive-16x3
-
+description: 'CUDAX progressive growth held-out rerun: 16 divisions x 3 epochs'
+experiment: cudax-growth-heldout-rerun
+run_slug: progressive-16x3
 corpus:
-  path: data/input.txt
-  train_frac: 0.95
-
+  path: data/.splits/2b7ded401e96b610/train_corpus.txt
+  heldout: data/.splits/2b7ded401e96b610/heldout_corpus.txt
+  carve:
+    source: data/input.txt
+    mode: tail
+    ratio: 0.05
 model:
-  init_from: data/input.model
-
+  init_file: data/input.model
 train:
-  tool: bin/agpt_train_v2
-  mode: train-growth
-  growth_divisions: 16
-  growth_max_depth: 16
-  growth_min_epochs: 3
-  growth_epoch_ramp: fixed
-  epochs: 3
-  optimizer: rmsprop
-  lr: 0.003
-  rmsprop_beta: 0.999
-  lr_schedule: warmup-cosine
-  warmup_epochs: 0
+  budget:
+    unit: epochs
+    value: 3
+  quiet: true
+  optimizer:
+    name: rmsprop
+    lr: 0.003
+    beta: 0.999
+  lr_schedule:
+    name: warmup-cosine
+    warmup_epochs: 0
+  max_depth: 16
   partition_depth: 1
   chunk_queries: 50000
   anc_grad: true
-  quiet: true
-
+  growth:
+    divisions: 16
+    min_epochs: 3
+    epoch_ramp: fixed
 eval:
-  split: tail-heldout
-  task_name: shake_growth_ppl
   batch_size: 1
   device: cpu

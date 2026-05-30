@@ -1,36 +1,32 @@
-# Standard Crystal µGPT SGD/window baseline:
-# - same init checkpoint as AGPT/CUDAX runs
-# - same 95/5 train/heldout split owned by agpt_experiment
-# - seq_len=16 to match current trie depth
-# - 10k standard sliding-window optimizer steps
+# Migrated from shake-sgd-d64L2-s16-10k.yml via tools/migrate_config.py.
+# Run with: bin/agpt_experiment --config <this> --trainer microgpt
 
-meta:
-  description: "Crystal µGPT SGD baseline, Shakespeare d64 L2 seq_len=16 10k steps"
-  experiment: shake-sgd-baseline
-  run_slug: d64L2-s16-10k
-
+description: "Crystal \xB5GPT SGD baseline, Shakespeare d64 L2 seq_len=16 10k steps"
+experiment: shake-sgd-baseline
+run_slug: d64L2-s16-10k
 corpus:
-  path: data/input.txt
-  train_frac: 0.95
+  path: data/.splits/2b7ded401e96b610/train_corpus.txt
+  heldout: data/.splits/2b7ded401e96b610/heldout_corpus.txt
   vocab_source: data/input.txt
-
+  carve:
+    source: data/input.txt
+    mode: tail
+    ratio: 0.05
 model:
-  init_from: data/input.model
-
+  init_file: data/input.model
 train:
-  kind: microgpt-sgd
-  tool: /home/trans/Projects/microgpt/bin/microgpt
-  steps: 10000
-  seq_len: 16
-  d_model: 64
-  n_layers: 2
-  lr: 0.0003
-  lr_schedule: constant
-  backend: openblas
+  budget:
+    unit: steps
+    value: 10000
   seed: 42
-
+  optimizer:
+    name: adam
+    lr: 0.0003
+  lr_schedule:
+    name: constant
+    warmup_epochs: 0
+  seq_len: 16
+  backend: openblas
 eval:
-  split: tail-heldout
-  task_name: shake_sgd_ppl
   batch_size: 1
   device: cpu
