@@ -58,8 +58,9 @@ rnd/**/eval.log
 rnd/**/train_corpus.txt
 rnd/**/heldout_corpus.txt
 
-# Python bytecode in experiment dirs.
-rnd/**/__pycache__/
+# Python bytecode anywhere in the tree (regenerated on import).
+__pycache__/
+*.pyc
 
 # Hugging Face datasets cache that lm-eval leaks into run dirs.
 # Cached arrow files; regenerable from corpus + lm-eval invocation.
