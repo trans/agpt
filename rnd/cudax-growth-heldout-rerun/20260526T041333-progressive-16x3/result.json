@@ -1,0 +1,22 @@
+{
+  "run_id": "20260526T041333-progressive-16x3",
+  "experiment": "cudax-growth-heldout-rerun",
+  "wall_seconds": 183.460513024,
+  "started_utc": "2026-05-26T04:13:33Z",
+  "ended_utc": "2026-05-26T04:16:36Z",
+  "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+  "eval": {
+    "split": "tail-heldout",
+    "source_path": "rnd/cudax-growth-heldout-rerun/20260526T041333-progressive-16x3/heldout_corpus.txt",
+    "source_sha256": "8b5a8c8af45905547ad03b7aae6980a277a5dd78924a6e6ac64b75d63d7d40bd",
+    "benchmark": null,
+    "corpus_train_frac": 0.95,
+    "corpus_split_offset": 1059624
+  },
+  "metrics": {
+    "word_perplexity": 162996.39749757326,
+    "byte_perplexity": 8.555552947596688,
+    "bits_per_byte": 3.0968610994810426
+  },
+  "checkpoint_sha": "116ae65279eba9fd4cb3bf527fa3c835a7ec2d125d9399ac3aa63550d3626675"
+}

@@ -1,0 +1,158 @@
+[
+  {
+    "run_id": "20260526T172856-static-1ep",
+    "experiment": "cudax-static-epochs",
+    "wall_seconds": 40.222177376,
+    "train_wall_seconds": 10.12502465,
+    "convert_wall_seconds": 5.157282413,
+    "eval_wall_seconds": 19.748506709,
+    "started_utc": "2026-05-26T17:28:56Z",
+    "ended_utc": "2026-05-26T17:29:36Z",
+    "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+    "eval": {
+      "split": "tail-heldout",
+      "source_path": "rnd/cudax-static-epochs/20260526T172856-static-1ep/heldout_corpus.txt",
+      "source_sha256": "8b5a8c8af45905547ad03b7aae6980a277a5dd78924a6e6ac64b75d63d7d40bd",
+      "benchmark": null,
+      "corpus_train_frac": 0.95,
+      "corpus_split_offset": 1059624
+    },
+    "metrics": {
+      "lm_eval_rolling_word_perplexity": 5712941.31365607,
+      "lm_eval_rolling_byte_perplexity": 16.163270738027293,
+      "lm_eval_rolling_bits_per_byte": 4.014647260803369,
+      "agpt_fixed_token_perplexity": 15.877236139462957
+    },
+    "checkpoint_sha": "d9d2d865104f4cf55a591befcbe7cfcd8690c98df52bb82317cb5cebdb34c406"
+  },
+  {
+    "run_id": "20260526T172936-static-3ep",
+    "experiment": "cudax-static-epochs",
+    "wall_seconds": 51.565637781,
+    "train_wall_seconds": 22.49459881,
+    "convert_wall_seconds": 4.892434479,
+    "eval_wall_seconds": 19.995944798,
+    "started_utc": "2026-05-26T17:29:36Z",
+    "ended_utc": "2026-05-26T17:30:28Z",
+    "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+    "eval": {
+      "split": "tail-heldout",
+      "source_path": "rnd/cudax-static-epochs/20260526T172936-static-3ep/heldout_corpus.txt",
+      "source_sha256": "8b5a8c8af45905547ad03b7aae6980a277a5dd78924a6e6ac64b75d63d7d40bd",
+      "benchmark": null,
+      "corpus_train_frac": 0.95,
+      "corpus_split_offset": 1059624
+    },
+    "metrics": {
+      "lm_eval_rolling_word_perplexity": 1262870.411645495,
+      "lm_eval_rolling_byte_perplexity": 12.339188651060235,
+      "lm_eval_rolling_bits_per_byte": 3.625175629765749,
+      "agpt_fixed_token_perplexity": 11.774108473598968
+    },
+    "checkpoint_sha": "1ddc566a1daf58e81f6cf4e86f7204b77e830c68d0b4c1d8c256ae6d42510e85"
+  },
+  {
+    "run_id": "20260526T173028-static-6ep",
+    "experiment": "cudax-static-epochs",
+    "wall_seconds": 68.336194304,
+    "train_wall_seconds": 40.0486551,
+    "convert_wall_seconds": 4.375630145,
+    "eval_wall_seconds": 19.46682029,
+    "started_utc": "2026-05-26T17:30:28Z",
+    "ended_utc": "2026-05-26T17:31:36Z",
+    "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+    "eval": {
+      "split": "tail-heldout",
+      "source_path": "rnd/cudax-static-epochs/20260526T173028-static-6ep/heldout_corpus.txt",
+      "source_sha256": "8b5a8c8af45905547ad03b7aae6980a277a5dd78924a6e6ac64b75d63d7d40bd",
+      "benchmark": null,
+      "corpus_train_frac": 0.95,
+      "corpus_split_offset": 1059624
+    },
+    "metrics": {
+      "lm_eval_rolling_word_perplexity": 689553.2859839693,
+      "lm_eval_rolling_byte_perplexity": 11.073474716335769,
+      "lm_eval_rolling_bits_per_byte": 3.4690360875075257,
+      "agpt_fixed_token_perplexity": 10.258197426703873
+    },
+    "checkpoint_sha": "7e21c400ba4db9e865edd13a59aa87cdb797b8b4a6685c8f43d1fa90867f69c2"
+  },
+  {
+    "run_id": "20260526T173136-static-10ep",
+    "experiment": "cudax-static-epochs",
+    "wall_seconds": 92.56962728,
+    "train_wall_seconds": 63.202355059,
+    "convert_wall_seconds": 4.156099035,
+    "eval_wall_seconds": 21.131104963,
+    "started_utc": "2026-05-26T17:31:36Z",
+    "ended_utc": "2026-05-26T17:33:09Z",
+    "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+    "eval": {
+      "split": "tail-heldout",
+      "source_path": "rnd/cudax-static-epochs/20260526T173136-static-10ep/heldout_corpus.txt",
+      "source_sha256": "8b5a8c8af45905547ad03b7aae6980a277a5dd78924a6e6ac64b75d63d7d40bd",
+      "benchmark": null,
+      "corpus_train_frac": 0.95,
+      "corpus_split_offset": 1059624
+    },
+    "metrics": {
+      "lm_eval_rolling_word_perplexity": 431098.38283964846,
+      "lm_eval_rolling_byte_perplexity": 10.181179417634771,
+      "lm_eval_rolling_bits_per_byte": 3.347832791999726,
+      "agpt_fixed_token_perplexity": 9.168957380076144
+    },
+    "checkpoint_sha": "d914fafc98c779b5bd92ecfd01e75eb3555cf76ccdcfe369f95a7e76aa7bd58d"
+  },
+  {
+    "run_id": "20260526T173309-static-25ep",
+    "experiment": "cudax-static-epochs",
+    "wall_seconds": 185.036010982,
+    "train_wall_seconds": 155.597982172,
+    "convert_wall_seconds": 4.791447795,
+    "eval_wall_seconds": 20.392141043,
+    "started_utc": "2026-05-26T17:33:09Z",
+    "ended_utc": "2026-05-26T17:36:14Z",
+    "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+    "eval": {
+      "split": "tail-heldout",
+      "source_path": "rnd/cudax-static-epochs/20260526T173309-static-25ep/heldout_corpus.txt",
+      "source_sha256": "8b5a8c8af45905547ad03b7aae6980a277a5dd78924a6e6ac64b75d63d7d40bd",
+      "benchmark": null,
+      "corpus_train_frac": 0.95,
+      "corpus_split_offset": 1059624
+    },
+    "metrics": {
+      "lm_eval_rolling_word_perplexity": 164639.22847329147,
+      "lm_eval_rolling_byte_perplexity": 8.570912738214385,
+      "lm_eval_rolling_bits_per_byte": 3.0994488487693035,
+      "agpt_fixed_token_perplexity": 7.518668416507432
+    },
+    "checkpoint_sha": "bd636cf6f03d2cfc71b7fef7212a7d9665225a10cd2daf85ba2dafa9d7ad1d4f"
+  },
+  {
+    "run_id": "20260526T180318-static-100ep",
+    "experiment": "cudax-static-epochs",
+    "wall_seconds": 629.361166183,
+    "train_wall_seconds": 600.670382229,
+    "convert_wall_seconds": 4.51764889,
+    "eval_wall_seconds": 19.834754812,
+    "started_utc": "2026-05-26T18:03:18Z",
+    "ended_utc": "2026-05-26T18:13:47Z",
+    "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+    "eval": {
+      "split": "tail-heldout",
+      "source_path": "rnd/cudax-static-epochs/20260526T180318-static-100ep/heldout_corpus.txt",
+      "source_sha256": "8b5a8c8af45905547ad03b7aae6980a277a5dd78924a6e6ac64b75d63d7d40bd",
+      "benchmark": null,
+      "corpus_train_frac": 0.95,
+      "corpus_split_offset": 1059624
+    },
+    "metrics": {
+      "lm_eval_rolling_word_perplexity": 97360.86783600964,
+      "lm_eval_rolling_byte_perplexity": 7.802260648345548,
+      "lm_eval_rolling_bits_per_byte": 2.963892194952374,
+      "agpt_fixed_token_perplexity": 6.087862396515668
+    },
+    "checkpoint_sha": "4e08f7e2350074c4bfb4b55252a1fcd96c95459d0ba4711ad27c70292d861f6b"
+  }
+]

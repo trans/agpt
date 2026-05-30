@@ -1,0 +1,13 @@
+{
+  "shake_growth_ppl": {
+    "name": "shake_growth_ppl",
+    "alias": "shake_growth_ppl",
+    "sample_len": 1,
+    "word_perplexity,none": 162996.39749757326,
+    "word_perplexity_stderr,none": "N/A",
+    "byte_perplexity,none": 8.555552947596688,
+    "byte_perplexity_stderr,none": "N/A",
+    "bits_per_byte,none": 3.0968610994810426,
+    "bits_per_byte_stderr,none": "N/A"
+  }
+}

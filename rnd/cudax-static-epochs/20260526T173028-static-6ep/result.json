@@ -1,0 +1,26 @@
+{
+  "run_id": "20260526T173028-static-6ep",
+  "experiment": "cudax-static-epochs",
+  "wall_seconds": 68.336194304,
+  "train_wall_seconds": 40.0486551,
+  "convert_wall_seconds": 4.375630145,
+  "eval_wall_seconds": 19.46682029,
+  "started_utc": "2026-05-26T17:30:28Z",
+  "ended_utc": "2026-05-26T17:31:36Z",
+  "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+  "eval": {
+    "split": "tail-heldout",
+    "source_path": "rnd/cudax-static-epochs/20260526T173028-static-6ep/heldout_corpus.txt",
+    "source_sha256": "8b5a8c8af45905547ad03b7aae6980a277a5dd78924a6e6ac64b75d63d7d40bd",
+    "benchmark": null,
+    "corpus_train_frac": 0.95,
+    "corpus_split_offset": 1059624
+  },
+  "metrics": {
+    "lm_eval_rolling_word_perplexity": 689553.2859839693,
+    "lm_eval_rolling_byte_perplexity": 11.073474716335769,
+    "lm_eval_rolling_bits_per_byte": 3.4690360875075257,
+    "agpt_fixed_token_perplexity": 10.258197426703873
+  },
+  "checkpoint_sha": "7e21c400ba4db9e865edd13a59aa87cdb797b8b4a6685c8f43d1fa90867f69c2"
+}

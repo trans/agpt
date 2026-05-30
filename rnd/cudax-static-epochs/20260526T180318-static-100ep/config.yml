@@ -1,0 +1,36 @@
+meta:
+  description: "CUDAX static full-prefix training: 100 epochs"
+  experiment: cudax-static-epochs
+  run_slug: static-100ep
+
+corpus:
+  path: data/input.txt
+  train_frac: 0.95
+  vocab_source: data/input.txt
+
+model:
+  init_from: data/input.model
+
+train:
+  tool: bin/agpt_train_v2
+  mode: train-growth
+  growth_divisions: 1
+  growth_max_depth: 16
+  growth_min_epochs: 100
+  growth_epoch_ramp: fixed
+  epochs: 100
+  optimizer: rmsprop
+  lr: 0.003
+  rmsprop_beta: 0.999
+  lr_schedule: warmup-cosine
+  warmup_epochs: 0
+  partition_depth: 1
+  chunk_queries: 50000
+  anc_grad: true
+  quiet: true
+
+eval:
+  split: tail-heldout
+  task_name: shake_static_ppl
+  batch_size: 1
+  device: cpu
