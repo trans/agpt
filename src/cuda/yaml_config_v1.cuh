@@ -93,6 +93,17 @@ struct YamlConfigV1 {
     int model_n_heads = 0;
     int model_d_ff = 0;
     int model_head_dim = 0;
+
+    // Slot-selection Step 0 — backoff slots (notes/seq-len-extension/slot-selection.md).
+    // backoff_slots = B: number of backoff K/V slots to add per primary query.
+    //   0 = disabled (baseline; bit-exact parity required).
+    //   >0 = enabled; trainer loads <trie-dir>/backoff_B<N>.bin sidecar.
+    // backoff_position: RoPE position for the backoff K/V slot at gather time.
+    //   "same-as-k" (default; principled): position d, relative rotation 0 vs K's query.
+    //   "sentinel":  position d+i for the i-th backoff slot.
+    int backoff_slots = 0;
+    enum class BackoffPositionKind { SameAsK, Sentinel };
+    BackoffPositionKind backoff_position = BackoffPositionKind::SameAsK;
 };
 
 static std::string yam_str_to_std_v1(yam_str s) {
@@ -289,11 +300,22 @@ static bool yaml_is_experimental_field_v1(const std::string& path) {
     return path.rfind("experimental.", 0) == 0 && path.size() > std::strlen("experimental.");
 }
 
+// Experimental flags that v1 actively consumes. Listed here so the WARN
+// pass below skips them. Anything else under experimental.* still WARNs.
+static bool yaml_is_known_experimental_field_v1(const std::string& path) {
+    static const std::unordered_set<std::string> fields = {
+        "experimental.backoff_slots",
+        "experimental.backoff_position",
+    };
+    return fields.find(path) != fields.end();
+}
+
 static bool warn_unknown_experimental_flags_v1(const YamlDocV1& doc) {
     std::vector<std::string> flags;
     for (const auto& item : doc.scalars) {
         const std::string& path = item.first;
         if (!yaml_is_experimental_field_v1(path)) continue;
+        if (yaml_is_known_experimental_field_v1(path)) continue;
         flags.push_back(path.substr(std::strlen("experimental.")));
     }
     std::sort(flags.begin(), flags.end());
@@ -615,6 +637,27 @@ static bool apply_yaml_config_v1(const char* config_path, YamlConfigV1& yaml_cfg
     if (!yaml_get_int_v1(doc, "trie.prune_min_mass", unused_int)) return false;
     if (!yaml_get_int_v1(doc, "trie.prune_min_depth", unused_int)) return false;
 
+    // ---- Experimental: slot-selection Step 0 (backoff slots) ----
+    // See notes/seq-len-extension/slot-selection.md.
+    if (!yaml_get_int_v1(doc, "experimental.backoff_slots", yaml_cfg.backoff_slots)) return false;
+    if (yaml_cfg.backoff_slots < 0) {
+        std::fprintf(stderr, "agpt_train: experimental.backoff_slots must be >= 0\n");
+        return false;
+    }
+    const YamlScalarV1* bp = yaml_find_v1(doc, "experimental.backoff_position");
+    if (bp) {
+        if (bp->value == "same-as-k") {
+            yaml_cfg.backoff_position = YamlConfigV1::BackoffPositionKind::SameAsK;
+        } else if (bp->value == "sentinel") {
+            yaml_cfg.backoff_position = YamlConfigV1::BackoffPositionKind::Sentinel;
+        } else {
+            std::fprintf(stderr,
+                         "agpt_train: experimental.backoff_position must be same-as-k or sentinel "
+                         "(got %s)\n", bp->value.c_str());
+            return false;
+        }
+    }
+
     // ---- Validation ----
     if (yaml_cfg.epochs <= 0) {
         std::fprintf(stderr, "agpt_train: train.budget.value must be positive for epoch budgets\n");
@@ -622,6 +665,15 @@ static bool apply_yaml_config_v1(const char* config_path, YamlConfigV1& yaml_cfg
     }
     if (yaml_cfg.partition_depth < 0) {
         std::fprintf(stderr, "agpt_train: train.partition_depth must be >= 0\n");
+        return false;
+    }
+    if (yaml_cfg.backoff_slots > 0 && yaml_cfg.partition_depth != 0) {
+        // Step 0 explicitly runs at pd=0 (see slot-selection.md decision 8).
+        // pd>=1 case requires cross-subtree chunk imports that aren't built.
+        std::fprintf(stderr,
+                     "agpt_train: experimental.backoff_slots=%d requires train.partition_depth=0 "
+                     "for Step 0 (slot-selection.md decision 8); pd=%d is not supported yet.\n",
+                     yaml_cfg.backoff_slots, yaml_cfg.partition_depth);
         return false;
     }
     if (yaml_cfg.init_mode &&

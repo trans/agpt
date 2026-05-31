@@ -344,6 +344,7 @@ static bool parse_fire_norm_v1(const char* s, bool& by_mass, bool& by_weight, bo
 }
 
 #include "yaml_config_v1.cuh"
+#include "agpt_backoff_table.cuh"
 
 // L-BFGS one-step update. Two-loop recursion using cuBLAS.
 //
@@ -8010,6 +8011,24 @@ int main(int argc, char** argv) {
     if (format == 1) {
         printf("Loading radix trie from %s...\n", trie_dir);
         RadixTrieData radix_trie = load_radix_trie(trie_dir);
+
+        // Slot-selection Step 0: backoff sidecar + rev_lookup. Empty when
+        // experimental.backoff_slots == 0 (the bit-exact baseline path).
+        BackoffTable backoff_table;
+        if (config_path && yaml_cfg.backoff_slots > 0) {
+            char backoff_sidecar_path[2048];
+            std::snprintf(backoff_sidecar_path, sizeof(backoff_sidecar_path),
+                          "%s/backoff_B%d.bin", trie_dir, yaml_cfg.backoff_slots);
+            if (!backoff_table.load(backoff_sidecar_path, radix_trie.radix_count)) {
+                fprintf(stderr,
+                        "agpt_train: experimental.backoff_slots=%d requires sidecar %s; "
+                        "build it with bin/agpt_build_backoff_table --trie %s --out %s --b %d\n",
+                        yaml_cfg.backoff_slots, backoff_sidecar_path, trie_dir,
+                        backoff_sidecar_path, yaml_cfg.backoff_slots);
+                return 1;
+            }
+            backoff_table.build_rev_lookup();
+        }
 
         // Reconcile cfg.seq_len with the actual training depth. The model
         // header carries seq_len from whatever tool created the file (often
