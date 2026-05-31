@@ -8028,6 +8028,7 @@ int main(int argc, char** argv) {
                 return 1;
             }
             backoff_table.build_rev_lookup();
+            backoff_table.build_M_to_stash();
         }
 
         // Reconcile cfg.seq_len with the actual training depth. The model
