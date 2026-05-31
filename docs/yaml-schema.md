@@ -246,7 +246,7 @@ split caches, tries are content-hashed and cached at
 | `train.growth` | block | absent | v2 (today), v1 (planned); mg rejects | Optional. Block absent = static training. |
 | `train.growth.divisions` | int ≥ 1 | required if block present | v2, v1 (planned) | Number of stages. |
 | `train.growth.min_epochs` | int ≥ 1 | required if block present | v2, v1 (planned) | Per-stage minimum epoch budget. |
-| `train.growth.epoch_ramp` | enum | required if block present | v2, v1 (planned) | `fixed` \| `linear`. |
+| `train.growth.epoch_ramp` | enum | required if block present | v2, v1 (planned) | `fixed` \| `linear` \| `linear-decay`. |
 
 ### Microgpt-only
 

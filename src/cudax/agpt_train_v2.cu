@@ -83,12 +83,14 @@ enum class V2Mode {
 enum class GrowthEpochScheduleV2 {
     Fixed,
     LinearRamp,
+    LinearDecay,
 };
 
 static const char* growth_epoch_schedule_name_v2(GrowthEpochScheduleV2 schedule) {
     switch (schedule) {
         case GrowthEpochScheduleV2::Fixed: return "fixed";
         case GrowthEpochScheduleV2::LinearRamp: return "linear-ramp";
+        case GrowthEpochScheduleV2::LinearDecay: return "linear-decay";
     }
     return "unknown";
 }
@@ -102,6 +104,11 @@ static bool parse_growth_epoch_schedule_v2(const char* text, GrowthEpochSchedule
         out = GrowthEpochScheduleV2::LinearRamp;
         return true;
     }
+    if (std::strcmp(text, "linear-decay") == 0 || std::strcmp(text, "decay") == 0 ||
+        std::strcmp(text, "reverse-ramp") == 0 || std::strcmp(text, "inverted") == 0) {
+        out = GrowthEpochScheduleV2::LinearDecay;
+        return true;
+    }
     return false;
 }
 
@@ -113,8 +120,11 @@ static int growth_epochs_for_stage_v2(GrowthEpochScheduleV2 schedule,
     if (schedule == GrowthEpochScheduleV2::Fixed || max_epochs <= min_epochs || total_stages <= 1) {
         return max_epochs;
     }
-    // Inclusive min..max ramp: first stage gets min_epochs, final stage gets max_epochs.
-    int numerator = stage_index * (max_epochs - min_epochs);
+    // Inclusive ramps: linear-ramp increases min..max; linear-decay decreases max..min.
+    int effective_stage = schedule == GrowthEpochScheduleV2::LinearDecay
+        ? total_stages - 1 - stage_index
+        : stage_index;
+    int numerator = effective_stage * (max_epochs - min_epochs);
     int denominator = total_stages - 1;
     return min_epochs + numerator / denominator;
 }
@@ -781,7 +791,7 @@ int main(int argc, char** argv) {
                      "  [--growth-max-depth N]\n"
                      "  [--epochs N] [--partition-depth 0|1] [--chunk-queries N] [--lr F] [--optimizer adam|sgd|momentum|rmsprop]\n"
                      "  [--momentum-beta F] [--rmsprop-beta F] [--lr-schedule constant|warmup-cosine]\n"
-                     "  [--warmup-epochs N] [--growth-min-epochs N] [--growth-epoch-schedule fixed|linear-ramp] [--steps N]\n"
+                     "  [--warmup-epochs N] [--growth-min-epochs N] [--growth-epoch-schedule fixed|linear-ramp|linear-decay] [--steps N]\n"
                      "  [--rope-position-mode depth|sampled-bin] [--position-data DIR] [--pos-sample-seed N]\n"
                      "  [--anc-grad] [--ablate-anc-grad]\n"
                      "  [--units N]\n"
