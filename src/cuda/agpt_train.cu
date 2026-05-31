@@ -3753,7 +3753,9 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                         SplitSecondary rope_split_secondary = SplitSecondary::Mass,
                         int rope_corpus_window = 128,
                         const char* position_data_dir = nullptr,
-                        PosEncoderMode pos_encoder = PosEncoderMode::Default)
+                        PosEncoderMode pos_encoder = PosEncoderMode::Default,
+                        BackoffTable* backoff_table = nullptr,
+                        int backoff_position_kind = 0)
 {
     const bool quiet = persist && persist->quiet;
 
@@ -3963,6 +3965,46 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
     CUDA_CHECK(cudaMalloc(&d_grads,   wo.total_floats * sizeof(float)));
     CUDA_CHECK(cudaMalloc(&d_adam_m,  wo.total_floats * sizeof(float)));
     CUDA_CHECK(cudaMalloc(&d_adam_v,  wo.total_floats * sizeof(float)));
+
+    // ---- Slot-selection Step 0: backoff stash buffers (fire-global scratch). ----
+    // See notes/seq-len-extension/slot-selection.md "two-pass + deep-to-shallow"
+    // section. Allocated only when backoff_slots > 0; B=0 is bit-exact baseline.
+    //
+    //   d_stash      [M_count, L_layers, D]  bf16    — pass-1 forward writes h_M
+    //                                                 pass-2 forward gather reads
+    //   d_stash_grad [M_count, L_layers, D]  fp32    — pass-2 backward writes grad on h_M
+    //                                                 pass-2 M's backward adds as upstream
+    //   d_M_to_stash [radix_count]           int32   — global M.id → stash slot, or -1
+    __nv_bfloat16* d_stash = nullptr;
+    float* d_stash_grad = nullptr;
+    int* d_M_to_stash = nullptr;
+    uint32_t backoff_M_count = 0;
+    int backoff_B = 0;
+    if (backoff_table && backoff_table->b > 0 && backoff_table->M_count > 0) {
+        backoff_M_count = backoff_table->M_count;
+        backoff_B = (int)backoff_table->b;
+        size_t stash_elems = (size_t)backoff_M_count * (size_t)L_layers * (size_t)D;
+        CUDA_CHECK(cudaMalloc(&d_stash, stash_elems * sizeof(__nv_bfloat16)));
+        CUDA_CHECK(cudaMalloc(&d_stash_grad, stash_elems * sizeof(float)));
+        CUDA_CHECK(cudaMalloc(&d_M_to_stash, (size_t)backoff_table->n_radix * sizeof(int)));
+        // Upload host-side M_to_stash (built by BackoffTable::build_M_to_stash).
+        // Indexed by global radix id. -1 sentinel for nodes that aren't anyone's
+        // backoff target (i.e., no stash slot allocated for them).
+        CUDA_CHECK(cudaMemcpy(d_M_to_stash, backoff_table->M_to_stash.data(),
+                              (size_t)backoff_table->n_radix * sizeof(int),
+                              cudaMemcpyHostToDevice));
+        // Zero stash + stash_grad once at fire init; they're overwritten by pass-1
+        // (stash) and pass-2 (stash_grad) writes. Zero init protects against any
+        // gather attempt reading from a slot that pass 1 hasn't written yet.
+        CUDA_CHECK(cudaMemset(d_stash,      0, stash_elems * sizeof(__nv_bfloat16)));
+        CUDA_CHECK(cudaMemset(d_stash_grad, 0, stash_elems * sizeof(float)));
+        printf("  slot-selection: B=%d M_count=%u stash=%.1f MB stash_grad=%.1f MB "
+               "M_to_stash=%.1f MB\n",
+               backoff_B, backoff_M_count,
+               (double)(stash_elems * sizeof(__nv_bfloat16)) / (1024.0 * 1024.0),
+               (double)(stash_elems * sizeof(float))        / (1024.0 * 1024.0),
+               (double)(backoff_table->n_radix * sizeof(int)) / (1024.0 * 1024.0));
+    }
     if (persist && persist->h_adam_m_io) {
         CUDA_CHECK(cudaMemcpy(d_adam_m, persist->h_adam_m_io, wo.total_floats * sizeof(float), cudaMemcpyHostToDevice));
     } else {
@@ -7215,6 +7257,9 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
     free_chunk_upload_runtime(chunk_upload_runtime);
 
     cudaFree(d_weights); cudaFree(d_grads); cudaFree(d_adam_m); cudaFree(d_adam_v);
+    if (d_stash)        cudaFree(d_stash);
+    if (d_stash_grad)   cudaFree(d_stash_grad);
+    if (d_M_to_stash)   cudaFree(d_M_to_stash);
     if (d_dkv_subtree_k) {
         for (int l = 0; l < L_layers; l++) {
             if (d_dkv_subtree_k[l]) cudaFree(d_dkv_subtree_k[l]);
@@ -8062,7 +8107,13 @@ int main(int argc, char** argv) {
         }
 
         unsigned final_perm_seed = (rope_perm_seed >= 0) ? (unsigned)rope_perm_seed : init_seed;
-        int rc = run_radix_training(cfg, wo, h_weights, radix_trie, epochs, entropy_lambda, mass_weight, subtree_splits, partition_depth, accumulate, single_subtree, intermediate_weight, optimizer, momentum_beta, rmsprop_beta, lr_schedule, warmup_epochs, weight_decay, grad_clip_norm, save_every, curriculum, save_path, lightning, &persist, depth_weight, fire_norm_by_mass, entropy_weight, fire_norm_by_weight, fire_norm_none, branching_weight, rope_mode, final_perm_seed, rope_swap_a, rope_swap_b, rope_split_depth_heads, rope_split_secondary, rope_corpus_window, position_data_dir, pos_encoder);
+        // Slot-selection Step 0: thread backoff_table into the trainer when
+        // experimental.backoff_slots > 0; otherwise pass nullptr (preserves
+        // bit-exact baseline behavior).
+        BackoffTable* backoff_table_ptr = (yaml_cfg.backoff_slots > 0) ? &backoff_table : nullptr;
+        int backoff_position_kind = (yaml_cfg.backoff_position ==
+                                     YamlConfigV1::BackoffPositionKind::Sentinel) ? 1 : 0;
+        int rc = run_radix_training(cfg, wo, h_weights, radix_trie, epochs, entropy_lambda, mass_weight, subtree_splits, partition_depth, accumulate, single_subtree, intermediate_weight, optimizer, momentum_beta, rmsprop_beta, lr_schedule, warmup_epochs, weight_decay, grad_clip_norm, save_every, curriculum, save_path, lightning, &persist, depth_weight, fire_norm_by_mass, entropy_weight, fire_norm_by_weight, fire_norm_none, branching_weight, rope_mode, final_perm_seed, rope_swap_a, rope_swap_b, rope_split_depth_heads, rope_split_secondary, rope_corpus_window, position_data_dir, pos_encoder, backoff_table_ptr, backoff_position_kind);
         // Append optimizer state to the saved checkpoint so the next training
         // call can pick up Adam/RMSprop moments mid-stream.
         if (rc == 0 && save_path) {
