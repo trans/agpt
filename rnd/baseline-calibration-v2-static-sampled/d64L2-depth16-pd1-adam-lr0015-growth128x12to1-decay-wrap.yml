@@ -1,0 +1,43 @@
+description: "V2 progressive growth sampled-heldout calibration: d64 L2 depth16 pd1 Adam lr0.0015, 128 divisions decay 12..1 epochs, wrapped corpus tail"
+experiment: baseline-calibration-v2-static-sampled
+run_slug: d64L2-depth16-pd1-adam-lr0015-growth128x12to1-decay-wrap
+
+corpus:
+  path: data/.splits/4fa9aec1db6b3aea/train_corpus.txt
+  heldout: data/.splits/4fa9aec1db6b3aea/heldout_corpus.txt
+  vocab_source: data/input.txt
+  carve:
+    source: data/input.txt
+    mode: sample
+    ratio: 0.05
+    chunks: 10
+    seed: 42
+
+model:
+  init_file: data/seeds/shake-d64L2-h4-dff256-s128-seed42.model
+
+train:
+  budget:
+    unit: epochs
+    value: 12
+  quiet: true
+  optimizer:
+    name: adam
+    lr: 0.0015
+    momentum_beta: 0.9
+    beta: 0.999
+  lr_schedule:
+    name: warmup-cosine
+    warmup_epochs: 0
+  max_depth: 16
+  partition_depth: 1
+  chunk_queries: 50000
+  anc_grad: true
+  growth:
+    divisions: 128
+    min_epochs: 1
+    epoch_ramp: linear-decay
+
+eval:
+  batch_size: 1
+  device: cpu
