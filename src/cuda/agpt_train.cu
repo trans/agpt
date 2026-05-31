@@ -6659,7 +6659,15 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                     // Pre-scale dk/dv_backoff by grad_scale (same per-event weight
                     // as anc-grad's ancestor contributions) before scatter — keeps
                     // the fire-end matmul scale-free.
-                    if (backoff_B > 0) {
+                    //
+                    // AGPT_BACKOFF_SKIP_KV_MATMUL=1: diagnostic. Skip the entire
+                    // backoff scatter so K's accumulator stays zero AND V's shared
+                    // accumulator doesn't pick up backoff terms. Forward + Q-side
+                    // backward (dq_pack) still see backoff slots. Used to isolate
+                    // whether the dW_k / dW_v gradient path is what's harming PPL.
+                    static const bool backoff_skip_kv_matmul =
+                        (getenv("AGPT_BACKOFF_SKIP_KV_MATMUL") != nullptr);
+                    if (backoff_B > 0 && !backoff_skip_kv_matmul) {
                         int backoff_rows = T_q * backoff_B;
                         if (backoff_rows > 0) {
                             // Inverse-RoPE on dK side. Treat as (rows × H) rows of HD;
@@ -6886,7 +6894,14 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                     // the M-depth inverse-RoPE that runs above on d_dkv_subtree_k).
                     // V's backoff contribution is already in d_dkv_subtree_v[l]
                     // from the scatter (V has no RoPE asymmetry).
-                    if (backoff_B > 0 && d_dkv_subtree_k_backoff) {
+                    //
+                    // The K_backoff accumulator stays zero when
+                    // AGPT_BACKOFF_SKIP_KV_MATMUL=1 (scatter gate up above), so this
+                    // matmul becomes a no-op for the diagnostic path. Skip it
+                    // explicitly anyway to save the cuBLAS call.
+                    static const bool backoff_skip_kv_matmul_fe =
+                        (getenv("AGPT_BACKOFF_SKIP_KV_MATMUL") != nullptr);
+                    if (backoff_B > 0 && d_dkv_subtree_k_backoff && !backoff_skip_kv_matmul_fe) {
                         CUBLAS_CHECK(cublasSgemm(cublas, CUBLAS_OP_N, CUBLAS_OP_T, D, D, n_sub,
                                                   &anc_alpha, d_dkv_subtree_k_backoff[l], D,
                                                   h_subtree[l], D, &anc_one, dW_kw, D));

@@ -1,0 +1,65 @@
+# Slot-selection Step 0 diagnostic: zero the backoff K/V grad contribution.
+#
+# Same params as backoff-b4-samek-seed1.yml, but the run is launched with
+# AGPT_BACKOFF_SKIP_KV_MATMUL=1 so:
+#   - per-chunk backward backoff scatter is skipped (K accumulator stays
+#     zero; V's shared accumulator doesn't receive backoff contributions);
+#   - fire-end backoff K matmul is skipped (no-op anyway under the above).
+#
+# Forward attention still sees the B=4 same-as-k backoff slots. Q-side
+# backward (dq_pack) still gets backoff softmax-weighted dK contributions,
+# which flow into Wq, Wo, FFN, LN via the standard path. ONLY the W_k/W_v
+# reshaping from backoff slots is muted.
+#
+# Comparison vs backoff-b4-samek-seed1 result (byte_PPL = 19.025):
+#   - if result ≈ 19.0  → backoff harm is NOT in dW_k/dW_v; suspect forward
+#     attention noise or Wq cascade.
+#   - if result ≈ 17.1  → dW_k/dW_v reshaping from backoff IS the harm;
+#     suspect a sign or shape bug in the new K/V scatter or fire-end matmul.
+#   - intermediate     → mixed effect.
+
+description: "Slot-selection Step 0 diag: B=4 same-as-k + SKIP_KV_MATMUL, seed=1"
+experiment: slot-selection-step0
+run_slug: diag-skip-kv-matmul-samek-seed1
+
+corpus:
+  path: data/.splits/2b7ded401e96b610/train_corpus.txt
+  heldout: data/.splits/2b7ded401e96b610/heldout_corpus.txt
+  vocab_source: data/input.txt
+  carve:
+    source: data/input.txt
+    mode: tail
+    ratio: 0.05
+
+trie:
+  path: /tmp/shake_d16_train_radix
+  max_depth: 16
+
+model:
+  init_file: data/input.model
+
+train:
+  budget:
+    unit: epochs
+    value: 25
+  seed: 1
+  quiet: true
+  optimizer:
+    name: rmsprop
+    lr: 0.003
+    beta: 0.999
+  lr_schedule:
+    name: warmup-cosine
+    warmup_epochs: 0
+  max_depth: 16
+  partition_depth: 0
+  chunk_queries: 50000
+  anc_grad: true
+
+experimental:
+  backoff_slots: 4
+  backoff_position: same-as-k
+
+eval:
+  batch_size: 1
+  device: cpu
