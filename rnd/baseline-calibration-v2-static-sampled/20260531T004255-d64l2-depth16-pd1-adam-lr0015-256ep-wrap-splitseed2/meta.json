@@ -1,0 +1,56 @@
+{
+  "config_sha256": "ec384a3cd4175bdfdf8f99105bee83cbdaeaac5b67be2547f4e501e60ede6021",
+  "started_utc": "2026-05-31T00:42:55Z",
+  "trainer": "v2",
+  "trainer_bin": "bin/agpt_train_v2",
+  "git_sha": "6c11a28414ae7f3d2f7d1896982f3c5edd87b4e8",
+  "git_branch": "main",
+  "git_dirty": true,
+  "host": "neo14",
+  "command": "bin/agpt_experiment",
+  "corpus": {
+    "path": "data/.splits/d60be5c5bf1205f6/train_corpus.txt",
+    "sha256": "6680190ae03a837621ffa531759bbb84b276913f73516700b63e08c1d1961002",
+    "byte_count": 1059634,
+    "carve": {
+      "source": "data/input.txt",
+      "mode": "sample",
+      "ratio": 0.05,
+      "chunks": 10,
+      "seed": 2
+    }
+  },
+  "model_init": {
+    "path": "data/seeds/shake-d64L2-h4-dff256-s128-seed42.model",
+    "sha256": "037b341967bf9140ca7d476bb8210d667ca83a869c115e281d7870e38589857b",
+    "header": {
+      "magic": 1296519252,
+      "d_model": 64,
+      "n_heads": 4,
+      "n_layers": 2,
+      "d_ff": 256,
+      "vocab": 65,
+      "seq_len": 128
+    }
+  },
+  "trie_path": "data/.tries/e258b30920b7e0c4",
+  "environment": {
+    "cuda": "Cuda compilation tools, release 13.2, V13.2.78",
+    "gpu": "unknown",
+    "crystal": "Crystal 1.20.1 [fb55e8c] (2026-05-03)",
+    "python": "Python 3.14.4",
+    "python_packages": {
+      "torch": "2.11.0",
+      "transformers": "5.5.0",
+      "lm_eval": "0.4.12",
+      "accelerate": "1.13.0",
+      "datasets": "4.8.5"
+    },
+    "env_vars": {}
+  },
+  "ended_utc": "2026-05-31T01:10:37Z",
+  "wall_seconds": 1662.22401116,
+  "train_wall_seconds": 1422.071042494,
+  "convert_wall_seconds": 5.406545506,
+  "eval_wall_seconds": 20.666878958
+}
