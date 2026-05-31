@@ -1,0 +1,29 @@
+{
+  "run_id": "20260531T164821-d64l2-depth16-pd1-adam-lr0015-growth128x1to12-ramp-wrap",
+  "experiment": "baseline-calibration-v2-static-sampled",
+  "wall_seconds": 4255.785039253,
+  "train_wall_seconds": 4223.089666785,
+  "convert_wall_seconds": 6.505829677,
+  "eval_wall_seconds": 20.922842645,
+  "started_utc": "2026-05-31T16:48:21Z",
+  "ended_utc": "2026-05-31T17:59:17Z",
+  "trainer": "v2",
+  "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+  "eval": {
+    "split": "multi-chunk-heldout",
+    "source_path": null,
+    "source_sha256": null,
+    "chunks_dir": "data/.splits/4fa9aec1db6b3aea/heldout_chunks",
+    "benchmark": null,
+    "task_name": "d64l2-depth16-pd1-adam-lr0015-growth128x1to12-ramp-wrap_holdout"
+  },
+  "metrics": {
+    "lm_eval_rolling_word_perplexity": 6047.066747390759,
+    "lm_eval_rolling_byte_perplexity": 4.917518394461063,
+    "lm_eval_rolling_bits_per_byte": 2.29793044905655,
+    "agpt_fixed_token_perplexity": 4.352708062007249
+  },
+  "checkpoint_sha": "ee00088a9af3e2e2cc882952ff440afea6d0e49af96f8fe507f3408ce6f32e1a",
+  "checkpoint_results": null,
+  "experimental_used": null
+}
