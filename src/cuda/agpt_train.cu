@@ -345,6 +345,7 @@ static bool parse_fire_norm_v1(const char* s, bool& by_mass, bool& by_weight, bo
 
 #include "yaml_config_v1.cuh"
 #include "agpt_backoff_table.cuh"
+#include "agpt_backoff_kernels.cuh"
 
 // L-BFGS one-step update. Two-loop recursion using cuBLAS.
 //
@@ -3386,6 +3387,28 @@ extern "C" void cuda_batched_varlen_attention_L_queries_backward(
     float* dq, float* dk_full, float* dv_full,
     int T_q, int n_heads, int head_dim, int max_kv_len, float scale);
 
+// Slot-selection Step 0 variants: per-query prefix length + satellite K/V tile.
+// When backoff_B == 0 (and the *_per_q / *_backoff args are null) these match
+// the legacy entry points bit-exactly.
+extern "C" void cuda_batched_varlen_attention_L_queries_backoff(
+    const float* q_packed, const float* k_packed, const float* v_packed,
+    const int* query_to_node, const int* query_offsets,
+    const int* kv_offsets, const int* kv_lengths,
+    const int* kv_lengths_per_q,
+    const float* k_backoff, const float* v_backoff, int backoff_B,
+    float* output, float* weights_out,
+    int T_q, int n_heads, int head_dim, int max_kv_len, float scale);
+extern "C" void cuda_batched_varlen_attention_L_queries_backward_backoff(
+    const float* q_packed, const float* k_packed, const float* v_packed,
+    const float* attn_weights, const float* d_out,
+    const int* query_to_node, const int* query_offsets,
+    const int* kv_offsets, const int* kv_lengths,
+    const int* kv_lengths_per_q,
+    const float* k_backoff, const float* v_backoff,
+    float* dk_backoff, float* dv_backoff, int backoff_B,
+    float* dq, float* dk_full, float* dv_full,
+    int T_q, int n_heads, int head_dim, int max_kv_len, float scale);
+
 // Scatter per-radix-node endpoint logit gradient into per-query buffer.
 // d_final_per_node [N, D] → d_x_per_query [T_q, D] with zeros at non-endpoints.
 __global__ void scatter_endpoint_grad_kernel(
@@ -3954,6 +3977,12 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
         if (a > max_ancestor_chars) max_ancestor_chars = a;
     }
     int max_kv_per_node = max_ancestor_chars + max_edge_len;
+    // Slot-selection Step 0: backoff slots add at most B positions to the
+    // endpoint query's prefix_len. sv_attn_weights[l] is sized using this cap,
+    // and the attention kernel uses max_kv_len for smem + weights indexing.
+    if (backoff_slots > 0) {
+        max_kv_per_node += backoff_slots;
+    }
     if (!quiet) printf("  max edge_len: %d, max ancestor chars: %d, max KV per node: %d, max endpoint depth: %d\n",
            max_edge_len, max_ancestor_chars, max_kv_per_node, max_endpoint_depth);
 
@@ -4827,6 +4856,19 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
     // global id (`d_radix_ids[chunk_node]` gives K's id at chunk time).
     // ------------------------------------------------------------
     int*       d_K_back_subtree_idx = NULL;
+    // Backoff per-chunk scratch buffers (sized at T_q_cap * B), the per-layer
+    // d_dkv_subtree_k_backoff accumulator (V reuses d_dkv_subtree_v), and
+    // associated index/position arrays. All allocated once at startup and
+    // zeroed per fire alongside the anc-grad accumulators.
+    float**    d_dkv_subtree_k_backoff = NULL;  // [L_layers] of [max_n_sub_chars, D]
+    float*     d_h_back        = NULL;          // [T_q_cap * B, D]
+    float*     d_k_backoff     = NULL;          // [T_q_cap * B, D]
+    float*     d_v_backoff     = NULL;          // [T_q_cap * B, D]
+    float*     d_dk_backoff    = NULL;          // [T_q_cap * B, D]
+    float*     d_dv_backoff    = NULL;          // [T_q_cap * B, D]
+    int*       d_back_subtree_idx = NULL;       // [T_q_cap * B]
+    int*       d_back_rope_pos    = NULL;       // [T_q_cap * B * H] (per-head replicated)
+    int*       d_kv_lengths_per_q = NULL;       // [T_q_cap]
     int        backoff_B = (backoff_table && backoff_slots > 0) ? backoff_slots : 0;
     if (backoff_B > 0) {
         if (!cfg.anc_grad) {
@@ -4853,13 +4895,48 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
         }
         size_t bytes = (size_t)trie.radix_count * (size_t)backoff_B * sizeof(int);
         CUDA_CHECK(cudaMalloc(&d_K_back_subtree_idx, bytes));
+
+        // Per-chunk scratch tiles sized at T_q_cap (CHUNK_QUERIES upper bound).
+        size_t per_chunk_row_count = (size_t)T_q_cap * (size_t)backoff_B;
+        size_t per_chunk_d_bytes   = per_chunk_row_count * (size_t)D * sizeof(float);
+        size_t per_chunk_idx_bytes = per_chunk_row_count * sizeof(int);
+        size_t per_chunk_rpos_bytes = per_chunk_row_count * (size_t)H * sizeof(int);
+        size_t per_chunk_klen_bytes = (size_t)T_q_cap * sizeof(int);
+        CUDA_CHECK(cudaMalloc(&d_h_back,            per_chunk_d_bytes));
+        CUDA_CHECK(cudaMalloc(&d_k_backoff,         per_chunk_d_bytes));
+        CUDA_CHECK(cudaMalloc(&d_v_backoff,         per_chunk_d_bytes));
+        CUDA_CHECK(cudaMalloc(&d_dk_backoff,        per_chunk_d_bytes));
+        CUDA_CHECK(cudaMalloc(&d_dv_backoff,        per_chunk_d_bytes));
+        CUDA_CHECK(cudaMalloc(&d_back_subtree_idx,  per_chunk_idx_bytes));
+        CUDA_CHECK(cudaMalloc(&d_back_rope_pos,     per_chunk_rpos_bytes));
+        CUDA_CHECK(cudaMalloc(&d_kv_lengths_per_q,  per_chunk_klen_bytes));
+
+        // Per-layer K-grad accumulator for backoff contributions.
+        // Same shape as d_dkv_subtree_k[l] (anc-grad's K accumulator).
+        // V backoff uses d_dkv_subtree_v[l] directly (no RoPE means no
+        // accumulator-side rotation conflict; just atomicAdd).
+        d_dkv_subtree_k_backoff = (float**)malloc(L_layers * sizeof(float*));
+        size_t per_layer_acc_bytes =
+            (size_t)max_n_subtree_compact_chars * (size_t)D * sizeof(float);
+        for (int l = 0; l < L_layers; l++) {
+            CUDA_CHECK(cudaMalloc(&d_dkv_subtree_k_backoff[l], per_layer_acc_bytes));
+        }
+
+        size_t total_mb = bytes + 5 * per_chunk_d_bytes + per_chunk_idx_bytes
+                        + per_chunk_rpos_bytes + per_chunk_klen_bytes
+                        + L_layers * per_layer_acc_bytes;
         if (!quiet) {
             printf("  backoff slots: B=%d, position=%s, sidecar n_radix=%u, "
-                   "K_back_subtree_idx buffer %.2f MB\n",
+                   "K_back_subtree_idx %.2f MB, per-chunk scratch %.2f MB, "
+                   "per-layer K_backoff accum %.2f MB, total %.2f MB\n",
                    backoff_B,
                    backoff_position_kind == 1 ? "sentinel" : "same-as-k",
                    backoff_table->n_radix,
-                   (double)bytes / 1.0e6);
+                   (double)bytes / 1.0e6,
+                   (double)(5 * per_chunk_d_bytes + per_chunk_idx_bytes
+                            + per_chunk_rpos_bytes + per_chunk_klen_bytes) / 1.0e6,
+                   (double)(L_layers * per_layer_acc_bytes) / 1.0e6,
+                   (double)total_mb / 1.0e6);
         }
     }
 
@@ -5663,6 +5740,9 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                     CUDA_CHECK(cudaMemset(d_dkv_subtree_k[l], 0, fire_bytes));
                     CUDA_CHECK(cudaMemset(d_dkv_subtree_v[l], 0, fire_bytes));
                     CUDA_CHECK(cudaMemset(h_subtree[l],       0, fire_bytes));
+                    if (backoff_B > 0 && d_dkv_subtree_k_backoff) {
+                        CUDA_CHECK(cudaMemset(d_dkv_subtree_k_backoff[l], 0, fire_bytes));
+                    }
                 }
             }
 
@@ -6146,13 +6226,63 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
 
                     // L-query varlen attention
                     float scale = 1.0f / sqrtf((float)HD);
-                    TIME_K(t_us_attn_fwd, {
-                        cuda_batched_varlen_attention_L_queries(
-                            d_q, d_kv_pack_k, d_kv_pack_v,
-                            d_query_to_node, d_query_offsets, d_kv_offsets, d_kv_lengths,
-                            d_attn_out /* used as packed output temp */, sv_attn_weights[l],
-                            T_q, H, HD, max_kv_len, scale);
-                    });
+                    if (backoff_B > 0) {
+                        // Slot-selection Step 0 — backoff K/V gather (per layer):
+                        //   layout  → kv_lengths_per_q + back_subtree_idx + back_rope_pos
+                        //   gather  → h_back from h_subtree[l]
+                        //   project → k_backoff, v_backoff = h_back @ W_k/v + b_k/v
+                        //   RoPE    → apply per-slot to k_backoff (V skips)
+                        // See notes/seq-len-extension/slot-selection.md.
+                        launch_backoff_layout(
+                            d_query_to_node, d_query_offsets, d_radix_ids, d_kv_lengths,
+                            d_K_back_subtree_idx, d_query_depth_cache,
+                            d_back_subtree_idx, d_back_rope_pos, d_kv_lengths_per_q,
+                            T_q, backoff_B, H, backoff_position_kind);
+                        launch_backoff_gather_h(
+                            h_subtree[l], d_back_subtree_idx,
+                            d_h_back, T_q, backoff_B, D);
+                        int backoff_rows = T_q * backoff_B;
+                        if (backoff_rows > 0) {
+                            // K_back = h_back @ W_kw + W_kb
+                            CUBLAS_CHECK(cublasSgemm(cublas, CUBLAS_OP_N, CUBLAS_OP_N,
+                                                      D, backoff_rows, D,
+                                                      &alpha, W_kw, D,
+                                                      d_h_back, D,
+                                                      &beta_zero, d_k_backoff, D));
+                            cuda_bias_add(d_k_backoff, W_kb, backoff_rows, D);
+                            // V_back = h_back @ W_vw + W_vb
+                            CUBLAS_CHECK(cublasSgemm(cublas, CUBLAS_OP_N, CUBLAS_OP_N,
+                                                      D, backoff_rows, D,
+                                                      &alpha, W_vw, D,
+                                                      d_h_back, D,
+                                                      &beta_zero, d_v_backoff, D));
+                            cuda_bias_add(d_v_backoff, W_vb, backoff_rows, D);
+                            // Apply RoPE to k_backoff at per-slot rope_pos.
+                            // (We treat [backoff_rows × H] as N rows of HD;
+                            // back_rope_pos is replicated per head.)
+                            launch_rope_batched(d_k_backoff, d_back_rope_pos,
+                                                d_rope_cos, d_rope_sin,
+                                                backoff_rows * H, HD);
+                        }
+                        int max_kv_len_eff = max_kv_len + backoff_B;
+                        TIME_K(t_us_attn_fwd, {
+                            cuda_batched_varlen_attention_L_queries_backoff(
+                                d_q, d_kv_pack_k, d_kv_pack_v,
+                                d_query_to_node, d_query_offsets, d_kv_offsets, d_kv_lengths,
+                                d_kv_lengths_per_q,
+                                d_k_backoff, d_v_backoff, backoff_B,
+                                d_attn_out, sv_attn_weights[l],
+                                T_q, H, HD, max_kv_len_eff, scale);
+                        });
+                    } else {
+                        TIME_K(t_us_attn_fwd, {
+                            cuda_batched_varlen_attention_L_queries(
+                                d_q, d_kv_pack_k, d_kv_pack_v,
+                                d_query_to_node, d_query_offsets, d_kv_offsets, d_kv_lengths,
+                                d_attn_out /* used as packed output temp */, sv_attn_weights[l],
+                                T_q, H, HD, max_kv_len, scale);
+                        });
+                    }
 
                     // Stage-3 diagnostic: dump sv_attn_weights[l] IMMEDIATELY after
                     // forward writes it. Comparing this trace to layer.bwd.attn_in.attn_weights
@@ -6433,6 +6563,11 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                     // Zero dK/dV packed buffers
                     CUDA_CHECK(cudaMemset(d_dk_pack, 0, (long long)T_kv * H * HD * sizeof(float)));
                     CUDA_CHECK(cudaMemset(d_dv_pack, 0, (long long)T_kv * H * HD * sizeof(float)));
+                    if (backoff_B > 0) {
+                        size_t backoff_bytes = (size_t)T_q * (size_t)backoff_B * (size_t)D * sizeof(float);
+                        CUDA_CHECK(cudaMemset(d_dk_backoff, 0, backoff_bytes));
+                        CUDA_CHECK(cudaMemset(d_dv_backoff, 0, backoff_bytes));
+                    }
 
                     float scale = 1.0f / sqrtf((float)HD);
 
@@ -6459,11 +6594,23 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                     }
 
                     TIME_K(t_us_attn_bwd, {
-                        cuda_batched_varlen_attention_L_queries_backward(
-                            d_q, d_kv_pack_k, d_kv_pack_v, sv_attn_weights[l], d_d_attn_out,
-                            d_query_to_node, d_query_offsets, d_kv_offsets, d_kv_lengths,
-                            d_dq_pack, d_dk_pack, d_dv_pack,
-                            T_q, H, HD, max_kv_len, scale);
+                        if (backoff_B > 0) {
+                            int max_kv_len_eff = max_kv_len + backoff_B;
+                            cuda_batched_varlen_attention_L_queries_backward_backoff(
+                                d_q, d_kv_pack_k, d_kv_pack_v, sv_attn_weights[l], d_d_attn_out,
+                                d_query_to_node, d_query_offsets, d_kv_offsets, d_kv_lengths,
+                                d_kv_lengths_per_q,
+                                d_k_backoff, d_v_backoff,
+                                d_dk_backoff, d_dv_backoff, backoff_B,
+                                d_dq_pack, d_dk_pack, d_dv_pack,
+                                T_q, H, HD, max_kv_len_eff, scale);
+                        } else {
+                            cuda_batched_varlen_attention_L_queries_backward(
+                                d_q, d_kv_pack_k, d_kv_pack_v, sv_attn_weights[l], d_d_attn_out,
+                                d_query_to_node, d_query_offsets, d_kv_offsets, d_kv_lengths,
+                                d_dq_pack, d_dk_pack, d_dv_pack,
+                                T_q, H, HD, max_kv_len, scale);
+                        }
                     });
 
                     if (trace_fire_target) {
@@ -6501,6 +6648,35 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                                                           d_dkv_subtree_v[l],
                                                           grad_scale,
                                                           N, H, HD);
+                    }
+
+                    // Slot-selection Step 0 — backoff scatter (per layer):
+                    //   inverse-RoPE on dk_backoff at the per-slot rope_pos used in
+                    //   forward (K's depth for same-as-k mode, K's depth + i + 1 for
+                    //   sentinel), then atomic-add into d_dkv_subtree_k_backoff[l] at
+                    //   M's subtree-local slot. V atomic-adds directly into
+                    //   d_dkv_subtree_v[l] (no RoPE on V).
+                    // Pre-scale dk/dv_backoff by grad_scale (same per-event weight
+                    // as anc-grad's ancestor contributions) before scatter — keeps
+                    // the fire-end matmul scale-free.
+                    if (backoff_B > 0) {
+                        int backoff_rows = T_q * backoff_B;
+                        if (backoff_rows > 0) {
+                            // Inverse-RoPE on dK side. Treat as (rows × H) rows of HD;
+                            // back_rope_pos was written per-head during layout.
+                            launch_rope_batched_inverse(d_dk_backoff, d_back_rope_pos,
+                                                        d_rope_cos, d_rope_sin,
+                                                        backoff_rows * H, HD);
+                            // Scale by grad_scale via cuBLAS scal — same per-event
+                            // weight as anc-grad's ancestor contribution.
+                            float gs = grad_scale;
+                            CUBLAS_CHECK(cublasSscal(cublas, backoff_rows * D, &gs, d_dk_backoff, 1));
+                            CUBLAS_CHECK(cublasSscal(cublas, backoff_rows * D, &gs, d_dv_backoff, 1));
+                            launch_backoff_scatter(
+                                d_dk_backoff, d_dv_backoff, d_back_subtree_idx,
+                                d_dkv_subtree_k_backoff[l], d_dkv_subtree_v[l],
+                                T_q, backoff_B, D);
+                        }
                     }
 
                     // Inverse RoPE on dQ. Reverse order of forward composition:
@@ -6703,6 +6879,18 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                     CUBLAS_CHECK(cublasSgemm(cublas, CUBLAS_OP_N, CUBLAS_OP_T, D, D, n_sub,
                                               &anc_alpha, d_dkv_subtree_v[l], D,
                                               h_subtree[l], D, &anc_one, dW_vw, D));
+                    // Slot-selection Step 0 — backoff K contribution:
+                    // d_dkv_subtree_k_backoff[l] holds pre-RoPE dK (inverse-RoPE
+                    // was applied per-slot at scatter time with the forward's
+                    // K-depth rope_pos, NOT M's depth — so it must not go through
+                    // the M-depth inverse-RoPE that runs above on d_dkv_subtree_k).
+                    // V's backoff contribution is already in d_dkv_subtree_v[l]
+                    // from the scatter (V has no RoPE asymmetry).
+                    if (backoff_B > 0 && d_dkv_subtree_k_backoff) {
+                        CUBLAS_CHECK(cublasSgemm(cublas, CUBLAS_OP_N, CUBLAS_OP_T, D, D, n_sub,
+                                                  &anc_alpha, d_dkv_subtree_k_backoff[l], D,
+                                                  h_subtree[l], D, &anc_one, dW_kw, D));
+                    }
                 }
             }
 
@@ -7350,6 +7538,20 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
     if (d_compact_to_subtree_idx) cudaFree(d_compact_to_subtree_idx);
     if (d_subtree_real_pos)       cudaFree(d_subtree_real_pos);
     if (d_K_back_subtree_idx)     cudaFree(d_K_back_subtree_idx);
+    if (d_h_back)            cudaFree(d_h_back);
+    if (d_k_backoff)         cudaFree(d_k_backoff);
+    if (d_v_backoff)         cudaFree(d_v_backoff);
+    if (d_dk_backoff)        cudaFree(d_dk_backoff);
+    if (d_dv_backoff)        cudaFree(d_dv_backoff);
+    if (d_back_subtree_idx)  cudaFree(d_back_subtree_idx);
+    if (d_back_rope_pos)     cudaFree(d_back_rope_pos);
+    if (d_kv_lengths_per_q)  cudaFree(d_kv_lengths_per_q);
+    if (d_dkv_subtree_k_backoff) {
+        for (int l = 0; l < L_layers; l++) {
+            if (d_dkv_subtree_k_backoff[l]) cudaFree(d_dkv_subtree_k_backoff[l]);
+        }
+        free(d_dkv_subtree_k_backoff);
+    }
     if (d_adam_m_per_rc) cudaFree(d_adam_m_per_rc);
     if (d_adam_v_per_rc) cudaFree(d_adam_v_per_rc);
     if (h_adam_t_per_rc) free(h_adam_t_per_rc);

@@ -1215,6 +1215,44 @@ extern "C" void cuda_batched_varlen_attention_backward(
 //   output          [T_q, H, HD]
 //   weights_out     [T_q, H, max_kv_len]  (optional — for backward)
 
+// Slot-selection Step 0: optional backoff K/V tile.
+//
+// When `k_backoff` is non-null and `kv_lengths_per_q` is non-null, this kernel
+// supports per-query prefix length and a satellite K/V buffer for backoff
+// slots. The split: positions [0 .. K_i) read the existing packed K/V at
+// `(kv_off + p)`; positions [K_i .. prefix_len) read the satellite at
+// `(query_idx * B + (p - K_i))`. This is how slot-selection.md's Step 0 adds
+// backoff K/V slots only to endpoint queries (non-endpoint queries' prefix_len
+// stays <= K_i so they never read the satellite).
+//
+// When both `k_backoff` and `kv_lengths_per_q` are null, the kernel reduces to
+// the legacy per-node path: prefix_len = (K_i - L_i) + j + 1, all reads from
+// k_packed. This is the bit-exact baseline (asserts: backoff_B is unused).
+
+__device__ __forceinline__ const float* select_k_ptr(
+    const float* k_packed, int kv_off, int K_i,
+    const float* k_backoff, int query_idx, int backoff_B,
+    int p, int n_heads, int head, int head_dim)
+{
+    if (k_backoff != NULL && p >= K_i) {
+        int bidx = p - K_i;
+        return k_backoff + ((query_idx * backoff_B + bidx) * n_heads + head) * head_dim;
+    }
+    return k_packed + ((kv_off + p) * n_heads + head) * head_dim;
+}
+
+__device__ __forceinline__ const float* select_v_ptr(
+    const float* v_packed, int kv_off, int K_i,
+    const float* v_backoff, int query_idx, int backoff_B,
+    int p, int n_heads, int head, int head_dim)
+{
+    if (v_backoff != NULL && p >= K_i) {
+        int bidx = p - K_i;
+        return v_backoff + ((query_idx * backoff_B + bidx) * n_heads + head) * head_dim;
+    }
+    return v_packed + ((kv_off + p) * n_heads + head) * head_dim;
+}
+
 __global__ void batched_varlen_attn_L_queries_kernel(
     const float* q_packed,
     const float* k_packed,
@@ -1223,6 +1261,10 @@ __global__ void batched_varlen_attn_L_queries_kernel(
     const int*   query_offsets,
     const int*   kv_offsets,
     const int*   kv_lengths,
+    const int*   kv_lengths_per_q,   // [T_q], optional; overrides per-query prefix_len when non-null
+    const float* k_backoff,          // [T_q * backoff_B, H, HD], optional; satellite reads at p >= K_i
+    const float* v_backoff,          // [T_q * backoff_B, H, HD], optional
+    int          backoff_B,          // backoff slots per query (0 means satellite ignored)
     float*       output,
     float*       weights_out,
     int T_q, int n_heads, int head_dim, int max_kv_len, float scale)
@@ -1238,7 +1280,9 @@ __global__ void batched_varlen_attn_L_queries_kernel(
     int kv_off = kv_offsets[node];
     int K_i = kv_lengths[node];
     int ancestor_len = K_i - L_i;
-    int prefix_len = ancestor_len + j + 1;
+    int prefix_len = (kv_lengths_per_q != NULL)
+                     ? kv_lengths_per_q[query_idx]
+                     : (ancestor_len + j + 1);
 
     int tid = threadIdx.x;
     int nthreads = blockDim.x;
@@ -1251,7 +1295,9 @@ __global__ void batched_varlen_attn_L_queries_kernel(
 
     // scores[p] = q · K[p] * scale
     for (int p = tid; p < prefix_len; p += nthreads) {
-        const float* k_p = k_packed + ((kv_off + p) * n_heads + head) * head_dim;
+        const float* k_p = select_k_ptr(k_packed, kv_off, K_i,
+                                        k_backoff, query_idx, backoff_B,
+                                        p, n_heads, head, head_dim);
         float dot = 0.0f;
         for (int d = 0; d < head_dim; d++) dot += q[d] * k_p[d];
         scores[p] = dot * scale;
@@ -1303,7 +1349,9 @@ __global__ void batched_varlen_attn_L_queries_kernel(
     for (int d = tid; d < head_dim; d += nthreads) {
         float acc = 0.0f;
         for (int p = 0; p < prefix_len; p++) {
-            const float* v_p = v_packed + ((kv_off + p) * n_heads + head) * head_dim;
+            const float* v_p = select_v_ptr(v_packed, kv_off, K_i,
+                                            v_backoff, query_idx, backoff_B,
+                                            p, n_heads, head, head_dim);
             acc += scores[p] * v_p[d];
         }
         out[d] = acc;
@@ -1326,6 +1374,32 @@ extern "C" void cuda_batched_varlen_attention_L_queries(
     batched_varlen_attn_L_queries_kernel<<<blocks, threads, smem>>>(
         q_packed, k_packed, v_packed,
         query_to_node, query_offsets, kv_offsets, kv_lengths,
+        /*kv_lengths_per_q=*/NULL, /*k_backoff=*/NULL, /*v_backoff=*/NULL, /*backoff_B=*/0,
+        output, weights_out, T_q, n_heads, head_dim, max_kv_len, scale);
+}
+
+// Slot-selection Step 0 variant: per-query prefix length and a satellite K/V
+// tile of B slots per endpoint query. The legacy entry point above forwards
+// here with the four extra args nulled out, preserving bit-exact behavior.
+extern "C" void cuda_batched_varlen_attention_L_queries_backoff(
+    const float* q_packed, const float* k_packed, const float* v_packed,
+    const int* query_to_node, const int* query_offsets,
+    const int* kv_offsets, const int* kv_lengths,
+    const int* kv_lengths_per_q,
+    const float* k_backoff, const float* v_backoff, int backoff_B,
+    float* output, float* weights_out,
+    int T_q, int n_heads, int head_dim, int max_kv_len, float scale)
+{
+    dim3 blocks(T_q, n_heads);
+    int threads = (head_dim < 128) ? 32 : 128;
+    int t = 1;
+    while (t < threads) t <<= 1;
+    threads = (t < 32) ? 32 : t;
+    int smem = (max_kv_len + threads) * sizeof(float);
+    batched_varlen_attn_L_queries_kernel<<<blocks, threads, smem>>>(
+        q_packed, k_packed, v_packed,
+        query_to_node, query_offsets, kv_offsets, kv_lengths,
+        kv_lengths_per_q, k_backoff, v_backoff, backoff_B,
         output, weights_out, T_q, n_heads, head_dim, max_kv_len, scale);
 }
 
@@ -1351,6 +1425,12 @@ __global__ void batched_varlen_attn_L_queries_backward_kernel(
     const int*   query_offsets,
     const int*   kv_offsets,
     const int*   kv_lengths,
+    const int*   kv_lengths_per_q,   // [T_q], optional; overrides prefix_len
+    const float* k_backoff,          // [T_q * backoff_B, H, HD], optional satellite reads
+    const float* v_backoff,
+    float*       dk_backoff,         // [T_q * backoff_B, H, HD], optional satellite scatter
+    float*       dv_backoff,
+    int          backoff_B,
     float*       dq,
     float*       dk_full,
     float*       dv_full,
@@ -1367,7 +1447,9 @@ __global__ void batched_varlen_attn_L_queries_backward_kernel(
     int kv_off = kv_offsets[node];
     int K_i = kv_lengths[node];
     int ancestor_len = K_i - L_i;
-    int prefix_len = ancestor_len + j + 1;
+    int prefix_len = (kv_lengths_per_q != NULL)
+                     ? kv_lengths_per_q[query_idx]
+                     : (ancestor_len + j + 1);
 
     int tid = threadIdx.x;
     int nthreads = blockDim.x;
@@ -1382,7 +1464,9 @@ __global__ void batched_varlen_attn_L_queries_backward_kernel(
 
     // d_weights[p] = Σ_d d_out[d] * V[p, d]
     for (int p = tid; p < prefix_len; p += nthreads) {
-        const float* v_p = v_packed + ((kv_off + p) * n_heads + head) * head_dim;
+        const float* v_p = select_v_ptr(v_packed, kv_off, K_i,
+                                        v_backoff, query_idx, backoff_B,
+                                        p, n_heads, head, head_dim);
         float acc = 0.0f;
         for (int d = 0; d < head_dim; d++) acc += d_out_r[d] * v_p[d];
         d_weights[p] = acc;
@@ -1412,7 +1496,9 @@ __global__ void batched_varlen_attn_L_queries_backward_kernel(
     for (int d = tid; d < head_dim; d += nthreads) {
         float acc = 0.0f;
         for (int p = 0; p < prefix_len; p++) {
-            const float* k_p = k_packed + ((kv_off + p) * n_heads + head) * head_dim;
+            const float* k_p = select_k_ptr(k_packed, kv_off, K_i,
+                                            k_backoff, query_idx, backoff_B,
+                                            p, n_heads, head, head_dim);
             acc += d_weights[p] * k_p[d];
         }
         dq_r[d] = acc;
@@ -1420,11 +1506,24 @@ __global__ void batched_varlen_attn_L_queries_backward_kernel(
 
     // dk[p, d] += d_scores[p] * q[d]  (atomic, shared across queries)
     // dv[p, d] += weights[p] * d_out[d]
+    //
+    // For backoff positions (p >= K_i with k_backoff non-null) the destination
+    // is the per-query satellite buffer (no cross-query sharing, so no atomic
+    // needed — but we keep atomicAdd for uniform code below; it's a no-contention
+    // write in practice).
     for (int p = tid; p < prefix_len; p += nthreads) {
         float d_score = d_weights[p];
         float w = weights[p];
-        float* dk_p = dk_full + ((kv_off + p) * n_heads + head) * head_dim;
-        float* dv_p = dv_full + ((kv_off + p) * n_heads + head) * head_dim;
+        float* dk_p;
+        float* dv_p;
+        if (dk_backoff != NULL && p >= K_i) {
+            int bidx = p - K_i;
+            dk_p = dk_backoff + ((query_idx * backoff_B + bidx) * n_heads + head) * head_dim;
+            dv_p = dv_backoff + ((query_idx * backoff_B + bidx) * n_heads + head) * head_dim;
+        } else {
+            dk_p = dk_full + ((kv_off + p) * n_heads + head) * head_dim;
+            dv_p = dv_full + ((kv_off + p) * n_heads + head) * head_dim;
+        }
         for (int d = 0; d < head_dim; d++) {
             atomicAdd(&dk_p[d], d_score * q[d]);
             atomicAdd(&dv_p[d], w * d_out_r[d]);
@@ -1449,6 +1548,34 @@ extern "C" void cuda_batched_varlen_attention_L_queries_backward(
     batched_varlen_attn_L_queries_backward_kernel<<<blocks, threads, smem>>>(
         q_packed, k_packed, v_packed, attn_weights, d_out,
         query_to_node, query_offsets, kv_offsets, kv_lengths,
+        /*kv_lengths_per_q=*/NULL,
+        /*k_backoff=*/NULL, /*v_backoff=*/NULL,
+        /*dk_backoff=*/NULL, /*dv_backoff=*/NULL, /*backoff_B=*/0,
+        dq, dk_full, dv_full, T_q, n_heads, head_dim, max_kv_len, scale);
+}
+
+extern "C" void cuda_batched_varlen_attention_L_queries_backward_backoff(
+    const float* q_packed, const float* k_packed, const float* v_packed,
+    const float* attn_weights, const float* d_out,
+    const int* query_to_node, const int* query_offsets,
+    const int* kv_offsets, const int* kv_lengths,
+    const int* kv_lengths_per_q,
+    const float* k_backoff, const float* v_backoff,
+    float* dk_backoff, float* dv_backoff, int backoff_B,
+    float* dq, float* dk_full, float* dv_full,
+    int T_q, int n_heads, int head_dim, int max_kv_len, float scale)
+{
+    dim3 blocks(T_q, n_heads);
+    int threads = (head_dim < 128) ? 32 : 128;
+    int t = 1;
+    while (t < threads) t <<= 1;
+    threads = (t < 32) ? 32 : t;
+    int smem = (max_kv_len + threads) * sizeof(float);
+    batched_varlen_attn_L_queries_backward_kernel<<<blocks, threads, smem>>>(
+        q_packed, k_packed, v_packed, attn_weights, d_out,
+        query_to_node, query_offsets, kv_offsets, kv_lengths,
+        kv_lengths_per_q, k_backoff, v_backoff,
+        dk_backoff, dv_backoff, backoff_B,
         dq, dk_full, dv_full, T_q, n_heads, head_dim, max_kv_len, scale);
 }
 
