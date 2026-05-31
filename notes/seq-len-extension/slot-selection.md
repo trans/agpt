@@ -118,58 +118,81 @@ Within a fire, the kernel **does not walk paths serially**. Chunks of positions 
 
 So the kernel already knows how to handle "positions with different endpoint depths sharing one chunk." Adding backoff slots reuses exactly this machinery — we don't add a new masking concept.
 
-### The implementation at pd=0: stash + gather + reverse lookup (no satellites)
+### The cross-chunk problem (not solved by pd=0 alone)
 
-A previous draft of this section framed the implementation as "add B satellite positions per primary query." That framing made sense at pd=1 (where K_back_i isn't otherwise in the same fire as K), but at **pd=0 there is only one fire over the entire trie**, and every radix node — including every K_back_i — is already being forward-passed somewhere in that fire as a primary query in its own right. **We do not need to duplicate K_back_i's forward as a satellite; we just need to capture h_p[K_back_i] when its own normal forward reaches its endpoint depth.**
+A previous draft of this section framed the implementation as a single-pass "stash + gather + reverse lookup" at pd=0, claiming the satellite scheme from earlier was unnecessary because "at pd=0 every K_back_i is already being processed as a primary query somewhere in the fire."
 
-The implementation reduces to three pieces:
+The cross-chunk gap (not addressed in that draft): **at pd=0 the fire spans many chunks** (Shakespeare d=16 with default `chunk_queries=50000` and ~8.9M edge chars → ~180 chunks per fire). K and K_back_i generally land in *different* chunks. The "stash within chunk" framing only works for same-chunk K/M pairs; cross-chunk pairs would need either detached gradient (cap-recurrence regime — rejected) or a more elaborate cross-chunk mechanism.
 
-1. **A reverse lookup table built at startup**: for each radix node M, "who backs off to me?" Concretely a map `M.id → list of (K.id, backoff_level i)`. Built once from the precomputed backoff sidecar (see below) at the start of each fire. Memory: at most `num_radix × B` entries (~6.4M for Shakespeare d=16/B=4 → ~50 MB). Cheap.
+Step 0 resolves this with a **two-pass per-fire scheme + deep-to-shallow chunk ordering**, which makes the new gradient signal correct regardless of which chunks K and K_back_i land in.
 
-2. **A stash buffer of shape `(num_primary_queries, B, n_layers, d_model)`**: per-fire scratch where K_back_i's hidden state will live until K's endpoint depth. For Shakespeare d=16 / d_model=64 / L=2 with ~1.6M primary queries in the pd=0 single chunk: 1.6M × 4 × 2 × 64 × 4 bytes ≈ 3 GB — that's significant. For a single chunk of `chunk_queries=50000`: ~100 MB per-chunk scratch. We use the chunk-scoped variant; primary queries spanning multiple chunks each get their own scratch in their respective chunks.
+### The implementation: two-pass + deep-to-shallow ordering
 
-3. **Two kernel hooks**:
+The full design (see also the implementation plan in `.claude/plans/`):
 
-   - **At M's endpoint depth-step (during normal forward)**: after computing M's final hidden state h_M, also write h_M into `stash[K, i]` for each `(K, i)` in `rev_lookup[M.id]`. This is one extra scatter per endpoint position whose `rev_lookup` is non-empty.
-   - **At K's endpoint depth-step (before K's attention runs)**: gather `B` stashed values from `stash[K, 0..B-1]`, project through shared `W_k`/`W_v`, apply RoPE at the chosen position (sentinel `d+i` or same-as-K `d` per the A/B in decision 6), append to K's K/V stack. K's attention then runs over `d + B = 20` slots as normal.
+**Pass 1 (forward-only, any chunk order)** — populate a fire-global stash buffer with h_M^l for every M that's a backoff target.
 
-That's the entire kernel-side change. No satellite positions, no chunk extension, no `skip_loss` flag, no duplicated forward work. The per-fire compute cost is essentially zero on top of baseline — we're just stashing + gathering hidden states that the kernel was already computing.
+- Iterate every chunk once.
+- Per chunk, run the full per-layer forward (LN1 → Q/K/V matmul → RoPE → cache scatter → gather → attention → WO/LN2/FFN).
+- At each layer `l`, scatter `d_ln_out[endpoint_q, :]` (the post-LN1 hidden state of M's endpoint position) into `d_stash[M.stash_idx, l, :]`.
+- Skip loss, backward, and the per-chunk save buffers that backward would need.
+- Cost ≈ one full forward over the fire's queries.
 
-### Backward
+After pass 1: `d_stash` is populated for every backoff target M, regardless of which chunk it was processed in.
 
-Free via autodiff. h_M ends up with two downstream consumers in the autograd graph:
+**Pass 2 (full forward + backward, DEEP-TO-SHALLOW chunk order)** — normal training with two additions:
 
-- M's own endpoint loss (existing): "predict the next char after M from h_M"
-- K's attention via the stash slot (new): h_M used as a K/V slot in K's depth-(d−1) step
+- **Gather extension**: at K's primary endpoint, append B extra K/V slots from `d_stash[K_back_i.stash_idx, l, :]`, projected through layer-l's `W_k_l`/`W_v_l` + RoPE at the chosen position (decision 6).
+- **stash_grad accumulation**: K's attention backward writes the gradient on each backoff K/V slot back into a parallel `d_stash_grad[M.stash_idx, l, :]` buffer (after backprop through RoPE + W_k_l/W_v_l).
 
-Backward accumulates gradient at h_M from both consumers, then propagates back through M's normal forward to M's parameters:
+The KEY observation that makes this work without a pass 3: chunks of pass 2 are ordered **deep-to-shallow** so that all K's (the "consumers" of backoff slots) are processed before their K_back_i targets (the "producers"). At chunk-load time, `radix_list` is sorted by `endpoint_depth` descending (ties broken by `radix_id`). Since K_back_i.depth = K.depth − i < K.depth, M is guaranteed to land in a later chunk after this sort.
 
-`grad(M's loss) + grad(K's loss through K's attention through stash[K, i])`
+When M's chunk's backward runs in pass 2, every K that backed off to M has already written to `d_stash_grad[M, l]`. M's chunk's backward at M's endpoint then incorporates `d_stash_grad[M, l]` as **additional upstream gradient** at M's `d_ln_out[endpoint_q]` — in addition to M's own endpoint-loss gradient. The combined gradient propagates back through M's normal backward into d_grads.
 
-This is the two-signal stacking that distinguishes Step 0 from the cached/detached approach. Cap-recurrence's null is direct evidence the detached version collapses to a soft-KN information ceiling. The in-flight autograd link is the entire mechanism.
+Result: M's params receive `grad(M's own endpoint loss) + grad(K's loss through K's attention through stash[K, i])`. Two-signal stacking, in-flight gradient flow, chunk-membership independent.
 
-### Compute cost in this simplified framing
+Same-chunk K and M is handled identically — K and M live in disjoint stash and stash_grad slots, so within-chunk write/read ordering doesn't matter.
 
-The 4.4× compute figure from the earlier "satellite" framing applied to pd=1 where K_back_i's forward would be extra work. **At pd=0 with the stash-and-gather scheme, K_back_i's forward is already part of the fire — no extra forward work.** The added cost is:
+### Buffer sizing (Shakespeare d=16/B=4 / d_model=64 / L=2)
 
-- A scatter into the stash buffer at every M endpoint whose rev_lookup is non-empty (one bf16 d_model-vector write per (K, i) backing off to M, per layer). Bandwidth-bound, small.
-- A gather at every primary query's endpoint (B d_model-vectors read, projected, RoPE-applied). Small.
+- `d_stash[M_count, n_layers, D]` bf16. `M_count` = nodes that appear in rev_lookup (376k for Shakespeare). 376k × 2 × 64 × 2 = **~96 MB**.
+- `d_stash_grad[M_count, n_layers, D]` fp32. 376k × 2 × 64 × 4 = **~192 MB**.
+- `d_M_to_stash[radix_count]` int32. ~6 MB.
 
-Order-of-magnitude: a few percent overhead. Not the 4× the earlier framing suggested.
+Total new per-fire memory ≈ **300 MB**. Fits comfortably on 8 GB GPU alongside existing per-fire scratch.
 
-This is the meaningful win from the pd=0 starting decision. The cross-subtree concerns of pd=1 dissolve AND the kernel changes become almost free.
+### Compute cost
+
+**Pass 1 ≈ 1× forward (no backward). Pass 2 ≈ normal forward + backward. Total ≈ 2× normal training.**
+
+(An earlier draft said "few percent overhead." That was wrong — it ignored the cross-chunk gap. Correcting: ~2× is the price for in-flight gradient flow across chunks.)
+
+For Shakespeare d=16 the existing 25-ep run is ~10 min; this becomes ~20 min. Acceptable for the Step 0 feasibility check.
+
+### Backward — gradient flow
+
+h_M (read from stash during K's gather) has two downstream consumers in the gradient graph:
+
+- M's own endpoint loss (existing): "predict the next char after M from h_M" — flows during pass 2's processing of M's chunk.
+- K's attention via the stash slot (new): h_M used as a K/V slot in K's depth-(d−1) step — flows during pass 2's processing of K's chunk, accumulating into `d_stash_grad[M, l]`.
+
+The deep-to-shallow ordering guarantees stash_grad is fully populated for M before M's chunk's backward runs. The "add stash_grad to LN1's upstream at M's endpoint" hook combines the two gradient signals, and the rest of the backward proceeds as normal.
+
+This is the in-flight gradient flow that distinguishes Step 0 from the cap-recurrence regime (where the detached/cached h_M produced no signal). Cap-recurrence's null is direct evidence the detached version collapses to a soft-KN information ceiling.
 
 ### What's actually new vs the existing kernel
 
-In rough order:
+In rough order (covered in more detail by the implementation plan):
 
-1. **Sidecar load + rev_lookup construction** (host-side, once per fire). Read `<trie-dir>/backoff_B<N>.bin`, build the inverse `M.id → list of (K.id, i)`.
-2. **Stash buffer allocation** (per chunk). Shape `(num_primary_queries_in_chunk, B, n_layers, d_model)`.
-3. **Stash write hook** in the endpoint-depth-step kernel. After M's h_M is computed, scatter into `stash[K, i]` for each (K, i) in `rev_lookup[M.id]`.
-4. **Gather + projection + RoPE hook** at K's endpoint depth-step. Read `stash[K, 0..B-1]`, project via `W_k`/`W_v`, apply RoPE at chosen position, append to K's K/V stack.
-5. **Sentinel handling**: sidecar entries equal to `UINT32_MAX` mean "no K_back at this level for this K" — handled by the gather code as "produce no contribution for this slot" (K's attention runs over `d + B'` slots where `B'` is the count of non-sentinel backoffs for this K).
-
-The kernel changes are localized to two depth-step hooks plus a one-time host-side rev_lookup build. Much smaller blast radius than the satellite scheme implied.
+1. **Sidecar load + rev_lookup + M_to_stash** (host-side, once per fire). Read `<trie-dir>/backoff_B<N>.bin`, build the inverse `M.id → (stash_idx, list of (K.id, i))`. Upload to device.
+2. **Stash + stash_grad allocation** (fire-global). Shape `(M_count, n_layers, D)` each. ~300 MB for Shakespeare d=16/B=4/L=2.
+3. **Chunk reordering** (pd=0 only when backoff_slots>0). Sort `radix_list` by `endpoint_depth` descending, breaking ties by `radix_id`, before chunking. Pass 2 will iterate chunks in this order.
+4. **Pass-1 stash-write hook** in the per-layer forward (after LN1's `d_ln_out` is produced, before Q/K/V matmuls): scatter `d_ln_out[endpoint_q]` into `d_stash[M.stash_idx, l]`.
+5. **Pass-2 gather extension** at the existing gather (line ~5969): in addition to ancestors + own-edge, append B backoff K/V slots per primary endpoint query (read from `d_stash`, project through `W_k_l`/`W_v_l`, apply RoPE at chosen position, append). Update per-query `kv_lengths_per_q`.
+6. **Pass-2 backward stash_grad write**: after the attention backward, route the gradient on backoff K/V slots back through RoPE + W_k_l/W_v_l projection into `d_stash_grad[M, l]`.
+7. **Pass-2 backward stash_grad incorporation at M's endpoint**: before LN1 backward consumes the `d_ln_out` gradient at M's endpoint position, add `d_stash_grad[M, l]` to it.
+8. **Attention kernel extension**: `cuda_batched_varlen_attention_L_queries` takes an optional `kv_lengths_per_q`. Null preserves bit-exact B=0 parity.
+9. **Sentinel handling**: sidecar entries equal to `UINT32_MAX` mean "no K_back" — gather code skips them. K's attention runs over `d + B'` slots where `B'` is the count of non-sentinel backoffs.
 
 ### Case 2 (mid-edge backoff targets): dropped for Step 0
 
@@ -181,7 +204,7 @@ If the empirical case-2 rate is low, we accept the lost slots and move on. If hi
 
 - **RoPE position-of-record within K_back's path forward.** Within the depth-batched forward, K_back_i's position-`j` uses RoPE at position `j` — same as a normal path position uses its own depth. Only at the *endpoint-time gather* into K's K/V stack does the sentinel-position swap happen, because that's where K's attention sees the backoff slot. Within K_back's own walk, RoPE-at-own-depth keeps the forward semantics standard.
 
-- **Within-fire dedup (already free at pd=0).** Multiple primary queries can share a K_back. In the stash-and-gather scheme, K_back's forward runs **once** (as its own primary query), and the `rev_lookup` scatter writes to all (K, i) slots backing off to it in one pass. No extra duplicated work, no explicit dedup needed.
+- **Within-fire dedup (already free in the two-pass scheme).** Multiple primary queries can share a K_back. In pass 1, K_back's forward runs **once** (as its own primary query) and `d_ln_out` is scattered once into `d_stash[K_back.stash_idx, l]`. In pass 2's gather, each consumer K reads the same stashed value. No duplicated forward work; no explicit dedup needed.
 
 - **Schema gate.** `experimental.backoff_slots: B` (with `B=0` disabled, recovering current AGPT exactly). Trainer-side wired through v1's `apply_yaml_config_v1` as a recognized experimental key.
 
@@ -240,7 +263,7 @@ The sidecar's binary format is identical either way, so the kernel doesn't care 
 
 ## Risks and mitigations
 
-- **Compute**: at pd=0 the stash-and-gather scheme adds only a per-endpoint scatter (when M's `rev_lookup` is non-empty) plus a per-primary-query gather + B-vector projection at K's endpoint. No duplicated forward work. Order-of-magnitude few percent overhead. (Earlier drafts framed this as 4.4×; that applied to a pd=1 satellite scheme we're not using for Step 0.)
+- **Compute**: ~2× normal training (pass 1 ≈ forward, pass 2 ≈ forward + backward). The earlier "few percent overhead" framing missed the cross-chunk gap — see the "two-pass + deep-to-shallow ordering" section above. For Shakespeare d=16, 25-ep runs go from ~10 min to ~20 min.
 - **Stash buffer memory**: per-chunk scratch of shape `(num_primary_queries_in_chunk, B, n_layers, d_model)`. For Shakespeare d=16 / d_model=64 / L=2 at the default `chunk_queries=50000`: 50000 × 4 × 2 × 64 × 4 bytes ≈ 100 MB per chunk. Real but well under the existing KV-cache footprint. Larger configs scale linearly; lower `chunk_queries` directly reduces this.
 - **Reverse lookup table**: `M.id → list of (K.id, i)`. Built once per fire from the sidecar. At most `num_radix × B` entries; ~50 MB for Shakespeare d=16/B=4.
 - **Case-2 rate**: we drop backoff slots whose target lands mid-edge of a compressed node (mass=1 position not in the K/V cache). **Measured on Shakespeare d=16/B=4 (2026-05-31): 65% of slots are case-2** — consistent with the trie's 88.9% mass=1 char rate; most case-2 misses are end-cap unary chains and almost certainly don't carry generalizable backoff signal. **Step 0 proceeds with these slots dropped** (per design decision logged 2026-05-31). If Step 0 shows null with just the 34% case-1 slots filled, case-2 expansion (Step 0.5) becomes worthwhile; if Step 0 succeeds at this density, case-2 is upside left on the table.
