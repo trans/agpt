@@ -169,42 +169,6 @@ struct BackoffTable {
                      "%zu/%u nodes have rev_lookup entries (max %zu per node)\n",
                      pair_count, M_with_lookup, n_radix, max_per_M);
     }
-
-    // Dense `M.id → stash_idx` mapping. Used by the kernel-side scatter
-    // hook in pass 1 (write h_M^l into d_stash[M_to_stash[M.id], l, :]),
-    // by pass 2's gather hook (read h_K_back from same slot), and by
-    // pass 2's backward (write/read d_stash_grad at the same slot).
-    //
-    // After build_M_to_stash(), M_to_stash[m] = stash_idx (0..M_count-1)
-    // for any M that has rev_lookup entries, or -1 for nodes that aren't
-    // anyone's backoff target. M_count is the number of distinct backoff
-    // targets — exactly what the stash buffer needs to size against.
-    //
-    // For Shakespeare d=16/B=4: M_count ≈ 376k (out of 1.5M nodes).
-    std::vector<int32_t> M_to_stash;
-    uint32_t M_count = 0;
-
-    void build_M_to_stash() {
-        if (rev_offsets.empty()) {
-            std::fprintf(stderr,
-                         "agpt_train: build_M_to_stash called before build_rev_lookup\n");
-            return;
-        }
-        M_to_stash.assign((size_t)n_radix, -1);
-        uint32_t next_idx = 0;
-        for (uint32_t m = 0; m < n_radix; ++m) {
-            if (rev_offsets[m + 1] > rev_offsets[m]) {
-                M_to_stash[m] = (int32_t)next_idx++;
-            }
-        }
-        M_count = next_idx;
-        std::fprintf(stderr,
-                     "agpt_train: built M_to_stash: %u distinct backoff targets "
-                     "(%.1f%% of %u radix nodes)\n",
-                     M_count,
-                     100.0 * (double)M_count / (double)n_radix,
-                     n_radix);
-    }
 };
 
 #endif  // AGPT_V1_BACKOFF_TABLE_CUH
