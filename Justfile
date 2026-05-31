@@ -161,6 +161,15 @@ build-agpt-build-fold-table: build-stubs
     mkdir -p bin
     timeout 10m crystal build src/tools/agpt_build_fold_table.cr -o bin/agpt_build_fold_table --release --link-flags="{{root}}/build/kernels.o -lstdc++"
 
+# Build backoff side-table builder for the Step 0 slot-selection experiment.
+# For each radix node K at depth d, computes B "backoff" target IDs — radix
+# nodes whose path equals K's-path-with-first-i-chars-dropped for i in 1..B.
+# Output consumed by AGPT v1's backoff slots kernel hooks. See
+# notes/seq-len-extension/slot-selection.md.
+build-agpt-build-backoff-table: build-stubs
+    mkdir -p bin
+    timeout 10m crystal build src/tools/agpt_build_backoff_table.cr -o bin/agpt_build_backoff_table --release --link-flags="{{root}}/build/kernels.o -lstdc++"
+
 # Build virtual-tree builder for cap-tunnel expansion.
 # For each cap with edge length L, emits min(expansion_depth, L) composite
 # distributions — one per tunnel position — formed as length-weighted
