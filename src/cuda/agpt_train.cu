@@ -3753,7 +3753,15 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                         SplitSecondary rope_split_secondary = SplitSecondary::Mass,
                         int rope_corpus_window = 128,
                         const char* position_data_dir = nullptr,
-                        PosEncoderMode pos_encoder = PosEncoderMode::Default)
+                        PosEncoderMode pos_encoder = PosEncoderMode::Default,
+                        // Slot-selection Step 0: backoff sidecar (already loaded + rev_lookup
+                        // built by main). nullptr or empty sidecar means B=0 → bit-exact
+                        // baseline path. See notes/seq-len-extension/slot-selection.md.
+                        const BackoffTable* backoff_table = nullptr,
+                        int backoff_slots = 0,
+                        // 0 = same-as-K (RoPE pos d, i.e. zero relative rotation to K),
+                        // 1 = sentinel (RoPE pos d+i+1, tags backoff slot as "special").
+                        int backoff_position_kind = 0)
 {
     const bool quiet = persist && persist->quiet;
 
@@ -4801,6 +4809,61 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
     }
 
     // ------------------------------------------------------------
+    // Slot-selection Step 0: K_back resolution buffer.
+    //
+    // For each radix node K and each backoff level i, the sidecar gives the
+    // radix id of K_back_(i+1) (a node M, somewhere else in the trie). At
+    // attention time we need M's *subtree-local* compact-char index so the
+    // forward gather can read h_subtree[l][idx] (anc-grad's saved ln1_out)
+    // and the backward scatter can atomic-add into d_dkv_subtree_k/v[l][idx].
+    //
+    // This buffer is rebuilt at each fire start (after h_anc_lookup is
+    // uploaded). Sentinel value -1 means "no usable backoff slot":
+    //   - sidecar entry was SENTINEL_ID (case-2 or shallow-K),
+    //   - M is a mass=1 node (no compact-cache slot),
+    //   - M is outside the current subtree (impossible at pd=0).
+    //
+    // Sized radix_count * B regardless of subtree size — we index by K's
+    // global id (`d_radix_ids[chunk_node]` gives K's id at chunk time).
+    // ------------------------------------------------------------
+    int*       d_K_back_subtree_idx = NULL;
+    int        backoff_B = (backoff_table && backoff_slots > 0) ? backoff_slots : 0;
+    if (backoff_B > 0) {
+        if (!cfg.anc_grad) {
+            fprintf(stderr,
+                    "agpt_train: experimental.backoff_slots=%d requires --anc-grad "
+                    "(backoff slots' gradient mechanism rides on anc-grad's closed-form path; "
+                    "see notes/seq-len-extension/slot-selection.md).\n",
+                    backoff_slots);
+            exit(1);
+        }
+        if (partition_depth != 0) {
+            fprintf(stderr,
+                    "agpt_train: experimental.backoff_slots=%d requires partition_depth=0 "
+                    "for Step 0 (h_subtree[l] is per-subtree-fire-scoped at pd>=1, "
+                    "K_back may be outside current subtree; see slot-selection.md).\n",
+                    backoff_slots);
+            exit(1);
+        }
+        if ((int)backoff_table->b != backoff_slots) {
+            fprintf(stderr,
+                    "agpt_train: backoff sidecar B=%u does not match config backoff_slots=%d\n",
+                    backoff_table->b, backoff_slots);
+            exit(1);
+        }
+        size_t bytes = (size_t)trie.radix_count * (size_t)backoff_B * sizeof(int);
+        CUDA_CHECK(cudaMalloc(&d_K_back_subtree_idx, bytes));
+        if (!quiet) {
+            printf("  backoff slots: B=%d, position=%s, sidecar n_radix=%u, "
+                   "K_back_subtree_idx buffer %.2f MB\n",
+                   backoff_B,
+                   backoff_position_kind == 1 ? "sentinel" : "same-as-k",
+                   backoff_table->n_radix,
+                   (double)bytes / 1.0e6);
+        }
+    }
+
+    // ------------------------------------------------------------
     // Lightning Training adjacency precompute.
     // We build an inverted parents[] → children adjacency table once, plus
     // cumulative child weights used by L3's mass-weighted descent.
@@ -5502,6 +5565,65 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                 CUDA_CHECK(cudaMemcpy(d_subtree_real_pos, h_subtree_pos,
                                        (size_t)n_subtree_compact_chars * H * sizeof(int),
                                        cudaMemcpyHostToDevice));
+
+                // Slot-selection Step 0: resolve sidecar K_back_id → subtree-local
+                // index for every (K, i) pair, using the just-built h_anc_lookup.
+                // We do this on the host (cheap: one pass over radix_count * B,
+                // a few int lookups each) and upload once. Result lives until the
+                // next fire's resolution overwrites it.
+                if (backoff_B > 0) {
+                    static int* h_K_back_subtree_idx = NULL;
+                    if (!h_K_back_subtree_idx) {
+                        h_K_back_subtree_idx = (int*)malloc(
+                            (size_t)trie.radix_count * (size_t)backoff_B * sizeof(int));
+                    }
+                    long long n_resolved   = 0;
+                    long long n_sentinel   = 0;   // sidecar SENTINEL_ID
+                    long long n_mass1      = 0;   // M is mass=1 (no compact slot)
+                    long long n_off_subtree = 0;  // outside current subtree
+                    for (int k = 0; k < trie.radix_count; k++) {
+                        for (int i = 0; i < backoff_B; i++) {
+                            int out_idx = -1;
+                            uint32_t kb = backoff_table->sidecar[
+                                (size_t)k * (size_t)backoff_B + (size_t)i];
+                            if (kb == BackoffTable::SENTINEL_ID) {
+                                n_sentinel++;
+                            } else if ((int)kb >= trie.radix_count) {
+                                n_sentinel++;  // corrupted entry; treat as sentinel
+                            } else if (trie.edge_mass[kb] == 1) {
+                                n_mass1++;
+                            } else {
+                                int char_pos = trie.edge_starts[kb] + trie.edge_lens[kb] - 1;
+                                int gslot = compact_slot[char_pos];
+                                if (gslot < 0) {
+                                    n_mass1++;  // endpoint not in compact cache
+                                } else {
+                                    int sub_idx = h_anc_lookup[gslot];
+                                    if (sub_idx < 0) {
+                                        n_off_subtree++;  // outside current subtree
+                                    } else {
+                                        out_idx = sub_idx;
+                                        n_resolved++;
+                                    }
+                                }
+                            }
+                            h_K_back_subtree_idx[
+                                (size_t)k * (size_t)backoff_B + (size_t)i] = out_idx;
+                        }
+                    }
+                    CUDA_CHECK(cudaMemcpy(
+                        d_K_back_subtree_idx, h_K_back_subtree_idx,
+                        (size_t)trie.radix_count * (size_t)backoff_B * sizeof(int),
+                        cudaMemcpyHostToDevice));
+                    if (trace_fire_target || (!quiet && epoch == 0 && rc_idx == 0)) {
+                        long long total = (long long)trie.radix_count * (long long)backoff_B;
+                        printf("    backoff resolve: %lld/%lld resolved (%.1f%%), "
+                               "%lld sentinel, %lld mass1, %lld off-subtree\n",
+                               n_resolved, total,
+                               total > 0 ? 100.0 * (double)n_resolved / (double)total : 0.0,
+                               n_sentinel, n_mass1, n_off_subtree);
+                    }
+                }
             }
 
         // Split this subtree into `subtree_splits` sub-batches. Each sub-batch
@@ -7227,6 +7349,7 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
     }
     if (d_compact_to_subtree_idx) cudaFree(d_compact_to_subtree_idx);
     if (d_subtree_real_pos)       cudaFree(d_subtree_real_pos);
+    if (d_K_back_subtree_idx)     cudaFree(d_K_back_subtree_idx);
     if (d_adam_m_per_rc) cudaFree(d_adam_m_per_rc);
     if (d_adam_v_per_rc) cudaFree(d_adam_v_per_rc);
     if (h_adam_t_per_rc) free(h_adam_t_per_rc);
@@ -8061,7 +8184,14 @@ int main(int argc, char** argv) {
         }
 
         unsigned final_perm_seed = (rope_perm_seed >= 0) ? (unsigned)rope_perm_seed : init_seed;
-        int rc = run_radix_training(cfg, wo, h_weights, radix_trie, epochs, entropy_lambda, mass_weight, subtree_splits, partition_depth, accumulate, single_subtree, intermediate_weight, optimizer, momentum_beta, rmsprop_beta, lr_schedule, warmup_epochs, weight_decay, grad_clip_norm, save_every, curriculum, save_path, lightning, &persist, depth_weight, fire_norm_by_mass, entropy_weight, fire_norm_by_weight, fire_norm_none, branching_weight, rope_mode, final_perm_seed, rope_swap_a, rope_swap_b, rope_split_depth_heads, rope_split_secondary, rope_corpus_window, position_data_dir, pos_encoder);
+        // Slot-selection Step 0: thread backoff sidecar + flags through.
+        // backoff_slots==0 (the baseline) is bit-exact; the kernel-side gather
+        // and scatter are gated on backoff_slots>0.
+        const BackoffTable* backoff_table_ptr =
+            (yaml_cfg.backoff_slots > 0) ? &backoff_table : nullptr;
+        int backoff_position_kind = (yaml_cfg.backoff_position ==
+                                     YamlConfigV1::BackoffPositionKind::Sentinel) ? 1 : 0;
+        int rc = run_radix_training(cfg, wo, h_weights, radix_trie, epochs, entropy_lambda, mass_weight, subtree_splits, partition_depth, accumulate, single_subtree, intermediate_weight, optimizer, momentum_beta, rmsprop_beta, lr_schedule, warmup_epochs, weight_decay, grad_clip_norm, save_every, curriculum, save_path, lightning, &persist, depth_weight, fire_norm_by_mass, entropy_weight, fire_norm_by_weight, fire_norm_none, branching_weight, rope_mode, final_perm_seed, rope_swap_a, rope_swap_b, rope_split_depth_heads, rope_split_secondary, rope_corpus_window, position_data_dir, pos_encoder, backoff_table_ptr, yaml_cfg.backoff_slots, backoff_position_kind);
         // Append optimizer state to the saved checkpoint so the next training
         // call can pick up Adam/RMSprop moments mid-stream.
         if (rc == 0 && save_path) {
