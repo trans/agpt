@@ -1,0 +1,104 @@
+{
+  "schema": "agpt_eval.v1",
+  "metrics": {
+    "lm_eval_rolling_word_perplexity": 17613.221759056956,
+    "lm_eval_rolling_byte_perplexity": 5.810186442567492,
+    "lm_eval_rolling_bits_per_byte": 2.538584458888298,
+    "agpt_fixed_token_perplexity": 5.211647947920494
+  },
+  "lm_eval": {
+    "d64l2-depth16-pd1-adam-lr0015-256ep-wrap-splitseed1_epoch_000064_holdout": {
+      "name": "d64l2-depth16-pd1-adam-lr0015-256ep-wrap-splitseed1_epoch_000064_holdout",
+      "alias": "d64l2-depth16-pd1-adam-lr0015-256ep-wrap-splitseed1_epoch_000064_holdout",
+      "sample_len": 10,
+      "word_perplexity,none": 17613.221759056956,
+      "word_perplexity_stderr,none": "N/A",
+      "byte_perplexity,none": 5.810186442567492,
+      "byte_perplexity_stderr,none": "N/A",
+      "bits_per_byte,none": 2.538584458888298,
+      "bits_per_byte_stderr,none": "N/A"
+    }
+  },
+  "agpt_fixed": {
+    "protocol": "agpt_fixed_token",
+    "perplexity": 5.211647947920494,
+    "tokens_evaluated": 55600,
+    "target_start": null,
+    "target_stop": null,
+    "context_tokens": 16,
+    "vocab_size": 65,
+    "model_seq_len": 16,
+    "per_chunk": [
+      {
+        "path": "/home/trans/Projects/agpt/data/.splits/30e6aec9b3d3278b/heldout_chunks/chunk_00.txt",
+        "perplexity": 5.201752068743797,
+        "tokens_evaluated": 5560,
+        "target_start": 16,
+        "target_stop": 5576
+      },
+      {
+        "path": "/home/trans/Projects/agpt/data/.splits/30e6aec9b3d3278b/heldout_chunks/chunk_01.txt",
+        "perplexity": 4.850453313952449,
+        "tokens_evaluated": 5560,
+        "target_start": 16,
+        "target_stop": 5576
+      },
+      {
+        "path": "/home/trans/Projects/agpt/data/.splits/30e6aec9b3d3278b/heldout_chunks/chunk_02.txt",
+        "perplexity": 4.973789462765818,
+        "tokens_evaluated": 5560,
+        "target_start": 16,
+        "target_stop": 5576
+      },
+      {
+        "path": "/home/trans/Projects/agpt/data/.splits/30e6aec9b3d3278b/heldout_chunks/chunk_03.txt",
+        "perplexity": 5.43390748760036,
+        "tokens_evaluated": 5560,
+        "target_start": 16,
+        "target_stop": 5576
+      },
+      {
+        "path": "/home/trans/Projects/agpt/data/.splits/30e6aec9b3d3278b/heldout_chunks/chunk_04.txt",
+        "perplexity": 5.333158885399254,
+        "tokens_evaluated": 5560,
+        "target_start": 16,
+        "target_stop": 5576
+      },
+      {
+        "path": "/home/trans/Projects/agpt/data/.splits/30e6aec9b3d3278b/heldout_chunks/chunk_05.txt",
+        "perplexity": 4.904750149579272,
+        "tokens_evaluated": 5560,
+        "target_start": 16,
+        "target_stop": 5576
+      },
+      {
+        "path": "/home/trans/Projects/agpt/data/.splits/30e6aec9b3d3278b/heldout_chunks/chunk_06.txt",
+        "perplexity": 5.420163330506386,
+        "tokens_evaluated": 5560,
+        "target_start": 16,
+        "target_stop": 5576
+      },
+      {
+        "path": "/home/trans/Projects/agpt/data/.splits/30e6aec9b3d3278b/heldout_chunks/chunk_07.txt",
+        "perplexity": 5.073040198630694,
+        "tokens_evaluated": 5560,
+        "target_start": 16,
+        "target_stop": 5576
+      },
+      {
+        "path": "/home/trans/Projects/agpt/data/.splits/30e6aec9b3d3278b/heldout_chunks/chunk_08.txt",
+        "perplexity": 5.024517034061948,
+        "tokens_evaluated": 5560,
+        "target_start": 16,
+        "target_stop": 5576
+      },
+      {
+        "path": "/home/trans/Projects/agpt/data/.splits/30e6aec9b3d3278b/heldout_chunks/chunk_09.txt",
+        "perplexity": 5.998500269156103,
+        "tokens_evaluated": 5560,
+        "target_start": 16,
+        "target_stop": 5576
+      }
+    ]
+  }
+}
