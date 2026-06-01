@@ -69,19 +69,55 @@ state in a tree-to-tree state-passing setup. That's the natural transition
 to the full tree-to-tree RNN architecture without rebuilding the injection
 plumbing.
 
-## Commits (planned, in order)
+## Sidecar format
 
-1. **YAML plumbing** (current). Field is parsed; hard-error if d_pre > 0
-   until subsequent commits land. Baseline parity preserved when d_pre = 0.
-2. **Instance index** — host-side data structure mapping K → list of corpus
-   positions. Built once at trie load.
-3. **Precondition gather kernel** — per-fire S=1 sampler producing
-   `[N_chunk, d_pre]` raw-char tensor per chunk.
-4. **GRU encoder forward + backward** — kernel taking the raw-char tensor
-   and producing `[N_chunk, D]` state. Initialized so zero state if d_pre=0.
-5. **`W_pre` parameter + residual injection** — added to weight buffer,
-   zero-initialized, residual-added at layer 0 LN1 input. Standard backward
-   for the projection.
-6. **B=0 parity check** — runs at `precondition_d_pre=0` must match
-   pre-precondition main bit-exactly (within v1's known nondet floor).
-7. **Smoke + paired runs** — first PPL signal vs baseline.
+The per-K instance d_pre tokens are pre-extracted offline into a sidecar
+binary (`bin/agpt_build_precondition_sidecar`):
+
+```
+magic        u32 = 'PREC' (0x43455250)
+version      u32 = 1
+n_radix      u32
+d_pre        u32
+n_instances  u64
+skipped      u64                    diagnostic (instances with start_pos < d_pre)
+offsets      u32[n_radix + 1]       offsets[k]..offsets[k+1] = K's instance slice
+inst_tokens  i32[n_instances * d_pre]   per-instance d_pre tokens, forward order
+```
+
+Pivot from earlier dual-tree plan: storing the d_pre tokens directly
+(not as suffix-tree-node references) sidesteps mid-edge handling, doesn't
+require loading a suffix trie in the trainer, and is structurally simpler.
+The "dual-tree elegance" framing is preserved as a future optimization
+if storage becomes a concern.
+
+Shakespeare d=16/d_pre=16 measured: 8.1M instances, 502 MB sidecar,
+100% node coverage (1,527,313 / 1,527,328 radix nodes have ≥1 instance),
+max 161,751 instances per node (high-mass K's), build time ~5 sec.
+
+The instance count is higher than corpus_size because the walker emits
+at every trie level visited per corpus position (each radix node at every
+depth has its own real precondition contexts) — this is correct: a
+depth-3 node like "the" gets ALL the preceding-16-char contexts wherever
+"the" appears, not just one.
+
+## Commits (in order)
+
+1. ✓ **YAML plumbing**. Field is parsed; hard-error if d_pre > 0 until
+   subsequent commits land. Baseline parity preserved when d_pre = 0.
+2. ✓ **Sidecar tool** (`bin/agpt_build_precondition_sidecar`). Walks
+   forward corpus via `CorpusTrieWalker`, emits the format above.
+3. **v1 trainer: load sidecar** — `PreconditionSidecar` struct + load()
+   in C++ side; allocate at trie load; no usage yet. Verify load is OK
+   and B=0 baseline parity holds.
+4. **Per-fire instance sampling** — host-side seed-based sampler; per
+   chunk produces `d_precondition_input_tokens[N_chunk, d_pre]` on
+   device.
+5. **GRU encoder forward + backward** — kernel taking `[N_chunk, d_pre]`
+   int tokens, producing `[N_chunk, D]` state via GRU over d_pre time
+   steps. New parameters in the weight buffer.
+6. **`W_pre` parameter + residual injection** — added to weight buffer,
+   zero-initialized for parity, residual-added at layer 0 LN1 input.
+7. **B=0 parity check** — runs at `precondition_d_pre=0` must match
+   baseline bit-exactly (within v1's known nondet floor).
+8. **Smoke + paired runs** — first PPL signal vs baseline.

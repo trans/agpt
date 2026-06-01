@@ -148,6 +148,15 @@ build-agpt-build-position-table: build-stubs
     mkdir -p bin
     timeout 10m crystal build src/tools/build_position_table.cr -o bin/agpt_build_position_table --release --link-flags="{{root}}/build/kernels.o -lstdc++"
 
+# Build precondition-strand sidecar tool.
+# For each prefix-trie radix node K, records the d_pre tokens immediately
+# preceding K's start across all corpus instances of K. Consumed by
+# `agpt_train` when experimental.precondition.d_pre > 0. See
+# notes/seq-len-extension/precondition.md.
+build-agpt-build-precondition-sidecar: build-stubs
+    mkdir -p bin
+    timeout 10m crystal build src/tools/agpt_build_precondition_sidecar.cr -o bin/agpt_build_precondition_sidecar --release --link-flags="{{root}}/build/kernels.o -lstdc++"
+
 # Build trie sparsity-profile tool.
 build-trie-profile: build-stubs
     mkdir -p bin
