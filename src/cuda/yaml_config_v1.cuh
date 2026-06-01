@@ -93,6 +93,18 @@ struct YamlConfigV1 {
     int model_n_heads = 0;
     int model_d_ff = 0;
     int model_head_dim = 0;
+
+    // Precondition strand (notes/seq-len-extension/precondition.md, planned).
+    // precondition.d_pre = length of the raw-char prefix fed through the GRU
+    // encoder. 0 = disabled (baseline; bit-exact parity required when 0).
+    // >0 = at each query position K, a representative corpus instance's
+    // preceding d_pre chars are encoded into a single state, projected via
+    // W_pre, and added as a residual to layer-0 LN1's input.
+    //
+    // This commit only plumbs the YAML field through. No buffers, no kernels,
+    // no behavior change yet. Subsequent commits add the instance index, the
+    // GRU encoder, and the residual injection.
+    int precondition_d_pre = 0;
 };
 
 static std::string yam_str_to_std_v1(yam_str s) {
@@ -289,11 +301,21 @@ static bool yaml_is_experimental_field_v1(const std::string& path) {
     return path.rfind("experimental.", 0) == 0 && path.size() > std::strlen("experimental.");
 }
 
+// Experimental fields v1 actively consumes. WARN pass below skips these.
+// Anything else under experimental.* still WARNs.
+static bool yaml_is_known_experimental_field_v1(const std::string& path) {
+    static const std::unordered_set<std::string> fields = {
+        "experimental.precondition.d_pre",
+    };
+    return fields.find(path) != fields.end();
+}
+
 static bool warn_unknown_experimental_flags_v1(const YamlDocV1& doc) {
     std::vector<std::string> flags;
     for (const auto& item : doc.scalars) {
         const std::string& path = item.first;
         if (!yaml_is_experimental_field_v1(path)) continue;
+        if (yaml_is_known_experimental_field_v1(path)) continue;
         flags.push_back(path.substr(std::strlen("experimental.")));
     }
     std::sort(flags.begin(), flags.end());
@@ -316,6 +338,7 @@ static bool validate_yaml_registry_v1(const YamlDocV1& doc) {
         "train.growth",
         "eval",
         "experimental",
+        "experimental.precondition",
     };
     for (const auto& block : doc.blocks) {
         if (blocks.find(block) == blocks.end()) {
@@ -614,6 +637,15 @@ static bool apply_yaml_config_v1(const char* config_path, YamlConfigV1& yaml_cfg
     int unused_int = 0;
     if (!yaml_get_int_v1(doc, "trie.prune_min_mass", unused_int)) return false;
     if (!yaml_get_int_v1(doc, "trie.prune_min_depth", unused_int)) return false;
+
+    // ---- Experimental: precondition strand ----
+    // See notes/seq-len-extension/precondition.md (forthcoming). YAML parsing
+    // only; no behavior change in this commit.
+    if (!yaml_get_int_v1(doc, "experimental.precondition.d_pre", yaml_cfg.precondition_d_pre)) return false;
+    if (yaml_cfg.precondition_d_pre < 0) {
+        std::fprintf(stderr, "agpt_train: experimental.precondition.d_pre must be >= 0\n");
+        return false;
+    }
 
     // ---- Validation ----
     if (yaml_cfg.epochs <= 0) {

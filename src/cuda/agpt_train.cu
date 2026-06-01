@@ -8011,6 +8011,31 @@ int main(int argc, char** argv) {
         printf("Loading radix trie from %s...\n", trie_dir);
         RadixTrieData radix_trie = load_radix_trie(trie_dir);
 
+        // Precondition strand (notes/seq-len-extension/precondition.md, planned).
+        // This commit only acknowledges the YAML field; no buffers, no kernels,
+        // no behavior change. precondition_d_pre==0 is the bit-exact baseline.
+        if (config_path && yaml_cfg.precondition_d_pre > 0) {
+            // Constraint: pd=0 only (single-fire-per-epoch, so per-K instance
+            // sampling is reproducible across chunks of the fire). Mirrors the
+            // slot-selection rationale; subsequent commits may relax.
+            if (partition_depth != 0) {
+                fprintf(stderr,
+                        "agpt_train: experimental.precondition.d_pre=%d requires "
+                        "train.partition_depth=0 (per-K instance sampling assumes "
+                        "single-fire-per-epoch; see notes/seq-len-extension/precondition.md).\n",
+                        yaml_cfg.precondition_d_pre);
+                return 1;
+            }
+            // Hard-error until the actual implementation lands. This prevents
+            // configs from silently no-op'ing while the feature is being built.
+            fprintf(stderr,
+                    "agpt_train: experimental.precondition.d_pre=%d is plumbed in YAML but "
+                    "not yet implemented (this commit is plumbing-only; the GRU encoder + "
+                    "residual injection land in a subsequent commit). Set d_pre=0 to run baseline.\n",
+                    yaml_cfg.precondition_d_pre);
+            return 1;
+        }
+
         // Reconcile cfg.seq_len with the actual training depth. The model
         // header carries seq_len from whatever tool created the file (often
         // 128 — a microgpt default). At AGPT training time, the only
