@@ -124,6 +124,132 @@ static void launch_precondition_mean_pool(
         N, d_pre, D, vocab_size);
 }
 
+// ---- Step 6: residual injection forward + backward ----
+//
+// Forward: at the start of layer 0 (after embedding gather, before LN1),
+// each query q at chunk-local node k accumulates W_pre · precondition_state[k]
+// into its residual stream d_x[q]. W_pre is zero-initialized so the first
+// step is identical to baseline.
+
+__global__ void precondition_inject_forward_kernel(
+    float*       __restrict__ d_x,                  // [T_q, D] IN/OUT (+=)
+    const int*   __restrict__ d_query_to_node,      // [T_q]
+    const float* __restrict__ d_W_pre,              // [D, D]
+    const float* __restrict__ d_precondition_state, // [N, D]
+    int T_q, int D)
+{
+    int q = blockIdx.x;
+    int d = blockIdx.y * blockDim.x + threadIdx.x;
+    if (q >= T_q || d >= D) return;
+    int k = d_query_to_node[q];
+    float acc = 0.0f;
+    for (int j = 0; j < D; ++j) {
+        acc += d_W_pre[d * D + j]
+             * d_precondition_state[(long long)k * D + j];
+    }
+    d_x[(long long)q * D + d] += acc;
+}
+
+static void launch_precondition_inject_forward(
+    float* d_x,
+    const int* d_query_to_node,
+    const float* d_W_pre,
+    const float* d_precondition_state,
+    int T_q, int D)
+{
+    if (T_q <= 0 || D <= 0) return;
+    int threads = (D < 64) ? 32 : 64;
+    int t = 1; while (t < threads) t <<= 1;
+    threads = (t < 32) ? 32 : t;
+    dim3 blocks(T_q, (D + threads - 1) / threads);
+    precondition_inject_forward_kernel<<<blocks, threads>>>(
+        d_x, d_query_to_node, d_W_pre, d_precondition_state, T_q, D);
+}
+
+// Backward through the injection:
+//   dW_pre[d, j]              += sum_q d_x_grad[q, d] * precondition_state[k_of_q, j]
+//   d_precondition_state[k, j] += sum_q-at-k d_x_grad[q, d] * W_pre[d, j]
+// Both contributions land via atomicAdd (per-K sharing for the second;
+// dW_pre may be written by multiple queries simultaneously).
+
+__global__ void precondition_inject_backward_kernel(
+    const float* __restrict__ d_x_grad,                    // [T_q, D]
+    const int*   __restrict__ d_query_to_node,             // [T_q]
+    const float* __restrict__ d_W_pre,                     // [D, D]
+    const float* __restrict__ d_precondition_state,        // [N, D]
+    float*       __restrict__ d_W_pre_grad,                // [D, D] +=
+    float*       __restrict__ d_precondition_state_grad,   // [N, D] +=
+    int T_q, int D)
+{
+    int q = blockIdx.x;
+    int d = blockIdx.y * blockDim.x + threadIdx.x;
+    if (q >= T_q || d >= D) return;
+    int k = d_query_to_node[q];
+    float g_x = d_x_grad[(long long)q * D + d];
+    for (int j = 0; j < D; ++j) {
+        atomicAdd(&d_W_pre_grad[d * D + j],
+                  g_x * d_precondition_state[(long long)k * D + j]);
+        atomicAdd(&d_precondition_state_grad[(long long)k * D + j],
+                  d_W_pre[d * D + j] * g_x);
+    }
+}
+
+static void launch_precondition_inject_backward(
+    const float* d_x_grad,
+    const int* d_query_to_node,
+    const float* d_W_pre,
+    const float* d_precondition_state,
+    float* d_W_pre_grad,
+    float* d_precondition_state_grad,
+    int T_q, int D)
+{
+    if (T_q <= 0 || D <= 0) return;
+    int threads = (D < 64) ? 32 : 64;
+    int t = 1; while (t < threads) t <<= 1;
+    threads = (t < 32) ? 32 : t;
+    dim3 blocks(T_q, (D + threads - 1) / threads);
+    precondition_inject_backward_kernel<<<blocks, threads>>>(
+        d_x_grad, d_query_to_node, d_W_pre, d_precondition_state,
+        d_W_pre_grad, d_precondition_state_grad, T_q, D);
+}
+
+// Backward through mean-pool: scatter d_precondition_state_grad into
+// the token embedding gradient. For each (k, j) input token slot:
+//   d_token_emb_grad[tok_at(k, j), :] += d_precondition_state_grad[k, :] / d_pre
+
+__global__ void precondition_mean_pool_backward_kernel(
+    const float* __restrict__ d_precondition_state_grad,  // [N, D]
+    const int*   __restrict__ d_pre_input_tokens,         // [N, d_pre]
+    float*       __restrict__ d_token_emb_grad,           // [vocab_size, D] +=
+    int N, int d_pre, int D, int vocab_size, float inv_d_pre)
+{
+    int k = blockIdx.x;
+    int slot = blockIdx.y;                                // index in [0, d_pre)
+    int d = blockIdx.z * blockDim.x + threadIdx.x;
+    if (k >= N || slot >= d_pre || d >= D) return;
+    int tok = d_pre_input_tokens[k * d_pre + slot];
+    if (tok < 0 || tok >= vocab_size) return;
+    float g = d_precondition_state_grad[(long long)k * D + d] * inv_d_pre;
+    atomicAdd(&d_token_emb_grad[(long long)tok * D + d], g);
+}
+
+static void launch_precondition_mean_pool_backward(
+    const float* d_precondition_state_grad,
+    const int* d_pre_input_tokens,
+    float* d_token_emb_grad,
+    int N, int d_pre, int D, int vocab_size)
+{
+    if (N <= 0 || d_pre <= 0 || D <= 0) return;
+    int threads = (D < 64) ? 32 : 64;
+    int t = 1; while (t < threads) t <<= 1;
+    threads = (t < 32) ? 32 : t;
+    dim3 blocks(N, d_pre, (D + threads - 1) / threads);
+    float inv_d_pre = 1.0f / (float)d_pre;
+    precondition_mean_pool_backward_kernel<<<blocks, threads>>>(
+        d_precondition_state_grad, d_pre_input_tokens, d_token_emb_grad,
+        N, d_pre, D, vocab_size, inv_d_pre);
+}
+
 // Host-side seed-based sampler. Deterministic given (base_seed, K_global, epoch).
 // Mirrors v2's mix_u32 pattern (cf. PositionSamplingStageV2::sample_prefix_start_bin).
 static inline uint32_t precondition_mix_u32(uint32_t x) {

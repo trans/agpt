@@ -579,10 +579,19 @@ struct WeightOffsets {
     int out_w;        // [d_model, vocab_size]
     int out_b;        // [1, vocab_size]
 
+    // Precondition strand: W_pre [D, D] projection from
+    // d_precondition_state into the residual stream at layer-0 LN1 input.
+    // Only included when precondition_d_pre > 0; otherwise wp_w == -1.
+    // Loaded init models (which were trained without this parameter) are
+    // zero-padded for this slot at load time; W_pre starts at zero so the
+    // forward injection produces identically baseline behavior on the first
+    // step regardless of init source.
+    int wp_w;         // [d_model, d_model] or -1 if disabled
+
     int total_floats;
 };
 
-WeightOffsets compute_offsets(const Config& cfg) {
+WeightOffsets compute_offsets(const Config& cfg, int precondition_d_pre = 0) {
     WeightOffsets wo;
     int L = cfg.n_layers;
     int D = cfg.d_model;
@@ -632,6 +641,14 @@ WeightOffsets compute_offsets(const Config& cfg) {
     wo.final_beta  = off; off += D;
     wo.out_w = off; off += D * V;
     wo.out_b = off; off += V;
+
+    // Precondition W_pre appended at the END of the layout, so older
+    // checkpoints (without W_pre) can be loaded by zero-padding the tail.
+    if (precondition_d_pre > 0) {
+        wo.wp_w = off; off += D * D;
+    } else {
+        wo.wp_w = -1;
+    }
 
     wo.total_floats = off;
     return wo;
@@ -4821,6 +4838,7 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
     int*   d_pre_sample_idx                 = NULL;
     int*   d_precondition_input_tokens      = NULL;  // [N_cap, d_pre]
     float* d_precondition_state             = NULL;  // [N_cap, D]
+    float* d_precondition_state_grad        = NULL;  // [N_cap, D] per-chunk scratch
     std::vector<int> h_pre_sample_idx;
     int   pre_d_pre = 0;
     if (precondition_sidecar && precondition_d_pre > 0) {
@@ -4845,6 +4863,7 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
         CUDA_CHECK(cudaMalloc(&d_pre_sample_idx,             sample_bytes));
         CUDA_CHECK(cudaMalloc(&d_precondition_input_tokens,  per_chunk_bytes));
         CUDA_CHECK(cudaMalloc(&d_precondition_state,         state_bytes));
+        CUDA_CHECK(cudaMalloc(&d_precondition_state_grad,    state_bytes));
 
         CUDA_CHECK(cudaMemcpy(d_pre_offsets,
                               precondition_sidecar->offsets.data(),
@@ -4855,6 +4874,7 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
         CUDA_CHECK(cudaMemset(d_pre_sample_idx, 0, sample_bytes));
         CUDA_CHECK(cudaMemset(d_precondition_input_tokens, 0, per_chunk_bytes));
         CUDA_CHECK(cudaMemset(d_precondition_state, 0, state_bytes));
+        CUDA_CHECK(cudaMemset(d_precondition_state_grad, 0, state_bytes));
 
         h_pre_sample_idx.assign((size_t)trie.radix_count, 0);
 
@@ -5984,6 +6004,17 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                 // Embedding gather: d_x[T_q, D]
                 cuda_embedding_gather(d_weights + wo.token_emb, d_token_ids, d_x, T_q, D);
 
+                // Precondition strand: project per-K state through W_pre and
+                // add to each query's residual stream. W_pre is zero at init
+                // so this is identity until the first backward updates it.
+                if (pre_d_pre > 0 && wo.wp_w >= 0) {
+                    launch_precondition_inject_forward(
+                        d_x, d_query_to_node,
+                        d_weights + wo.wp_w,
+                        d_precondition_state,
+                        T_q, D);
+                }
+
                 float alpha = 1.0f, beta_zero = 0.0f;
                 for (int l = 0; l < L_layers; l++) {
                     float* W_qw = d_weights + wo.wq_w[l];
@@ -6660,6 +6691,28 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                     cuda_layer_norm_backward(d_d_ln_out, sv_ln1_norm[l], sv_ln1_std_inv[l],
                                               G1, d_d_ln_out, dG1, dB1, T_q, D);
                     launch_elem_add(d_dx, d_d_ln_out, T_q * D);  // residual 1 skip
+                }
+
+                // Precondition strand: backward through the residual injection
+                // d_x += W_pre · precondition_state[k]. Mirror in reverse:
+                //   dW_pre[d,j] += sum_q d_dx[q,d] * precondition_state[k,j]
+                //   d_precondition_state_grad[k,j] = sum_q-at-k d_dx[q,d] * W_pre[d,j]
+                // Then mean-pool backward scatters into d_grads(token_emb).
+                if (pre_d_pre > 0 && wo.wp_w >= 0) {
+                    size_t state_grad_bytes = (size_t)N * (size_t)D * sizeof(float);
+                    CUDA_CHECK(cudaMemset(d_precondition_state_grad, 0, state_grad_bytes));
+                    launch_precondition_inject_backward(
+                        d_dx, d_query_to_node,
+                        d_weights + wo.wp_w,
+                        d_precondition_state,
+                        d_grads + wo.wp_w,
+                        d_precondition_state_grad,
+                        T_q, D);
+                    launch_precondition_mean_pool_backward(
+                        d_precondition_state_grad,
+                        d_precondition_input_tokens,
+                        d_grads + wo.token_emb,
+                        N, pre_d_pre, D, cfg.vocab_size);
                 }
 
                 // Embedding backward: scatter_add d_x into token_emb grad
@@ -7393,6 +7446,7 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
     if (d_pre_sample_idx)                cudaFree(d_pre_sample_idx);
     if (d_precondition_input_tokens)     cudaFree(d_precondition_input_tokens);
     if (d_precondition_state)            cudaFree(d_precondition_state);
+    if (d_precondition_state_grad)       cudaFree(d_precondition_state_grad);
     if (d_adam_m_per_rc) cudaFree(d_adam_m_per_rc);
     if (d_adam_v_per_rc) cudaFree(d_adam_v_per_rc);
     if (h_adam_t_per_rc) free(h_adam_t_per_rc);
@@ -8102,11 +8156,30 @@ int main(int argc, char** argv) {
         cfg.head_dim   = init_d_model / init_n_heads;
         cfg.vocab_size = trie_vocab_size;
         cfg.seq_len    = trie_max_depth;
-        wo = compute_offsets(cfg);
+        wo = compute_offsets(cfg, yaml_cfg.precondition_d_pre);
         h_weights = init_random_weights(cfg, wo, init_seed);
+        // W_pre starts at zero (init_random_weights inits everything; we
+        // overwrite W_pre's slice to zero so injection produces baseline-
+        // identical output at the first step).
+        if (wo.wp_w >= 0) {
+            int D = cfg.d_model;
+            memset(h_weights + wo.wp_w, 0, (size_t)D * (size_t)D * sizeof(float));
+        }
     } else {
+        // load_model_weights computes a TEMPORARY WeightOffsets internally
+        // using the model's header (without knowing about precondition).
+        // We then re-compute the FULL layout (with W_pre at the tail if
+        // d_pre > 0) and reallocate h_weights, zero-padding the new tail.
         h_weights = load_model_weights(model_path, &cfg);
-        wo = compute_offsets(cfg);
+        WeightOffsets wo_old = compute_offsets(cfg, 0);  // file's layout
+        wo = compute_offsets(cfg, yaml_cfg.precondition_d_pre);
+        if (wo.total_floats > wo_old.total_floats) {
+            float* h_extended = (float*)calloc((size_t)wo.total_floats, sizeof(float));
+            memcpy(h_extended, h_weights, (size_t)wo_old.total_floats * sizeof(float));
+            free(h_weights);
+            h_weights = h_extended;
+            // wo.wp_w is in the new tail, already zero from calloc.
+        }
     }
 
     // Optimizer-state persistence: allocate host buffers, try to load from the
@@ -8211,16 +8284,11 @@ int main(int argc, char** argv) {
                         yaml_cfg.precondition_d_pre);
                 return 1;
             }
-            // Encoder + injection still pending (Steps 5-6).
-            // This commit (Step 4) wires per-fire instance sampling + gather
-            // kernel — the per-K precondition input tokens are materialized
-            // each chunk but unused downstream. d_pre > 0 + sidecar loaded
-            // runs end-to-end; the precondition state has zero effect on
-            // weights so the model trains identically to baseline.
             fprintf(stderr,
-                    "agpt_train: precondition d_pre=%d active (Step 4: gather only; "
-                    "encoder + residual injection still TODO; runtime should match "
-                    "baseline since the gather output is unused downstream).\n",
+                    "agpt_train: precondition d_pre=%d active "
+                    "(mean-pool encoder + W_pre residual injection; "
+                    "W_pre zero-init at training start so step 1 forward is "
+                    "identical to baseline; trains from there).\n",
                     yaml_cfg.precondition_d_pre);
         }
 
