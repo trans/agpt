@@ -216,6 +216,7 @@ static bool yaml_is_consumed_field_v2(const std::string& path) {
         "train.optimizer.lr",
         "train.optimizer.beta",
         "train.optimizer.momentum_beta",
+        "train.optimizer.eps",
         "train.optimizer.weight_decay",
         "train.optimizer.grad_clip_norm",
         "train.lr_schedule.name",
@@ -368,6 +369,34 @@ static bool yaml_parse_bool_v2(const char* field, const YamlScalarV2& scalar, bo
     }
     std::fprintf(stderr, "agpt_train_v2: YAML field %s must be true or false (got %s)\n",
                  field, scalar.value.c_str());
+    return false;
+}
+
+static bool parse_mass_weight_v2(const char* text, agpt_v2::MassWeightModeV2& out) {
+    if (std::strcmp(text, "off") == 0) {
+        out = agpt_v2::MassWeightModeV2::Off;
+        return true;
+    }
+    if (std::strcmp(text, "linear") == 0) {
+        out = agpt_v2::MassWeightModeV2::Linear;
+        return true;
+    }
+    if (std::strcmp(text, "sqrt") == 0) {
+        out = agpt_v2::MassWeightModeV2::Sqrt;
+        return true;
+    }
+    if (std::strcmp(text, "log") == 0) {
+        out = agpt_v2::MassWeightModeV2::Log;
+        return true;
+    }
+    if (std::strcmp(text, "inv-log") == 0) {
+        out = agpt_v2::MassWeightModeV2::InvLog;
+        return true;
+    }
+    if (std::strcmp(text, "inv-linear") == 0) {
+        out = agpt_v2::MassWeightModeV2::InvLinear;
+        return true;
+    }
     return false;
 }
 
@@ -541,9 +570,9 @@ static bool apply_yaml_config_v2(const char* config_path,
     if (!yaml_parse_float_v2("train.optimizer.lr", *lr, cfg.lr)) return false;
     if (!yaml_get_float_v2(doc, "train.optimizer.beta", cfg.rmsprop_beta)) return false;
     if (!yaml_get_float_v2(doc, "train.optimizer.momentum_beta", cfg.momentum_beta)) return false;
+    if (!yaml_get_float_v2(doc, "train.optimizer.eps", cfg.optimizer_eps)) return false;
+    if (!yaml_get_float_v2(doc, "train.optimizer.weight_decay", cfg.weight_decay)) return false;
     if (!yaml_get_float_v2(doc, "train.optimizer.grad_clip_norm", cfg.grad_clip_norm)) return false;
-    if (!yaml_reject_non_default_float_v2(doc, "train.optimizer.weight_decay", 0.0f,
-                                          "decoupled weight decay is not wired in CUDAX yet")) return false;
     if (!yaml_reject_non_default_float_v2(doc, "train.optimizer.grad_clip_norm", 0.0f,
                                           "gradient clipping is not wired in CUDAX yet")) return false;
 
@@ -561,6 +590,12 @@ static bool apply_yaml_config_v2(const char* config_path,
     if (!yaml_get_int_v2(doc, "train.chunk_queries", cfg.chunk_queries)) return false;
     if (!yaml_get_int_sequence_v2(doc, "train.checkpoint_epochs", yaml_cfg.checkpoint_epochs)) return false;
     if (!yaml_get_bool_v2(doc, "train.anc_grad", cfg.anc_grad)) return false;
+    const YamlScalarV2* mass_weight = yaml_find_v2(doc, "train.mass_weight");
+    if (mass_weight && !parse_mass_weight_v2(mass_weight->value.c_str(), cfg.mass_weight)) {
+        std::fprintf(stderr, "agpt_train_v2: unsupported YAML train.mass_weight: %s\n",
+                     mass_weight->value.c_str());
+        return false;
+    }
 
     if (!yaml_get_int_v2(doc, "train.max_depth", yaml_cfg.max_depth, &yaml_cfg.has_max_depth)) return false;
     if (!yaml_get_int_v2(doc, "train.seq_len", yaml_cfg.seq_len, &yaml_cfg.has_seq_len)) return false;
@@ -629,8 +664,6 @@ static bool apply_yaml_config_v2(const char* config_path,
     int unused_int = 0;
     if (!yaml_get_int_v2(doc, "trie.prune_min_mass", unused_int)) return false;
     if (!yaml_get_int_v2(doc, "trie.prune_min_depth", unused_int)) return false;
-    if (!yaml_reject_non_default_str_v2(doc, "train.mass_weight", "linear",
-                                        "CUDAX currently uses linear edge-mass query weights")) return false;
     if (!yaml_reject_non_default_str_v2(doc, "train.fire_norm", "mass",
                                         "CUDAX currently normalizes by weighted event mass")) return false;
     if (!yaml_reject_non_default_float_v2(doc, "train.entropy_lambda", 0.0f,

@@ -1,6 +1,8 @@
 #ifndef AGPT_V2_FORWARD_PASS_CUH
 #define AGPT_V2_FORWARD_PASS_CUH
 
+#include <cmath>
+
 #include "../common/diag_tensor_dump.h"
 
 #include "checkpoint_io_v2.cuh"
@@ -85,7 +87,10 @@ static inline ForwardPassResult run_forward_prefix_v2(const TrainerConfig& cfg,
     double event_sum = 0.0;
     int trained = 0;
     for (int i = 0; i < T_q; i++) {
-        if (h_loss[i] > 0.0f) {
+        if (!std::isfinite(h_loss[i])) {
+            result.ok = false;
+            result.message = "non-finite forward loss";
+        } else if (h_loss[i] > 0.0f) {
             loss_sum += h_loss[i];
             event_sum += (double)meta.h_query_weights[i];
             trained++;

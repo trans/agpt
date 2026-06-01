@@ -1,6 +1,7 @@
 #ifndef AGPT_V2_CHUNK_METADATA_V2_CUH
 #define AGPT_V2_CHUNK_METADATA_V2_CUH
 
+#include <cmath>
 #include <cstdlib>
 #include <cstring>
 
@@ -54,6 +55,19 @@ static inline void free_chunk_metadata_v2(ChunkMetadataV2& m) {
     m = ChunkMetadataV2{};
 }
 
+static inline float query_mass_weight_v2(const TrainerConfig& cfg, int edge_mass) {
+    float count = (float)(edge_mass > 0 ? edge_mass : 1);
+    switch (cfg.mass_weight) {
+        case MassWeightModeV2::Off: return 1.0f;
+        case MassWeightModeV2::Linear: return count;
+        case MassWeightModeV2::Sqrt: return sqrtf(count);
+        case MassWeightModeV2::Log: return logf(1.0f + count);
+        case MassWeightModeV2::InvLog: return 1.0f / logf(2.0f + count);
+        case MassWeightModeV2::InvLinear: return 1.0f / (1.0f + count);
+    }
+    return count;
+}
+
 static inline ChunkMetadataV2 build_chunk_metadata_v2(const TrainerConfig& cfg,
                                                       const RuntimeShape& shape,
                                                       const RadixTrieStructure& trie,
@@ -88,6 +102,7 @@ static inline ChunkMetadataV2 build_chunk_metadata_v2(const TrainerConfig& cfg,
         int anc_len = trie.ancestor_char_offsets[r + 1] - trie.ancestor_char_offsets[r];
         int own_len = trie.edge_lens[r];
         int edge_mass = trie.edge_mass[r] > 0 ? trie.edge_mass[r] : 1;
+        float query_weight = query_mass_weight_v2(cfg, edge_mass);
         int edge_start = trie.edge_starts[r];
         int fcd = trie.edge_first_char_depths[r];
         int sampled_start = -1;
@@ -104,8 +119,8 @@ static inline ChunkMetadataV2 build_chunk_metadata_v2(const TrainerConfig& cfg,
         for (int j = 0; j < own_len; j++) {
             out.h_query_to_node[q_fill + j] = i;
             out.h_token_ids[q_fill + j] = trie.edge_tokens_flat[edge_start + j];
-            out.h_query_weights[q_fill + j] = (float)edge_mass;
-            out.total_query_weight += (double)edge_mass;
+            out.h_query_weights[q_fill + j] = query_weight;
+            out.total_query_weight += (double)query_weight;
             out.h_char_pos[q_fill + j] = edge_start + j;
             out.h_query_depth[q_fill + j] = fcd + j;
             int pos = fcd + j - 1;

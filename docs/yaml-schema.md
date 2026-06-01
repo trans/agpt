@@ -207,6 +207,7 @@ split caches, tries are content-hashed and cached at
 | `train.optimizer.lr` | float | required (except `lbfgs`) | v1, v2, mg | Peak learning rate. |
 | `train.optimizer.beta` | float | 0.999 | v1, v2 | RMSProp β / Adam β₂. |
 | `train.optimizer.momentum_beta` | float | 0.9 | v1, v2 | Adam β₁ / Momentum β. |
+| `train.optimizer.eps` | float | 1e-8 | v2 | Adam/RMSProp denominator floor. |
 | `train.optimizer.weight_decay` | float | 0.0 | v1, v2 | Decoupled weight decay. |
 | `train.optimizer.grad_clip_norm` | float | 0.0 | v1, v2 | 0 disables. |
 

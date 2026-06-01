@@ -96,6 +96,7 @@ module AgptExperiment
     property lr : Float64?
     property beta : Float64?
     property momentum_beta : Float64?
+    property eps : Float64?
     property weight_decay : Float64?
     property grad_clip_norm : Float64?
   end

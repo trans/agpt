@@ -14,6 +14,7 @@ extern "C" {
     void cuda_sgd_bulk(float* params, float* grads, float lr, int n);
     void cuda_momentum_bulk(float* params, float* grads, float* m, float lr, float beta, int n);
     void cuda_rmsprop_bulk(float* params, float* grads, float* s, float lr, float beta, float eps, int n);
+    void cuda_weight_decay(float* params, float lr, float wd, int n);
     void cuda_layer_norm_forward(const float* input, float* output, float* norm_out,
                                   float* std_inv_out, const float* gamma, const float* beta,
                                   int rows, int cols);

@@ -116,23 +116,36 @@ static inline OptimizerStepResult run_optimizer_step_stateful(const TrainerConfi
                                                               float* d_opt_v,
                                                               int total_floats,
                                                               int optimizer_step_index) {
+    OptimizerStepResult result;
     switch (cfg.optimizer) {
         case OptimizerKind::Adam:
-            return run_optimizer_step_adam_stateful(lr, d_weights, d_grads, d_opt_m, d_opt_v,
-                                                    total_floats, optimizer_step_index,
-                                                    cfg.momentum_beta, cfg.rmsprop_beta);
+            result = run_optimizer_step_adam_stateful(lr, d_weights, d_grads, d_opt_m, d_opt_v,
+                                                      total_floats, optimizer_step_index,
+                                                      cfg.momentum_beta, cfg.rmsprop_beta,
+                                                      cfg.optimizer_eps);
+            break;
         case OptimizerKind::SGD:
-            return run_optimizer_step_sgd(lr, d_weights, d_grads, total_floats);
+            result = run_optimizer_step_sgd(lr, d_weights, d_grads, total_floats);
+            break;
         case OptimizerKind::Momentum:
-            return run_optimizer_step_momentum_stateful(lr, d_weights, d_grads, d_opt_m,
-                                                        total_floats, cfg.momentum_beta);
+            result = run_optimizer_step_momentum_stateful(lr, d_weights, d_grads, d_opt_m,
+                                                          total_floats, cfg.momentum_beta);
+            break;
         case OptimizerKind::RMSProp:
-            return run_optimizer_step_rmsprop_stateful(lr, d_weights, d_grads, d_opt_v,
-                                                       total_floats, cfg.rmsprop_beta);
+            result = run_optimizer_step_rmsprop_stateful(lr, d_weights, d_grads, d_opt_v,
+                                                         total_floats, cfg.rmsprop_beta,
+                                                         cfg.optimizer_eps);
+            break;
+        default:
+            result.ok = false;
+            result.message = "unknown optimizer";
+            return result;
     }
-    OptimizerStepResult result;
-    result.ok = false;
-    result.message = "unknown optimizer";
+    if (result.ok && cfg.weight_decay > 0.0f) {
+        cuda_weight_decay(d_weights, lr, cfg.weight_decay, total_floats);
+        AGPT_V2_CUDA_CHECK(cudaDeviceSynchronize());
+        result.message = "optimizer step + decoupled weight decay applied";
+    }
     return result;
 }
 

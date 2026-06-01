@@ -199,6 +199,39 @@ static const char* v2_mode_name(V2Mode mode) {
     return "unknown";
 }
 
+static void abort_bad_forward_v2(const char* scope,
+                                 int epoch,
+                                 int unit_index,
+                                 int units_to_run,
+                                 int root_child_id,
+                                 int chunk_index,
+                                 int chunk_count,
+                                 const agpt_v2::ForwardPassResult& fwd) {
+    std::fprintf(stderr,
+                 "ERROR: v2 %s aborted: forward pass failed at epoch=%d unit=%d/%d rc=%d chunk=%d/%d: %s "
+                 "trained_queries=%d trained_events=%.0f mean_loss=%.6f\n",
+                 scope, epoch, unit_index + 1, units_to_run, root_child_id, chunk_index + 1, chunk_count,
+                 fwd.message ? fwd.message : "unknown forward failure",
+                 fwd.trained_queries, fwd.trained_events, fwd.mean_loss);
+    std::exit(1);
+}
+
+static void abort_empty_training_unit_v2(const char* scope,
+                                         int epoch,
+                                         int unit_index,
+                                         int units_to_run,
+                                         int root_child_id,
+                                         int chunk_count,
+                                         long long trained_queries,
+                                         double trained_events) {
+    std::fprintf(stderr,
+                 "ERROR: v2 %s aborted: unit produced no trainable events at epoch=%d unit=%d/%d rc=%d "
+                 "chunks=%d trained_queries=%lld trained_events=%.0f; refusing optimizer step\n",
+                 scope, epoch, unit_index + 1, units_to_run, root_child_id, chunk_count,
+                 trained_queries, trained_events);
+    std::exit(1);
+}
+
 static bool parse_v2_mode(const char* text, V2Mode& out) {
     if (std::strcmp(text, "plan") == 0) {
         out = V2Mode::Plan;
@@ -555,6 +588,10 @@ static void run_train_epoch_on_radix_host_v2(const agpt_v2::TrainerConfig& cfg,
                     agpt_v2::run_forward_prefix_v2(cfg, model, chunk_meta, chunk_device_meta,
                                                    upload, loss_tables, runtime,
                                                    cfg.anc_grad ? &unit_anc : nullptr);
+                if (!chunk_fwd.ok) {
+                    abort_bad_forward_v2("train-growth", epoch + 1, u, units_to_run,
+                                         unit.root_child_id, s, unit_chunks.chunk_count, chunk_fwd);
+                }
                 agpt_v2::BackwardPassResult chunk_bwd =
                     agpt_v2::run_backward_output_head_v2(cfg, model, chunk_meta, chunk_device_meta,
                                                          upload, chunk_fwd, runtime,
@@ -570,6 +607,11 @@ static void run_train_epoch_on_radix_host_v2(const agpt_v2::TrainerConfig& cfg,
                 agpt_v2::free_chunk_metadata_v2(chunk_meta);
             }
 
+            if (unit_events <= 0.0 || unit_trained <= 0) {
+                abort_empty_training_unit_v2("train-growth", epoch + 1, u, units_to_run,
+                                             unit.root_child_id, unit_chunks.chunk_count,
+                                             unit_trained, unit_events);
+            }
             scale_gradients_for_fire(runtime.cublas, runtime.d_grads, model.total_floats, unit_events);
             agpt_v2::OptimizerStepResult step =
                 agpt_v2::run_optimizer_step_stateful(cfg, current_lr, runtime.d_weights, runtime.d_grads,
@@ -1318,6 +1360,10 @@ int main(int argc, char** argv) {
                                 agpt_v2::run_forward_prefix_v2(cfg, model, chunk_meta, chunk_device_meta, upload, loss_tables, runtime,
                                                                cfg.anc_grad ? &unit_anc : nullptr,
                                                                diag_dump.active ? &diag_dump : nullptr);
+                            if (!chunk_fwd.ok) {
+                                abort_bad_forward_v2("train-epoch", epoch + 1, u, units_to_run,
+                                                     unit.root_child_id, s, unit_chunks.chunk_count, chunk_fwd);
+                            }
                             if (diag_dump.active && diag_probe.exit_after) {
                                 std::printf("  diag-fire-exit: dumped forward tensors at epoch=%d root_id=%d chunk=%d\n",
                                             diag_dump.epoch, diag_dump.root_id, diag_dump.chunk_idx);
@@ -1351,6 +1397,11 @@ int main(int argc, char** argv) {
                             agpt_v2::free_chunk_metadata_v2(chunk_meta);
                         }
 
+                        if (unit_events <= 0.0 || unit_trained <= 0) {
+                            abort_empty_training_unit_v2("train-epoch", epoch + 1, u, units_to_run,
+                                                         unit.root_child_id, unit_chunks.chunk_count,
+                                                         unit_trained, unit_events);
+                        }
                         scale_gradients_for_fire(runtime.cublas, runtime.d_grads, model.total_floats, unit_events);
                         agpt_v2::OptimizerStepResult step =
                             agpt_v2::run_optimizer_step_stateful(cfg, current_lr, runtime.d_weights, runtime.d_grads,

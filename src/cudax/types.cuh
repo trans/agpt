@@ -20,6 +20,15 @@ enum class RopePositionModeV2 {
     SampledBin = 1,
 };
 
+enum class MassWeightModeV2 {
+    Off = 0,
+    Linear = 1,
+    Sqrt = 2,
+    Log = 3,
+    InvLog = 4,
+    InvLinear = 5,
+};
+
 struct TrainerConfig {
     int d_model = 0;
     int n_heads = 0;
@@ -36,6 +45,8 @@ struct TrainerConfig {
     float grad_clip_norm = 0.0f;
     float momentum_beta = 0.9f;
     float rmsprop_beta = 0.999f;
+    float optimizer_eps = 1e-8f;
+    float weight_decay = 0.0f;
     LrSchedule lr_schedule = LrSchedule::Constant;
     OptimizerKind optimizer = OptimizerKind::RMSProp;
     int warmup_epochs = 0;
@@ -44,6 +55,7 @@ struct TrainerConfig {
     bool accumulate = false;
     bool quiet = false;
     RopePositionModeV2 rope_position_mode = RopePositionModeV2::Depth;
+    MassWeightModeV2 mass_weight = MassWeightModeV2::Linear;
     unsigned pos_sample_seed = 1;
 };
 
