@@ -74,6 +74,56 @@ static void launch_precondition_gather(
         d_precondition_input_tokens, N, d_pre);
 }
 
+// ---- Step 5: mean-pool encoder ----
+//
+// The simplest possible encoder over d_precondition_input_tokens[N, d_pre]:
+// look up each token's embedding in the existing model token embedding
+// table (wo.token_emb), average across the d_pre positions, output one
+// D-dim vector per K in the chunk.
+//
+// Loses sequence order (treats precondition as bag-of-chars), so it's not
+// the encoder we ultimately want — but it validates the injection plumbing
+// in Step 6 without entangling with sequence-aware encoder complexity.
+// Step 5b will swap this for a GRU.
+//
+// Zero new parameters: reuses wo.token_emb. Backward (when injection lands)
+// will scatter gradient into the existing embedding table.
+
+__global__ void precondition_mean_pool_kernel(
+    const int*   __restrict__ d_pre_input_tokens,   // [N, d_pre]
+    const float* __restrict__ d_token_emb,          // [vocab_size, D]
+    float*       __restrict__ d_precondition_state, // [N, D] OUT
+    int N, int d_pre, int D, int vocab_size)
+{
+    int k = blockIdx.x;
+    int d = blockIdx.y * blockDim.x + threadIdx.x;
+    if (k >= N || d >= D) return;
+
+    float acc = 0.0f;
+    for (int j = 0; j < d_pre; ++j) {
+        int tok = d_pre_input_tokens[k * d_pre + j];
+        if (tok < 0 || tok >= vocab_size) continue;  // defensive
+        acc += d_token_emb[(long long)tok * D + d];
+    }
+    d_precondition_state[(long long)k * D + d] = acc / (float)d_pre;
+}
+
+static void launch_precondition_mean_pool(
+    const int* d_pre_input_tokens,
+    const float* d_token_emb,
+    float* d_precondition_state,
+    int N, int d_pre, int D, int vocab_size)
+{
+    if (N <= 0 || d_pre <= 0 || D <= 0) return;
+    int threads = (D < 64) ? 32 : 64;
+    int t = 1; while (t < threads) t <<= 1;
+    threads = (t < 32) ? 32 : t;
+    dim3 blocks(N, (D + threads - 1) / threads);
+    precondition_mean_pool_kernel<<<blocks, threads>>>(
+        d_pre_input_tokens, d_token_emb, d_precondition_state,
+        N, d_pre, D, vocab_size);
+}
+
 // Host-side seed-based sampler. Deterministic given (base_seed, K_global, epoch).
 // Mirrors v2's mix_u32 pattern (cf. PositionSamplingStageV2::sample_prefix_start_bin).
 static inline uint32_t precondition_mix_u32(uint32_t x) {

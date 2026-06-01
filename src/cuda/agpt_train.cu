@@ -4816,10 +4816,11 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
     // recomputed on host at the top of each epoch and re-uploaded.
     // d_precondition_input_tokens is per-chunk scratch sized at T_q_cap.
     // ------------------------------------------------------------
-    int*  d_pre_offsets                    = NULL;
-    int*  d_pre_inst_tokens                = NULL;
-    int*  d_pre_sample_idx                 = NULL;
-    int*  d_precondition_input_tokens      = NULL;  // [N_cap, d_pre]
+    int*   d_pre_offsets                    = NULL;
+    int*   d_pre_inst_tokens                = NULL;
+    int*   d_pre_sample_idx                 = NULL;
+    int*   d_precondition_input_tokens      = NULL;  // [N_cap, d_pre]
+    float* d_precondition_state             = NULL;  // [N_cap, D]
     std::vector<int> h_pre_sample_idx;
     int   pre_d_pre = 0;
     if (precondition_sidecar && precondition_d_pre > 0) {
@@ -4837,10 +4838,13 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
         size_t sample_bytes  = (size_t)trie.radix_count * sizeof(int);
         size_t per_chunk_bytes = (size_t)N_cap * (size_t)pre_d_pre * sizeof(int);
 
+        size_t state_bytes = (size_t)N_cap * (size_t)D * sizeof(float);
+
         CUDA_CHECK(cudaMalloc(&d_pre_offsets,                offsets_bytes));
         CUDA_CHECK(cudaMalloc(&d_pre_inst_tokens,            tokens_bytes));
         CUDA_CHECK(cudaMalloc(&d_pre_sample_idx,             sample_bytes));
         CUDA_CHECK(cudaMalloc(&d_precondition_input_tokens,  per_chunk_bytes));
+        CUDA_CHECK(cudaMalloc(&d_precondition_state,         state_bytes));
 
         CUDA_CHECK(cudaMemcpy(d_pre_offsets,
                               precondition_sidecar->offsets.data(),
@@ -4850,19 +4854,21 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                               tokens_bytes, cudaMemcpyHostToDevice));
         CUDA_CHECK(cudaMemset(d_pre_sample_idx, 0, sample_bytes));
         CUDA_CHECK(cudaMemset(d_precondition_input_tokens, 0, per_chunk_bytes));
+        CUDA_CHECK(cudaMemset(d_precondition_state, 0, state_bytes));
 
         h_pre_sample_idx.assign((size_t)trie.radix_count, 0);
 
         if (!quiet) {
             printf("  precondition: d_pre=%d, sidecar device upload "
                    "(offsets %.1f MB + tokens %.1f MB + sample_idx %.1f MB + "
-                   "per-chunk gather %.1f MB = %.1f MB total)\n",
+                   "per-chunk gather %.1f MB + state %.1f MB = %.1f MB total)\n",
                    pre_d_pre,
                    (double)offsets_bytes / 1.0e6,
                    (double)tokens_bytes / 1.0e6,
                    (double)sample_bytes / 1.0e6,
                    (double)per_chunk_bytes / 1.0e6,
-                   (double)(offsets_bytes + tokens_bytes + sample_bytes + per_chunk_bytes) / 1.0e6);
+                   (double)state_bytes / 1.0e6,
+                   (double)(offsets_bytes + tokens_bytes + sample_bytes + per_chunk_bytes + state_bytes) / 1.0e6);
         }
     }
 
@@ -5696,38 +5702,57 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                 int* d_query_depth_cache = device_chunk_meta.d_query_depth;
                 int* d_query_d_split_cache = device_chunk_meta.d_query_d_split;
 
-                // Precondition strand: gather per-K input tokens for this chunk.
-                // Output buffer is unused this commit (encoder + injection pending
-                // Steps 5-6) but the kernel runs so we can verify the data shape
-                // and timing. At d_pre == 0 this is a no-op.
+                // Precondition strand: gather per-K input tokens, then mean-pool
+                // them through the token embedding to produce a [N, D] state.
+                // The state is unused downstream until Step 6 wires the W_pre
+                // residual injection. At d_pre == 0 this is a no-op.
                 if (pre_d_pre > 0 && d_precondition_input_tokens) {
                     launch_precondition_gather(
                         d_radix_ids,
                         d_pre_offsets, d_pre_inst_tokens, d_pre_sample_idx,
                         d_precondition_input_tokens, N, pre_d_pre);
+                    launch_precondition_mean_pool(
+                        d_precondition_input_tokens,
+                        d_weights + wo.token_emb,
+                        d_precondition_state,
+                        N, pre_d_pre, D, cfg.vocab_size);
                     // Diagnostic on the very first chunk of epoch 0: pull back
-                    // the first two K's input tokens and print, so we can
-                    // confirm the device-side gather matches the host-side
-                    // expectation we printed at epoch start.
+                    // the first few K's tokens + state. Lets us cross-check
+                    // device gather matches host expectation AND see that
+                    // mean-pool produced a non-degenerate (non-zero) vector.
                     if (epoch == 0 && fire_chunks_processed == 0 && !quiet && N > 0) {
                         int n_show = N < 3 ? N : 3;
-                        std::vector<int> peek((size_t)n_show * (size_t)pre_d_pre, 0);
-                        CUDA_CHECK(cudaMemcpy(peek.data(), d_precondition_input_tokens,
-                                               peek.size() * sizeof(int),
-                                               cudaMemcpyDeviceToHost));
+                        std::vector<int> peek_tok((size_t)n_show * (size_t)pre_d_pre, 0);
+                        std::vector<float> peek_state((size_t)n_show * (size_t)D, 0.0f);
                         std::vector<int> h_radix_ids_peek((size_t)n_show, 0);
+                        CUDA_CHECK(cudaMemcpy(peek_tok.data(), d_precondition_input_tokens,
+                                               peek_tok.size() * sizeof(int),
+                                               cudaMemcpyDeviceToHost));
+                        CUDA_CHECK(cudaMemcpy(peek_state.data(), d_precondition_state,
+                                               peek_state.size() * sizeof(float),
+                                               cudaMemcpyDeviceToHost));
                         CUDA_CHECK(cudaMemcpy(h_radix_ids_peek.data(), d_radix_ids,
                                                (size_t)n_show * sizeof(int),
                                                cudaMemcpyDeviceToHost));
-                        fprintf(stderr, "  precondition: epoch 0 chunk 0 device gather peek:\n");
+                        fprintf(stderr, "  precondition: epoch 0 chunk 0 device peek:\n");
                         for (int k = 0; k < n_show; ++k) {
                             fprintf(stderr, "    K_local=%d K_global=%d: tok=[",
                                     k, h_radix_ids_peek[k]);
                             for (int j = 0; j < pre_d_pre; ++j) {
-                                fprintf(stderr, "%d%s", peek[(size_t)k * pre_d_pre + j],
+                                fprintf(stderr, "%d%s", peek_tok[(size_t)k * pre_d_pre + j],
                                         j + 1 < pre_d_pre ? "," : "");
                             }
-                            fprintf(stderr, "]\n");
+                            double l2 = 0.0;
+                            for (int j = 0; j < D; ++j) {
+                                double v = peek_state[(size_t)k * D + j];
+                                l2 += v * v;
+                            }
+                            fprintf(stderr, "] state_l2=%.4f state[0..4]=[%.4f,%.4f,%.4f,%.4f]\n",
+                                    sqrt(l2),
+                                    peek_state[(size_t)k * D + 0],
+                                    peek_state[(size_t)k * D + 1],
+                                    peek_state[(size_t)k * D + 2],
+                                    peek_state[(size_t)k * D + 3]);
                         }
                     }
                 }
@@ -7367,6 +7392,7 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
     if (d_pre_inst_tokens)               cudaFree(d_pre_inst_tokens);
     if (d_pre_sample_idx)                cudaFree(d_pre_sample_idx);
     if (d_precondition_input_tokens)     cudaFree(d_precondition_input_tokens);
+    if (d_precondition_state)            cudaFree(d_precondition_state);
     if (d_adam_m_per_rc) cudaFree(d_adam_m_per_rc);
     if (d_adam_v_per_rc) cudaFree(d_adam_v_per_rc);
     if (h_adam_t_per_rc) free(h_adam_t_per_rc);
