@@ -345,6 +345,7 @@ static bool parse_fire_norm_v1(const char* s, bool& by_mass, bool& by_weight, bo
 
 #include "yaml_config_v1.cuh"
 #include "agpt_precondition_sidecar.cuh"
+#include "agpt_precondition_kernels.cuh"
 
 // L-BFGS one-step update. Two-loop recursion using cuBLAS.
 //
@@ -3753,7 +3754,12 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                         SplitSecondary rope_split_secondary = SplitSecondary::Mass,
                         int rope_corpus_window = 128,
                         const char* position_data_dir = nullptr,
-                        PosEncoderMode pos_encoder = PosEncoderMode::Default)
+                        PosEncoderMode pos_encoder = PosEncoderMode::Default,
+                        // Precondition strand: sidecar loaded by main (nullptr or
+                        // d_pre==0 means disabled, baseline bit-exact). See
+                        // notes/seq-len-extension/precondition.md.
+                        const PreconditionSidecar* precondition_sidecar = nullptr,
+                        int precondition_d_pre = 0)
 {
     const bool quiet = persist && persist->quiet;
 
@@ -4801,6 +4807,66 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
     }
 
     // ------------------------------------------------------------
+    // Precondition strand: device buffer allocation + sidecar upload.
+    // See notes/seq-len-extension/precondition.md.
+    //
+    // d_pre_offsets / d_pre_inst_tokens are the per-K instance index loaded
+    // from the sidecar (read-only during training; uploaded once).
+    // d_pre_sample_idx is the per-K selected instance for the current epoch;
+    // recomputed on host at the top of each epoch and re-uploaded.
+    // d_precondition_input_tokens is per-chunk scratch sized at T_q_cap.
+    // ------------------------------------------------------------
+    int*  d_pre_offsets                    = NULL;
+    int*  d_pre_inst_tokens                = NULL;
+    int*  d_pre_sample_idx                 = NULL;
+    int*  d_precondition_input_tokens      = NULL;  // [N_cap, d_pre]
+    std::vector<int> h_pre_sample_idx;
+    int   pre_d_pre = 0;
+    if (precondition_sidecar && precondition_d_pre > 0) {
+        pre_d_pre = precondition_d_pre;
+        // Sanity: trie sizes must match what the loader already checked, but
+        // the trie passed here is the same object so this is just defensive.
+        if ((int)precondition_sidecar->n_radix != trie.radix_count) {
+            fprintf(stderr,
+                    "agpt_train: precondition sidecar n_radix=%u mismatches trie radix_count=%d at fire setup\n",
+                    precondition_sidecar->n_radix, trie.radix_count);
+            return 1;
+        }
+        size_t offsets_bytes = (precondition_sidecar->offsets.size()) * sizeof(uint32_t);
+        size_t tokens_bytes  = (precondition_sidecar->inst_tokens.size()) * sizeof(int32_t);
+        size_t sample_bytes  = (size_t)trie.radix_count * sizeof(int);
+        size_t per_chunk_bytes = (size_t)N_cap * (size_t)pre_d_pre * sizeof(int);
+
+        CUDA_CHECK(cudaMalloc(&d_pre_offsets,                offsets_bytes));
+        CUDA_CHECK(cudaMalloc(&d_pre_inst_tokens,            tokens_bytes));
+        CUDA_CHECK(cudaMalloc(&d_pre_sample_idx,             sample_bytes));
+        CUDA_CHECK(cudaMalloc(&d_precondition_input_tokens,  per_chunk_bytes));
+
+        CUDA_CHECK(cudaMemcpy(d_pre_offsets,
+                              precondition_sidecar->offsets.data(),
+                              offsets_bytes, cudaMemcpyHostToDevice));
+        CUDA_CHECK(cudaMemcpy(d_pre_inst_tokens,
+                              precondition_sidecar->inst_tokens.data(),
+                              tokens_bytes, cudaMemcpyHostToDevice));
+        CUDA_CHECK(cudaMemset(d_pre_sample_idx, 0, sample_bytes));
+        CUDA_CHECK(cudaMemset(d_precondition_input_tokens, 0, per_chunk_bytes));
+
+        h_pre_sample_idx.assign((size_t)trie.radix_count, 0);
+
+        if (!quiet) {
+            printf("  precondition: d_pre=%d, sidecar device upload "
+                   "(offsets %.1f MB + tokens %.1f MB + sample_idx %.1f MB + "
+                   "per-chunk gather %.1f MB = %.1f MB total)\n",
+                   pre_d_pre,
+                   (double)offsets_bytes / 1.0e6,
+                   (double)tokens_bytes / 1.0e6,
+                   (double)sample_bytes / 1.0e6,
+                   (double)per_chunk_bytes / 1.0e6,
+                   (double)(offsets_bytes + tokens_bytes + sample_bytes + per_chunk_bytes) / 1.0e6);
+        }
+    }
+
+    // ------------------------------------------------------------
     // Lightning Training adjacency precompute.
     // We build an inverted parents[] → children adjacency table once, plus
     // cumulative child weights used by L3's mass-weighted descent.
@@ -4928,6 +4994,40 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
             t_us_gather_fwd = t_us_gather_bwd = 0;
             t_us_attn_fwd = t_us_attn_bwd = 0;
             t_us_scatter_fwd = 0;
+        }
+
+        // Precondition strand: pick per-K instance for this epoch.
+        // Hash(seed, K, epoch) % instance_count[K]. Deterministic +
+        // shuffles across epochs without per-fire RNG state. Computed
+        // on host (~1.5M K's @ d=16 is sub-millisecond) and uploaded.
+        if (precondition_sidecar && pre_d_pre > 0) {
+            precondition_compute_sample_idx(
+                precondition_sidecar->offsets, trie.radix_count,
+                cfg.shuffle_seed, epoch, h_pre_sample_idx);
+            CUDA_CHECK(cudaMemcpy(d_pre_sample_idx, h_pre_sample_idx.data(),
+                                   (size_t)trie.radix_count * sizeof(int),
+                                   cudaMemcpyHostToDevice));
+            if (!quiet && epoch == 0) {
+                // Diagnostic: dump a few sample tokens for the first few K's
+                // so we can eyeball-verify the gather is producing plausible data.
+                // (Just a few non-zero-instance K's.)
+                int shown = 0;
+                fprintf(stderr, "  precondition: epoch 0 sample preview (per-K):\n");
+                for (int k = 0; k < trie.radix_count && shown < 3; ++k) {
+                    uint32_t cnt = precondition_sidecar->offsets[(size_t)k + 1]
+                                 - precondition_sidecar->offsets[(size_t)k];
+                    if (cnt == 0) continue;
+                    int inst = h_pre_sample_idx[(size_t)k];
+                    int slot = (int)precondition_sidecar->offsets[(size_t)k] + inst;
+                    fprintf(stderr, "    K=%d (mass=%u inst=%d slot=%d): tok=[", k, cnt, inst, slot);
+                    for (int j = 0; j < pre_d_pre; ++j) {
+                        fprintf(stderr, "%d%s", precondition_sidecar->inst_tokens[(size_t)slot * pre_d_pre + j],
+                                j + 1 < pre_d_pre ? "," : "");
+                    }
+                    fprintf(stderr, "]\n");
+                    shown++;
+                }
+            }
         }
 
         // --shuffle-order: Fisher-Yates permutation of partition groups per
@@ -5595,6 +5695,42 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                 int* d_own_lengths_cache = device_chunk_meta.d_own_lengths;
                 int* d_query_depth_cache = device_chunk_meta.d_query_depth;
                 int* d_query_d_split_cache = device_chunk_meta.d_query_d_split;
+
+                // Precondition strand: gather per-K input tokens for this chunk.
+                // Output buffer is unused this commit (encoder + injection pending
+                // Steps 5-6) but the kernel runs so we can verify the data shape
+                // and timing. At d_pre == 0 this is a no-op.
+                if (pre_d_pre > 0 && d_precondition_input_tokens) {
+                    launch_precondition_gather(
+                        d_radix_ids,
+                        d_pre_offsets, d_pre_inst_tokens, d_pre_sample_idx,
+                        d_precondition_input_tokens, N, pre_d_pre);
+                    // Diagnostic on the very first chunk of epoch 0: pull back
+                    // the first two K's input tokens and print, so we can
+                    // confirm the device-side gather matches the host-side
+                    // expectation we printed at epoch start.
+                    if (epoch == 0 && fire_chunks_processed == 0 && !quiet && N > 0) {
+                        int n_show = N < 3 ? N : 3;
+                        std::vector<int> peek((size_t)n_show * (size_t)pre_d_pre, 0);
+                        CUDA_CHECK(cudaMemcpy(peek.data(), d_precondition_input_tokens,
+                                               peek.size() * sizeof(int),
+                                               cudaMemcpyDeviceToHost));
+                        std::vector<int> h_radix_ids_peek((size_t)n_show, 0);
+                        CUDA_CHECK(cudaMemcpy(h_radix_ids_peek.data(), d_radix_ids,
+                                               (size_t)n_show * sizeof(int),
+                                               cudaMemcpyDeviceToHost));
+                        fprintf(stderr, "  precondition: epoch 0 chunk 0 device gather peek:\n");
+                        for (int k = 0; k < n_show; ++k) {
+                            fprintf(stderr, "    K_local=%d K_global=%d: tok=[",
+                                    k, h_radix_ids_peek[k]);
+                            for (int j = 0; j < pre_d_pre; ++j) {
+                                fprintf(stderr, "%d%s", peek[(size_t)k * pre_d_pre + j],
+                                        j + 1 < pre_d_pre ? "," : "");
+                            }
+                            fprintf(stderr, "]\n");
+                        }
+                    }
+                }
 
                 // Corpus-mass weighting. Raw edge_mass varies by 5+ orders of
                 // magnitude in natural-language tries (common letters vs rare
@@ -7227,6 +7363,10 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
     }
     if (d_compact_to_subtree_idx) cudaFree(d_compact_to_subtree_idx);
     if (d_subtree_real_pos)       cudaFree(d_subtree_real_pos);
+    if (d_pre_offsets)                   cudaFree(d_pre_offsets);
+    if (d_pre_inst_tokens)               cudaFree(d_pre_inst_tokens);
+    if (d_pre_sample_idx)                cudaFree(d_pre_sample_idx);
+    if (d_precondition_input_tokens)     cudaFree(d_precondition_input_tokens);
     if (d_adam_m_per_rc) cudaFree(d_adam_m_per_rc);
     if (d_adam_v_per_rc) cudaFree(d_adam_v_per_rc);
     if (h_adam_t_per_rc) free(h_adam_t_per_rc);
@@ -8045,17 +8185,17 @@ int main(int argc, char** argv) {
                         yaml_cfg.precondition_d_pre);
                 return 1;
             }
-            // Encoder + injection still pending. Hard-error so configs don't
-            // silently no-op while we're building the rest. The loader having
-            // succeeded above already validated the sidecar shape, so the
-            // error message changes character: it's "rest of pipeline TODO,"
-            // not "sidecar missing."
+            // Encoder + injection still pending (Steps 5-6).
+            // This commit (Step 4) wires per-fire instance sampling + gather
+            // kernel — the per-K precondition input tokens are materialized
+            // each chunk but unused downstream. d_pre > 0 + sidecar loaded
+            // runs end-to-end; the precondition state has zero effect on
+            // weights so the model trains identically to baseline.
             fprintf(stderr,
-                    "agpt_train: precondition sidecar loaded successfully but the GRU encoder "
-                    "+ residual injection are not yet implemented (this commit is loader-only; "
-                    "see Steps 4-6 in notes/seq-len-extension/precondition.md). "
-                    "Set d_pre=0 to run baseline.\n");
-            return 1;
+                    "agpt_train: precondition d_pre=%d active (Step 4: gather only; "
+                    "encoder + residual injection still TODO; runtime should match "
+                    "baseline since the gather output is unused downstream).\n",
+                    yaml_cfg.precondition_d_pre);
         }
 
         // Reconcile cfg.seq_len with the actual training depth. The model
@@ -8089,7 +8229,10 @@ int main(int argc, char** argv) {
         }
 
         unsigned final_perm_seed = (rope_perm_seed >= 0) ? (unsigned)rope_perm_seed : init_seed;
-        int rc = run_radix_training(cfg, wo, h_weights, radix_trie, epochs, entropy_lambda, mass_weight, subtree_splits, partition_depth, accumulate, single_subtree, intermediate_weight, optimizer, momentum_beta, rmsprop_beta, lr_schedule, warmup_epochs, weight_decay, grad_clip_norm, save_every, curriculum, save_path, lightning, &persist, depth_weight, fire_norm_by_mass, entropy_weight, fire_norm_by_weight, fire_norm_none, branching_weight, rope_mode, final_perm_seed, rope_swap_a, rope_swap_b, rope_split_depth_heads, rope_split_secondary, rope_corpus_window, position_data_dir, pos_encoder);
+        // Precondition strand: pass sidecar through to the trainer if loaded.
+        const PreconditionSidecar* precondition_sidecar_ptr =
+            (yaml_cfg.precondition_d_pre > 0) ? &precondition_sidecar : nullptr;
+        int rc = run_radix_training(cfg, wo, h_weights, radix_trie, epochs, entropy_lambda, mass_weight, subtree_splits, partition_depth, accumulate, single_subtree, intermediate_weight, optimizer, momentum_beta, rmsprop_beta, lr_schedule, warmup_epochs, weight_decay, grad_clip_norm, save_every, curriculum, save_path, lightning, &persist, depth_weight, fire_norm_by_mass, entropy_weight, fire_norm_by_weight, fire_norm_none, branching_weight, rope_mode, final_perm_seed, rope_swap_a, rope_swap_b, rope_split_depth_heads, rope_split_secondary, rope_corpus_window, position_data_dir, pos_encoder, precondition_sidecar_ptr, yaml_cfg.precondition_d_pre);
         // Append optimizer state to the saved checkpoint so the next training
         // call can pick up Adam/RMSprop moments mid-stream.
         if (rc == 0 && save_path) {
