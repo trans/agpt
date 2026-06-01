@@ -1,5 +1,40 @@
 # Slot Selection
 
+## Status: CLOSED 2026-05-31
+
+The Step 0 implementation landed, was sign-checked (math + code clean, K/V
+gradient direction correct), and was paired-run measured at multiple scales
+(L=2 and L=4) and recipes (rmsprop + tail-carve at 25 ep and adam +
+sample-carve at 100 ep). Headline: under converged-optimizer + comparable-eval
+conditions the attention-level backoff slot mechanism is **null** — neither
+helps nor hurts byte_PPL beyond seed noise.
+
+The deeper diagnosis is that the design has a **structural incompatibility
+with pd=1**, which is the only training regime in which AGPT achieves
+interesting PPL (the best AGPT v1 run hit byte_PPL 4.75 at pd=1 / d=128 /
+L=6 / 128 ep / adam). Backoff requires pd=0 because `h_subtree[l]` is
+fire-scoped and K_back can be anywhere in the trie. The Adam-step count
+differential is ~65× (pd=1 fires once per root-child subtree per epoch;
+pd=0 fires once per epoch). We can never directly compare backoff-on vs
+backoff-off in the regime where AGPT actually performs, because turning
+backoff on forces pd=0.
+
+If revisited, the prerequisite is pd=1 cross-subtree backoff machinery —
+the multi-pass / cross-fire-stash design Step 0 explicitly avoided by
+piggybacking on anc-grad's closed-form. That's days-to-weeks of engineering
+with its own staleness questions and isn't covered by anything in this doc.
+
+Result locations:
+- 3×3 L=2 paired runs: `rnd/slot-selection-step0/2026*baseline-b0-*`, `*backoff-b4-samek-*`, `*backoff-b4-sentinel-*`
+- L=4 capacity test: same dir, `*L4-*` prefix
+- Adam + sample-carve longrun: same dir, `*longrun-*`
+- Sign-check diagnostic: `*diag-skip-kv-matmul-*`
+- Memory: `~/.claude/projects/-home-trans-Projects-agpt/memory/project_slot_selection_step0.md`
+
+The rest of this doc is the original design rationale, preserved for reference.
+
+---
+
 ## The reframing
 
 AGPT's "context window = trie depth" constraint is self-imposed. The transformer attention layer knows nothing about the trie per se — it sees a query, a stack of K/V slots, computes softmax-weighted attention, returns. The rule that "K/V slots = path ancestors only, exactly `d` of them" is how we *populate* the slots, not a constraint the architecture imposes.
