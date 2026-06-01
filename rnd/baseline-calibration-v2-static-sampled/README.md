@@ -1,11 +1,12 @@
 # baseline-calibration-v2-static-sampled
 
-Status: pd=0 and pd=1 calibration runs complete
+Status: closed
 
 ## Question
 
 Measure static v2 calibration runs with epoch checkpoints, using the standard
-sampled heldout carve.
+sampled heldout carve. This line ended as a calibration/optimizer sweep for
+the current CUDAX depth-16 AGPT trainer.
 
 ## Protocol
 
@@ -20,9 +21,14 @@ The seed filename's `s128` is the checkpoint header sequence length. These
 runs reconcile that seed checkpoint to effective `train.max_depth=16` for AGPT
 training and evaluation.
 
-Varied settings are `partition_depth` and optimizer. `pd=0` is single-fire
+Early runs vary `partition_depth` and optimizer. `pd=0` is single-fire
 training: one optimizer update per full trie epoch. `pd=1` fires once per
 root-child group.
+
+Later d128/L6 runs use init
+`rnd/cudax-section2-progressive/seeds/shake-d128L6-h8-dff512-d16-seed42.model`
+with `d_model=128`, `n_layers=6`, `n_heads=8`, `d_ff=512`, `pd=1`,
+`anc_grad=true`, sampled heldout, wrapped trie, and the same depth/window 16.
 
 ## Results
 
@@ -36,6 +42,51 @@ root-child group.
 | `20260530T215135-d64l2-depth16-pd1-adam-lr0015-256ep` | `pd=1`, Adam `lr=0.0015` `beta1=0.9` `beta2=0.999`, 256 epochs | 4.3913 | 4.9552 | 2.3089 | 1459.0 | 1715.0 |
 | `20260530T225246-d64l2-depth16-pd1-adam-lr0015-256ep-wrap` | `pd=1`, Adam `lr=0.0015` `beta1=0.9` `beta2=0.999`, 256 epochs, wrapped trie | 4.3868 | 4.9377 | 2.3038 | 1448.0 | 1697.0 |
 <!-- agpt-experiment-table:end -->
+
+## Closeout
+
+The best result in this line was the larger d128/L6 linear-mass run at epoch
+128:
+
+| Run ID | Checkpoint | Settings | fixed_token_ppl | rolling_byte_ppl | bits/byte |
+|--------|-----------:|----------|----------------:|-----------------:|----------:|
+| `20260601T064609-d128l6-depth16-pd1-adam-lr0010-512ep-wrap` | 128 | Adam `lr=0.0010`, linear mass | 4.1705 | 4.7086 | 2.2353 |
+
+That run continued to 512 epochs but overfit badly after the epoch-128
+checkpoint (`fixed_token_ppl=8.3467` at 512). The earlier high-LR d128/L6 run
+with `lr=0.0015` also reached the same neighborhood at epoch 128
+(`fixed_token_ppl=4.1827`) before degrading and later hitting the finite-loss
+guard failure that motivated the optimizer hardening below.
+
+Log-mass and Adam-stability followups were useful diagnostics but did not move
+the floor:
+
+| Run ID | Best checkpoint | Settings delta | fixed_token_ppl | rolling_byte_ppl | bits/byte |
+|--------|----------------:|----------------|----------------:|-----------------:|----------:|
+| `20260601T135307-d128l6-depth16-pd1-adam-lr0010-logmass-32ep-wrap` | 32 | log mass | 4.3866 | 5.8679 | 2.5529 |
+| `20260601T144234-d128l6-depth16-pd1-adam-lr0010-eps1e4-logmass-128ep-wrap` | 32 | log mass, Adam `eps=1e-4` | 4.3193 | 5.7365 | 2.5202 |
+| `20260601T163352-d128l6-depth16-pd1-adam-lr0005-eps1e4-logmass-128ep-cq25k-wr` | 64 | log mass, Adam `lr=0.0005`, `eps=1e-4`, `chunk_queries=25000` | 4.3753 | 5.8886 | 2.5579 |
+| `20260601T180021-d128l6-depth16-pd1-adam-lr0010-eps1e4-wd001-logmass-128ep-wr` | 32 | log mass, Adam `eps=1e-4`, `weight_decay=0.01` | 4.2874 | 5.6025 | 2.4861 |
+
+Interpretation:
+
+- `pd=1` is the viable static CUDAX training mode for this baseline; `pd=0`
+  converges much worse.
+- Adam beats RMSProp for this setup, and `lr=0.0015` was best for d64/L2.
+- Wrapping the corpus tail was mildly positive and removed the skewed tail
+  construction issue.
+- Progressive growth can approach the static d64/L2 result faster, but did not
+  beat the best static run.
+- d128/L6 reaches the best fixed-token PPL near epoch 128, but further training
+  overfits sampled heldout.
+- Log mass improves some early fixed-token checkpoints but substantially hurts
+  byte/rolling PPL and does not beat the linear-mass d128/L6 result.
+- Adam `eps` and decoupled `weight_decay` support are useful stability knobs,
+  but neither overcame the depth-16 context ceiling in this sweep.
+
+The line is closed. The next likely gains are structural rather than another
+optimizer sweep: larger/effective context, position-aware RoPE using corpus
+position histograms, or backoff/smoothing behavior closer to KN.
 
 ## Checkpoints
 

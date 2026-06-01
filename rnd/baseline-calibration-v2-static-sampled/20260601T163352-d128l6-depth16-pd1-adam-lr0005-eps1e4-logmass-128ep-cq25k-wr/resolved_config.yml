@@ -1,0 +1,56 @@
+---
+description: 'V2 static sampled-heldout calibration: d128 L6 depth16 pd1 Adam lr0.0005
+  eps1e-4 log mass 128 epochs, chunk 25k, wrapped trie tail'
+experiment: baseline-calibration-v2-static-sampled
+run_slug: d128L6-depth16-pd1-adam-lr0005-eps1e4-logmass-128ep-cq25k-wrap
+corpus:
+  path: data/.splits/4fa9aec1db6b3aea/train_corpus.txt
+  heldout: data/.splits/4fa9aec1db6b3aea/heldout_corpus.txt
+  vocab_source: data/input.txt
+  carve:
+    source: data/input.txt
+    mode: sample
+    ratio: 0.05
+    chunks: 10
+    seed: 42
+trie:
+  prune_min_mass: 1
+  prune_min_depth: 0
+  path: data/.tries/64e9fe109211b366
+  virtual_tree: false
+model:
+  init_file: rnd/cudax-section2-progressive/seeds/shake-d128L6-h8-dff512-d16-seed42.model
+  save_file: rnd/baseline-calibration-v2-static-sampled/20260601T163352-d128l6-depth16-pd1-adam-lr0005-eps1e4-logmass-128ep-cq25k-wr/checkpoint.model
+train:
+  budget:
+    unit: epochs
+    value: 128
+  seed: 42
+  quiet: true
+  optimizer:
+    name: adam
+    lr: 0.0005
+    beta: 0.999
+    momentum_beta: 0.9
+    eps: 0.0001
+  lr_schedule:
+    name: warmup-cosine
+    warmup_epochs: 0
+  max_depth: 16
+  partition_depth: 1
+  chunk_queries: 25000
+  anc_grad: true
+  mass_weight: log
+  checkpoint_epochs:
+  - 1
+  - 2
+  - 4
+  - 8
+  - 16
+  - 32
+  - 64
+  - 128
+eval:
+  train_sanity: false
+  batch_size: 1
+  device: cpu
