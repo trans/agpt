@@ -1,0 +1,50 @@
+# Precondition strand Step 1 paired runs (mean-pool encoder, auto-generated).
+# See notes/seq-len-extension/precondition.md.
+# Run as: bin/agpt_experiment --config <this> --trainer v1
+
+description: "Precondition Step 1: d_pre=16 mean-pool, adam lr=1.5e-3, sample carve, 25ep, seed=3"
+experiment: precondition-step1
+run_slug: precondition-d16-seed3
+
+corpus:
+  path: data/.splits/2b7ded401e96b610/train_corpus.txt
+  heldout: data/.splits/2b7ded401e96b610/heldout_corpus.txt
+  vocab_source: data/input.txt
+  carve:
+    source: data/input.txt
+    mode: tail
+    ratio: 0.05
+
+trie:
+  path: /tmp/shake_d16_train_radix
+  max_depth: 16
+
+model:
+  init_file: data/input.model
+
+train:
+  budget:
+    unit: epochs
+    value: 25
+  seed: 3
+  quiet: true
+  optimizer:
+    name: adam
+    lr: 0.0015
+    beta: 0.999
+    momentum_beta: 0.9
+  lr_schedule:
+    name: warmup-cosine
+    warmup_epochs: 0
+  max_depth: 16
+  partition_depth: 0
+  chunk_queries: 50000
+  anc_grad: true
+
+experimental:
+  precondition:
+    d_pre: 16
+
+eval:
+  batch_size: 1
+  device: cpu
