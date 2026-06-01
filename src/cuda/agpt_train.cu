@@ -344,6 +344,7 @@ static bool parse_fire_norm_v1(const char* s, bool& by_mass, bool& by_weight, bo
 }
 
 #include "yaml_config_v1.cuh"
+#include "agpt_precondition_sidecar.cuh"
 
 // L-BFGS one-step update. Two-loop recursion using cuBLAS.
 //
@@ -8011,9 +8012,10 @@ int main(int argc, char** argv) {
         printf("Loading radix trie from %s...\n", trie_dir);
         RadixTrieData radix_trie = load_radix_trie(trie_dir);
 
-        // Precondition strand (notes/seq-len-extension/precondition.md, planned).
-        // This commit only acknowledges the YAML field; no buffers, no kernels,
-        // no behavior change. precondition_d_pre==0 is the bit-exact baseline.
+        // Precondition strand (notes/seq-len-extension/precondition.md).
+        // Step 3 lands the sidecar loader. Encoder + injection still TODO.
+        // precondition_d_pre==0 is the bit-exact baseline.
+        PreconditionSidecar precondition_sidecar;
         if (config_path && yaml_cfg.precondition_d_pre > 0) {
             // Constraint: pd=0 only (single-fire-per-epoch, so per-K instance
             // sampling is reproducible across chunks of the fire). Mirrors the
@@ -8026,13 +8028,33 @@ int main(int argc, char** argv) {
                         yaml_cfg.precondition_d_pre);
                 return 1;
             }
-            // Hard-error until the actual implementation lands. This prevents
-            // configs from silently no-op'ing while the feature is being built.
+            // Load the sidecar (pre-extracted per-K instance tokens + positions).
+            // Path convention: <trie-dir>/precondition_d<N>.bin.
+            char precondition_sidecar_path[2048];
+            std::snprintf(precondition_sidecar_path, sizeof(precondition_sidecar_path),
+                          "%s/precondition_d%d.bin", trie_dir, yaml_cfg.precondition_d_pre);
+            if (!precondition_sidecar.load(precondition_sidecar_path,
+                                           radix_trie.radix_count,
+                                           yaml_cfg.precondition_d_pre)) {
+                fprintf(stderr,
+                        "agpt_train: experimental.precondition.d_pre=%d requires sidecar %s; "
+                        "build it with bin/agpt_build_precondition_sidecar --trie %s --corpus <PATH> "
+                        "--out %s --d-pre %d\n",
+                        yaml_cfg.precondition_d_pre, precondition_sidecar_path,
+                        trie_dir, precondition_sidecar_path,
+                        yaml_cfg.precondition_d_pre);
+                return 1;
+            }
+            // Encoder + injection still pending. Hard-error so configs don't
+            // silently no-op while we're building the rest. The loader having
+            // succeeded above already validated the sidecar shape, so the
+            // error message changes character: it's "rest of pipeline TODO,"
+            // not "sidecar missing."
             fprintf(stderr,
-                    "agpt_train: experimental.precondition.d_pre=%d is plumbed in YAML but "
-                    "not yet implemented (this commit is plumbing-only; the GRU encoder + "
-                    "residual injection land in a subsequent commit). Set d_pre=0 to run baseline.\n",
-                    yaml_cfg.precondition_d_pre);
+                    "agpt_train: precondition sidecar loaded successfully but the GRU encoder "
+                    "+ residual injection are not yet implemented (this commit is loader-only; "
+                    "see Steps 4-6 in notes/seq-len-extension/precondition.md). "
+                    "Set d_pre=0 to run baseline.\n");
             return 1;
         }
 
