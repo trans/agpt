@@ -588,6 +588,15 @@ struct WeightOffsets {
     // step regardless of init source.
     int wp_w;         // [d_model, d_model] or -1 if disabled
 
+    // GRU encoder (Step 5b): replaces the Step 5 mean-pool encoder.
+    // 6 weight matrices [D, D] + 6 biases [D]. All -1 when disabled.
+    // All zero-initialized → sigmoid(0)=0.5, tanh(0)=0 → h_t stays 0
+    // → precondition_state stays 0 → matches baseline on step 1.
+    int gru_w_ir, gru_w_iz, gru_w_in;   // input-to-gate, each [D, D]
+    int gru_w_hr, gru_w_hz, gru_w_hn;   // hidden-to-gate, each [D, D]
+    int gru_b_ir, gru_b_iz, gru_b_in;   // input-to-gate biases, each [D]
+    int gru_b_hr, gru_b_hz, gru_b_hn;   // hidden-to-gate biases, each [D]
+
     int total_floats;
 };
 
@@ -642,12 +651,28 @@ WeightOffsets compute_offsets(const Config& cfg, int precondition_d_pre = 0) {
     wo.out_w = off; off += D * V;
     wo.out_b = off; off += V;
 
-    // Precondition W_pre appended at the END of the layout, so older
-    // checkpoints (without W_pre) can be loaded by zero-padding the tail.
+    // Precondition strand (Step 6 W_pre + Step 5b GRU) appended at the
+    // END of the layout, so older checkpoints can be zero-padded on load.
     if (precondition_d_pre > 0) {
-        wo.wp_w = off; off += D * D;
+        wo.wp_w     = off; off += D * D;
+        wo.gru_w_ir = off; off += D * D;
+        wo.gru_w_iz = off; off += D * D;
+        wo.gru_w_in = off; off += D * D;
+        wo.gru_w_hr = off; off += D * D;
+        wo.gru_w_hz = off; off += D * D;
+        wo.gru_w_hn = off; off += D * D;
+        wo.gru_b_ir = off; off += D;
+        wo.gru_b_iz = off; off += D;
+        wo.gru_b_in = off; off += D;
+        wo.gru_b_hr = off; off += D;
+        wo.gru_b_hz = off; off += D;
+        wo.gru_b_hn = off; off += D;
     } else {
         wo.wp_w = -1;
+        wo.gru_w_ir = wo.gru_w_iz = wo.gru_w_in = -1;
+        wo.gru_w_hr = wo.gru_w_hz = wo.gru_w_hn = -1;
+        wo.gru_b_ir = wo.gru_b_iz = wo.gru_b_in = -1;
+        wo.gru_b_hr = wo.gru_b_hz = wo.gru_b_hn = -1;
     }
 
     wo.total_floats = off;
@@ -4839,6 +4864,13 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
     int*   d_precondition_input_tokens      = NULL;  // [N_cap, d_pre]
     float* d_precondition_state             = NULL;  // [N_cap, D]
     float* d_precondition_state_grad        = NULL;  // [N_cap, D] per-chunk scratch
+    // GRU scratch (Step 5b): h_states is allocated to hold all d_pre+1
+    // hidden states (h_0=0 ... h_{d_pre}=output) for backward recomputation.
+    // d_gru_x_t / d_gru_dx_t / d_gru_dh are rolling per-timestep buffers.
+    float* d_gru_h_states                   = NULL;  // [d_pre+1, N_cap, D]
+    float* d_gru_x_t                        = NULL;  // [N_cap, D] timestep input
+    float* d_gru_dx_t                       = NULL;  // [N_cap, D] backward
+    float* d_gru_dh                         = NULL;  // [N_cap, D] rolling dh
     std::vector<int> h_pre_sample_idx;
     int   pre_d_pre = 0;
     if (precondition_sidecar && precondition_d_pre > 0) {
@@ -4857,6 +4889,10 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
         size_t per_chunk_bytes = (size_t)N_cap * (size_t)pre_d_pre * sizeof(int);
 
         size_t state_bytes = (size_t)N_cap * (size_t)D * sizeof(float);
+        size_t gru_h_bytes = (size_t)(pre_d_pre + 1) * (size_t)N_cap * (size_t)D * sizeof(float);
+        size_t gru_xt_bytes = state_bytes;
+        size_t gru_dx_bytes = state_bytes;
+        size_t gru_dh_bytes = state_bytes;
 
         CUDA_CHECK(cudaMalloc(&d_pre_offsets,                offsets_bytes));
         CUDA_CHECK(cudaMalloc(&d_pre_inst_tokens,            tokens_bytes));
@@ -4864,6 +4900,10 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
         CUDA_CHECK(cudaMalloc(&d_precondition_input_tokens,  per_chunk_bytes));
         CUDA_CHECK(cudaMalloc(&d_precondition_state,         state_bytes));
         CUDA_CHECK(cudaMalloc(&d_precondition_state_grad,    state_bytes));
+        CUDA_CHECK(cudaMalloc(&d_gru_h_states,               gru_h_bytes));
+        CUDA_CHECK(cudaMalloc(&d_gru_x_t,                    gru_xt_bytes));
+        CUDA_CHECK(cudaMalloc(&d_gru_dx_t,                   gru_dx_bytes));
+        CUDA_CHECK(cudaMalloc(&d_gru_dh,                     gru_dh_bytes));
 
         CUDA_CHECK(cudaMemcpy(d_pre_offsets,
                               precondition_sidecar->offsets.data(),
@@ -4875,20 +4915,23 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
         CUDA_CHECK(cudaMemset(d_precondition_input_tokens, 0, per_chunk_bytes));
         CUDA_CHECK(cudaMemset(d_precondition_state, 0, state_bytes));
         CUDA_CHECK(cudaMemset(d_precondition_state_grad, 0, state_bytes));
+        CUDA_CHECK(cudaMemset(d_gru_h_states, 0, gru_h_bytes));
+        CUDA_CHECK(cudaMemset(d_gru_x_t, 0, gru_xt_bytes));
+        CUDA_CHECK(cudaMemset(d_gru_dx_t, 0, gru_dx_bytes));
+        CUDA_CHECK(cudaMemset(d_gru_dh, 0, gru_dh_bytes));
 
         h_pre_sample_idx.assign((size_t)trie.radix_count, 0);
 
         if (!quiet) {
-            printf("  precondition: d_pre=%d, sidecar device upload "
-                   "(offsets %.1f MB + tokens %.1f MB + sample_idx %.1f MB + "
-                   "per-chunk gather %.1f MB + state %.1f MB = %.1f MB total)\n",
+            size_t total = offsets_bytes + tokens_bytes + sample_bytes
+                         + per_chunk_bytes + state_bytes
+                         + gru_h_bytes + gru_xt_bytes + gru_dx_bytes + gru_dh_bytes;
+            printf("  precondition: d_pre=%d (GRU encoder), "
+                   "device upload (sidecar %.1f MB + per-chunk scratch %.1f MB = %.1f MB total)\n",
                    pre_d_pre,
-                   (double)offsets_bytes / 1.0e6,
-                   (double)tokens_bytes / 1.0e6,
-                   (double)sample_bytes / 1.0e6,
-                   (double)per_chunk_bytes / 1.0e6,
-                   (double)state_bytes / 1.0e6,
-                   (double)(offsets_bytes + tokens_bytes + sample_bytes + per_chunk_bytes + state_bytes) / 1.0e6);
+                   (double)(offsets_bytes + tokens_bytes + sample_bytes) / 1.0e6,
+                   (double)(per_chunk_bytes + state_bytes + gru_h_bytes + gru_xt_bytes + gru_dx_bytes + gru_dh_bytes) / 1.0e6,
+                   (double)total / 1.0e6);
         }
     }
 
@@ -5731,11 +5774,32 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                         d_radix_ids,
                         d_pre_offsets, d_pre_inst_tokens, d_pre_sample_idx,
                         d_precondition_input_tokens, N, pre_d_pre);
-                    launch_precondition_mean_pool(
-                        d_precondition_input_tokens,
-                        d_weights + wo.token_emb,
+                    // GRU encoder forward: d_pre sequential timesteps.
+                    // h_states[t * N * D + k * D + d] is h_t for K at dim d.
+                    // h_0 is zero (already zeroed by chunk-start memset).
+                    CUDA_CHECK(cudaMemsetAsync(d_gru_h_states, 0,
+                        (size_t)(pre_d_pre + 1) * (size_t)N * (size_t)D * sizeof(float)));
+                    for (int t = 0; t < pre_d_pre; ++t) {
+                        launch_gru_embed_one_step(
+                            d_precondition_input_tokens,
+                            d_weights + wo.token_emb,
+                            d_gru_x_t, N, pre_d_pre, t, D, cfg.vocab_size);
+                        float* h_prev = d_gru_h_states + (size_t)t       * N * D;
+                        float* h_next = d_gru_h_states + (size_t)(t + 1) * N * D;
+                        launch_gru_step_forward(
+                            d_gru_x_t, h_prev,
+                            d_weights + wo.gru_w_ir, d_weights + wo.gru_w_iz, d_weights + wo.gru_w_in,
+                            d_weights + wo.gru_w_hr, d_weights + wo.gru_w_hz, d_weights + wo.gru_w_hn,
+                            d_weights + wo.gru_b_ir, d_weights + wo.gru_b_iz, d_weights + wo.gru_b_in,
+                            d_weights + wo.gru_b_hr, d_weights + wo.gru_b_hz, d_weights + wo.gru_b_hn,
+                            h_next, N, D);
+                    }
+                    // Final hidden state is the precondition state.
+                    CUDA_CHECK(cudaMemcpyAsync(
                         d_precondition_state,
-                        N, pre_d_pre, D, cfg.vocab_size);
+                        d_gru_h_states + (size_t)pre_d_pre * N * D,
+                        (size_t)N * D * sizeof(float),
+                        cudaMemcpyDeviceToDevice));
                     // Diagnostic on the very first chunk of epoch 0: pull back
                     // the first few K's tokens + state. Lets us cross-check
                     // device gather matches host expectation AND see that
@@ -6708,11 +6772,54 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                         d_grads + wo.wp_w,
                         d_precondition_state_grad,
                         T_q, D);
-                    launch_precondition_mean_pool_backward(
-                        d_precondition_state_grad,
-                        d_precondition_input_tokens,
-                        d_grads + wo.token_emb,
-                        N, pre_d_pre, D, cfg.vocab_size);
+                    // GRU BPTT: d_precondition_state_grad is the gradient on
+                    // h_{d_pre} (the final hidden state). Walk timesteps in
+                    // reverse, accumulating param grads + scattering dx_t
+                    // into d_token_emb_grad each step.
+                    CUDA_CHECK(cudaMemcpyAsync(
+                        d_gru_dh, d_precondition_state_grad,
+                        state_grad_bytes, cudaMemcpyDeviceToDevice));
+                    for (int t = pre_d_pre - 1; t >= 0; --t) {
+                        float* h_prev = d_gru_h_states + (size_t)t       * N * D;
+                        float* h_next = d_gru_h_states + (size_t)(t + 1) * N * D;
+                        // Recompute x_t for this timestep.
+                        launch_gru_embed_one_step(
+                            d_precondition_input_tokens,
+                            d_weights + wo.token_emb,
+                            d_gru_x_t, N, pre_d_pre, t, D, cfg.vocab_size);
+                        // Zero dh_prev + dx_t before atomic-adds.
+                        CUDA_CHECK(cudaMemsetAsync(d_gru_dx_t, 0, state_grad_bytes));
+                        // dh_prev: we need a fresh buffer because dh_next
+                        // becomes the next iteration's input. Use h_prev's
+                        // slot in d_gru_h_states is no — that holds h_{t-1}.
+                        // Allocate dh_prev_scratch as a transient: reuse
+                        // d_precondition_state_grad for it (we've already
+                        // copied dh into d_gru_dh).
+                        CUDA_CHECK(cudaMemsetAsync(d_precondition_state_grad, 0, state_grad_bytes));
+                        launch_gru_step_backward(
+                            d_gru_x_t, h_prev, h_next,
+                            d_weights + wo.gru_w_ir, d_weights + wo.gru_w_iz, d_weights + wo.gru_w_in,
+                            d_weights + wo.gru_w_hr, d_weights + wo.gru_w_hz, d_weights + wo.gru_w_hn,
+                            d_weights + wo.gru_b_ir, d_weights + wo.gru_b_iz, d_weights + wo.gru_b_in,
+                            d_weights + wo.gru_b_hr, d_weights + wo.gru_b_hz, d_weights + wo.gru_b_hn,
+                            d_gru_dh,
+                            d_precondition_state_grad,  // dh_prev OUT
+                            d_gru_dx_t,                 // dx_t OUT
+                            d_grads + wo.gru_w_ir, d_grads + wo.gru_w_iz, d_grads + wo.gru_w_in,
+                            d_grads + wo.gru_w_hr, d_grads + wo.gru_w_hz, d_grads + wo.gru_w_hn,
+                            d_grads + wo.gru_b_ir, d_grads + wo.gru_b_iz, d_grads + wo.gru_b_in,
+                            d_grads + wo.gru_b_hr, d_grads + wo.gru_b_hz, d_grads + wo.gru_b_hn,
+                            N, D);
+                        // Scatter dx_t into token embedding gradient.
+                        launch_gru_embed_scatter(
+                            d_gru_dx_t, d_precondition_input_tokens,
+                            d_grads + wo.token_emb,
+                            N, pre_d_pre, t, D, cfg.vocab_size);
+                        // dh for next iteration is dh_prev_scratch.
+                        CUDA_CHECK(cudaMemcpyAsync(
+                            d_gru_dh, d_precondition_state_grad,
+                            state_grad_bytes, cudaMemcpyDeviceToDevice));
+                    }
                 }
 
                 // Embedding backward: scatter_add d_x into token_emb grad
@@ -7447,6 +7554,10 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
     if (d_precondition_input_tokens)     cudaFree(d_precondition_input_tokens);
     if (d_precondition_state)            cudaFree(d_precondition_state);
     if (d_precondition_state_grad)       cudaFree(d_precondition_state_grad);
+    if (d_gru_h_states)                  cudaFree(d_gru_h_states);
+    if (d_gru_x_t)                       cudaFree(d_gru_x_t);
+    if (d_gru_dx_t)                      cudaFree(d_gru_dx_t);
+    if (d_gru_dh)                        cudaFree(d_gru_dh);
     if (d_adam_m_per_rc) cudaFree(d_adam_m_per_rc);
     if (d_adam_v_per_rc) cudaFree(d_adam_v_per_rc);
     if (h_adam_t_per_rc) free(h_adam_t_per_rc);
@@ -8158,12 +8269,15 @@ int main(int argc, char** argv) {
         cfg.seq_len    = trie_max_depth;
         wo = compute_offsets(cfg, yaml_cfg.precondition_d_pre);
         h_weights = init_random_weights(cfg, wo, init_seed);
-        // W_pre starts at zero (init_random_weights inits everything; we
-        // overwrite W_pre's slice to zero so injection produces baseline-
-        // identical output at the first step).
+        // W_pre + GRU params start at zero (init_random_weights inits
+        // everything; we overwrite the precondition slice to zero so the
+        // first forward step produces baseline-identical output).
         if (wo.wp_w >= 0) {
             int D = cfg.d_model;
-            memset(h_weights + wo.wp_w, 0, (size_t)D * (size_t)D * sizeof(float));
+            int from = wo.wp_w;
+            // wp_w + 6 GRU weight mats + 6 GRU bias vecs = contiguous tail.
+            int count = D*D + 6 * (D*D) + 6 * D;
+            memset(h_weights + from, 0, (size_t)count * sizeof(float));
         }
     } else {
         // load_model_weights computes a TEMPORARY WeightOffsets internally
