@@ -1,0 +1,33 @@
+{
+  "run_id": "20260602T023907-precondition-d16-gru-v1-seed3",
+  "experiment": "precondition-step1",
+  "wall_seconds": 1305.701597773,
+  "train_wall_seconds": 1282.140534209,
+  "convert_wall_seconds": 3.572082557,
+  "eval_wall_seconds": 16.288442756,
+  "started_utc": "2026-06-02T02:39:07Z",
+  "ended_utc": "2026-06-02T03:00:53Z",
+  "trainer": "v1",
+  "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+  "eval": {
+    "split": "tail-heldout",
+    "source_path": "data/.splits/2b7ded401e96b610/heldout_corpus.txt",
+    "source_sha256": "9be7061b07c454cbc4d25a5152958caf6a4817e70a7a1c841c616733535eb285",
+    "chunks_dir": null,
+    "benchmark": null,
+    "task_name": "precondition-d16-gru-v1-seed3_holdout"
+  },
+  "metrics": {
+    "lm_eval_rolling_word_perplexity": 38011130.69342023,
+    "lm_eval_rolling_byte_perplexity": 22.686324313039524,
+    "lm_eval_rolling_bits_per_byte": 4.503750974284577,
+    "agpt_fixed_token_perplexity": 23.282788728276483
+  },
+  "checkpoint_sha": "9bd142a3d9b7a55e999aeb4ec956f128674af8772a4e35f7eb861d5f921d9aa7",
+  "checkpoint_results": null,
+  "experimental_used": {
+    "v1": [
+      "precondition"
+    ]
+  }
+}

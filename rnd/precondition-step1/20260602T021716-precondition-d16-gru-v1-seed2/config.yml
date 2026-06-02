@@ -1,6 +1,9 @@
-description: "Baseline @ Codex best recipe: d128 L6 pd1 adam lr=1e-3 wd=0.01 (AdamW) 128ep d=16"
-experiment: precondition-d128L6
-run_slug: baseline-d128L6-seed1
+# Precondition Step 1 - GRU encoder paired runs (Step 5b).
+# Pairs with baseline-b0-seed{1,2,3}.yml run earlier in Step 8.
+
+description: "Precondition Step 1: d_pre=16 GRU + post-LN1 inject, adam lr=1.5e-3, sample carve, 25ep, seed=2"
+experiment: precondition-step1
+run_slug: precondition-d16-gru-v1-seed2
 
 corpus:
   path: data/.splits/2b7ded401e96b610/train_corpus.txt
@@ -16,36 +19,30 @@ trie:
   max_depth: 16
 
 model:
-  init_file: data/seeds/shake-d128-L6-h8-dff512-seed42.model
-  d_model: 128
-  n_layers: 6
-  n_heads: 8
-  d_ff: 512
+  init_file: data/input.model
 
 train:
   budget:
     unit: epochs
-    value: 128
-  seed: 1
+    value: 25
+  seed: 2
   quiet: true
   optimizer:
     name: adam
-    lr: 0.0010
+    lr: 0.0015
     beta: 0.999
     momentum_beta: 0.9
-    weight_decay: 0.01
   lr_schedule:
     name: warmup-cosine
     warmup_epochs: 0
   max_depth: 16
-  partition_depth: 1
-  chunk_queries: 20000
+  partition_depth: 0
+  chunk_queries: 50000
   anc_grad: true
-  mass_weight: linear
 
 experimental:
   precondition:
-    d_pre: 0
+    d_pre: 16
 
 eval:
   batch_size: 1
