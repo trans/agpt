@@ -8387,17 +8387,16 @@ int main(int argc, char** argv) {
         // precondition_d_pre==0 is the bit-exact baseline.
         PreconditionSidecar precondition_sidecar;
         if (config_path && yaml_cfg.precondition_d_pre > 0) {
-            // Constraint: pd=0 only (single-fire-per-epoch, so per-K instance
-            // sampling is reproducible across chunks of the fire). Mirrors the
-            // slot-selection rationale; subsequent commits may relax.
-            if (partition_depth != 0) {
-                fprintf(stderr,
-                        "agpt_train: experimental.precondition.d_pre=%d requires "
-                        "train.partition_depth=0 (per-K instance sampling assumes "
-                        "single-fire-per-epoch; see notes/seq-len-extension/precondition.md).\n",
-                        yaml_cfg.precondition_d_pre);
-                return 1;
-            }
+            // Note: pd=0 was originally required defensively, mirroring
+            // slot-selection's h_subtree fire-scoping constraint. The
+            // precondition mechanism does NOT depend on h_subtree — its
+            // sampler is per-epoch (computed once at epoch start), the
+            // sidecar is read-only, and W_pre/GRU/token_emb gradients
+            // accumulate normally across multiple fires per epoch. So
+            // pd > 0 is actually safe and gives the optimizer many more
+            // Adam steps per epoch — critical for reaching the
+            // 16-token-window floor (~4 byte_PPL on Shakespeare).
+            // The constraint is relaxed; any pd >= 0 is allowed.
             // Load the sidecar (pre-extracted per-K instance tokens + positions).
             // Path convention: <trie-dir>/precondition_d<N>.bin.
             char precondition_sidecar_path[2048];
