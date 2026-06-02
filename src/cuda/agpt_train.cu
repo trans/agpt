@@ -6068,16 +6068,8 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                 // Embedding gather: d_x[T_q, D]
                 cuda_embedding_gather(d_weights + wo.token_emb, d_token_ids, d_x, T_q, D);
 
-                // Precondition strand: project per-K state through W_pre and
-                // add to each query's residual stream. W_pre is zero at init
-                // so this is identity until the first backward updates it.
-                if (pre_d_pre > 0 && wo.wp_w >= 0) {
-                    launch_precondition_inject_forward(
-                        d_x, d_query_to_node,
-                        d_weights + wo.wp_w,
-                        d_precondition_state,
-                        T_q, D);
-                }
+                // [Variant 1] Precondition inject moved from here to after
+                // layer 0's LN1 forward. See LN1-block injection below.
 
                 float alpha = 1.0f, beta_zero = 0.0f;
                 for (int l = 0; l < L_layers; l++) {
@@ -6118,6 +6110,20 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
 
                     // LN1
                     cuda_layer_norm_forward(d_x, d_ln_out, sv_ln1_norm[l], sv_ln1_std_inv[l], G1, B1, T_q, D);
+
+                    // [Variant 1] Precondition inject AFTER LN1, BEFORE the
+                    // sv_ln1_out save. Magnitude survives normalization;
+                    // injection becomes part of the Q/K/V matmul input.
+                    // sv_ln1_out (post-injection at l=0) is what Q/K/V
+                    // backward uses for dW_q/dW_k/dW_v.
+                    if (l == 0 && pre_d_pre > 0 && wo.wp_w >= 0) {
+                        launch_precondition_inject_forward(
+                            d_ln_out, d_query_to_node,
+                            d_weights + wo.wp_w,
+                            d_precondition_state,
+                            T_q, D);
+                    }
+
                     CUDA_CHECK(cudaMemcpy(sv_ln1_out[l], d_ln_out, (long long)T_q * D * sizeof(float), cudaMemcpyDeviceToDevice));
 
                     // Determinism-probe dump: post-LN. If d_x is deterministic
@@ -6751,27 +6757,38 @@ int run_radix_training(const Config& cfg, const WeightOffsets& wo,
                         launch_bias_grad_accum(d_dv_own, T_q, D, grad_scale, dW_vb);
                     }
 
+                    // [Variant 1] Precondition backward — extract gradient
+                    // before LN1 backward consumes d_d_ln_out. LN1 backward
+                    // does NOT need to be modified because d/d(LN1(x)) =
+                    // d/d(LN1(x) + W_pre h) under additive split — both
+                    // paths receive the same upstream gradient.
+                    if (l == 0 && pre_d_pre > 0 && wo.wp_w >= 0) {
+                        size_t state_grad_bytes = (size_t)N * (size_t)D * sizeof(float);
+                        CUDA_CHECK(cudaMemset(d_precondition_state_grad, 0, state_grad_bytes));
+                        launch_precondition_inject_backward(
+                            d_d_ln_out, d_query_to_node,
+                            d_weights + wo.wp_w,
+                            d_precondition_state,
+                            d_grads + wo.wp_w,
+                            d_precondition_state_grad,
+                            T_q, D);
+                        // GRU BPTT and embedding scatter happen in the
+                        // post-layer block below, since the d_precondition_state_grad
+                        // is fully populated here and the backward chain doesn't
+                        // need to interleave with later layers.
+                    }
+
                     // LN1 backward
                     cuda_layer_norm_backward(d_d_ln_out, sv_ln1_norm[l], sv_ln1_std_inv[l],
                                               G1, d_d_ln_out, dG1, dB1, T_q, D);
                     launch_elem_add(d_dx, d_d_ln_out, T_q * D);  // residual 1 skip
                 }
 
-                // Precondition strand: backward through the residual injection
-                // d_x += W_pre · precondition_state[k]. Mirror in reverse:
-                //   dW_pre[d,j] += sum_q d_dx[q,d] * precondition_state[k,j]
-                //   d_precondition_state_grad[k,j] = sum_q-at-k d_dx[q,d] * W_pre[d,j]
-                // Then mean-pool backward scatters into d_grads(token_emb).
+                // GRU BPTT (post-layer-loop). State grad was populated above
+                // at l==0. Walk timesteps in reverse and scatter dx_t into
+                // d_token_emb_grad.
                 if (pre_d_pre > 0 && wo.wp_w >= 0) {
                     size_t state_grad_bytes = (size_t)N * (size_t)D * sizeof(float);
-                    CUDA_CHECK(cudaMemset(d_precondition_state_grad, 0, state_grad_bytes));
-                    launch_precondition_inject_backward(
-                        d_dx, d_query_to_node,
-                        d_weights + wo.wp_w,
-                        d_precondition_state,
-                        d_grads + wo.wp_w,
-                        d_precondition_state_grad,
-                        T_q, D);
                     // GRU BPTT: d_precondition_state_grad is the gradient on
                     // h_{d_pre} (the final hidden state). Walk timesteps in
                     // reverse, accumulating param grads + scattering dx_t
