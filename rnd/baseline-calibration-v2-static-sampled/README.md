@@ -41,7 +41,65 @@ with `d_model=128`, `n_layers=6`, `n_heads=8`, `d_ff=512`, `pd=1`,
 | `20260530T181858-d64l2-depth16-pd1-adam-lr0015-128ep` | `pd=1`, Adam `lr=0.0015` `beta1=0.9` `beta2=0.999`, 128 epochs | 4.6727 | 5.2191 | 2.3838 | 719.0 | 937.0 |
 | `20260530T215135-d64l2-depth16-pd1-adam-lr0015-256ep` | `pd=1`, Adam `lr=0.0015` `beta1=0.9` `beta2=0.999`, 256 epochs | 4.3913 | 4.9552 | 2.3089 | 1459.0 | 1715.0 |
 | `20260530T225246-d64l2-depth16-pd1-adam-lr0015-256ep-wrap` | `pd=1`, Adam `lr=0.0015` `beta1=0.9` `beta2=0.999`, 256 epochs, wrapped trie | 4.3868 | 4.9377 | 2.3038 | 1448.0 | 1697.0 |
+| `20260603T192234-d64l2-depth16-pd1-adam-lr0015-1024ep-wrap` | `pd=1`, Adam `lr=0.0015` `beta1=0.9` `beta2=0.999`, 1024 epochs, wrapped trie | 4.2380 | 4.7991 | 2.2628 | 5787.6 | 6062.7 |
 <!-- agpt-experiment-table:end -->
+
+## d64/L2 1024-Epoch Followup
+
+The 1024-epoch d64/L2 wrapped run was added after the phase-position runs
+showed continued improvement at 512 epochs. It clarifies that the standard
+d64/L2 line also had not reached its heldout floor at 512.
+
+| Epoch | train (s) | fixed_token_ppl | rolling_byte_ppl | bits/byte |
+|------:|----------:|----------------:|-----------------:|----------:|
+| 128 | 725.8 | 4.6914 | 5.3249 | 2.4128 |
+| 256 | 1462.4 | 4.4598 | 5.0975 | 2.3498 |
+| 512 | 2893.4 | 4.2741 | 4.8762 | 2.2858 |
+| 768 | 4322.9 | 4.2290 | 4.8000 | 2.2630 |
+| 1024 | 5786.4 | 4.2380 | 4.7991 | 2.2628 |
+
+The fixed-token PPL bottom in this run was epoch 768 (`4.2290`). Rolling byte
+PPL and bits/byte improved slightly again at epoch 1024, but fixed-token PPL
+regressed by about `0.0090`, so the practical d64/L2 bottom appears to be near
+768-1024 epochs for this schedule.
+
+## d128/L6 1024-Epoch Attempt
+
+Run `20260603T212104-d128l6-depth16-pd1-adam-lr0010-1024ep-cq25k-wrap`
+revisited the larger d128/L6 linear-mass setup with `chunk_queries=25000` and
+planned checkpoints through 1024 epochs. Training failed inside epoch 506 before
+the epoch-512 checkpoint:
+
+`forward pass failed at epoch=506 unit=44/65 rc=627374 chunk=28/32:
+non-finite forward loss`.
+
+The partial run was evaluated with `bin/agpt_experiment --eval-run-dir`, which
+skips missing future checkpoints. It produced checkpoint metrics through epoch
+384 only.
+
+| Epoch | train (s) | fixed_token_ppl | rolling_byte_ppl | bits/byte |
+|------:|----------:|----------------:|-----------------:|----------:|
+| 1 | 32.4 | 15.7264 | 15.6494 | 3.9680 |
+| 2 | 64.8 | 11.6199 | 11.6944 | 3.5477 |
+| 4 | 130.0 | 9.0332 | 9.2926 | 3.2161 |
+| 8 | 260.2 | 6.8465 | 7.1993 | 2.8478 |
+| 16 | 520.8 | 5.1968 | 5.7735 | 2.5295 |
+| 32 | 1037.0 | 4.3978 | 5.0062 | 2.3237 |
+| 64 | 2038.8 | 4.2976 | 4.8963 | 2.2917 |
+| 96 | 3040.1 | 4.2808 | 4.8392 | 2.2748 |
+| 112 | 3540.5 | 4.4488 | 4.9677 | 2.3126 |
+| 128 | 4041.0 | 4.2040 | 4.7586 | 2.2505 |
+| 144 | 4541.5 | 4.7223 | 5.1136 | 2.3543 |
+| 160 | 5042.2 | 4.8792 | 5.2211 | 2.3844 |
+| 192 | 6080.3 | 4.5810 | 4.9645 | 2.3116 |
+| 256 | 8091.7 | 5.2111 | 5.3233 | 2.4123 |
+| 384 | 12159.5 | 6.0552 | 5.7446 | 2.5222 |
+
+Although train loss continued drifting down into the low `1.21` range by epoch
+505, heldout PPL had already degraded sharply after the epoch-128 checkpoint.
+This reinforces the earlier d128/L6 result: the useful checkpoint is early, not
+late, and the old `4.1705` fixed-token PPL at epoch 128 remains the best result
+in this line.
 
 ## Closeout
 

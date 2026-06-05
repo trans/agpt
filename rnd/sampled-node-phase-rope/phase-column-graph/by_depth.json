@@ -1,0 +1,98 @@
+[
+  {
+    "depth": 1,
+    "nodes_with_bins": 62,
+    "position_bins": 3881,
+    "phase_mass": 1059018
+  },
+  {
+    "depth": 2,
+    "nodes_with_bins": 1132,
+    "position_bins": 53426,
+    "phase_mass": 1047039
+  },
+  {
+    "depth": 3,
+    "nodes_with_bins": 7544,
+    "position_bins": 210648,
+    "phase_mass": 1005579
+  },
+  {
+    "depth": 4,
+    "nodes_with_bins": 24675,
+    "position_bins": 404480,
+    "phase_mass": 918693
+  },
+  {
+    "depth": 5,
+    "nodes_with_bins": 50062,
+    "position_bins": 505267,
+    "phase_mass": 798310
+  },
+  {
+    "depth": 6,
+    "nodes_with_bins": 68875,
+    "position_bins": 490104,
+    "phase_mass": 649191
+  },
+  {
+    "depth": 7,
+    "nodes_with_bins": 75381,
+    "position_bins": 421768,
+    "phase_mass": 500902
+  },
+  {
+    "depth": 8,
+    "nodes_with_bins": 72085,
+    "position_bins": 328618,
+    "phase_mass": 366805
+  },
+  {
+    "depth": 9,
+    "nodes_with_bins": 60533,
+    "position_bins": 234408,
+    "phase_mass": 253645
+  },
+  {
+    "depth": 10,
+    "nodes_with_bins": 46479,
+    "position_bins": 160442,
+    "phase_mass": 170975
+  },
+  {
+    "depth": 11,
+    "nodes_with_bins": 33891,
+    "position_bins": 107255,
+    "phase_mass": 113413
+  },
+  {
+    "depth": 12,
+    "nodes_with_bins": 23896,
+    "position_bins": 70946,
+    "phase_mass": 74956
+  },
+  {
+    "depth": 13,
+    "nodes_with_bins": 16496,
+    "position_bins": 47451,
+    "phase_mass": 50282
+  },
+  {
+    "depth": 14,
+    "nodes_with_bins": 11575,
+    "position_bins": 32624,
+    "phase_mass": 34649
+  },
+  {
+    "depth": 15,
+    "nodes_with_bins": 8016,
+    "position_bins": 22426,
+    "phase_mass": 23929
+  },
+  {
+    "depth": 16,
+    "nodes_with_bins": 1027793,
+    "position_bins": 1056035,
+    "phase_mass": 1059634
+  }
+]

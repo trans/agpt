@@ -33,7 +33,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         build-essential pkg-config rsync git wget curl ca-certificates \
-        gnupg openssh-server \
+        gnupg openssh-server python3 python3-pip \
         libopenblas64-0 libopenblas64-dev libpcre2-dev libssl-dev \
         libgc-dev libyaml-dev libxml2-dev libgmp-dev && \
     curl -fsSL https://crystal-lang.org/install.sh | bash && \
@@ -41,6 +41,16 @@ RUN apt-get update && \
     curl -fsSL https://github.com/casey/just/releases/download/1.36.0/just-1.36.0-x86_64-unknown-linux-musl.tar.gz \
         | tar -xz -C /usr/local/bin just && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Python eval stack used by bin/agpt_experiment after training. Install PyTorch
+# from the CUDA 12.4 wheel index so RunPod eval uses GPU-capable wheels when it
+# needs them, even though the current heldout scoring path runs fine on CPU.
+RUN python3 -m pip install --no-cache-dir --upgrade pip && \
+    python3 -m pip install --no-cache-dir \
+        --index-url https://download.pytorch.org/whl/cu124 \
+        torch && \
+    python3 -m pip install --no-cache-dir \
+        transformers accelerate datasets lm-eval pyyaml
 
 # Justfile hardcodes /opt/cuda/bin/nvcc and -L/opt/cuda/lib64. The
 # nvidia/cuda image installs at /usr/local/cuda; symlink so Justfile and
@@ -53,6 +63,15 @@ RUN ln -sf /usr/local/cuda /opt/cuda
 # Vast.ai pods.
 RUN ln -sf /usr/lib/x86_64-linux-gnu/libopenblas64.so.0 \
            /usr/lib/x86_64-linux-gnu/libopenblas_64.so
+
+# AGPT v2 uses the native `yam` YAML parser (distinct from libyaml). Install it
+# into /usr/local and refresh the dynamic linker cache so pre-built trainer
+# binaries run in fresh RunPod containers without manual setup.
+RUN git clone --depth 1 https://github.com/trans/yam /tmp/yam && \
+    make -C /tmp/yam install PREFIX=/usr/local && \
+    ldconfig && \
+    pkg-config --modversion yam && \
+    rm -rf /tmp/yam
 
 # Configure sshd for RunPod-style key-only access (no passwords).
 #
@@ -92,8 +111,9 @@ RUN shards install && \
 
 # Build all required binaries.
 RUN just build-agpt-train && \
+    just build-agpt-train-v2 && \
     just build-agpt-build-radix-corpus && \
-    just build-microgpt-tools && \
+    just build-agpt-experiment && \
     just build-agpt-sliding-window-perplexity
 
 # Stash binaries at /opt/agpt/bin — OUTSIDE /workspace — so RunPod's FUSE

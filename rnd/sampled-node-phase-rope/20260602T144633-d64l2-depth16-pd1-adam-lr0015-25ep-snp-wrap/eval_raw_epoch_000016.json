@@ -1,0 +1,104 @@
+{
+  "schema": "agpt_eval.v1",
+  "metrics": {
+    "lm_eval_rolling_word_perplexity": 2268248.883864281,
+    "lm_eval_rolling_byte_perplexity": 14.542073944086445,
+    "lm_eval_rolling_bits_per_byte": 3.8621611313717477,
+    "agpt_fixed_token_perplexity": 33.08710484733231
+  },
+  "lm_eval": {
+    "d64l2-depth16-pd1-adam-lr0015-25ep-snp-wrap_epoch_000016_holdout": {
+      "name": "d64l2-depth16-pd1-adam-lr0015-25ep-snp-wrap_epoch_000016_holdout",
+      "alias": "d64l2-depth16-pd1-adam-lr0015-25ep-snp-wrap_epoch_000016_holdout",
+      "sample_len": 10,
+      "word_perplexity,none": 2268248.883864281,
+      "word_perplexity_stderr,none": "N/A",
+      "byte_perplexity,none": 14.542073944086445,
+      "byte_perplexity_stderr,none": "N/A",
+      "bits_per_byte,none": 3.8621611313717477,
+      "bits_per_byte_stderr,none": "N/A"
+    }
+  },
+  "agpt_fixed": {
+    "protocol": "agpt_fixed_token",
+    "perplexity": 33.08710484733231,
+    "tokens_evaluated": 55120,
+    "target_start": null,
+    "target_stop": null,
+    "context_tokens": 64,
+    "vocab_size": 65,
+    "model_seq_len": 64,
+    "per_chunk": [
+      {
+        "path": "/home/trans/Projects/agpt/.worktrees/sampled-node-phase-rope/data/.splits/4fa9aec1db6b3aea/heldout_chunks/chunk_00.txt",
+        "perplexity": 32.85511356495469,
+        "tokens_evaluated": 5512,
+        "target_start": 64,
+        "target_stop": 5576
+      },
+      {
+        "path": "/home/trans/Projects/agpt/.worktrees/sampled-node-phase-rope/data/.splits/4fa9aec1db6b3aea/heldout_chunks/chunk_01.txt",
+        "perplexity": 33.136363124074926,
+        "tokens_evaluated": 5512,
+        "target_start": 64,
+        "target_stop": 5576
+      },
+      {
+        "path": "/home/trans/Projects/agpt/.worktrees/sampled-node-phase-rope/data/.splits/4fa9aec1db6b3aea/heldout_chunks/chunk_02.txt",
+        "perplexity": 34.80271250030843,
+        "tokens_evaluated": 5512,
+        "target_start": 64,
+        "target_stop": 5576
+      },
+      {
+        "path": "/home/trans/Projects/agpt/.worktrees/sampled-node-phase-rope/data/.splits/4fa9aec1db6b3aea/heldout_chunks/chunk_03.txt",
+        "perplexity": 33.4471516406308,
+        "tokens_evaluated": 5512,
+        "target_start": 64,
+        "target_stop": 5576
+      },
+      {
+        "path": "/home/trans/Projects/agpt/.worktrees/sampled-node-phase-rope/data/.splits/4fa9aec1db6b3aea/heldout_chunks/chunk_04.txt",
+        "perplexity": 34.907074931953034,
+        "tokens_evaluated": 5512,
+        "target_start": 64,
+        "target_stop": 5576
+      },
+      {
+        "path": "/home/trans/Projects/agpt/.worktrees/sampled-node-phase-rope/data/.splits/4fa9aec1db6b3aea/heldout_chunks/chunk_05.txt",
+        "perplexity": 34.90859287212227,
+        "tokens_evaluated": 5512,
+        "target_start": 64,
+        "target_stop": 5576
+      },
+      {
+        "path": "/home/trans/Projects/agpt/.worktrees/sampled-node-phase-rope/data/.splits/4fa9aec1db6b3aea/heldout_chunks/chunk_06.txt",
+        "perplexity": 31.180641022512873,
+        "tokens_evaluated": 5512,
+        "target_start": 64,
+        "target_stop": 5576
+      },
+      {
+        "path": "/home/trans/Projects/agpt/.worktrees/sampled-node-phase-rope/data/.splits/4fa9aec1db6b3aea/heldout_chunks/chunk_07.txt",
+        "perplexity": 32.80332614629807,
+        "tokens_evaluated": 5512,
+        "target_start": 64,
+        "target_stop": 5576
+      },
+      {
+        "path": "/home/trans/Projects/agpt/.worktrees/sampled-node-phase-rope/data/.splits/4fa9aec1db6b3aea/heldout_chunks/chunk_08.txt",
+        "perplexity": 31.83899434755796,
+        "tokens_evaluated": 5512,
+        "target_start": 64,
+        "target_stop": 5576
+      },
+      {
+        "path": "/home/trans/Projects/agpt/.worktrees/sampled-node-phase-rope/data/.splits/4fa9aec1db6b3aea/heldout_chunks/chunk_09.txt",
+        "perplexity": 31.267961271941797,
+        "tokens_evaluated": 5512,
+        "target_start": 64,
+        "target_stop": 5576
+      }
+    ]
+  }
+}

@@ -16,6 +16,10 @@
 #       # docker.io/7rans/agpt:latest (binaries already pre-built). Only
 #       # pushes runtime data; skips Crystal install / binary compile.
 #
+#   bash rnd/runpod/launch.sh setup-snp POD_USER@POD_IP[:PORT]
+#       # Push code plus sampled-node-phase-rope runtime data for the
+#       # current phase-conditioned/phase-weighted experiments.
+#
 #   bash rnd/runpod/launch.sh push-code POD_USER@POD_IP[:PORT]
 #       # Rsync code (src/, Justfile, scripts) without data. Useful with
 #       # setup-image when your laptop has uncommitted code changes you
@@ -83,6 +87,15 @@ push_code() {
         --include='rnd/streaming-agpt-v1/**' \
         --include='rnd/runpod/' \
         --include='rnd/runpod/**' \
+        --include='rnd/sampled-node-phase-rope/' \
+        --include='rnd/sampled-node-phase-rope/*.yml' \
+        --include='rnd/sampled-node-phase-rope/*.md' \
+        --include='rnd/sampled-node-phase-rope/runs.json' \
+        --exclude='rnd/sampled-node-phase-rope/*/' \
+        --include='rnd/cudax-section2-progressive/' \
+        --include='rnd/cudax-section2-progressive/seeds/' \
+        --include='rnd/cudax-section2-progressive/seeds/shake-d128L6-h8-dff512-d16-seed42.model' \
+        --exclude='rnd/cudax-section2-progressive/*' \
         --include='rnd/beta2-diagnostic/' \
         --include='rnd/beta2-diagnostic/**' \
         --include='rnd/composite-weights/' \
@@ -103,6 +116,38 @@ push_code() {
         --exclude='notes/paper.html' \
         --rsh="${RSYNC_RSH}" \
         "${PROJ}/" "${SSH_HOST}:${REMOTE_BASE}/"
+}
+
+# --- helper: push current sampled-node-phase-rope runtime artifacts ---
+push_snp_data() {
+    echo "→ rsync sampled-node-phase-rope runtime data..."
+    ssh ${SSH_PORT_ARG} "${SSH_HOST}" \
+        "mkdir -p ${REMOTE_BASE}/data ${REMOTE_BASE}/data/.splits/4fa9aec1db6b3aea ${REMOTE_BASE}/rnd/cudax-section2-progressive/seeds /tmp/agpt_snp_25ep_prefix_radix /tmp/agpt_snp_25ep_position_data"
+    rsync -avzP --no-owner --no-group --no-perms --rsh="${RSYNC_RSH}" \
+        "${PROJ}/data/input.txt" \
+        "${SSH_HOST}:${REMOTE_BASE}/data/"
+    rsync -avzP --no-owner --no-group --no-perms --rsh="${RSYNC_RSH}" \
+        "${PROJ}/data/.splits/4fa9aec1db6b3aea/" \
+        "${SSH_HOST}:${REMOTE_BASE}/data/.splits/4fa9aec1db6b3aea/"
+    rsync -avzP --no-owner --no-group --no-perms --rsh="${RSYNC_RSH}" \
+        "${PROJ}/rnd/cudax-section2-progressive/seeds/shake-d128L6-h8-dff512-d16-seed42.model" \
+        "${SSH_HOST}:${REMOTE_BASE}/rnd/cudax-section2-progressive/seeds/"
+    if [ -d /tmp/agpt_snp_25ep_prefix_radix ]; then
+        rsync -avzP --no-owner --no-group --no-perms --rsh="${RSYNC_RSH}" \
+            /tmp/agpt_snp_25ep_prefix_radix/ \
+            "${SSH_HOST}:/tmp/agpt_snp_25ep_prefix_radix/"
+    else
+        echo "missing /tmp/agpt_snp_25ep_prefix_radix" >&2
+        exit 1
+    fi
+    if [ -d /tmp/agpt_snp_25ep_position_data ]; then
+        rsync -avzP --no-owner --no-group --no-perms --rsh="${RSYNC_RSH}" \
+            /tmp/agpt_snp_25ep_position_data/ \
+            "${SSH_HOST}:/tmp/agpt_snp_25ep_position_data/"
+    else
+        echo "missing /tmp/agpt_snp_25ep_position_data" >&2
+        exit 1
+    fi
 }
 
 # --- helper: push runtime data (corpora + init models + tries, gitignored) ---
@@ -165,6 +210,28 @@ pull_results() {
         "${PROJ}/rnd/streaming-agpt-v1/findings.md" 2>/dev/null || true
 }
 
+pull_snp_results() {
+    echo "→ rsync sampled-node-phase-rope results back to laptop..."
+    rsync -avzP --no-owner --no-group --no-perms --rsh="${RSYNC_RSH}" \
+        --include='*/' \
+        --include='*.yml' \
+        --include='*.md' \
+        --include='runs.json' \
+        --include='result.json' \
+        --include='meta.json' \
+        --include='config.yml' \
+        --include='resolved_config.yml' \
+        --include='train.log' \
+        --include='eval.log' \
+        --include='eval_raw*.json' \
+        --include='checkpoint.model' \
+        --include='checkpoint.epoch_*.model' \
+        --exclude='hf_checkpoint*/**' \
+        --exclude='*' \
+        "${SSH_HOST}:${REMOTE_BASE}/rnd/sampled-node-phase-rope/" \
+        "${PROJ}/rnd/sampled-node-phase-rope/"
+}
+
 case "${CMD}" in
     setup)
         push_code
@@ -187,6 +254,13 @@ case "${CMD}" in
         echo "  Or:   bash rnd/runpod/launch.sh push-code ${POD}  (if you have local code changes,"
         echo "        then 'just build-agpt-train' inside the pod to rebuild)"
         ;;
+    setup-snp)
+        push_code
+        push_snp_data
+        echo ""
+        echo "✓ sampled-node-phase-rope pod data ready."
+        echo "  Rebuild if needed, then run the experiment command."
+        ;;
     push-code)
         # Useful with --setup-image when laptop's code has diverged from
         # the image's snapshot. Pushes code without touching data.
@@ -198,6 +272,9 @@ case "${CMD}" in
         ;;
     pull)
         pull_results
+        ;;
+    pull-snp)
+        pull_snp_results
         ;;
     full)
         [ $# -lt 1 ] && { echo "Usage: launch.sh full POD 'COMMAND'"; exit 1; }

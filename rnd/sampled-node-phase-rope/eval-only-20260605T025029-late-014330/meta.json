@@ -1,0 +1,53 @@
+{
+  "config_sha256": "0691c8453399d09f3bfdbb8a749df2d6ceac8090f967a814a7b09abb45246e76",
+  "started_utc": "2026-06-05T02:50:30Z",
+  "trainer": "v2",
+  "trainer_bin": "bin/agpt_train_v2",
+  "git_sha": "unknown",
+  "git_branch": "unknown",
+  "git_dirty": false,
+  "host": "247f1bc09592",
+  "command": "bin/agpt_experiment",
+  "corpus": {
+    "path": "data/.splits/4fa9aec1db6b3aea/train_corpus.txt",
+    "sha256": "a4eb0b78cc80ab36479895725d46f09b2a6b948bc8f5b842f8cb68432148fb65",
+    "byte_count": 1059634,
+    "carve": {
+      "source": "data/input.txt",
+      "mode": "sample",
+      "ratio": 0.05,
+      "chunks": 10,
+      "seed": 42
+    }
+  },
+  "model_init": {
+    "path": "rnd/cudax-section2-progressive/seeds/shake-d128L6-h8-dff512-d16-seed42.model",
+    "sha256": "0f94b19937545123fd3e538d9732b03695503d7ae633e75a1e5e9ea7732b32cc",
+    "header": {
+      "magic": 1296519252,
+      "d_model": 128,
+      "n_heads": 8,
+      "n_layers": 6,
+      "d_ff": 512,
+      "vocab": 65,
+      "seq_len": 16
+    }
+  },
+  "trie_path": "/tmp/agpt_snp_25ep_prefix_radix",
+  "environment": {
+    "cuda": "Cuda compilation tools, release 12.4, V12.4.131",
+    "gpu": "NVIDIA A100-SXM4-80GB, 565.57.01, 81920 MiB",
+    "crystal": "Crystal 1.20.2 [2482c62c1] (2026-05-15)",
+    "python": "unknown",
+    "python_packages": {
+      "torch": "unknown",
+      "transformers": "unknown",
+      "lm_eval": "unknown",
+      "accelerate": "unknown",
+      "datasets": "unknown"
+    },
+    "env_vars": {}
+  },
+  "eval_run_dir_ended_utc": "2026-06-05T05:46:54Z",
+  "eval_run_dir_wall_seconds": 203.75528325
+}

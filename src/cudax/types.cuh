@@ -18,6 +18,9 @@ enum class OptimizerKind {
 enum class RopePositionModeV2 {
     Depth = 0,
     SampledBin = 1,
+    PhaseSweep = 2,
+    PhaseWeighted = 3,
+    PhaseConditioned = 4,
 };
 
 enum class MassWeightModeV2 {
@@ -36,6 +39,7 @@ struct TrainerConfig {
     int d_ff = 0;
     int vocab_size = 0;
     int seq_len = 0;
+    int rope_seq_len = 0;
 
     int epochs = 0;
     int partition_depth = 1;
@@ -57,6 +61,9 @@ struct TrainerConfig {
     RopePositionModeV2 rope_position_mode = RopePositionModeV2::Depth;
     MassWeightModeV2 mass_weight = MassWeightModeV2::Linear;
     unsigned pos_sample_seed = 1;
+    int rope_position_offset = -1;
+    bool rope_phase_shuffle = false;
+    unsigned rope_phase_shuffle_seed = 1;
 };
 
 struct RuntimeShape {
@@ -67,6 +74,7 @@ struct RuntimeShape {
     int d_ff = 0;
     int vocab_size = 0;
     int seq_len = 0;
+    int rope_seq_len = 0;
 };
 
 struct ModelHeader {

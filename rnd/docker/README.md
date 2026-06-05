@@ -95,18 +95,22 @@ Once pushed:
 
 ## What's in the image
 
-- `archlinux:latest` base
-- `cuda` package: nvcc, cudart, cublas, all at `/opt/cuda/`
+- `nvidia/cuda:12.4.1-devel-ubuntu22.04` base
+- CUDA nvcc, cudart, cublas, available through `/opt/cuda/`
 - `crystal` + `shards` + `just`
+- `python3` + eval packages: PyTorch, Transformers, Accelerate, Datasets,
+  lm-eval, PyYAML
+- native `yam` YAML parser installed under `/usr/local` with `ldconfig`
 - `openblas64` (with the `_64` naming the Justfile expects)
 - `base-devel`, `pkg-config`, `rsync`, `git`, `wget`
 - Project source under `/workspace/agpt/`
 - `lib/microgpt/` shard fetched and TF32-patched
-- Pre-built binaries at `/workspace/agpt/bin/`:
+- Pre-built binaries at `/opt/agpt/bin/`:
   - `agpt_train`
+  - `agpt_train_v2`
   - `agpt_build_radix_corpus`
-  - `microgpt`
-  - `perplexity`
+  - `agpt_experiment`
+  - `agpt_sliding_window_perplexity`
 - `CRYSTAL_WORKERS=8` env (sidesteps Crystal 1.20 high-CPU overflow)
 - `PATH` includes `bin/` for convenience
 

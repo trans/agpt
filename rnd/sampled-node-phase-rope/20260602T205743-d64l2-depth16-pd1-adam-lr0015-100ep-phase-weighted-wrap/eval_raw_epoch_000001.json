@@ -1,0 +1,104 @@
+{
+  "schema": "agpt_eval.v1",
+  "metrics": {
+    "lm_eval_rolling_word_perplexity": 5831590.326768257,
+    "lm_eval_rolling_byte_perplexity": 17.283988340689536,
+    "lm_eval_rolling_bits_per_byte": 4.11136425772497,
+    "agpt_fixed_token_perplexity": 18.511852791127296
+  },
+  "lm_eval": {
+    "d64l2-depth16-pd1-adam-lr0015-100ep-phase-weighted-wrap_epoch_000001_holdout": {
+      "name": "d64l2-depth16-pd1-adam-lr0015-100ep-phase-weighted-wrap_epoch_000001_holdout",
+      "alias": "d64l2-depth16-pd1-adam-lr0015-100ep-phase-weighted-wrap_epoch_000001_holdout",
+      "sample_len": 10,
+      "word_perplexity,none": 5831590.326768257,
+      "word_perplexity_stderr,none": "N/A",
+      "byte_perplexity,none": 17.283988340689536,
+      "byte_perplexity_stderr,none": "N/A",
+      "bits_per_byte,none": 4.11136425772497,
+      "bits_per_byte_stderr,none": "N/A"
+    }
+  },
+  "agpt_fixed": {
+    "protocol": "agpt_fixed_token",
+    "perplexity": 18.511852791127296,
+    "tokens_evaluated": 55120,
+    "target_start": null,
+    "target_stop": null,
+    "context_tokens": 64,
+    "vocab_size": 65,
+    "model_seq_len": 64,
+    "per_chunk": [
+      {
+        "path": "/home/trans/Projects/agpt/.worktrees/sampled-node-phase-rope/data/.splits/4fa9aec1db6b3aea/heldout_chunks/chunk_00.txt",
+        "perplexity": 19.05887727162098,
+        "tokens_evaluated": 5512,
+        "target_start": 64,
+        "target_stop": 5576
+      },
+      {
+        "path": "/home/trans/Projects/agpt/.worktrees/sampled-node-phase-rope/data/.splits/4fa9aec1db6b3aea/heldout_chunks/chunk_01.txt",
+        "perplexity": 18.395361897970115,
+        "tokens_evaluated": 5512,
+        "target_start": 64,
+        "target_stop": 5576
+      },
+      {
+        "path": "/home/trans/Projects/agpt/.worktrees/sampled-node-phase-rope/data/.splits/4fa9aec1db6b3aea/heldout_chunks/chunk_02.txt",
+        "perplexity": 18.883806211091073,
+        "tokens_evaluated": 5512,
+        "target_start": 64,
+        "target_stop": 5576
+      },
+      {
+        "path": "/home/trans/Projects/agpt/.worktrees/sampled-node-phase-rope/data/.splits/4fa9aec1db6b3aea/heldout_chunks/chunk_03.txt",
+        "perplexity": 18.50309788890052,
+        "tokens_evaluated": 5512,
+        "target_start": 64,
+        "target_stop": 5576
+      },
+      {
+        "path": "/home/trans/Projects/agpt/.worktrees/sampled-node-phase-rope/data/.splits/4fa9aec1db6b3aea/heldout_chunks/chunk_04.txt",
+        "perplexity": 19.966418678316266,
+        "tokens_evaluated": 5512,
+        "target_start": 64,
+        "target_stop": 5576
+      },
+      {
+        "path": "/home/trans/Projects/agpt/.worktrees/sampled-node-phase-rope/data/.splits/4fa9aec1db6b3aea/heldout_chunks/chunk_05.txt",
+        "perplexity": 19.02005913028774,
+        "tokens_evaluated": 5512,
+        "target_start": 64,
+        "target_stop": 5576
+      },
+      {
+        "path": "/home/trans/Projects/agpt/.worktrees/sampled-node-phase-rope/data/.splits/4fa9aec1db6b3aea/heldout_chunks/chunk_06.txt",
+        "perplexity": 17.21708793286349,
+        "tokens_evaluated": 5512,
+        "target_start": 64,
+        "target_stop": 5576
+      },
+      {
+        "path": "/home/trans/Projects/agpt/.worktrees/sampled-node-phase-rope/data/.splits/4fa9aec1db6b3aea/heldout_chunks/chunk_07.txt",
+        "perplexity": 18.14145395870782,
+        "tokens_evaluated": 5512,
+        "target_start": 64,
+        "target_stop": 5576
+      },
+      {
+        "path": "/home/trans/Projects/agpt/.worktrees/sampled-node-phase-rope/data/.splits/4fa9aec1db6b3aea/heldout_chunks/chunk_08.txt",
+        "perplexity": 17.299628565030154,
+        "tokens_evaluated": 5512,
+        "target_start": 64,
+        "target_stop": 5576
+      },
+      {
+        "path": "/home/trans/Projects/agpt/.worktrees/sampled-node-phase-rope/data/.splits/4fa9aec1db6b3aea/heldout_chunks/chunk_09.txt",
+        "perplexity": 18.8009002774974,
+        "tokens_evaluated": 5512,
+        "target_start": 64,
+        "target_stop": 5576
+      }
+    ]
+  }
+}

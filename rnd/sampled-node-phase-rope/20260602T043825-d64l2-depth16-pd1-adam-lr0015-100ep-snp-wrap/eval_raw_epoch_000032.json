@@ -1,0 +1,104 @@
+{
+  "schema": "agpt_eval.v1",
+  "metrics": {
+    "lm_eval_rolling_word_perplexity": 93597.84374452733,
+    "lm_eval_rolling_byte_perplexity": 8.116670169571632,
+    "lm_eval_rolling_bits_per_byte": 3.020887989096723,
+    "agpt_fixed_token_perplexity": 9.018697169547515
+  },
+  "lm_eval": {
+    "d64l2-depth16-pd1-adam-lr0015-100ep-snp-wrap_epoch_000032_holdout": {
+      "name": "d64l2-depth16-pd1-adam-lr0015-100ep-snp-wrap_epoch_000032_holdout",
+      "alias": "d64l2-depth16-pd1-adam-lr0015-100ep-snp-wrap_epoch_000032_holdout",
+      "sample_len": 10,
+      "word_perplexity,none": 93597.84374452733,
+      "word_perplexity_stderr,none": "N/A",
+      "byte_perplexity,none": 8.116670169571632,
+      "byte_perplexity_stderr,none": "N/A",
+      "bits_per_byte,none": 3.020887989096723,
+      "bits_per_byte_stderr,none": "N/A"
+    }
+  },
+  "agpt_fixed": {
+    "protocol": "agpt_fixed_token",
+    "perplexity": 9.018697169547515,
+    "tokens_evaluated": 55120,
+    "target_start": null,
+    "target_stop": null,
+    "context_tokens": 64,
+    "vocab_size": 65,
+    "model_seq_len": 64,
+    "per_chunk": [
+      {
+        "path": "/home/trans/Projects/agpt/.worktrees/sampled-node-phase-rope/data/.splits/4fa9aec1db6b3aea/heldout_chunks/chunk_00.txt",
+        "perplexity": 8.911880028945454,
+        "tokens_evaluated": 5512,
+        "target_start": 64,
+        "target_stop": 5576
+      },
+      {
+        "path": "/home/trans/Projects/agpt/.worktrees/sampled-node-phase-rope/data/.splits/4fa9aec1db6b3aea/heldout_chunks/chunk_01.txt",
+        "perplexity": 8.477730872979723,
+        "tokens_evaluated": 5512,
+        "target_start": 64,
+        "target_stop": 5576
+      },
+      {
+        "path": "/home/trans/Projects/agpt/.worktrees/sampled-node-phase-rope/data/.splits/4fa9aec1db6b3aea/heldout_chunks/chunk_02.txt",
+        "perplexity": 9.269459848257931,
+        "tokens_evaluated": 5512,
+        "target_start": 64,
+        "target_stop": 5576
+      },
+      {
+        "path": "/home/trans/Projects/agpt/.worktrees/sampled-node-phase-rope/data/.splits/4fa9aec1db6b3aea/heldout_chunks/chunk_03.txt",
+        "perplexity": 9.102059239978647,
+        "tokens_evaluated": 5512,
+        "target_start": 64,
+        "target_stop": 5576
+      },
+      {
+        "path": "/home/trans/Projects/agpt/.worktrees/sampled-node-phase-rope/data/.splits/4fa9aec1db6b3aea/heldout_chunks/chunk_04.txt",
+        "perplexity": 10.092830151837779,
+        "tokens_evaluated": 5512,
+        "target_start": 64,
+        "target_stop": 5576
+      },
+      {
+        "path": "/home/trans/Projects/agpt/.worktrees/sampled-node-phase-rope/data/.splits/4fa9aec1db6b3aea/heldout_chunks/chunk_05.txt",
+        "perplexity": 8.837055694031111,
+        "tokens_evaluated": 5512,
+        "target_start": 64,
+        "target_stop": 5576
+      },
+      {
+        "path": "/home/trans/Projects/agpt/.worktrees/sampled-node-phase-rope/data/.splits/4fa9aec1db6b3aea/heldout_chunks/chunk_06.txt",
+        "perplexity": 9.418676482376215,
+        "tokens_evaluated": 5512,
+        "target_start": 64,
+        "target_stop": 5576
+      },
+      {
+        "path": "/home/trans/Projects/agpt/.worktrees/sampled-node-phase-rope/data/.splits/4fa9aec1db6b3aea/heldout_chunks/chunk_07.txt",
+        "perplexity": 8.92579574113588,
+        "tokens_evaluated": 5512,
+        "target_start": 64,
+        "target_stop": 5576
+      },
+      {
+        "path": "/home/trans/Projects/agpt/.worktrees/sampled-node-phase-rope/data/.splits/4fa9aec1db6b3aea/heldout_chunks/chunk_08.txt",
+        "perplexity": 8.51582600767092,
+        "tokens_evaluated": 5512,
+        "target_start": 64,
+        "target_stop": 5576
+      },
+      {
+        "path": "/home/trans/Projects/agpt/.worktrees/sampled-node-phase-rope/data/.splits/4fa9aec1db6b3aea/heldout_chunks/chunk_09.txt",
+        "perplexity": 8.746027554258331,
+        "tokens_evaluated": 5512,
+        "target_start": 64,
+        "target_stop": 5576
+      }
+    ]
+  }
+}

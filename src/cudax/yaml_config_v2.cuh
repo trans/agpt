@@ -17,6 +17,7 @@ struct YamlConfigV2 {
     std::string trie_dir;
     std::string corpus_path;
     std::string save_path;
+    std::string position_data_dir;
 
     int seed = 42;
     bool seed_set = false;
@@ -251,16 +252,30 @@ static bool yaml_is_experimental_field_v2(const std::string& path) {
     return path.rfind("experimental.", 0) == 0 && path.size() > std::strlen("experimental.");
 }
 
+static bool yaml_is_known_experimental_field_v2(const std::string& path) {
+    static const std::unordered_set<std::string> fields = {
+        "experimental.rope_position_mode",
+        "experimental.rope_position_offset",
+        "experimental.phase_order",
+        "experimental.phase_order_seed",
+        "experimental.position_data_dir",
+        "experimental.pos_sample_seed",
+    };
+    return fields.find(path) != fields.end();
+}
+
 static bool warn_unknown_experimental_flags_v2(const YamlDocV2& doc) {
     std::vector<std::string> flags;
     for (const auto& item : doc.scalars) {
         const std::string& path = item.first;
         if (!yaml_is_experimental_field_v2(path)) continue;
+        if (yaml_is_known_experimental_field_v2(path)) continue;
         flags.push_back(path.substr(std::strlen("experimental.")));
     }
     for (const auto& item : doc.sequences) {
         const std::string& path = item.first;
         if (!yaml_is_experimental_field_v2(path)) continue;
+        if (yaml_is_known_experimental_field_v2(path)) continue;
         flags.push_back(path.substr(std::strlen("experimental.")));
     }
     std::sort(flags.begin(), flags.end());
@@ -551,6 +566,53 @@ static bool apply_yaml_config_v2(const char* config_path,
     if (!yaml_get_int_v2(doc, "train.seed", yaml_cfg.seed, &yaml_cfg.seed_set)) return false;
     if (yaml_cfg.seed_set) cfg.pos_sample_seed = (unsigned)yaml_cfg.seed;
     if (!yaml_get_bool_v2(doc, "train.quiet", cfg.quiet)) return false;
+
+    const YamlScalarV2* rope_position_mode = yaml_find_v2(doc, "experimental.rope_position_mode");
+    if (rope_position_mode && !parse_rope_position_mode_v2(rope_position_mode->value.c_str(), cfg.rope_position_mode)) {
+        std::fprintf(stderr, "agpt_train_v2: unsupported YAML experimental.rope_position_mode: %s\n",
+                     rope_position_mode->value.c_str());
+        return false;
+    }
+    bool has_rope_position_offset = false;
+    if (!yaml_get_int_v2(doc, "experimental.rope_position_offset", cfg.rope_position_offset,
+                         &has_rope_position_offset)) return false;
+    if (has_rope_position_offset && cfg.rope_position_offset < 0) {
+        std::fprintf(stderr, "agpt_train_v2: YAML experimental.rope_position_offset must be non-negative\n");
+        return false;
+    }
+    const YamlScalarV2* phase_order = yaml_find_v2(doc, "experimental.phase_order");
+    if (phase_order) {
+        if (phase_order->value == "sequential" || phase_order->value == "sweep") {
+            cfg.rope_phase_shuffle = false;
+        } else if (phase_order->value == "shuffle" || phase_order->value == "shuffled") {
+            cfg.rope_phase_shuffle = true;
+        } else {
+            std::fprintf(stderr, "agpt_train_v2: unsupported YAML experimental.phase_order: %s\n",
+                         phase_order->value.c_str());
+            return false;
+        }
+    }
+    int phase_order_seed = 0;
+    bool has_phase_order_seed = false;
+    if (!yaml_get_int_v2(doc, "experimental.phase_order_seed", phase_order_seed, &has_phase_order_seed)) return false;
+    if (has_phase_order_seed) {
+        if (phase_order_seed < 0) {
+            std::fprintf(stderr, "agpt_train_v2: YAML experimental.phase_order_seed must be non-negative\n");
+            return false;
+        }
+        cfg.rope_phase_shuffle_seed = (unsigned)phase_order_seed;
+    }
+    if (!yaml_expect_string_v2(doc, "experimental.position_data_dir", yaml_cfg.position_data_dir, false)) return false;
+    int pos_sample_seed = 0;
+    bool has_pos_sample_seed = false;
+    if (!yaml_get_int_v2(doc, "experimental.pos_sample_seed", pos_sample_seed, &has_pos_sample_seed)) return false;
+    if (has_pos_sample_seed) {
+        if (pos_sample_seed < 0) {
+            std::fprintf(stderr, "agpt_train_v2: YAML experimental.pos_sample_seed must be non-negative\n");
+            return false;
+        }
+        cfg.pos_sample_seed = (unsigned)pos_sample_seed;
+    }
 
     const YamlScalarV2* optimizer_name = yaml_find_v2(doc, "train.optimizer.name");
     if (!optimizer_name) {

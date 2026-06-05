@@ -1,0 +1,87 @@
+{
+  "run_id": "20260602T224525-d64l2-depth16-pd1-adam-lr0015-4ep-phase-fixed1-decoupled",
+  "experiment": "sampled-node-phase-rope",
+  "wall_seconds": 136.922200953,
+  "train_wall_seconds": 26.761692438,
+  "convert_wall_seconds": 5.243797303,
+  "eval_wall_seconds": 21.439080897,
+  "started_utc": "2026-06-02T22:45:25Z",
+  "ended_utc": "2026-06-02T22:47:42Z",
+  "trainer": "v2",
+  "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+  "eval": {
+    "split": "multi-chunk-heldout",
+    "source_path": null,
+    "source_sha256": null,
+    "chunks_dir": "data/.splits/4fa9aec1db6b3aea/heldout_chunks",
+    "benchmark": null,
+    "task_name": "d64l2-depth16-pd1-adam-lr0015-4ep-phase-fixed1-decoupled_holdout"
+  },
+  "metrics": {
+    "lm_eval_rolling_word_perplexity": 1094710.2615201117,
+    "lm_eval_rolling_byte_perplexity": 12.727697699327209,
+    "lm_eval_rolling_bits_per_byte": 3.6698995700450787,
+    "agpt_fixed_token_perplexity": 12.743157561032966
+  },
+  "checkpoint_sha": "8d467cdf785b40d0b069e09e5b8774e5bb49d9404616bf5fb6ee95e361464097",
+  "checkpoint_results": [
+    {
+      "epoch": 1,
+      "checkpoint_path": "rnd/sampled-node-phase-rope/20260602T224525-d64l2-depth16-pd1-adam-lr0015-4ep-phase-fixed1-decoupled/checkpoint.epoch_000001.model",
+      "checkpoint_sha": "07f4c33c776e0e7338cd1ae503eb248656a68cc29729e44287cf091a34ac47de",
+      "hf_dir": "rnd/sampled-node-phase-rope/20260602T224525-d64l2-depth16-pd1-adam-lr0015-4ep-phase-fixed1-decoupled/hf_checkpoint_epoch_000001",
+      "eval_raw_json": "rnd/sampled-node-phase-rope/20260602T224525-d64l2-depth16-pd1-adam-lr0015-4ep-phase-fixed1-decoupled/eval_raw_epoch_000001.json",
+      "task_name": "d64l2-depth16-pd1-adam-lr0015-4ep-phase-fixed1-decoupled_epoch_000001_holdout",
+      "train_wall_seconds": 6.022665,
+      "convert_wall_seconds": 4.951429471,
+      "eval_wall_seconds": 20.599580935,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 5710742.932152685,
+        "lm_eval_rolling_byte_perplexity": 17.217906918660475,
+        "lm_eval_rolling_bits_per_byte": 4.105837868191012,
+        "agpt_fixed_token_perplexity": 17.505342239322776
+      }
+    },
+    {
+      "epoch": 2,
+      "checkpoint_path": "rnd/sampled-node-phase-rope/20260602T224525-d64l2-depth16-pd1-adam-lr0015-4ep-phase-fixed1-decoupled/checkpoint.epoch_000002.model",
+      "checkpoint_sha": "f1c87a2b44e1739063ff3a72431a1d8d098f9d33ba87443b8f8e6693c95e6d5b",
+      "hf_dir": "rnd/sampled-node-phase-rope/20260602T224525-d64l2-depth16-pd1-adam-lr0015-4ep-phase-fixed1-decoupled/hf_checkpoint_epoch_000002",
+      "eval_raw_json": "rnd/sampled-node-phase-rope/20260602T224525-d64l2-depth16-pd1-adam-lr0015-4ep-phase-fixed1-decoupled/eval_raw_epoch_000002.json",
+      "task_name": "d64l2-depth16-pd1-adam-lr0015-4ep-phase-fixed1-decoupled_epoch_000002_holdout",
+      "train_wall_seconds": 11.849679,
+      "convert_wall_seconds": 5.230652677,
+      "eval_wall_seconds": 20.583611421,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 1668707.2673615213,
+        "lm_eval_rolling_byte_perplexity": 13.74802371724112,
+        "lm_eval_rolling_bits_per_byte": 3.7811523405607073,
+        "agpt_fixed_token_perplexity": 13.75946257352991
+      }
+    },
+    {
+      "epoch": 4,
+      "checkpoint_path": "rnd/sampled-node-phase-rope/20260602T224525-d64l2-depth16-pd1-adam-lr0015-4ep-phase-fixed1-decoupled/checkpoint.epoch_000004.model",
+      "checkpoint_sha": "8d467cdf785b40d0b069e09e5b8774e5bb49d9404616bf5fb6ee95e361464097",
+      "hf_dir": "rnd/sampled-node-phase-rope/20260602T224525-d64l2-depth16-pd1-adam-lr0015-4ep-phase-fixed1-decoupled/hf_checkpoint_epoch_000004",
+      "eval_raw_json": "rnd/sampled-node-phase-rope/20260602T224525-d64l2-depth16-pd1-adam-lr0015-4ep-phase-fixed1-decoupled/eval_raw_epoch_000004.json",
+      "task_name": "d64l2-depth16-pd1-adam-lr0015-4ep-phase-fixed1-decoupled_epoch_000004_holdout",
+      "train_wall_seconds": 23.641378,
+      "convert_wall_seconds": 5.023200572,
+      "eval_wall_seconds": 21.885363369,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 1094710.2615201117,
+        "lm_eval_rolling_byte_perplexity": 12.727697699327209,
+        "lm_eval_rolling_bits_per_byte": 3.6698995700450787,
+        "agpt_fixed_token_perplexity": 12.743157561032966
+      }
+    }
+  ],
+  "experimental_used": {
+    "v2": [
+      "position_data_dir",
+      "rope_position_mode",
+      "rope_position_offset"
+    ]
+  }
+}

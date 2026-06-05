@@ -375,6 +375,10 @@ __global__ static void agpt_loss_per_query_kernel_v2(
     const int* counts_len,
     const int* counts_tok,
     const int* counts_val,
+    const int* local_counts_offset,
+    const int* local_counts_len,
+    const int* local_counts_tok,
+    const int* local_counts_val,
     const float* query_weights,
     float* d_logits,
     float* loss_out,
@@ -423,21 +427,30 @@ __global__ static void agpt_loss_per_query_kernel_v2(
 
         if (is_endpoint) {
             int radix_id = radix_ids[n_idx];
-            int start = counts_offset[radix_id];
-            int end = start + counts_len[radix_id];
+            bool use_local = local_counts_offset && local_counts_len &&
+                             local_counts_tok && local_counts_val;
+            int start = use_local ? local_counts_offset[n_idx] : counts_offset[radix_id];
+            int end = start + (use_local ? local_counts_len[n_idx] : counts_len[radix_id]);
             if (start == end) {
                 for (int j = 0; j < V; j++) grad_row[j] = 0.0f;
                 loss_out[q] = 0.0f;
                 return;
             }
             int total = 0;
-            for (int e = start; e < end; e++) total += counts_val[e];
+            for (int e = start; e < end; e++) {
+                total += use_local ? local_counts_val[e] : counts_val[e];
+            }
+            if (total <= 0) {
+                for (int j = 0; j < V; j++) grad_row[j] = 0.0f;
+                loss_out[q] = 0.0f;
+                return;
+            }
             float total_f = (float)total;
             float weight = query_weights ? query_weights[q] : 1.0f;
             float loss = 0.0f;
             for (int e = start; e < end; e++) {
-                int tok = counts_tok[e];
-                int cnt = counts_val[e];
+                int tok = use_local ? local_counts_tok[e] : counts_tok[e];
+                int cnt = use_local ? local_counts_val[e] : counts_val[e];
                 float p = grad_row[tok];
                 loss -= (cnt / total_f) * logf(p + 1e-10f);
                 grad_row[tok] -= cnt / total_f;
@@ -471,6 +484,10 @@ static inline void launch_agpt_loss_per_query_v2(const float* logits,
                                                  const int* counts_len,
                                                  const int* counts_tok,
                                                  const int* counts_val,
+                                                 const int* local_counts_offset,
+                                                 const int* local_counts_len,
+                                                 const int* local_counts_tok,
+                                                 const int* local_counts_val,
                                                  const float* query_weights,
                                                  float* d_logits,
                                                  float* loss_out,
@@ -483,6 +500,7 @@ static inline void launch_agpt_loss_per_query_v2(const float* logits,
     agpt_loss_per_query_kernel_v2<<<T_q, threads, smem>>>(
         logits, query_to_node, query_offsets, radix_ids, token_ids,
         counts_offset, counts_len, counts_tok, counts_val,
+        local_counts_offset, local_counts_len, local_counts_tok, local_counts_val,
         query_weights, d_logits, loss_out, T_q, V);
 }
 

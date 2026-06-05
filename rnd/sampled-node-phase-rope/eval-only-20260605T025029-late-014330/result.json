@@ -1,0 +1,110 @@
+{
+  "run_id": "eval-only-20260605T025029-late-014330",
+  "experiment": "sampled-node-phase-rope",
+  "wall_seconds": 203.75528325,
+  "train_wall_seconds": null,
+  "convert_wall_seconds": null,
+  "eval_wall_seconds": null,
+  "started_utc": "2026-06-05T05:43:30Z",
+  "ended_utc": "2026-06-05T05:46:54Z",
+  "trainer": "v2",
+  "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+  "eval": {
+    "split": "multi-chunk-heldout",
+    "source_path": null,
+    "source_sha256": null,
+    "chunks_dir": "data/.splits/4fa9aec1db6b3aea/heldout_chunks",
+    "benchmark": null,
+    "task_name": "d128l6-depth16-pd1-adam-lr0010-768ep-cq50k-phase-conditioned_holdout"
+  },
+  "metrics": {},
+  "checkpoint_sha": null,
+  "checkpoint_results": [
+    {
+      "epoch": 512,
+      "checkpoint_path": "rnd/sampled-node-phase-rope/eval-only-20260605T025029-late-014330/checkpoint.epoch_000512.model",
+      "checkpoint_sha": "f936aef7b87fa63db6d88af9953298ed99cbf51d99e9405e6924e48fd60c61f3",
+      "hf_dir": "rnd/sampled-node-phase-rope/eval-only-20260605T025029-late-014330/hf_checkpoint_epoch_000512",
+      "eval_raw_json": "rnd/sampled-node-phase-rope/eval-only-20260605T025029-late-014330/eval_raw_epoch_000512.json",
+      "task_name": "d128l6-depth16-pd1-adam-lr0010-768ep-cq50k-phase-conditioned_epoch_000512_holdout",
+      "train_wall_seconds": null,
+      "convert_wall_seconds": 3.883143245,
+      "eval_wall_seconds": 36.433160614,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 4182.329914162405,
+        "lm_eval_rolling_byte_perplexity": 4.596788952644092,
+        "lm_eval_rolling_bits_per_byte": 2.200626430791825,
+        "agpt_fixed_token_perplexity": 4.024868866295469
+      }
+    },
+    {
+      "epoch": 576,
+      "checkpoint_path": "rnd/sampled-node-phase-rope/eval-only-20260605T025029-late-014330/checkpoint.epoch_000576.model",
+      "checkpoint_sha": "a886692bfd600f7d4b6928bf052c75d629be9d352b2acf8ba8c89b14c3c887ca",
+      "hf_dir": "rnd/sampled-node-phase-rope/eval-only-20260605T025029-late-014330/hf_checkpoint_epoch_000576",
+      "eval_raw_json": "rnd/sampled-node-phase-rope/eval-only-20260605T025029-late-014330/eval_raw_epoch_000576.json",
+      "task_name": "d128l6-depth16-pd1-adam-lr0010-768ep-cq50k-phase-conditioned_epoch_000576_holdout",
+      "train_wall_seconds": null,
+      "convert_wall_seconds": 4.291365777,
+      "eval_wall_seconds": 37.035837765,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 4055.608680345482,
+        "lm_eval_rolling_byte_perplexity": 4.570989797456316,
+        "lm_eval_rolling_bits_per_byte": 2.192506598820398,
+        "agpt_fixed_token_perplexity": 4.012406349595844
+      }
+    },
+    {
+      "epoch": 640,
+      "checkpoint_path": "rnd/sampled-node-phase-rope/eval-only-20260605T025029-late-014330/checkpoint.epoch_000640.model",
+      "checkpoint_sha": "eaad4c16e81121eb09752d7de884789f2608ee2c29eeedb32a27701a7fc63b00",
+      "hf_dir": "rnd/sampled-node-phase-rope/eval-only-20260605T025029-late-014330/hf_checkpoint_epoch_000640",
+      "eval_raw_json": "rnd/sampled-node-phase-rope/eval-only-20260605T025029-late-014330/eval_raw_epoch_000640.json",
+      "task_name": "d128l6-depth16-pd1-adam-lr0010-768ep-cq50k-phase-conditioned_epoch_000640_holdout",
+      "train_wall_seconds": null,
+      "convert_wall_seconds": 4.013613646,
+      "eval_wall_seconds": 36.351029266,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 3968.3624678483934,
+        "lm_eval_rolling_byte_perplexity": 4.552841811469139,
+        "lm_eval_rolling_bits_per_byte": 2.186767333775371,
+        "agpt_fixed_token_perplexity": 3.998370329908292
+      }
+    },
+    {
+      "epoch": 704,
+      "checkpoint_path": "rnd/sampled-node-phase-rope/eval-only-20260605T025029-late-014330/checkpoint.epoch_000704.model",
+      "checkpoint_sha": "0d18655bbd1356fde584cab8266e6069ed41ccfd16794f45047522a3ff9864f2",
+      "hf_dir": "rnd/sampled-node-phase-rope/eval-only-20260605T025029-late-014330/hf_checkpoint_epoch_000704",
+      "eval_raw_json": "rnd/sampled-node-phase-rope/eval-only-20260605T025029-late-014330/eval_raw_epoch_000704.json",
+      "task_name": "d128l6-depth16-pd1-adam-lr0010-768ep-cq50k-phase-conditioned_epoch_000704_holdout",
+      "train_wall_seconds": null,
+      "convert_wall_seconds": 3.885673539,
+      "eval_wall_seconds": 37.018268544,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 3858.5008667872266,
+        "lm_eval_rolling_byte_perplexity": 4.529520017765543,
+        "lm_eval_rolling_bits_per_byte": 2.179358179481743,
+        "agpt_fixed_token_perplexity": 3.974932014792171
+      }
+    },
+    {
+      "epoch": 768,
+      "checkpoint_path": "rnd/sampled-node-phase-rope/eval-only-20260605T025029-late-014330/checkpoint.epoch_000768.model",
+      "checkpoint_sha": "fd629296bfc61025b1c45f0b6121610321777ee6f77aa8f7a2febef985a654cf",
+      "hf_dir": "rnd/sampled-node-phase-rope/eval-only-20260605T025029-late-014330/hf_checkpoint_epoch_000768",
+      "eval_raw_json": "rnd/sampled-node-phase-rope/eval-only-20260605T025029-late-014330/eval_raw_epoch_000768.json",
+      "task_name": "d128l6-depth16-pd1-adam-lr0010-768ep-cq50k-phase-conditioned_epoch_000768_holdout",
+      "train_wall_seconds": null,
+      "convert_wall_seconds": 3.78263871,
+      "eval_wall_seconds": 37.035311662,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 3736.387245002729,
+        "lm_eval_rolling_byte_perplexity": 4.502951769064851,
+        "lm_eval_rolling_bits_per_byte": 2.170871025114001,
+        "agpt_fixed_token_perplexity": 3.949113917442778
+      }
+    }
+  ],
+  "eval_only": true
+}

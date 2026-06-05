@@ -76,7 +76,7 @@ static inline void init_unit_anc_grad_runtime_v2(UnitAncGradRuntimeV2& runtime,
     int H = contract.shape.n_heads;
     int D = contract.shape.d_model;
     int L = contract.shape.n_layers;
-    int seq_len = contract.shape.seq_len;
+    int rope_seq_len = contract.rope_seq_len > 0 ? contract.rope_seq_len : contract.shape.seq_len;
 
     int* h_subtree_pos = (int*)std::malloc((size_t)((unit.compact_char_count > 0 ? unit.compact_char_count : 1) * H) * sizeof(int));
     int* h_subtree_slots = (int*)std::malloc((size_t)(unit.compact_char_count > 0 ? unit.compact_char_count : 1) * sizeof(int));
@@ -89,6 +89,14 @@ static inline void init_unit_anc_grad_runtime_v2(UnitAncGradRuntimeV2& runtime,
         if (cfg.rope_position_mode == RopePositionModeV2::SampledBin) {
             sampled_start = sample_prefix_start_bin_v2(pos_stage, r, epoch_index,
                                                        unit.root_child_id, optimizer_step_index);
+        } else if (cfg.rope_position_mode == RopePositionModeV2::PhaseSweep ||
+                   cfg.rope_position_mode == RopePositionModeV2::PhaseWeighted ||
+                   cfg.rope_position_mode == RopePositionModeV2::PhaseConditioned) {
+            sampled_start = sample_prefix_start_unit_phase_v2(pos_stage, trie, r, epoch_index,
+                                                              unit.root_child_id,
+                                                              cfg.rope_position_offset,
+                                                              cfg.rope_phase_shuffle,
+                                                              cfg.rope_phase_shuffle_seed);
         }
         int start_pos = trie.edge_starts[r];
         int len = trie.edge_lens[r];
@@ -99,12 +107,15 @@ static inline void init_unit_anc_grad_runtime_v2(UnitAncGradRuntimeV2& runtime,
             h_subtree_slots[n_sub] = slot;
             int pos = trie.real_pos_of_char[char_pos];
             if (sampled_start >= 0) {
-                int sampled_pos = sampled_rope_pos_from_start_v2(
-                    sampled_start, pos, pos_stage->data->prefix_table.window_size);
+                int sampled_pos = (cfg.rope_position_mode == RopePositionModeV2::SampledBin)
+                    ? sampled_rope_pos_from_start_v2(
+                        sampled_start, pos, pos_stage->data->prefix_table.window_size)
+                    : presentation_rope_pos_from_start_v2(
+                        sampled_start, pos, pos_stage->data->prefix_table.window_size);
                 if (sampled_pos >= 0) pos = sampled_pos;
             }
             if (pos < 0) pos = 0;
-            if (pos >= seq_len) pos = seq_len - 1;
+            if (pos >= rope_seq_len) pos = rope_seq_len - 1;
             for (int h = 0; h < H; h++) {
                 h_subtree_pos[n_sub * H + h] = pos;
             }
@@ -256,7 +267,7 @@ static inline void init_trainer_runtime_v2(TrainerRuntimeV2& runtime,
     AGPT_V2_CUDA_CHECK(cudaMalloc(&runtime.d_opt_m, contract.optimizer_state_bytes / 2));
     AGPT_V2_CUDA_CHECK(cudaMalloc(&runtime.d_opt_v, contract.optimizer_state_bytes / 2));
     build_rope_cache_v2(&runtime.d_rope_cos, &runtime.d_rope_sin,
-                        contract.shape.seq_len, contract.shape.head_dim);
+                        contract.rope_seq_len, contract.shape.head_dim);
     AGPT_V2_CUBLAS_CHECK(cublasCreate(&runtime.cublas));
     AGPT_V2_CUBLAS_CHECK(cublasSetMathMode(runtime.cublas, read_cublas_math_mode_v2()));
 }

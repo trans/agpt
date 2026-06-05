@@ -1,0 +1,57 @@
+description: "V2 phase-weighted: d64 L2 depth16 pd1 Adam lr0.0015 16 epochs, unwrapped RoPE positions, modulo phase mass"
+experiment: sampled-node-phase-rope
+run_slug: d64L2-depth16-pd1-adam-lr0015-16ep-phase-weighted-unwrapped
+
+corpus:
+  path: data/.splits/4fa9aec1db6b3aea/train_corpus.txt
+  heldout: data/.splits/4fa9aec1db6b3aea/heldout_corpus.txt
+  vocab_source: data/input.txt
+  carve:
+    source: data/input.txt
+    mode: sample
+    ratio: 0.05
+    chunks: 10
+    seed: 42
+
+trie:
+  path: /tmp/agpt_snp_25ep_prefix_radix
+  max_depth: 16
+  prune_min_mass: 1
+  prune_min_depth: 0
+  virtual_tree: false
+
+model:
+  init_file: data/seeds/shake-d64L2-h4-dff256-s128-seed42.model
+
+train:
+  budget:
+    unit: epochs
+    value: 16
+  seed: 42
+  quiet: true
+  optimizer:
+    name: adam
+    lr: 0.0015
+    momentum_beta: 0.9
+    beta: 0.999
+  lr_schedule:
+    name: warmup-cosine
+    warmup_epochs: 0
+  max_depth: 16
+  partition_depth: 1
+  chunk_queries: 50000
+  anc_grad: true
+  checkpoint_epochs:
+    - 1
+    - 2
+    - 4
+    - 8
+    - 16
+
+experimental:
+  rope_position_mode: phase-weighted
+  position_data_dir: /tmp/agpt_snp_25ep_position_data
+
+eval:
+  batch_size: 1
+  device: cpu

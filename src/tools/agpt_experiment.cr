@@ -17,6 +17,7 @@
 # Usage:
 #   bin/agpt_experiment --config FOO.yml --trainer <v1|v2|microgpt|/path/to/binary> [--seed N]
 #   bin/agpt_experiment --validate FOO.yml
+#   bin/agpt_experiment --eval-run-dir rnd/<experiment>/<run-id>
 #
 # Exit codes:
 #   0 success
@@ -368,6 +369,15 @@ module AgptExperiment
     def hf_dir : String            ; File.join(@path, "hf_checkpoint")         ; end
     def result_json : String       ; File.join(@path, "result.json")           ; end
     def eval_raw_json : String     ; File.join(@path, "eval_raw.json")         ; end
+
+    def self.from_path(path : String) : RunDir
+      clean = path.rstrip('/')
+      run_id = File.basename(clean)
+      experiment_dir = File.dirname(clean)
+      experiment = File.basename(experiment_dir)
+      root = File.dirname(experiment_dir)
+      RunDir.new(root, experiment, run_id)
+    end
   end
 
   def self.find_duplicate(rnd_root : String, experiment : String, target_hash : String) : String?
@@ -576,6 +586,223 @@ module AgptExperiment
     times
   end
 
+  def self.eval_context(cfg : Config, run : RunDir, run_slug : String)
+    ev = cfg.eval_or_default
+    task_base = slugify(run_slug)
+    task_name : String
+    eval_source_path : String? = nil
+    eval_chunks_dir : String? = nil
+    eval_split_kind : String
+
+    if bench = ev.benchmark
+      task_name = bench
+      eval_split_kind = "benchmark"
+    elsif ext = ev.external_file
+      raise "eval.external_file does not exist: #{ext}" unless File.exists?(ext)
+      eval_source_path = ext
+      task_name = "#{task_base}_external"
+      eval_split_kind = "external-heldout"
+    else
+      heldout = cfg.corpus.heldout || raise "eval requires corpus.heldout (or eval.external_file / eval.benchmark)"
+      raise "corpus.heldout does not exist: #{heldout}" unless File.exists?(heldout)
+      heldout_dir = File.dirname(heldout)
+      chunks_dir = File.join(heldout_dir, "heldout_chunks")
+      task_name = "#{task_base}_holdout"
+      eval_split_kind = "tail-heldout"
+      if Dir.exists?(chunks_dir)
+        eval_chunks_dir = chunks_dir
+        eval_split_kind = "multi-chunk-heldout"
+      else
+        eval_source_path = heldout
+      end
+    end
+
+    {ev, task_base, task_name, eval_source_path, eval_chunks_dir, eval_split_kind}
+  end
+
+  def self.eval_args_for_checkpoint(cfg : Config, run : RunDir, hf_dir : String, raw_json : String, checkpoint_path : String, task_name : String, eval_source_path : String?, eval_chunks_dir : String?) : Array(String)
+    ev = cfg.eval_or_default
+    vocab_source = cfg.corpus.vocab_source || cfg.corpus.path
+    args = [
+      "src/tools/agpt_lm_eval.py",
+      "--hf-dir", hf_dir,
+      "--batch-size", ev.batch_size.to_s,
+      "--device", ev.device,
+      "--out-json", raw_json,
+    ]
+    if bench = ev.benchmark
+      args << "--builtin-task" << bench
+    elsif ext = ev.external_file
+      args << "--text-file" << ext << "--task-name" << task_name
+    elsif eval_chunks_dir
+      args << "--chunks-dir" << eval_chunks_dir.not_nil! << "--task-name" << task_name
+    elsif eval_source_path
+      args << "--text-file" << eval_source_path.not_nil! << "--task-name" << task_name
+    end
+    if eval_source_path || eval_chunks_dir
+      args << "--agpt-model" << checkpoint_path
+      args << "--vocab-file" << vocab_source
+    end
+    if v = ev.limit
+      args << "--limit" << v.to_s
+    end
+    args
+  end
+
+  def self.convert_checkpoint!(cfg : Config, run : RunDir, checkpoint_path : String, hf_dir : String, label : String) : Float64
+    vocab_source = cfg.corpus.vocab_source || cfg.corpus.path
+    convert_args = [
+      "src/tools/agpt_hf.py", "convert",
+      "--model", checkpoint_path,
+      "--vocab-file", vocab_source,
+      "--out", hf_dir,
+    ]
+    File.open(run.eval_log, "a") { |io| io.puts "\n--- convert #{label} ---" }
+    started = Time.utc
+    status = spawn_tee("python3", convert_args, run.eval_log, append: true)
+    ended = Time.utc
+    wall = (ended - started).total_seconds
+    unless status.success?
+      STDERR.puts "HF convert failed for #{label}; tail of #{run.eval_log}:"
+      STDERR.puts File.read(run.eval_log).split('\n').last(20).join('\n')
+      exit 4
+    end
+    wall
+  end
+
+  def self.eval_checkpoint!(cfg : Config, run : RunDir, checkpoint_path : String, hf_dir : String, raw_json : String, task_name : String, eval_source_path : String?, eval_chunks_dir : String?, label : String) : Float64
+    args = eval_args_for_checkpoint(cfg, run, hf_dir, raw_json, checkpoint_path, task_name, eval_source_path, eval_chunks_dir)
+    File.open(run.eval_log, "a") { |io| io.puts "\n--- lm-eval #{label} ---" }
+    started = Time.utc
+    status = spawn_tee("python3", args, run.eval_log, append: true)
+    ended = Time.utc
+    wall = (ended - started).total_seconds
+    unless status.success?
+      STDERR.puts "lm-eval failed for #{label}; tail of #{run.eval_log}:"
+      STDERR.puts File.read(run.eval_log).split('\n').last(20).join('\n')
+      exit 4
+    end
+    wall
+  end
+
+  def self.eval_existing_run!(run : RunDir) : Nil
+    resolved = File.exists?(run.resolved_yml) ? run.resolved_yml : run.config_yml
+    raise "run config not found: #{run.resolved_yml} or #{run.config_yml}" unless File.exists?(resolved)
+    cfg = Config.from_yaml(File.read(resolved))
+    cfg.validate!
+
+    meta = File.exists?(run.meta_json) ? JSON.parse(File.read(run.meta_json)).as_h : {} of String => JSON::Any
+    trainer_name = meta["trainer"]?.try(&.as_s?) || "unknown"
+    run_slug = cfg.run_slug || run.run_id
+    started = Time.utc
+    checkpoint_train_walls = parse_checkpoint_train_wall_seconds(run.train_log)
+    ev, task_base, task_name, eval_source_path, eval_chunks_dir, eval_split_kind = eval_context(cfg, run, run_slug)
+
+    final_convert_wall : Float64? = nil
+    final_eval_wall : Float64? = nil
+    final_metrics = {} of String => Float64
+    checkpoint_sha : String? = nil
+
+    File.open(run.eval_log, "a") { |io| io.puts "\n--- eval-run-dir #{Time.utc.to_rfc3339} ---" }
+    if File.exists?(run.checkpoint)
+      final_convert_wall = convert_checkpoint!(cfg, run, run.checkpoint, run.hf_dir, "final checkpoint")
+      final_eval_wall = eval_checkpoint!(cfg, run, run.checkpoint, run.hf_dir, run.eval_raw_json, task_name, eval_source_path, eval_chunks_dir, "final checkpoint")
+      final_metrics = parse_eval_json(run.eval_raw_json, task_name) || {} of String => Float64
+      checkpoint_sha = sha256_file(run.checkpoint)
+    else
+      STDERR.puts "agpt_experiment: no final checkpoint at #{run.checkpoint}; evaluating existing epoch checkpoints only"
+    end
+
+    checkpoint_results = [] of JSON::Any
+    if checkpoint_epochs = cfg.train.checkpoint_epochs
+      checkpoint_epochs.uniq.sort.each do |epoch|
+        checkpoint_path = epoch_checkpoint_path(run.checkpoint, epoch)
+        unless File.exists?(checkpoint_path)
+          STDERR.puts "agpt_experiment: skipping missing checkpoint epoch #{epoch}: #{checkpoint_path}"
+          next
+        end
+
+        hf_dir = run.epoch_hf_dir(epoch)
+        raw_json = run.epoch_eval_raw_json(epoch)
+        checkpoint_task_name = task_name
+        if ev.external_file
+          checkpoint_task_name = "#{task_base}_epoch_#{epoch.to_s.rjust(6, '0')}_external"
+        elsif eval_chunks_dir || eval_source_path
+          checkpoint_task_name = "#{task_base}_epoch_#{epoch.to_s.rjust(6, '0')}_holdout"
+        end
+
+        convert_wall = convert_checkpoint!(cfg, run, checkpoint_path, hf_dir, "checkpoint epoch #{epoch}")
+        eval_wall = eval_checkpoint!(cfg, run, checkpoint_path, hf_dir, raw_json, checkpoint_task_name, eval_source_path, eval_chunks_dir, "checkpoint epoch #{epoch}")
+        metrics = parse_eval_json(raw_json, checkpoint_task_name) || {} of String => Float64
+        checkpoint_result = {
+          "epoch"                => epoch,
+          "checkpoint_path"      => checkpoint_path,
+          "checkpoint_sha"       => sha256_file(checkpoint_path),
+          "hf_dir"               => hf_dir,
+          "eval_raw_json"        => raw_json,
+          "task_name"            => checkpoint_task_name,
+          "train_wall_seconds"   => checkpoint_train_walls[epoch]?,
+          "convert_wall_seconds" => convert_wall,
+          "eval_wall_seconds"    => eval_wall,
+          "metrics"              => metrics,
+        }
+        checkpoint_results << JSON.parse(checkpoint_result.to_json)
+      end
+    end
+
+    ended = Time.utc
+    wall = (ended - started).total_seconds
+    eval_record = {
+      "split"         => eval_split_kind,
+      "source_path"   => eval_source_path,
+      "source_sha256" => eval_source_path ? sha256_file(eval_source_path.not_nil!) : nil,
+      "chunks_dir"    => eval_chunks_dir,
+      "benchmark"     => ev.benchmark,
+      "task_name"     => task_name,
+    }
+    result = {
+      "run_id"               => run.run_id,
+      "experiment"           => cfg.experiment,
+      "wall_seconds"         => wall,
+      "train_wall_seconds"   => meta["train_wall_seconds"]?,
+      "convert_wall_seconds" => final_convert_wall,
+      "eval_wall_seconds"    => final_eval_wall,
+      "started_utc"          => started.to_rfc3339,
+      "ended_utc"            => ended.to_rfc3339,
+      "trainer"              => trainer_name,
+      "evaluator"            => "lm-evaluation-harness via agpt_lm_eval.py",
+      "eval"                 => eval_record,
+      "metrics"              => final_metrics,
+      "checkpoint_sha"       => checkpoint_sha,
+      "checkpoint_results"   => checkpoint_results.empty? ? nil : checkpoint_results,
+      "eval_only"            => true,
+    }
+    File.write(run.result_json, JSON.parse(result.to_json).to_pretty_json)
+
+    if File.exists?(run.meta_json)
+      updated_meta = JSON.parse(File.read(run.meta_json)).as_h
+      updated_meta["eval_run_dir_ended_utc"] = JSON::Any.new(ended.to_rfc3339)
+      updated_meta["eval_run_dir_wall_seconds"] = JSON::Any.new(wall)
+      File.write(run.meta_json, JSON.parse(updated_meta.to_json).to_pretty_json)
+    end
+    update_runs_json(run.root, cfg.experiment)
+
+    STDERR.puts "agpt_experiment: eval-run-dir done."
+    STDERR.puts "  run dir     : #{run.path}"
+    STDERR.puts "  checkpoints : #{checkpoint_results.size}"
+    if checkpoint_results.empty?
+      STDERR.puts "  metrics     : no checkpoint metrics written"
+    else
+      last = checkpoint_results.last
+      if metrics_any = last["metrics"]?
+        STDERR.puts "  last metrics: #{metrics_any}"
+      end
+    end
+  rescue ex
+    STDERR.puts "error: eval-run-dir failed: #{ex.message}"
+    exit 4
+  end
+
   # ---------------------------------------------------------------------------
   # Aggregation: runs.json
   # ---------------------------------------------------------------------------
@@ -602,6 +829,7 @@ module AgptExperiment
     rnd_root = "rnd"
     seed_override : Int32? = nil
     validate_only = false
+    eval_run_dir : String? = nil
 
     OptionParser.parse(argv) do |p|
       p.banner = "Usage: agpt_experiment --config X.yml --trainer <v1|v2|microgpt|path> [--seed N]"
@@ -609,6 +837,7 @@ module AgptExperiment
       p.on("--trainer NAME", "Trainer: v1|v2|microgpt|<path>") { |v| trainer_name = v }
       p.on("--rnd-root PATH", "Root dir for experiments (default: rnd)") { |v| rnd_root = v }
       p.on("--seed N", "Override train.seed for this run") { |v| seed_override = v.to_i }
+      p.on("--eval-run-dir PATH", "Evaluate an existing run dir; skips missing epoch checkpoints") { |v| eval_run_dir = v }
       p.on("--validate PATH", "Parse + show resolved config, take no other action") do |v|
         config_path = v
         validate_only = true
@@ -617,6 +846,12 @@ module AgptExperiment
     end
 
     warn_about_agpt_env_vars
+
+    if erd = eval_run_dir
+      run = RunDir.from_path(erd)
+      eval_existing_run!(run)
+      exit 0
+    end
 
     cp = config_path
     if cp.nil?

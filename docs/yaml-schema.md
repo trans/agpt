@@ -318,6 +318,9 @@ every other section is relaxed inside `experimental`:** trainers emit
 | field | type | default | consumers | notes |
 |---|---|---|---|---|
 | `experimental.<name>` | any | absent | per-trainer | Pass-through to whichever trainer reads it. Flat key/value (not namespaced by trainer in the input). |
+| `experimental.rope_position_mode` | enum | `depth` | v2 | Experimental RoPE position source. Values: `depth`, `sampled-bin`, `phase-sweep`, `phase-weighted`. Legacy aliases `sampled-unit-phase` and `sampled-node-phase` map to `phase-weighted`. |
+| `experimental.position_data_dir` | path | absent | v2 | Required when `experimental.rope_position_mode` uses sampled positions. Directory must contain `substrings.bin` and `prefix_position_table.bin`. |
+| `experimental.pos_sample_seed` | integer | `train.seed` | v2 | Optional non-negative override for sampled-position selection. |
 
 ### Discipline
 
@@ -366,9 +369,15 @@ bin/agpt_carve --source <path> --mode <mode> --ratio <r> [--chunks <c> --seed <s
 
 # Orchestrator
 bin/agpt_experiment --config <yaml-path> --trainer <name|tool> [--seed <int>]
+bin/agpt_experiment --eval-run-dir rnd/<experiment>/<run-id>
 ```
 
-No other flags. No `AGPT_*` env vars. The OS-level env vars
+`--eval-run-dir` skips training and evaluates checkpoints that already exist
+inside an existing run directory. Missing future epoch checkpoints are skipped,
+so interrupted runs can still produce `result.json`, per-checkpoint eval JSON,
+and `runs.json` entries.
+
+No `AGPT_*` env vars. The OS-level env vars
 `CUDA_VISIBLE_DEVICES`, `OMP_NUM_THREADS`, and `CUBLAS_WORKSPACE_CONFIG`
 remain permitted (recorded in `meta.json` for provenance).
 

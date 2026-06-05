@@ -1,0 +1,120 @@
+{
+  "run_id": "20260603T044622-d64l2-depth16-pd1-adam-lr0015-16ep-phase-weighted-unwrapped",
+  "experiment": "sampled-node-phase-rope",
+  "wall_seconds": 231.265219358,
+  "train_wall_seconds": 93.999637577,
+  "convert_wall_seconds": 4.393028489,
+  "eval_wall_seconds": 20.533494134,
+  "started_utc": "2026-06-03T04:46:22Z",
+  "ended_utc": "2026-06-03T04:50:13Z",
+  "trainer": "v2",
+  "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+  "eval": {
+    "split": "multi-chunk-heldout",
+    "source_path": null,
+    "source_sha256": null,
+    "chunks_dir": "data/.splits/4fa9aec1db6b3aea/heldout_chunks",
+    "benchmark": null,
+    "task_name": "d64l2-depth16-pd1-adam-lr0015-16ep-phase-weighted-unwrapped_holdout"
+  },
+  "metrics": {
+    "lm_eval_rolling_word_perplexity": 129514.20870209539,
+    "lm_eval_rolling_byte_perplexity": 8.613507083556492,
+    "lm_eval_rolling_bits_per_byte": 3.1066007662944526,
+    "agpt_fixed_token_perplexity": 8.419467126696764
+  },
+  "checkpoint_sha": "db74900e227a7db835540eb732560b8a4aa77c9b9e17f924ccec741f5c76f11c",
+  "checkpoint_results": [
+    {
+      "epoch": 1,
+      "checkpoint_path": "rnd/sampled-node-phase-rope/20260603T044622-d64l2-depth16-pd1-adam-lr0015-16ep-phase-weighted-unwrapped/checkpoint.epoch_000001.model",
+      "checkpoint_sha": "cffef791cae7156cea50d17b012f801e2dd8d498bdb60c446eab8931993e73b6",
+      "hf_dir": "rnd/sampled-node-phase-rope/20260603T044622-d64l2-depth16-pd1-adam-lr0015-16ep-phase-weighted-unwrapped/hf_checkpoint_epoch_000001",
+      "eval_raw_json": "rnd/sampled-node-phase-rope/20260603T044622-d64l2-depth16-pd1-adam-lr0015-16ep-phase-weighted-unwrapped/eval_raw_epoch_000001.json",
+      "task_name": "d64l2-depth16-pd1-adam-lr0015-16ep-phase-weighted-unwrapped_epoch_000001_holdout",
+      "train_wall_seconds": 5.827547,
+      "convert_wall_seconds": 3.7271628039999998,
+      "eval_wall_seconds": 17.717291905,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 4053502.337798977,
+        "lm_eval_rolling_byte_perplexity": 16.171468848522974,
+        "lm_eval_rolling_bits_per_byte": 4.0153788191063855,
+        "agpt_fixed_token_perplexity": 16.371914460166032
+      }
+    },
+    {
+      "epoch": 2,
+      "checkpoint_path": "rnd/sampled-node-phase-rope/20260603T044622-d64l2-depth16-pd1-adam-lr0015-16ep-phase-weighted-unwrapped/checkpoint.epoch_000002.model",
+      "checkpoint_sha": "f095f39ce665b188ecd890e84434ba8949c83b7e0e8f48f2f4c64028984a6ed9",
+      "hf_dir": "rnd/sampled-node-phase-rope/20260603T044622-d64l2-depth16-pd1-adam-lr0015-16ep-phase-weighted-unwrapped/hf_checkpoint_epoch_000002",
+      "eval_raw_json": "rnd/sampled-node-phase-rope/20260603T044622-d64l2-depth16-pd1-adam-lr0015-16ep-phase-weighted-unwrapped/eval_raw_epoch_000002.json",
+      "task_name": "d64l2-depth16-pd1-adam-lr0015-16ep-phase-weighted-unwrapped_epoch_000002_holdout",
+      "train_wall_seconds": 11.488139,
+      "convert_wall_seconds": 3.6009359180000002,
+      "eval_wall_seconds": 17.79533526,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 1209336.179062873,
+        "lm_eval_rolling_byte_perplexity": 12.961672527083135,
+        "lm_eval_rolling_bits_per_byte": 3.6961799852428454,
+        "agpt_fixed_token_perplexity": 12.96021842324359
+      }
+    },
+    {
+      "epoch": 4,
+      "checkpoint_path": "rnd/sampled-node-phase-rope/20260603T044622-d64l2-depth16-pd1-adam-lr0015-16ep-phase-weighted-unwrapped/checkpoint.epoch_000004.model",
+      "checkpoint_sha": "24a2a03c4bd433f1c47b76b8ddd2b6369c7e70407b82613c9df4dacf0d5e37e7",
+      "hf_dir": "rnd/sampled-node-phase-rope/20260603T044622-d64l2-depth16-pd1-adam-lr0015-16ep-phase-weighted-unwrapped/hf_checkpoint_epoch_000004",
+      "eval_raw_json": "rnd/sampled-node-phase-rope/20260603T044622-d64l2-depth16-pd1-adam-lr0015-16ep-phase-weighted-unwrapped/eval_raw_epoch_000004.json",
+      "task_name": "d64l2-depth16-pd1-adam-lr0015-16ep-phase-weighted-unwrapped_epoch_000004_holdout",
+      "train_wall_seconds": 22.837288,
+      "convert_wall_seconds": 3.735191622,
+      "eval_wall_seconds": 17.656265631,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 480821.51998650184,
+        "lm_eval_rolling_byte_perplexity": 10.949323776270461,
+        "lm_eval_rolling_bits_per_byte": 3.4527698674767078,
+        "agpt_fixed_token_perplexity": 10.875146058848712
+      }
+    },
+    {
+      "epoch": 8,
+      "checkpoint_path": "rnd/sampled-node-phase-rope/20260603T044622-d64l2-depth16-pd1-adam-lr0015-16ep-phase-weighted-unwrapped/checkpoint.epoch_000008.model",
+      "checkpoint_sha": "14425d25e1f70d63703e68ff4beb9a32acea474963a508baa1e339a380c3e7bc",
+      "hf_dir": "rnd/sampled-node-phase-rope/20260603T044622-d64l2-depth16-pd1-adam-lr0015-16ep-phase-weighted-unwrapped/hf_checkpoint_epoch_000008",
+      "eval_raw_json": "rnd/sampled-node-phase-rope/20260603T044622-d64l2-depth16-pd1-adam-lr0015-16ep-phase-weighted-unwrapped/eval_raw_epoch_000008.json",
+      "task_name": "d64l2-depth16-pd1-adam-lr0015-16ep-phase-weighted-unwrapped_epoch_000008_holdout",
+      "train_wall_seconds": 45.617768,
+      "convert_wall_seconds": 3.832475632,
+      "eval_wall_seconds": 17.439793804,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 209630.8555303737,
+        "lm_eval_rolling_byte_perplexity": 9.40669208137804,
+        "lm_eval_rolling_bits_per_byte": 3.233687479935742,
+        "agpt_fixed_token_perplexity": 9.280062802029919
+      }
+    },
+    {
+      "epoch": 16,
+      "checkpoint_path": "rnd/sampled-node-phase-rope/20260603T044622-d64l2-depth16-pd1-adam-lr0015-16ep-phase-weighted-unwrapped/checkpoint.epoch_000016.model",
+      "checkpoint_sha": "db74900e227a7db835540eb732560b8a4aa77c9b9e17f924ccec741f5c76f11c",
+      "hf_dir": "rnd/sampled-node-phase-rope/20260603T044622-d64l2-depth16-pd1-adam-lr0015-16ep-phase-weighted-unwrapped/hf_checkpoint_epoch_000016",
+      "eval_raw_json": "rnd/sampled-node-phase-rope/20260603T044622-d64l2-depth16-pd1-adam-lr0015-16ep-phase-weighted-unwrapped/eval_raw_epoch_000016.json",
+      "task_name": "d64l2-depth16-pd1-adam-lr0015-16ep-phase-weighted-unwrapped_epoch_000016_holdout",
+      "train_wall_seconds": 91.270809,
+      "convert_wall_seconds": 3.856147199,
+      "eval_wall_seconds": 17.455905094,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 129514.20870209539,
+        "lm_eval_rolling_byte_perplexity": 8.613507083556492,
+        "lm_eval_rolling_bits_per_byte": 3.1066007662944526,
+        "agpt_fixed_token_perplexity": 8.419467126696764
+      }
+    }
+  ],
+  "experimental_used": {
+    "v2": [
+      "position_data_dir",
+      "rope_position_mode"
+    ]
+  }
+}

@@ -1,0 +1,358 @@
+{
+  "run_id": "20260604T102205-d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un",
+  "experiment": "sampled-node-phase-rope",
+  "wall_seconds": 17008.547815668,
+  "train_wall_seconds": 16234.909502213,
+  "convert_wall_seconds": 6.10914182,
+  "eval_wall_seconds": 37.220211169,
+  "started_utc": "2026-06-04T10:22:05Z",
+  "ended_utc": "2026-06-04T15:05:33Z",
+  "trainer": "v2",
+  "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+  "eval": {
+    "split": "multi-chunk-heldout",
+    "source_path": null,
+    "source_sha256": null,
+    "chunks_dir": "data/.splits/4fa9aec1db6b3aea/heldout_chunks",
+    "benchmark": null,
+    "task_name": "d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un_holdout"
+  },
+  "metrics": {
+    "lm_eval_rolling_word_perplexity": 3815.0552617664694,
+    "lm_eval_rolling_byte_perplexity": 4.52014734006139,
+    "lm_eval_rolling_bits_per_byte": 2.1763697999217486,
+    "agpt_fixed_token_perplexity": 3.945226135725354
+  },
+  "checkpoint_sha": "d16539c1a2343e7c20cd948c02bce3de080857c92e4483699dc09a9977cb4e5d",
+  "checkpoint_results": [
+    {
+      "epoch": 1,
+      "checkpoint_path": "rnd/sampled-node-phase-rope/20260604T102205-d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un/checkpoint.epoch_000001.model",
+      "checkpoint_sha": "05b5301ebad984d67a0704bb81f6ad4bba7a64e1844c8535c6e6e98a504c1d01",
+      "hf_dir": "rnd/sampled-node-phase-rope/20260604T102205-d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un/hf_checkpoint_epoch_000001",
+      "eval_raw_json": "rnd/sampled-node-phase-rope/20260604T102205-d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un/eval_raw_epoch_000001.json",
+      "task_name": "d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un_epoch_000001_holdout",
+      "train_wall_seconds": 30.930798,
+      "convert_wall_seconds": 3.529602221,
+      "eval_wall_seconds": 35.699369373,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 3060931.0312002096,
+        "lm_eval_rolling_byte_perplexity": 15.36160606940343,
+        "lm_eval_rolling_bits_per_byte": 3.94125715386529,
+        "agpt_fixed_token_perplexity": 15.37284837337659
+      }
+    },
+    {
+      "epoch": 2,
+      "checkpoint_path": "rnd/sampled-node-phase-rope/20260604T102205-d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un/checkpoint.epoch_000002.model",
+      "checkpoint_sha": "147a3dbb300b46cfe771049acbb6cd383e97faa971af71a6c96acd7fb94b432a",
+      "hf_dir": "rnd/sampled-node-phase-rope/20260604T102205-d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un/hf_checkpoint_epoch_000002",
+      "eval_raw_json": "rnd/sampled-node-phase-rope/20260604T102205-d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un/eval_raw_epoch_000002.json",
+      "task_name": "d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un_epoch_000002_holdout",
+      "train_wall_seconds": 61.903467,
+      "convert_wall_seconds": 3.593443673,
+      "eval_wall_seconds": 34.765450627999996,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 746405.00726139,
+        "lm_eval_rolling_byte_perplexity": 11.866553777876474,
+        "lm_eval_rolling_bits_per_byte": 3.5688291107899754,
+        "agpt_fixed_token_perplexity": 11.866776743500541
+      }
+    },
+    {
+      "epoch": 4,
+      "checkpoint_path": "rnd/sampled-node-phase-rope/20260604T102205-d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un/checkpoint.epoch_000004.model",
+      "checkpoint_sha": "ef69506d85dcfc67804f393b42192b8955f649d57a9b59a250533199c54812b1",
+      "hf_dir": "rnd/sampled-node-phase-rope/20260604T102205-d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un/hf_checkpoint_epoch_000004",
+      "eval_raw_json": "rnd/sampled-node-phase-rope/20260604T102205-d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un/eval_raw_epoch_000004.json",
+      "task_name": "d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un_epoch_000004_holdout",
+      "train_wall_seconds": 124.045508,
+      "convert_wall_seconds": 3.575406076,
+      "eval_wall_seconds": 34.132983295,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 320630.5927144983,
+        "lm_eval_rolling_byte_perplexity": 10.16707503803857,
+        "lm_eval_rolling_bits_per_byte": 3.34583278538477,
+        "agpt_fixed_token_perplexity": 9.958898925629171
+      }
+    },
+    {
+      "epoch": 8,
+      "checkpoint_path": "rnd/sampled-node-phase-rope/20260604T102205-d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un/checkpoint.epoch_000008.model",
+      "checkpoint_sha": "184f332251add76f869fbe3a2751a2c0c27f60ff874ca7256c6e2c4d3dffc2b3",
+      "hf_dir": "rnd/sampled-node-phase-rope/20260604T102205-d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un/hf_checkpoint_epoch_000008",
+      "eval_raw_json": "rnd/sampled-node-phase-rope/20260604T102205-d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un/eval_raw_epoch_000008.json",
+      "task_name": "d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un_epoch_000008_holdout",
+      "train_wall_seconds": 250.522558,
+      "convert_wall_seconds": 3.455347012,
+      "eval_wall_seconds": 34.832821107,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 119679.45603415012,
+        "lm_eval_rolling_byte_perplexity": 8.489967457884562,
+        "lm_eval_rolling_bits_per_byte": 3.085759023926896,
+        "agpt_fixed_token_perplexity": 8.19900148778574
+      }
+    },
+    {
+      "epoch": 16,
+      "checkpoint_path": "rnd/sampled-node-phase-rope/20260604T102205-d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un/checkpoint.epoch_000016.model",
+      "checkpoint_sha": "b70d853dffe0668b6c580c9f0a6ccb9097de1ec62661d7bb8576f1e7a252f62c",
+      "hf_dir": "rnd/sampled-node-phase-rope/20260604T102205-d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un/hf_checkpoint_epoch_000016",
+      "eval_raw_json": "rnd/sampled-node-phase-rope/20260604T102205-d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un/eval_raw_epoch_000016.json",
+      "task_name": "d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un_epoch_000016_holdout",
+      "train_wall_seconds": 508.804146,
+      "convert_wall_seconds": 3.576763159,
+      "eval_wall_seconds": 35.122907135,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 52570.80257236106,
+        "lm_eval_rolling_byte_perplexity": 7.303833137261507,
+        "lm_eval_rolling_bits_per_byte": 2.8686538060128273,
+        "agpt_fixed_token_perplexity": 6.876910292255315
+      }
+    },
+    {
+      "epoch": 32,
+      "checkpoint_path": "rnd/sampled-node-phase-rope/20260604T102205-d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un/checkpoint.epoch_000032.model",
+      "checkpoint_sha": "1bc310dd91d8044ebe7367a4e60cc59c2d921dc90df806eba10c1def574dd09a",
+      "hf_dir": "rnd/sampled-node-phase-rope/20260604T102205-d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un/hf_checkpoint_epoch_000032",
+      "eval_raw_json": "rnd/sampled-node-phase-rope/20260604T102205-d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un/eval_raw_epoch_000032.json",
+      "task_name": "d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un_epoch_000032_holdout",
+      "train_wall_seconds": 1025.491013,
+      "convert_wall_seconds": 3.677598546,
+      "eval_wall_seconds": 33.8690565,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 24105.357470893257,
+        "lm_eval_rolling_byte_perplexity": 6.3329512074536085,
+        "lm_eval_rolling_bits_per_byte": 2.6628779641313347,
+        "agpt_fixed_token_perplexity": 5.792657932554986
+      }
+    },
+    {
+      "epoch": 64,
+      "checkpoint_path": "rnd/sampled-node-phase-rope/20260604T102205-d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un/checkpoint.epoch_000064.model",
+      "checkpoint_sha": "23c08ffff06e57e07a99b8d03915507bffdae2a3b4569d8d806593694b45713f",
+      "hf_dir": "rnd/sampled-node-phase-rope/20260604T102205-d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un/hf_checkpoint_epoch_000064",
+      "eval_raw_json": "rnd/sampled-node-phase-rope/20260604T102205-d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un/eval_raw_epoch_000064.json",
+      "task_name": "d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un_epoch_000064_holdout",
+      "train_wall_seconds": 2018.895313,
+      "convert_wall_seconds": 3.62460695,
+      "eval_wall_seconds": 32.669494579,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 11996.481580369325,
+        "lm_eval_rolling_byte_perplexity": 5.574018358830822,
+        "lm_eval_rolling_bits_per_byte": 2.4787177541730756,
+        "agpt_fixed_token_perplexity": 5.008393277696148
+      }
+    },
+    {
+      "epoch": 96,
+      "checkpoint_path": "rnd/sampled-node-phase-rope/20260604T102205-d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un/checkpoint.epoch_000096.model",
+      "checkpoint_sha": "385667d8bf92266ea5ebb4a32af651e6632a2cecdd28e189fe497aa93497d929",
+      "hf_dir": "rnd/sampled-node-phase-rope/20260604T102205-d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un/hf_checkpoint_epoch_000096",
+      "eval_raw_json": "rnd/sampled-node-phase-rope/20260604T102205-d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un/eval_raw_epoch_000096.json",
+      "task_name": "d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un_epoch_000096_holdout",
+      "train_wall_seconds": 3019.000301,
+      "convert_wall_seconds": 3.310048117,
+      "eval_wall_seconds": 32.763819289,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 9555.997566698552,
+        "lm_eval_rolling_byte_perplexity": 5.346865675780268,
+        "lm_eval_rolling_bits_per_byte": 2.418693433736747,
+        "agpt_fixed_token_perplexity": 4.746152278598417
+      }
+    },
+    {
+      "epoch": 112,
+      "checkpoint_path": "rnd/sampled-node-phase-rope/20260604T102205-d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un/checkpoint.epoch_000112.model",
+      "checkpoint_sha": "14d99327e428fdd84391deb835662515cf0fb5595317001f122ee31ccadf2d21",
+      "hf_dir": "rnd/sampled-node-phase-rope/20260604T102205-d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un/hf_checkpoint_epoch_000112",
+      "eval_raw_json": "rnd/sampled-node-phase-rope/20260604T102205-d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un/eval_raw_epoch_000112.json",
+      "task_name": "d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un_epoch_000112_holdout",
+      "train_wall_seconds": 3547.390762,
+      "convert_wall_seconds": 3.644628082,
+      "eval_wall_seconds": 36.056054922,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 8045.092990057115,
+        "lm_eval_rolling_byte_perplexity": 5.181152972496774,
+        "lm_eval_rolling_bits_per_byte": 2.373273179496988,
+        "agpt_fixed_token_perplexity": 4.5963633201711565
+      }
+    },
+    {
+      "epoch": 128,
+      "checkpoint_path": "rnd/sampled-node-phase-rope/20260604T102205-d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un/checkpoint.epoch_000128.model",
+      "checkpoint_sha": "cb52396f3aae9cda0c0e0272fa7b2ef5c5abf99398fa6d989180dd3502d2fa8c",
+      "hf_dir": "rnd/sampled-node-phase-rope/20260604T102205-d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un/hf_checkpoint_epoch_000128",
+      "eval_raw_json": "rnd/sampled-node-phase-rope/20260604T102205-d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un/eval_raw_epoch_000128.json",
+      "task_name": "d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un_epoch_000128_holdout",
+      "train_wall_seconds": 4071.362579,
+      "convert_wall_seconds": 3.590552969,
+      "eval_wall_seconds": 36.974199883,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 8882.88755027218,
+        "lm_eval_rolling_byte_perplexity": 5.275899249147868,
+        "lm_eval_rolling_bits_per_byte": 2.3994170145245244,
+        "agpt_fixed_token_perplexity": 4.69144052002008
+      }
+    },
+    {
+      "epoch": 160,
+      "checkpoint_path": "rnd/sampled-node-phase-rope/20260604T102205-d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un/checkpoint.epoch_000160.model",
+      "checkpoint_sha": "44c8c3a9823fe81cc9c3bdff8051a9c78cab91c3a60e40c43788488413600fcc",
+      "hf_dir": "rnd/sampled-node-phase-rope/20260604T102205-d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un/hf_checkpoint_epoch_000160",
+      "eval_raw_json": "rnd/sampled-node-phase-rope/20260604T102205-d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un/eval_raw_epoch_000160.json",
+      "task_name": "d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un_epoch_000160_holdout",
+      "train_wall_seconds": 5108.41433,
+      "convert_wall_seconds": 3.917064023,
+      "eval_wall_seconds": 35.681348628,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 6589.855338669465,
+        "lm_eval_rolling_byte_perplexity": 4.995452758908443,
+        "lm_eval_rolling_bits_per_byte": 2.320615441467187,
+        "agpt_fixed_token_perplexity": 4.40142224283674
+      }
+    },
+    {
+      "epoch": 192,
+      "checkpoint_path": "rnd/sampled-node-phase-rope/20260604T102205-d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un/checkpoint.epoch_000192.model",
+      "checkpoint_sha": "4b9daae54763a4ed1fe5cc99b9540287a6783b3e43fb506d4b229ba5ebd87da6",
+      "hf_dir": "rnd/sampled-node-phase-rope/20260604T102205-d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un/hf_checkpoint_epoch_000192",
+      "eval_raw_json": "rnd/sampled-node-phase-rope/20260604T102205-d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un/eval_raw_epoch_000192.json",
+      "task_name": "d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un_epoch_000192_holdout",
+      "train_wall_seconds": 6160.207577,
+      "convert_wall_seconds": 3.390773679,
+      "eval_wall_seconds": 34.741111432,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 5699.208900493549,
+        "lm_eval_rolling_byte_perplexity": 4.864511693590834,
+        "lm_eval_rolling_bits_per_byte": 2.28229499255172,
+        "agpt_fixed_token_perplexity": 4.275451169106181
+      }
+    },
+    {
+      "epoch": 224,
+      "checkpoint_path": "rnd/sampled-node-phase-rope/20260604T102205-d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un/checkpoint.epoch_000224.model",
+      "checkpoint_sha": "e53c9afa1740c402b4e0f9b4494c868e1565ff7da5bd013cece632485f242175",
+      "hf_dir": "rnd/sampled-node-phase-rope/20260604T102205-d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un/hf_checkpoint_epoch_000224",
+      "eval_raw_json": "rnd/sampled-node-phase-rope/20260604T102205-d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un/eval_raw_epoch_000224.json",
+      "task_name": "d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un_epoch_000224_holdout",
+      "train_wall_seconds": 7238.675544,
+      "convert_wall_seconds": 3.464349297,
+      "eval_wall_seconds": 33.878240191,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 5341.428061554015,
+        "lm_eval_rolling_byte_perplexity": 4.807159651393818,
+        "lm_eval_rolling_bits_per_byte": 2.265184717860946,
+        "agpt_fixed_token_perplexity": 4.218710470620983
+      }
+    },
+    {
+      "epoch": 256,
+      "checkpoint_path": "rnd/sampled-node-phase-rope/20260604T102205-d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un/checkpoint.epoch_000256.model",
+      "checkpoint_sha": "5c75bcd8f0bfd9a231f0b1d547f154013d7dba0250336277b42039947fdd4637",
+      "hf_dir": "rnd/sampled-node-phase-rope/20260604T102205-d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un/hf_checkpoint_epoch_000256",
+      "eval_raw_json": "rnd/sampled-node-phase-rope/20260604T102205-d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un/eval_raw_epoch_000256.json",
+      "task_name": "d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un_epoch_000256_holdout",
+      "train_wall_seconds": 8286.094587,
+      "convert_wall_seconds": 3.401889038,
+      "eval_wall_seconds": 38.634795178,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 4887.094804382835,
+        "lm_eval_rolling_byte_perplexity": 4.729621202183486,
+        "lm_eval_rolling_bits_per_byte": 2.241724641996991,
+        "agpt_fixed_token_perplexity": 4.125586572786674
+      }
+    },
+    {
+      "epoch": 288,
+      "checkpoint_path": "rnd/sampled-node-phase-rope/20260604T102205-d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un/checkpoint.epoch_000288.model",
+      "checkpoint_sha": "d2b79e4267cc02e3b99e7d31338ba9a93f467602f6ea1ff3537809af540d0423",
+      "hf_dir": "rnd/sampled-node-phase-rope/20260604T102205-d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un/hf_checkpoint_epoch_000288",
+      "eval_raw_json": "rnd/sampled-node-phase-rope/20260604T102205-d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un/eval_raw_epoch_000288.json",
+      "task_name": "d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un_epoch_000288_holdout",
+      "train_wall_seconds": 9277.511276,
+      "convert_wall_seconds": 3.560282555,
+      "eval_wall_seconds": 34.990699643,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 4476.164655269097,
+        "lm_eval_rolling_byte_perplexity": 4.65423886444754,
+        "lm_eval_rolling_bits_per_byte": 2.2185452545143773,
+        "agpt_fixed_token_perplexity": 4.056817018713669
+      }
+    },
+    {
+      "epoch": 320,
+      "checkpoint_path": "rnd/sampled-node-phase-rope/20260604T102205-d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un/checkpoint.epoch_000320.model",
+      "checkpoint_sha": "0bf58146d0ac8e36626305f74bb9c59beac98e1a15a67517d547c42ac689bbae",
+      "hf_dir": "rnd/sampled-node-phase-rope/20260604T102205-d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un/hf_checkpoint_epoch_000320",
+      "eval_raw_json": "rnd/sampled-node-phase-rope/20260604T102205-d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un/eval_raw_epoch_000320.json",
+      "task_name": "d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un_epoch_000320_holdout",
+      "train_wall_seconds": 10264.320778,
+      "convert_wall_seconds": 3.851064554,
+      "eval_wall_seconds": 34.33928588,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 4236.653230206674,
+        "lm_eval_rolling_byte_perplexity": 4.6076533926641385,
+        "lm_eval_rolling_bits_per_byte": 2.2040321951890776,
+        "agpt_fixed_token_perplexity": 4.019814359473223
+      }
+    },
+    {
+      "epoch": 384,
+      "checkpoint_path": "rnd/sampled-node-phase-rope/20260604T102205-d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un/checkpoint.epoch_000384.model",
+      "checkpoint_sha": "78716fef4ef7eb5d14420e48e92d02918385bbc7e53e14d7a89dd73fa75bc466",
+      "hf_dir": "rnd/sampled-node-phase-rope/20260604T102205-d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un/hf_checkpoint_epoch_000384",
+      "eval_raw_json": "rnd/sampled-node-phase-rope/20260604T102205-d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un/eval_raw_epoch_000384.json",
+      "task_name": "d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un_epoch_000384_holdout",
+      "train_wall_seconds": 12240.874165,
+      "convert_wall_seconds": 3.405294207,
+      "eval_wall_seconds": 32.845978112,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 4013.4453264287454,
+        "lm_eval_rolling_byte_perplexity": 4.5622597003112615,
+        "lm_eval_rolling_bits_per_byte": 2.189748572403499,
+        "agpt_fixed_token_perplexity": 3.97898597216414
+      }
+    },
+    {
+      "epoch": 448,
+      "checkpoint_path": "rnd/sampled-node-phase-rope/20260604T102205-d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un/checkpoint.epoch_000448.model",
+      "checkpoint_sha": "1ee9f6d9c4460ef886b0037ee53d5ba1ba2847a84003eee3d7108a3508562e7e",
+      "hf_dir": "rnd/sampled-node-phase-rope/20260604T102205-d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un/hf_checkpoint_epoch_000448",
+      "eval_raw_json": "rnd/sampled-node-phase-rope/20260604T102205-d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un/eval_raw_epoch_000448.json",
+      "task_name": "d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un_epoch_000448_holdout",
+      "train_wall_seconds": 14226.32479,
+      "convert_wall_seconds": 3.21039319,
+      "eval_wall_seconds": 32.937587713,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 3909.718510908946,
+        "lm_eval_rolling_byte_perplexity": 4.54045927667507,
+        "lm_eval_rolling_bits_per_byte": 2.1828382364300483,
+        "agpt_fixed_token_perplexity": 3.959078586279887
+      }
+    },
+    {
+      "epoch": 512,
+      "checkpoint_path": "rnd/sampled-node-phase-rope/20260604T102205-d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un/checkpoint.epoch_000512.model",
+      "checkpoint_sha": "d16539c1a2343e7c20cd948c02bce3de080857c92e4483699dc09a9977cb4e5d",
+      "hf_dir": "rnd/sampled-node-phase-rope/20260604T102205-d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un/hf_checkpoint_epoch_000512",
+      "eval_raw_json": "rnd/sampled-node-phase-rope/20260604T102205-d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un/eval_raw_epoch_000512.json",
+      "task_name": "d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un_epoch_000512_holdout",
+      "train_wall_seconds": 16231.840333,
+      "convert_wall_seconds": 3.432298212,
+      "eval_wall_seconds": 33.709208395,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 3815.0552617664694,
+        "lm_eval_rolling_byte_perplexity": 4.52014734006139,
+        "lm_eval_rolling_bits_per_byte": 2.1763697999217486,
+        "agpt_fixed_token_perplexity": 3.945226135725354
+      }
+    }
+  ],
+  "experimental_used": {
+    "v2": [
+      "position_data_dir",
+      "rope_position_mode"
+    ]
+  }
+}

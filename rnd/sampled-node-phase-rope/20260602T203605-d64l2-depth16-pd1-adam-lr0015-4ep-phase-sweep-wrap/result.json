@@ -1,0 +1,86 @@
+{
+  "run_id": "20260602T203605-d64l2-depth16-pd1-adam-lr0015-4ep-phase-sweep-wrap",
+  "experiment": "sampled-node-phase-rope",
+  "wall_seconds": 138.706974581,
+  "train_wall_seconds": 26.0647822,
+  "convert_wall_seconds": 5.055808886,
+  "eval_wall_seconds": 22.8121152,
+  "started_utc": "2026-06-02T20:36:05Z",
+  "ended_utc": "2026-06-02T20:38:23Z",
+  "trainer": "v2",
+  "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+  "eval": {
+    "split": "multi-chunk-heldout",
+    "source_path": null,
+    "source_sha256": null,
+    "chunks_dir": "data/.splits/4fa9aec1db6b3aea/heldout_chunks",
+    "benchmark": null,
+    "task_name": "d64l2-depth16-pd1-adam-lr0015-4ep-phase-sweep-wrap_holdout"
+  },
+  "metrics": {
+    "lm_eval_rolling_word_perplexity": 2218983.673673448,
+    "lm_eval_rolling_byte_perplexity": 14.483777642191841,
+    "lm_eval_rolling_bits_per_byte": 3.8563660284455756,
+    "agpt_fixed_token_perplexity": 16.637810253981243
+  },
+  "checkpoint_sha": "db61d9414f391ebe5158c1ff6909b9e95db8537f7fb5911055fac6cc89ae2158",
+  "checkpoint_results": [
+    {
+      "epoch": 1,
+      "checkpoint_path": "rnd/sampled-node-phase-rope/20260602T203605-d64l2-depth16-pd1-adam-lr0015-4ep-phase-sweep-wrap/checkpoint.epoch_000001.model",
+      "checkpoint_sha": "e38e66e19e0b516e53fb111c73d0ffcd51424eb8536bc625e43b01848ed9dcd3",
+      "hf_dir": "rnd/sampled-node-phase-rope/20260602T203605-d64l2-depth16-pd1-adam-lr0015-4ep-phase-sweep-wrap/hf_checkpoint_epoch_000001",
+      "eval_raw_json": "rnd/sampled-node-phase-rope/20260602T203605-d64l2-depth16-pd1-adam-lr0015-4ep-phase-sweep-wrap/eval_raw_epoch_000001.json",
+      "task_name": "d64l2-depth16-pd1-adam-lr0015-4ep-phase-sweep-wrap_epoch_000001_holdout",
+      "train_wall_seconds": 5.839177,
+      "convert_wall_seconds": 4.146451796,
+      "eval_wall_seconds": 22.563069863,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 8735209.025815977,
+        "lm_eval_rolling_byte_perplexity": 18.609946137886578,
+        "lm_eval_rolling_bits_per_byte": 4.218001974748888,
+        "agpt_fixed_token_perplexity": 20.12026705505684
+      }
+    },
+    {
+      "epoch": 2,
+      "checkpoint_path": "rnd/sampled-node-phase-rope/20260602T203605-d64l2-depth16-pd1-adam-lr0015-4ep-phase-sweep-wrap/checkpoint.epoch_000002.model",
+      "checkpoint_sha": "25c22080bd664db4c0934ba16adffe095c14fd1b77b352ee5bbd698fd02727cb",
+      "hf_dir": "rnd/sampled-node-phase-rope/20260602T203605-d64l2-depth16-pd1-adam-lr0015-4ep-phase-sweep-wrap/hf_checkpoint_epoch_000002",
+      "eval_raw_json": "rnd/sampled-node-phase-rope/20260602T203605-d64l2-depth16-pd1-adam-lr0015-4ep-phase-sweep-wrap/eval_raw_epoch_000002.json",
+      "task_name": "d64l2-depth16-pd1-adam-lr0015-4ep-phase-sweep-wrap_epoch_000002_holdout",
+      "train_wall_seconds": 11.550346,
+      "convert_wall_seconds": 5.171642868,
+      "eval_wall_seconds": 21.732934825,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 2648864.400638927,
+        "lm_eval_rolling_byte_perplexity": 14.96063233280254,
+        "lm_eval_rolling_bits_per_byte": 3.903099248997877,
+        "agpt_fixed_token_perplexity": 16.443587027842945
+      }
+    },
+    {
+      "epoch": 4,
+      "checkpoint_path": "rnd/sampled-node-phase-rope/20260602T203605-d64l2-depth16-pd1-adam-lr0015-4ep-phase-sweep-wrap/checkpoint.epoch_000004.model",
+      "checkpoint_sha": "db61d9414f391ebe5158c1ff6909b9e95db8537f7fb5911055fac6cc89ae2158",
+      "hf_dir": "rnd/sampled-node-phase-rope/20260602T203605-d64l2-depth16-pd1-adam-lr0015-4ep-phase-sweep-wrap/hf_checkpoint_epoch_000004",
+      "eval_raw_json": "rnd/sampled-node-phase-rope/20260602T203605-d64l2-depth16-pd1-adam-lr0015-4ep-phase-sweep-wrap/eval_raw_epoch_000004.json",
+      "task_name": "d64l2-depth16-pd1-adam-lr0015-4ep-phase-sweep-wrap_epoch_000004_holdout",
+      "train_wall_seconds": 23.013848,
+      "convert_wall_seconds": 5.210755872,
+      "eval_wall_seconds": 21.338511961,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 2218983.673673448,
+        "lm_eval_rolling_byte_perplexity": 14.483777642191841,
+        "lm_eval_rolling_bits_per_byte": 3.8563660284455756,
+        "agpt_fixed_token_perplexity": 16.637810253981243
+      }
+    }
+  ],
+  "experimental_used": {
+    "v2": [
+      "position_data_dir",
+      "rope_position_mode"
+    ]
+  }
+}

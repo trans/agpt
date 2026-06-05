@@ -1,0 +1,188 @@
+{
+  "run_id": "20260602T205743-d64l2-depth16-pd1-adam-lr0015-100ep-phase-weighted-wrap",
+  "experiment": "sampled-node-phase-rope",
+  "wall_seconds": 861.219785642,
+  "train_wall_seconds": 575.564642328,
+  "convert_wall_seconds": 5.294494237,
+  "eval_wall_seconds": 23.169270801,
+  "started_utc": "2026-06-02T20:57:43Z",
+  "ended_utc": "2026-06-02T21:12:05Z",
+  "trainer": "v2",
+  "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+  "eval": {
+    "split": "multi-chunk-heldout",
+    "source_path": null,
+    "source_sha256": null,
+    "chunks_dir": "data/.splits/4fa9aec1db6b3aea/heldout_chunks",
+    "benchmark": null,
+    "task_name": "d64l2-depth16-pd1-adam-lr0015-100ep-phase-weighted-wrap_holdout"
+  },
+  "metrics": {
+    "lm_eval_rolling_word_perplexity": 1024855.7207534767,
+    "lm_eval_rolling_byte_perplexity": 12.575100799037067,
+    "lm_eval_rolling_bits_per_byte": 3.652498059267116,
+    "agpt_fixed_token_perplexity": 37.2466942806598
+  },
+  "checkpoint_sha": "6629c6e6fd85d297799f900cf60701715c70295febcb11c4222d497b9781178e",
+  "checkpoint_results": [
+    {
+      "epoch": 1,
+      "checkpoint_path": "rnd/sampled-node-phase-rope/20260602T205743-d64l2-depth16-pd1-adam-lr0015-100ep-phase-weighted-wrap/checkpoint.epoch_000001.model",
+      "checkpoint_sha": "7db1bb19774f8af17d1f92e0b0425d36ee2c3f4d09b2a56360cd88fada031115",
+      "hf_dir": "rnd/sampled-node-phase-rope/20260602T205743-d64l2-depth16-pd1-adam-lr0015-100ep-phase-weighted-wrap/hf_checkpoint_epoch_000001",
+      "eval_raw_json": "rnd/sampled-node-phase-rope/20260602T205743-d64l2-depth16-pd1-adam-lr0015-100ep-phase-weighted-wrap/eval_raw_epoch_000001.json",
+      "task_name": "d64l2-depth16-pd1-adam-lr0015-100ep-phase-weighted-wrap_epoch_000001_holdout",
+      "train_wall_seconds": 6.028476,
+      "convert_wall_seconds": 5.068279213,
+      "eval_wall_seconds": 22.600682448,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 5831590.326768257,
+        "lm_eval_rolling_byte_perplexity": 17.283988340689536,
+        "lm_eval_rolling_bits_per_byte": 4.11136425772497,
+        "agpt_fixed_token_perplexity": 18.511852791127296
+      }
+    },
+    {
+      "epoch": 2,
+      "checkpoint_path": "rnd/sampled-node-phase-rope/20260602T205743-d64l2-depth16-pd1-adam-lr0015-100ep-phase-weighted-wrap/checkpoint.epoch_000002.model",
+      "checkpoint_sha": "89831bb128ec46a52e63f0e3e4976bfa18fe02bd77b7a4c7316fe82a56288e36",
+      "hf_dir": "rnd/sampled-node-phase-rope/20260602T205743-d64l2-depth16-pd1-adam-lr0015-100ep-phase-weighted-wrap/hf_checkpoint_epoch_000002",
+      "eval_raw_json": "rnd/sampled-node-phase-rope/20260602T205743-d64l2-depth16-pd1-adam-lr0015-100ep-phase-weighted-wrap/eval_raw_epoch_000002.json",
+      "task_name": "d64l2-depth16-pd1-adam-lr0015-100ep-phase-weighted-wrap_epoch_000002_holdout",
+      "train_wall_seconds": 11.701175,
+      "convert_wall_seconds": 5.259500566,
+      "eval_wall_seconds": 23.27899894,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 1952833.2991577603,
+        "lm_eval_rolling_byte_perplexity": 14.149185289493303,
+        "lm_eval_rolling_bits_per_byte": 3.8226470799129797,
+        "agpt_fixed_token_perplexity": 15.59872448671489
+      }
+    },
+    {
+      "epoch": 4,
+      "checkpoint_path": "rnd/sampled-node-phase-rope/20260602T205743-d64l2-depth16-pd1-adam-lr0015-100ep-phase-weighted-wrap/checkpoint.epoch_000004.model",
+      "checkpoint_sha": "646a37c1dfa6fa6eccbfd12d4d7b8e2192dd2951a72730d2c6561d8f101bdea5",
+      "hf_dir": "rnd/sampled-node-phase-rope/20260602T205743-d64l2-depth16-pd1-adam-lr0015-100ep-phase-weighted-wrap/hf_checkpoint_epoch_000004",
+      "eval_raw_json": "rnd/sampled-node-phase-rope/20260602T205743-d64l2-depth16-pd1-adam-lr0015-100ep-phase-weighted-wrap/eval_raw_epoch_000004.json",
+      "task_name": "d64l2-depth16-pd1-adam-lr0015-100ep-phase-weighted-wrap_epoch_000004_holdout",
+      "train_wall_seconds": 23.099232,
+      "convert_wall_seconds": 5.393219211,
+      "eval_wall_seconds": 23.043467346,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 1061166.5810592254,
+        "lm_eval_rolling_byte_perplexity": 12.655446764682804,
+        "lm_eval_rolling_bits_per_byte": 3.6616865334948114,
+        "agpt_fixed_token_perplexity": 15.05268013370685
+      }
+    },
+    {
+      "epoch": 8,
+      "checkpoint_path": "rnd/sampled-node-phase-rope/20260602T205743-d64l2-depth16-pd1-adam-lr0015-100ep-phase-weighted-wrap/checkpoint.epoch_000008.model",
+      "checkpoint_sha": "3e4a2cd0d11361cf8ab17d6b0468a73136fac638626fd874303ecad9372c5bd4",
+      "hf_dir": "rnd/sampled-node-phase-rope/20260602T205743-d64l2-depth16-pd1-adam-lr0015-100ep-phase-weighted-wrap/hf_checkpoint_epoch_000008",
+      "eval_raw_json": "rnd/sampled-node-phase-rope/20260602T205743-d64l2-depth16-pd1-adam-lr0015-100ep-phase-weighted-wrap/eval_raw_epoch_000008.json",
+      "task_name": "d64l2-depth16-pd1-adam-lr0015-100ep-phase-weighted-wrap_epoch_000008_holdout",
+      "train_wall_seconds": 46.114736,
+      "convert_wall_seconds": 5.151990838,
+      "eval_wall_seconds": 22.671154563,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 668953.4780232034,
+        "lm_eval_rolling_byte_perplexity": 11.6311111011858,
+        "lm_eval_rolling_bits_per_byte": 3.5399170165998863,
+        "agpt_fixed_token_perplexity": 15.970721944007487
+      }
+    },
+    {
+      "epoch": 16,
+      "checkpoint_path": "rnd/sampled-node-phase-rope/20260602T205743-d64l2-depth16-pd1-adam-lr0015-100ep-phase-weighted-wrap/checkpoint.epoch_000016.model",
+      "checkpoint_sha": "9505396fae6889e512d4cfda10b0588c6b263d79b4d52569ea240ced520ff097",
+      "hf_dir": "rnd/sampled-node-phase-rope/20260602T205743-d64l2-depth16-pd1-adam-lr0015-100ep-phase-weighted-wrap/hf_checkpoint_epoch_000016",
+      "eval_raw_json": "rnd/sampled-node-phase-rope/20260602T205743-d64l2-depth16-pd1-adam-lr0015-100ep-phase-weighted-wrap/eval_raw_epoch_000016.json",
+      "task_name": "d64l2-depth16-pd1-adam-lr0015-100ep-phase-weighted-wrap_epoch_000016_holdout",
+      "train_wall_seconds": 92.282653,
+      "convert_wall_seconds": 5.290786204,
+      "eval_wall_seconds": 22.495464651,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 545757.3846173512,
+        "lm_eval_rolling_byte_perplexity": 11.206013727647134,
+        "lm_eval_rolling_bits_per_byte": 3.4862012599066996,
+        "agpt_fixed_token_perplexity": 18.28616846394813
+      }
+    },
+    {
+      "epoch": 25,
+      "checkpoint_path": "rnd/sampled-node-phase-rope/20260602T205743-d64l2-depth16-pd1-adam-lr0015-100ep-phase-weighted-wrap/checkpoint.epoch_000025.model",
+      "checkpoint_sha": "7ec4ff308a1201da7eb31590f876e5328b3f23882fe9fd9a99393e93e0241558",
+      "hf_dir": "rnd/sampled-node-phase-rope/20260602T205743-d64l2-depth16-pd1-adam-lr0015-100ep-phase-weighted-wrap/hf_checkpoint_epoch_000025",
+      "eval_raw_json": "rnd/sampled-node-phase-rope/20260602T205743-d64l2-depth16-pd1-adam-lr0015-100ep-phase-weighted-wrap/eval_raw_epoch_000025.json",
+      "task_name": "d64l2-depth16-pd1-adam-lr0015-100ep-phase-weighted-wrap_epoch_000025_holdout",
+      "train_wall_seconds": 144.395985,
+      "convert_wall_seconds": 5.208924423,
+      "eval_wall_seconds": 23.011593954,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 550561.4053474508,
+        "lm_eval_rolling_byte_perplexity": 11.22399322378314,
+        "lm_eval_rolling_bits_per_byte": 3.488514137965527,
+        "agpt_fixed_token_perplexity": 20.58808617077283
+      }
+    },
+    {
+      "epoch": 32,
+      "checkpoint_path": "rnd/sampled-node-phase-rope/20260602T205743-d64l2-depth16-pd1-adam-lr0015-100ep-phase-weighted-wrap/checkpoint.epoch_000032.model",
+      "checkpoint_sha": "254d5310ba37c951095cba716fd7f68db7a41a4480070052cc2100334682c7ef",
+      "hf_dir": "rnd/sampled-node-phase-rope/20260602T205743-d64l2-depth16-pd1-adam-lr0015-100ep-phase-weighted-wrap/hf_checkpoint_epoch_000032",
+      "eval_raw_json": "rnd/sampled-node-phase-rope/20260602T205743-d64l2-depth16-pd1-adam-lr0015-100ep-phase-weighted-wrap/eval_raw_epoch_000032.json",
+      "task_name": "d64l2-depth16-pd1-adam-lr0015-100ep-phase-weighted-wrap_epoch_000032_holdout",
+      "train_wall_seconds": 183.95262,
+      "convert_wall_seconds": 5.337205906,
+      "eval_wall_seconds": 22.36861299,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 635856.7770188845,
+        "lm_eval_rolling_byte_perplexity": 11.523651522560183,
+        "lm_eval_rolling_bits_per_byte": 3.5265260337817312,
+        "agpt_fixed_token_perplexity": 22.891094113600357
+      }
+    },
+    {
+      "epoch": 64,
+      "checkpoint_path": "rnd/sampled-node-phase-rope/20260602T205743-d64l2-depth16-pd1-adam-lr0015-100ep-phase-weighted-wrap/checkpoint.epoch_000064.model",
+      "checkpoint_sha": "e8bf147e263ab903accfa2b7bc1343ab8706ebe65212dada8a851ffd0b37828a",
+      "hf_dir": "rnd/sampled-node-phase-rope/20260602T205743-d64l2-depth16-pd1-adam-lr0015-100ep-phase-weighted-wrap/hf_checkpoint_epoch_000064",
+      "eval_raw_json": "rnd/sampled-node-phase-rope/20260602T205743-d64l2-depth16-pd1-adam-lr0015-100ep-phase-weighted-wrap/eval_raw_epoch_000064.json",
+      "task_name": "d64l2-depth16-pd1-adam-lr0015-100ep-phase-weighted-wrap_epoch_000064_holdout",
+      "train_wall_seconds": 365.842641,
+      "convert_wall_seconds": 5.209684871,
+      "eval_wall_seconds": 22.728569315,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 686880.8418076035,
+        "lm_eval_rolling_byte_perplexity": 11.68751571780815,
+        "lm_eval_rolling_bits_per_byte": 3.5468964000791767,
+        "agpt_fixed_token_perplexity": 30.332237461594502
+      }
+    },
+    {
+      "epoch": 100,
+      "checkpoint_path": "rnd/sampled-node-phase-rope/20260602T205743-d64l2-depth16-pd1-adam-lr0015-100ep-phase-weighted-wrap/checkpoint.epoch_000100.model",
+      "checkpoint_sha": "6629c6e6fd85d297799f900cf60701715c70295febcb11c4222d497b9781178e",
+      "hf_dir": "rnd/sampled-node-phase-rope/20260602T205743-d64l2-depth16-pd1-adam-lr0015-100ep-phase-weighted-wrap/hf_checkpoint_epoch_000100",
+      "eval_raw_json": "rnd/sampled-node-phase-rope/20260602T205743-d64l2-depth16-pd1-adam-lr0015-100ep-phase-weighted-wrap/eval_raw_epoch_000100.json",
+      "task_name": "d64l2-depth16-pd1-adam-lr0015-100ep-phase-weighted-wrap_epoch_000100_holdout",
+      "train_wall_seconds": 572.073429,
+      "convert_wall_seconds": 5.239525191,
+      "eval_wall_seconds": 22.778046704,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 1024855.7207534767,
+        "lm_eval_rolling_byte_perplexity": 12.575100799037067,
+        "lm_eval_rolling_bits_per_byte": 3.652498059267116,
+        "agpt_fixed_token_perplexity": 37.2466942806598
+      }
+    }
+  ],
+  "experimental_used": {
+    "v2": [
+      "position_data_dir",
+      "rope_position_mode"
+    ]
+  }
+}

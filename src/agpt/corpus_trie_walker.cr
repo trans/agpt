@@ -163,21 +163,26 @@ module MicroGPT
         b
       end
 
-      # Walk the corpus from every starting position s in [0, |corpus|),
+      # Walk the corpus from every starting position s in [0, start_count),
       # following the trie up to d_max characters. Invokes the block for
       # every node landing with:
       #   (radix_id, start_corpus_pos, terminal_corpus_pos)
       #
+      # `start_count` lets callers append wrap-around lookahead tokens for
+      # matching while still counting contributions only from original starts.
+      #
       # Updates `fall_off_count` and `no_root_child_count` as a side
       # effect. Block-form to let callers stream contributions without
       # an intermediate buffer.
-      def walk(&block : Int32, Int32, Int32 ->)
+      def walk(start_count : Int32? = nil, &block : Int32, Int32, Int32 ->)
         n_corpus = @corpus_tokens.size
+        n_starts = start_count || n_corpus
+        n_starts = n_corpus if n_starts > n_corpus
         dmax = @d_max
         fall_off = 0_i64
         no_root = 0_i64
         s = 0
-        while s < n_corpus
+        while s < n_starts
           parent_id = 0
           pos_off = 0
           while pos_off < dmax && (s + pos_off) < n_corpus

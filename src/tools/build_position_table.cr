@@ -7,6 +7,8 @@
 #   suffix_radix_to_substring.bin        (suffix_trie radix_id → substring_id)
 #   prefix_position_table.bin            (sparse pos_counts per substring,
 #                                         binned by ORIGINAL-START)
+#   prefix_phase_targets.bin             (sparse next-token counts by
+#                                         prefix radix_id and ORIGINAL-START)
 #   suffix_position_table.bin            (sparse pos_counts per substring,
 #                                         binned by ORIGINAL-END, recovered
 #                                         from the reverse-corpus walk's start)
@@ -54,6 +56,12 @@ dataset = MicroGPT::CharDataset.new(text)
 corpus_tokens_fwd = dataset.data
 STDERR.puts "Corpus: #{corpus_path} (#{corpus_tokens_fwd.size} tokens, vocab=#{dataset.vocab_size})"
 
+def append_wrap_lookahead(tokens : Array(Int32), max_depth : Int32) : Array(Int32)
+  return tokens if max_depth <= 0 || tokens.empty?
+  wrap_len = Math.min(max_depth, tokens.size)
+  tokens + tokens[0, wrap_len]
+end
+
 # Helper: reconstruct the substring (token sequence, root-to-node order)
 # for a given radix node by walking parent pointers via the walker's
 # compact slice storage. No hashmap allocations.
@@ -88,7 +96,9 @@ STDERR.puts "Pass A1: load prefix trie + enumerate substrings"
 # Small reader cache: walker copies what it needs into compact slices, so
 # we don't want the reader to retain every depth file in memory after init.
 prefix_reader = RadixTrieReader.new(prefix_trie_dir, max_cached: 2)
-prefix_walker = CorpusTrieWalker.new(prefix_reader, corpus_tokens_fwd)
+prefix_depth = prefix_reader.depth_file_count - 1
+prefix_walk_tokens = append_wrap_lookahead(corpus_tokens_fwd, prefix_depth)
+prefix_walker = CorpusTrieWalker.new(prefix_reader, prefix_walk_tokens)
 prefix_n_radix = prefix_walker.radix_count
 prefix_radix_to_substring = Slice(Int32).new(prefix_n_radix, -1)
 STDERR.puts "  walker: #{prefix_n_radix} nodes, #{(prefix_walker.approximate_bytes / 1024.0 / 1024.0).round(1)} MB compact storage"
@@ -109,7 +119,9 @@ corpus_tokens_rev = corpus_tokens_fwd.reverse
 STDERR.puts ""
 STDERR.puts "Pass A2: load suffix trie + enumerate substrings (reverse-order tokens, flipped for catalog)"
 suffix_reader = RadixTrieReader.new(suffix_trie_dir, max_cached: 2)
-suffix_walker = CorpusTrieWalker.new(suffix_reader, corpus_tokens_rev)
+suffix_depth = suffix_reader.depth_file_count - 1
+suffix_walk_tokens = append_wrap_lookahead(corpus_tokens_rev, suffix_depth)
+suffix_walker = CorpusTrieWalker.new(suffix_reader, suffix_walk_tokens)
 suffix_n_radix = suffix_walker.radix_count
 suffix_radix_to_substring = Slice(Int32).new(suffix_n_radix, -1)
 STDERR.puts "  walker: #{suffix_n_radix} nodes, #{(suffix_walker.approximate_bytes / 1024.0 / 1024.0).round(1)} MB compact storage"
@@ -135,7 +147,7 @@ STDERR.puts "Pass B1: walk forward corpus → prefix position counts (W=#{window
 prefix_builder = PositionTable::Builder.new(window_size, PositionTable::Regime::Sliding, catalog.size)
 contributions = 0_i64
 t0 = Time.monotonic
-prefix_walker.walk do |radix_id, start_pos, _terminal_pos|
+prefix_walker.walk(corpus_tokens_fwd.size) do |radix_id, start_pos, _terminal_pos|
   sid = prefix_radix_to_substring[radix_id]
   next if sid < 0
   prefix_builder.increment(sid, start_pos)
@@ -148,6 +160,53 @@ t0 = Time.monotonic
 prefix_position_table = prefix_builder.build
 STDERR.puts "  total_bins=#{prefix_position_table.total_bins} (#{(Time.monotonic - t0).total_seconds.round(2)}s)"
 
+# ===== Pass B2: walk forward corpus → direct prefix phase target table =====
+
+STDERR.puts ""
+STDERR.puts "Pass B2: walk forward corpus → prefix phase target counts (W=#{window_size})"
+prefix_phase_target_counts = Array(Hash(UInt64, UInt32)).new(prefix_n_radix) do
+  Hash(UInt64, UInt32).new
+end
+target_contributions = 0_i64
+t0 = Time.monotonic
+prefix_walker.walk(corpus_tokens_fwd.size) do |radix_id, start_pos, terminal_pos|
+  next_token_pos = terminal_pos + 1
+  next if next_token_pos >= prefix_walk_tokens.size
+  phase = start_pos % window_size
+  token = prefix_walk_tokens[next_token_pos]
+  key = (phase.to_u64 << 32) | token.to_u32.to_u64
+  h = prefix_phase_target_counts[radix_id]
+  h[key] = (h[key]? || 0_u32) + 1_u32
+  target_contributions += 1
+end
+STDERR.puts "  #{target_contributions} target contributions (#{(Time.monotonic - t0).total_seconds.round(2)}s)"
+
+def write_phase_target_table(io : IO, counts : Array(Hash(UInt64, UInt32)), window_size : Int32)
+  io.write("APTG".to_slice)
+  io.write_bytes(window_size.to_u16, IO::ByteFormat::LittleEndian)
+  io.write_bytes(0_u16, IO::ByteFormat::LittleEndian)
+  io.write_bytes(counts.size.to_u32, IO::ByteFormat::LittleEndian)
+  total_entries = counts.sum { |h| h.size.to_u64 }
+  io.write_bytes(total_entries, IO::ByteFormat::LittleEndian)
+
+  offset = 0_i32
+  counts.each do |h|
+    io.write_bytes(offset, IO::ByteFormat::LittleEndian)
+    offset += h.size.to_i32
+  end
+  io.write_bytes(offset, IO::ByteFormat::LittleEndian)
+
+  counts.each do |h|
+    h.to_a.sort_by { |(key, _count)| key }.each do |key, count|
+      phase = (key >> 32).to_u16
+      token = (key & 0xffff_ffff_u64).to_u16
+      io.write_bytes(phase, IO::ByteFormat::LittleEndian)
+      io.write_bytes(token, IO::ByteFormat::LittleEndian)
+      io.write_bytes(count, IO::ByteFormat::LittleEndian)
+    end
+  end
+end
+
 # ===== Pass C: walk reversed corpus → suffix_position_table =====
 
 STDERR.puts ""
@@ -156,7 +215,7 @@ suffix_builder = PositionTable::Builder.new(window_size, PositionTable::Regime::
 contributions = 0_i64
 n_corpus = corpus_tokens_fwd.size
 t0 = Time.monotonic
-suffix_walker.walk do |radix_id, start_pos_rev, _terminal_pos|
+suffix_walker.walk(corpus_tokens_fwd.size) do |radix_id, start_pos_rev, _terminal_pos|
   sid = suffix_radix_to_substring[radix_id]
   next if sid < 0
   # The walker's start_pos_rev is the start in the REVERSED corpus.
@@ -185,6 +244,7 @@ out_files = {
   "prefix_radix_to_substring.bin"   => ->(io : IO) { prefix_rts.write_to(io) },
   "suffix_radix_to_substring.bin"   => ->(io : IO) { suffix_rts.write_to(io) },
   "prefix_position_table.bin"       => ->(io : IO) { prefix_position_table.write_to(io) },
+  "prefix_phase_targets.bin"        => ->(io : IO) { write_phase_target_table(io, prefix_phase_target_counts, window_size) },
   "suffix_position_table.bin"       => ->(io : IO) { suffix_position_table.write_to(io) },
 }
 out_files.each do |name, writer|

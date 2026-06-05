@@ -351,6 +351,25 @@ static bool parse_rope_position_mode_v2(const char* text, agpt_v2::RopePositionM
         out = agpt_v2::RopePositionModeV2::SampledBin;
         return true;
     }
+    if (std::strcmp(text, "phase-sweep") == 0 || std::strcmp(text, "phase_sweep") == 0) {
+        out = agpt_v2::RopePositionModeV2::PhaseSweep;
+        return true;
+    }
+    if (std::strcmp(text, "phase-weighted") == 0 || std::strcmp(text, "phase_weighted") == 0) {
+        out = agpt_v2::RopePositionModeV2::PhaseWeighted;
+        return true;
+    }
+    if (std::strcmp(text, "phase-conditioned") == 0 || std::strcmp(text, "phase_conditioned") == 0 ||
+        std::strcmp(text, "phase-target") == 0 || std::strcmp(text, "phase_target") == 0 ||
+        std::strcmp(text, "phase-conditioned-target") == 0 || std::strcmp(text, "phase_conditioned_target") == 0) {
+        out = agpt_v2::RopePositionModeV2::PhaseConditioned;
+        return true;
+    }
+    if (std::strcmp(text, "sampled-unit-phase") == 0 || std::strcmp(text, "sampled_unit_phase") == 0 ||
+        std::strcmp(text, "sampled-node-phase") == 0 || std::strcmp(text, "sampled_node_phase") == 0) {
+        out = agpt_v2::RopePositionModeV2::PhaseWeighted;
+        return true;
+    }
     return false;
 }
 
@@ -358,8 +377,34 @@ static const char* rope_position_mode_name_v2(agpt_v2::RopePositionModeV2 mode) 
     switch (mode) {
         case agpt_v2::RopePositionModeV2::Depth: return "depth";
         case agpt_v2::RopePositionModeV2::SampledBin: return "sampled-bin";
+        case agpt_v2::RopePositionModeV2::PhaseSweep: return "phase-sweep";
+        case agpt_v2::RopePositionModeV2::PhaseWeighted: return "phase-weighted";
+        case agpt_v2::RopePositionModeV2::PhaseConditioned: return "phase-conditioned";
     }
     return "unknown";
+}
+
+static bool rope_position_mode_uses_position_data_v2(agpt_v2::RopePositionModeV2 mode) {
+    return mode == agpt_v2::RopePositionModeV2::SampledBin ||
+           mode == agpt_v2::RopePositionModeV2::PhaseSweep ||
+           mode == agpt_v2::RopePositionModeV2::PhaseWeighted ||
+           mode == agpt_v2::RopePositionModeV2::PhaseConditioned;
+}
+
+static bool rope_position_mode_is_phase_v2(agpt_v2::RopePositionModeV2 mode) {
+    return mode == agpt_v2::RopePositionModeV2::PhaseSweep ||
+           mode == agpt_v2::RopePositionModeV2::PhaseWeighted ||
+           mode == agpt_v2::RopePositionModeV2::PhaseConditioned;
+}
+
+static int required_rope_seq_len_v2(agpt_v2::RopePositionModeV2 mode, int context_seq_len, int position_window) {
+    int required = context_seq_len > 0 ? context_seq_len : 1;
+    if (position_window > required) required = position_window;
+    if (rope_position_mode_is_phase_v2(mode) && position_window > 0) {
+        int phase_required = position_window + (context_seq_len > 0 ? context_seq_len : 1) - 1;
+        if (phase_required > required) required = phase_required;
+    }
+    return required;
 }
 
 #include "yaml_config_v2.cuh"
@@ -439,6 +484,25 @@ static agpt_v2::ChunkPlanList build_capacity_chunk_list_for_plan_v2(
         agpt_v2::free_chunk_plan_list(chunks);
     }
     return capacity;
+}
+
+static std::vector<agpt_v2::ChunkPlanList> build_unit_chunk_plan_cache_v2(
+    const agpt_v2::RadixTrieStructure& trie,
+    const agpt_v2::TrainingPlan& training_plan,
+    int chunk_queries) {
+    std::vector<agpt_v2::ChunkPlanList> cached;
+    cached.reserve((size_t)training_plan.unit_count);
+    for (int u = 0; u < training_plan.unit_count; u++) {
+        cached.push_back(agpt_v2::build_chunk_plan_for_unit(trie, training_plan.units[u], chunk_queries));
+    }
+    return cached;
+}
+
+static void free_unit_chunk_plan_cache_v2(std::vector<agpt_v2::ChunkPlanList>& cached) {
+    for (agpt_v2::ChunkPlanList& chunks : cached) {
+        agpt_v2::free_chunk_plan_list(chunks);
+    }
+    cached.clear();
 }
 
 struct DeviceLossTablesV2 {
@@ -814,6 +878,7 @@ int main(int argc, char** argv) {
         trie_dir = yaml_cfg.trie_dir.empty() ? nullptr : yaml_cfg.trie_dir.c_str();
         corpus_path = yaml_cfg.corpus_path.c_str();
         save_path = yaml_cfg.save_path.empty() ? nullptr : yaml_cfg.save_path.c_str();
+        position_data_dir = yaml_cfg.position_data_dir.empty() ? nullptr : yaml_cfg.position_data_dir.c_str();
         std::sort(yaml_cfg.checkpoint_epochs.begin(), yaml_cfg.checkpoint_epochs.end());
         yaml_cfg.checkpoint_epochs.erase(
             std::unique(yaml_cfg.checkpoint_epochs.begin(), yaml_cfg.checkpoint_epochs.end()),
@@ -834,7 +899,7 @@ int main(int argc, char** argv) {
                      "  [--epochs N] [--partition-depth 0|1] [--chunk-queries N] [--lr F] [--optimizer adam|sgd|momentum|rmsprop]\n"
                      "  [--momentum-beta F] [--rmsprop-beta F] [--lr-schedule constant|warmup-cosine]\n"
                      "  [--warmup-epochs N] [--growth-min-epochs N] [--growth-epoch-schedule fixed|linear-ramp|linear-decay] [--steps N]\n"
-                     "  [--rope-position-mode depth|sampled-bin] [--position-data DIR] [--pos-sample-seed N]\n"
+                     "  [--rope-position-mode depth|sampled-bin|phase-sweep|phase-weighted|phase-conditioned] [--position-data DIR] [--pos-sample-seed N]\n"
                      "  [--anc-grad] [--ablate-anc-grad]\n"
                      "  [--units N]\n"
                      "  [--save PATH]\n"
@@ -867,6 +932,15 @@ int main(int argc, char** argv) {
                      "agpt_train_v2: --rope-position-mode sampled-bin currently requires train-growth and --position-data DIR\n");
         return 1;
     }
+    if ((cfg.rope_position_mode == agpt_v2::RopePositionModeV2::PhaseSweep ||
+         cfg.rope_position_mode == agpt_v2::RopePositionModeV2::PhaseWeighted ||
+         cfg.rope_position_mode == agpt_v2::RopePositionModeV2::PhaseConditioned) &&
+        !position_data_dir) {
+        std::fprintf(stderr,
+                     "agpt_train_v2: --rope-position-mode %s requires --position-data DIR\n",
+                     rope_position_mode_name_v2(cfg.rope_position_mode));
+        return 1;
+    }
     if (cfg.chunk_queries <= 0) cfg.chunk_queries = 50000;
     if (steps <= 0) steps = 3;
     if (config_path && !validate_only && !save_path) {
@@ -877,6 +951,7 @@ int main(int argc, char** argv) {
 
     agpt_v2::ModelHeader header = agpt_v2::load_model_header(model_path);
     agpt_v2::RuntimeShape shape = header.shape;
+    shape.rope_seq_len = shape.seq_len;
     int header_seq_len = shape.seq_len;
     if (config_path) {
         if ((yaml_cfg.has_model_d_model && yaml_cfg.model_d_model != shape.d_model) ||
@@ -903,6 +978,17 @@ int main(int argc, char** argv) {
     cfg.d_ff = shape.d_ff;
     cfg.vocab_size = shape.vocab_size;
     if (mode == V2Mode::TrainGrowth) {
+        agpt_v2::PositionSamplingDataV2 pos_data;
+        bool have_pos_data = false;
+        if (rope_position_mode_uses_position_data_v2(cfg.rope_position_mode)) {
+            pos_data = agpt_v2::load_position_sampling_data_v2(position_data_dir);
+            have_pos_data = true;
+            if (pos_data.prefix_table.window_size <= 0) {
+                std::fprintf(stderr, "agpt_train_v2: position table has invalid window_size=%d\n",
+                             pos_data.prefix_table.window_size);
+                return 1;
+            }
+        }
         if (validate_only) {
             std::FILE* corpus_file = std::fopen(corpus_path, "rb");
             if (!corpus_file) {
@@ -930,22 +1016,14 @@ int main(int argc, char** argv) {
         if (max_depth < 1) max_depth = 1;
         int max_possible_depth = (int)tokens.size() - 1;
         if (max_depth > max_possible_depth) max_depth = max_possible_depth;
-        agpt_v2::PositionSamplingDataV2 pos_data;
-        bool have_pos_data = false;
-        if (cfg.rope_position_mode == agpt_v2::RopePositionModeV2::SampledBin) {
-            pos_data = agpt_v2::load_position_sampling_data_v2(position_data_dir);
-            have_pos_data = true;
-            if (pos_data.prefix_table.window_size <= 0) {
-                std::fprintf(stderr, "agpt_train_v2: position table has invalid window_size=%d\n",
-                             pos_data.prefix_table.window_size);
-                return 1;
-            }
-        }
         shape.seq_len = max_depth;
-        if (have_pos_data && pos_data.prefix_table.window_size > shape.seq_len) {
-            shape.seq_len = pos_data.prefix_table.window_size;
+        shape.rope_seq_len = shape.seq_len;
+        if (have_pos_data) {
+            shape.rope_seq_len = required_rope_seq_len_v2(
+                cfg.rope_position_mode, shape.seq_len, pos_data.prefix_table.window_size);
         }
         cfg.seq_len = shape.seq_len;
+        cfg.rope_seq_len = shape.rope_seq_len;
 
         int full_starts = (int)tokens.size() - 1;
         if (growth_train_frac <= 0.0 || growth_train_frac > 1.0) {
@@ -1021,8 +1099,8 @@ int main(int argc, char** argv) {
                     shape.vocab_size, shape.seq_len, shape.head_dim);
         if (header_seq_len != shape.seq_len) {
             if (have_pos_data) {
-                std::printf("  seq_len reconcile: model header says %d, growth max_depth=%d, rope_window=%d -> effective %d. Overriding.\n",
-                            header_seq_len, max_depth, pos_data.prefix_table.window_size, shape.seq_len);
+                std::printf("  seq_len reconcile: model header says %d, growth max_depth=%d -> context %d, rope_cache=%d. Overriding context.\n",
+                            header_seq_len, max_depth, shape.seq_len, shape.rope_seq_len);
             } else {
                 std::printf("  seq_len reconcile: model header says %d, growth max_depth=%d -> effective %d. Overriding.\n",
                             header_seq_len, max_depth, shape.seq_len);
@@ -1045,9 +1123,13 @@ int main(int argc, char** argv) {
                     cfg.anc_grad ? "true" : "false");
         std::printf("  rope-position: mode=%s", rope_position_mode_name_v2(cfg.rope_position_mode));
         if (have_pos_data) {
-            std::printf(" position_data=%s window=%d substrings=%d seed=%u",
+            std::printf(" position_data=%s window=%d rope_cache=%d substrings=%d seed=%u",
                         position_data_dir, pos_data.prefix_table.window_size,
+                        shape.rope_seq_len,
                         pos_data.prefix_table.substring_count, cfg.pos_sample_seed);
+            if (pos_data.prefix_targets.window_size > 0) {
+                std::printf(" phase_targets=%lld", (long long)pos_data.prefix_targets.total_entries);
+            }
         }
         std::printf("\n");
 
@@ -1128,6 +1210,7 @@ int main(int argc, char** argv) {
     }
     agpt_v2::RadixTrieStructure trie = agpt_v2::load_radix_structure_minimal(trie_dir);
     shape.seq_len = effective_seq_len_from_trie_v2(trie);
+    shape.rope_seq_len = shape.seq_len;
     if (config_path && yaml_cfg.has_max_depth && yaml_cfg.max_depth != shape.seq_len) {
         std::fprintf(stderr,
                      "agpt_train_v2: YAML train.max_depth (%d) must match trie effective depth (%d)\n",
@@ -1135,13 +1218,28 @@ int main(int argc, char** argv) {
         agpt_v2::free_radix_trie_structure(trie);
         return 1;
     }
+    agpt_v2::PositionSamplingDataV2 pos_data;
+    bool have_pos_data = false;
+    if (rope_position_mode_uses_position_data_v2(cfg.rope_position_mode)) {
+        pos_data = agpt_v2::load_position_sampling_data_v2(position_data_dir);
+        have_pos_data = true;
+        if (pos_data.prefix_table.window_size <= 0) {
+            std::fprintf(stderr, "agpt_train_v2: position table has invalid window_size=%d\n",
+                         pos_data.prefix_table.window_size);
+            agpt_v2::free_radix_trie_structure(trie);
+            return 1;
+        }
+        shape.rope_seq_len = required_rope_seq_len_v2(
+            cfg.rope_position_mode, shape.seq_len, pos_data.prefix_table.window_size);
+    }
     if (validate_only) {
-        std::printf("agpt_train_v2: YAML config validated (mode=%s, trie_depth=%d)\n",
-                    v2_mode_name(mode), shape.seq_len);
+        std::printf("agpt_train_v2: YAML config validated (mode=%s, trie_depth=%d, context_seq_len=%d, rope_seq_len=%d)\n",
+                    v2_mode_name(mode), effective_seq_len_from_trie_v2(trie), shape.seq_len, shape.rope_seq_len);
         agpt_v2::free_radix_trie_structure(trie);
         return 0;
     }
     cfg.seq_len = shape.seq_len;
+    cfg.rope_seq_len = shape.rope_seq_len;
     agpt_v2::ModelLayout model = agpt_v2::make_model_layout(shape);
     agpt_v2::CacheLayout cache = agpt_v2::make_cache_layout(shape);
     agpt_v2::TrainingPlan training_plan =
@@ -1153,13 +1251,22 @@ int main(int argc, char** argv) {
     }
     agpt_v2::ChunkPlanList capacity_chunks =
         build_capacity_chunk_list_for_plan_v2(trie, training_plan, cfg.chunk_queries);
+    std::vector<agpt_v2::ChunkPlanList> unit_chunk_cache =
+        build_unit_chunk_plan_cache_v2(trie, training_plan, cfg.chunk_queries);
     agpt_v2::TrainerRuntimeContract runtime_contract =
         agpt_v2::build_trainer_runtime_contract(shape, cache, plan, capacity_chunks,
                                                 trie.compact_slot_capacity);
+    agpt_v2::PositionSamplingStageV2 pos_stage;
+    const agpt_v2::PositionSamplingStageV2* pos_stage_ptr = nullptr;
+    if (have_pos_data) {
+        pos_stage = agpt_v2::build_position_sampling_stage_v2(pos_data, trie, cfg.pos_sample_seed);
+        pos_stage_ptr = &pos_stage;
+    }
     agpt_v2::ChunkMetadataV2 first_chunk_meta{};
     bool have_first_chunk_meta = false;
     if (plan.largest_by_queries && largest_chunks.chunk_count > 0) {
-        first_chunk_meta = agpt_v2::build_chunk_metadata_v2(cfg, shape, trie, *plan.largest_by_queries, largest_chunks.chunks[0]);
+        first_chunk_meta = agpt_v2::build_chunk_metadata_v2(cfg, shape, trie, *plan.largest_by_queries,
+                                                            largest_chunks.chunks[0], pos_stage_ptr);
         have_first_chunk_meta = true;
     }
 
@@ -1169,8 +1276,13 @@ int main(int argc, char** argv) {
                 shape.d_model, shape.n_heads, shape.n_layers, shape.d_ff,
                 shape.vocab_size, shape.seq_len, shape.head_dim);
     if (header_seq_len != shape.seq_len) {
-        std::printf("  seq_len reconcile: model header says %d, trie max_depth=%d -> effective %d. Overriding.\n",
-                    header_seq_len, trie.depth_file_count - 1, shape.seq_len);
+        if (have_pos_data) {
+            std::printf("  seq_len reconcile: model header says %d, trie max_depth=%d -> context %d, rope_cache=%d. Overriding context.\n",
+                        header_seq_len, trie.depth_file_count - 1, shape.seq_len, shape.rope_seq_len);
+        } else {
+            std::printf("  seq_len reconcile: model header says %d, trie max_depth=%d -> effective %d. Overriding.\n",
+                        header_seq_len, trie.depth_file_count - 1, shape.seq_len);
+        }
     }
     std::printf("  trie: %d radix nodes, %lld edge chars, %d endpoint depths\n",
                 trie.radix_count, trie.total_edge_chars, trie.depth_file_count);
@@ -1188,6 +1300,32 @@ int main(int argc, char** argv) {
     if (cfg.anc_grad) {
         std::printf("  anc-grad: enabled (descendant->ancestor scatter into Wk/Wv)\n");
     }
+    std::printf("  rope-position: mode=%s", rope_position_mode_name_v2(cfg.rope_position_mode));
+    if (have_pos_data) {
+        std::printf(" position_data=%s window=%d rope_cache=%d substrings=%d seed=%u pos_matches=%d/%d",
+                    position_data_dir, pos_data.prefix_table.window_size,
+                    shape.rope_seq_len,
+                    pos_data.prefix_table.substring_count, cfg.pos_sample_seed,
+                    agpt_v2::count_position_sampling_matches_v2(*pos_stage_ptr),
+                    trie.radix_count);
+        if (pos_data.prefix_targets.window_size > 0) {
+            std::printf(" phase_targets=%lld", (long long)pos_data.prefix_targets.total_entries);
+        }
+        if (cfg.rope_position_mode == agpt_v2::RopePositionModeV2::PhaseSweep ||
+            cfg.rope_position_mode == agpt_v2::RopePositionModeV2::PhaseWeighted ||
+            cfg.rope_position_mode == agpt_v2::RopePositionModeV2::PhaseConditioned) {
+            std::printf(" phase_span=%d",
+                        agpt_v2::presentation_phase_span_v2(pos_stage_ptr, trie));
+            if (cfg.rope_position_offset >= 0) {
+                std::printf(" fixed_offset=%d", cfg.rope_position_offset);
+            } else if (cfg.rope_phase_shuffle) {
+                std::printf(" phase_order=shuffle phase_order_seed=%u", cfg.rope_phase_shuffle_seed);
+            } else {
+                std::printf(" phase_order=sequential");
+            }
+        }
+    }
+    std::printf("\n");
     std::printf("  cache contract: K=%s compact_slot_indexed=%s\n",
                 cache.k_space == agpt_v2::KCoordinateSpace::PostRope ? "post-RoPE" : "pre-RoPE",
                 cache.compact_slot_indexed ? "true" : "false");
@@ -1299,6 +1437,14 @@ int main(int argc, char** argv) {
             std::printf("  chunk upload: first chunk uploaded successfully\n");
             if (run_train_epoch) {
                 agpt_v2::LossTablesV2 loss_tables = make_loss_tables_view_v2(device_loss_tables);
+                bool use_phase_mode =
+                    (cfg.rope_position_mode == agpt_v2::RopePositionModeV2::PhaseSweep ||
+                     cfg.rope_position_mode == agpt_v2::RopePositionModeV2::PhaseWeighted ||
+                     cfg.rope_position_mode == agpt_v2::RopePositionModeV2::PhaseConditioned) &&
+                    pos_stage_ptr != nullptr;
+                int presentation_phase_span = use_phase_mode
+                    ? agpt_v2::presentation_phase_span_v2(pos_stage_ptr, trie)
+                    : -1;
                 int epochs = cfg.epochs > 0 ? cfg.epochs : 1;
                 int units_to_run = plan.training_unit_count;
                 if (unit_limit > 0 && unit_limit < units_to_run) units_to_run = unit_limit;
@@ -1313,19 +1459,50 @@ int main(int argc, char** argv) {
                 if (total_unit_steps < 1) total_unit_steps = 1;
                 double train_loop_start = wall_seconds_v2();
                 for (int epoch = 0; epoch < epochs; epoch++) {
+                    agpt_v2::LossTablesV2 epoch_loss_tables = loss_tables;
+                    int epoch_phase = -1;
+                    if (use_phase_mode) {
+                        epoch_phase = agpt_v2::sample_prefix_start_unit_phase_v2(
+                            pos_stage_ptr, trie, 0, epoch, 0, cfg.rope_position_offset,
+                            cfg.rope_phase_shuffle, cfg.rope_phase_shuffle_seed);
+                        std::printf("  %s: epoch=%d presentation_start_phase=%d phase_span=%d offset=%s phase_order=%s target=%s weights=%s\n",
+                                    rope_position_mode_name_v2(cfg.rope_position_mode),
+                                    epoch + 1, epoch_phase, presentation_phase_span,
+                                    cfg.rope_position_offset >= 0 ? "fixed" : "sweep",
+                                    cfg.rope_phase_shuffle ? "shuffle" : "sequential",
+                                    cfg.rope_position_mode == agpt_v2::RopePositionModeV2::PhaseConditioned ? "phase" : "global",
+                                    (cfg.rope_position_mode == agpt_v2::RopePositionModeV2::PhaseWeighted ||
+                                     cfg.rope_position_mode == agpt_v2::RopePositionModeV2::PhaseConditioned) ? "phase" : "global");
+                    }
                     double epoch_loss_sum = 0.0;
                     double epoch_events = 0.0;
                     long long epoch_trained = 0;
+                    int skipped_phase_zero_units = 0;
+                    long long phase_target_nodes = 0;
+                    long long phase_target_zero_nodes = 0;
+                    long long phase_target_singleton_nodes = 0;
+                    long long phase_target_prefix_mass = 0;
+                    long long phase_target_global_mass = 0;
+                    long long phase_target_local_mass = 0;
+                    double phase_target_global_entropy_mass = 0.0;
+                    double phase_target_local_entropy_mass = 0.0;
                     agpt_v2::zero_cache_runtime_v2(runtime.cache);
                     std::printf("  train-epoch: epoch %d/%d\n", epoch + 1, epochs);
                     for (int u = 0; u < units_to_run; u++) {
                         const agpt_v2::TrainingUnit& unit = training_plan.units[u];
-                        agpt_v2::ChunkPlanList unit_chunks =
-                            agpt_v2::build_chunk_plan_for_unit(trie, unit, cfg.chunk_queries);
+                        if (cfg.rope_position_mode == agpt_v2::RopePositionModeV2::PhaseWeighted ||
+                            cfg.rope_position_mode == agpt_v2::RopePositionModeV2::PhaseConditioned) {
+                            int root_phase_mass = agpt_v2::prefix_position_mass_for_presentation_start_v2(
+                                pos_stage_ptr, trie, unit.root_child_id, epoch_phase);
+                            if (root_phase_mass <= 0) {
+                                skipped_phase_zero_units++;
+                                continue;
+                            }
+                        }
+                        const agpt_v2::ChunkPlanList& unit_chunks = unit_chunk_cache[u];
                         if (unit_chunks.chunk_count <= 0) {
                             std::printf("    unit %d/%d rc=%d chunks=0 skipped\n",
                                         u + 1, units_to_run, unit.root_child_id);
-                            agpt_v2::free_chunk_plan_list(unit_chunks);
                             continue;
                         }
 
@@ -1334,7 +1511,8 @@ int main(int argc, char** argv) {
                         AGPT_V2_CUDA_CHECK(cudaMemset(runtime.d_grads, 0, runtime.contract.weight_and_grad_bytes / 2));
                         agpt_v2::UnitAncGradRuntimeV2 unit_anc{};
                         if (cfg.anc_grad) {
-                            agpt_v2::init_unit_anc_grad_runtime_v2(unit_anc, runtime.contract, cfg, unit, trie);
+                            agpt_v2::init_unit_anc_grad_runtime_v2(unit_anc, runtime.contract, cfg, unit, trie,
+                                                                   pos_stage_ptr, epoch, optimizer_step_index);
                             agpt_v2::zero_unit_anc_grad_runtime_v2(unit_anc, runtime.contract);
                         }
                         double unit_loss_sum = 0.0;
@@ -1343,7 +1521,16 @@ int main(int argc, char** argv) {
                         for (int s = 0; s < unit_chunks.chunk_count; s++) {
                             const agpt_v2::ChunkPlan& chunk = unit_chunks.chunks[s];
                             agpt_v2::ChunkMetadataV2 chunk_meta =
-                                agpt_v2::build_chunk_metadata_v2(cfg, shape, trie, unit, chunk);
+                                agpt_v2::build_chunk_metadata_v2(cfg, shape, trie, unit, chunk,
+                                                                 pos_stage_ptr, epoch, optimizer_step_index);
+                            phase_target_nodes += chunk_meta.phase_target_nodes;
+                            phase_target_zero_nodes += chunk_meta.phase_target_zero_nodes;
+                            phase_target_singleton_nodes += chunk_meta.phase_target_singleton_nodes;
+                            phase_target_prefix_mass += chunk_meta.phase_target_prefix_mass;
+                            phase_target_global_mass += chunk_meta.phase_target_global_mass;
+                            phase_target_local_mass += chunk_meta.phase_target_local_mass;
+                            phase_target_global_entropy_mass += chunk_meta.phase_target_global_entropy_mass;
+                            phase_target_local_entropy_mass += chunk_meta.phase_target_local_entropy_mass;
                             agpt_v2::ChunkDeviceMetadataV2 chunk_device_meta =
                                 upload_chunk_metadata_v2(chunk_meta, upload);
                             agpt_v2::ForwardDiagDumpConfigV2 diag_dump{};
@@ -1357,7 +1544,7 @@ int main(int argc, char** argv) {
                                 diag_dump.active = true;
                             }
                             agpt_v2::ForwardPassResult chunk_fwd =
-                                agpt_v2::run_forward_prefix_v2(cfg, model, chunk_meta, chunk_device_meta, upload, loss_tables, runtime,
+                                agpt_v2::run_forward_prefix_v2(cfg, model, chunk_meta, chunk_device_meta, upload, epoch_loss_tables, runtime,
                                                                cfg.anc_grad ? &unit_anc : nullptr,
                                                                diag_dump.active ? &diag_dump : nullptr);
                             if (!chunk_fwd.ok) {
@@ -1369,7 +1556,6 @@ int main(int argc, char** argv) {
                                             diag_dump.epoch, diag_dump.root_id, diag_dump.chunk_idx);
                                 agpt_v2::free_chunk_metadata_v2(chunk_meta);
                                 agpt_v2::free_unit_anc_grad_runtime_v2(unit_anc, runtime.contract);
-                                agpt_v2::free_chunk_plan_list(unit_chunks);
                                 if (save_path) {
                                     std::printf("  diag-fire-exit: skipping save due to early exit\n");
                                 }
@@ -1379,6 +1565,7 @@ int main(int argc, char** argv) {
                                 agpt_v2::free_chunk_metadata_v2(first_chunk_meta);
                                 agpt_v2::free_chunk_plan_list(largest_chunks);
                                 agpt_v2::free_chunk_plan_list(capacity_chunks);
+                                free_unit_chunk_plan_cache_v2(unit_chunk_cache);
                                 agpt_v2::free_training_plan(training_plan);
                                 agpt_v2::free_radix_trie_structure(trie);
                                 return 0;
@@ -1412,11 +1599,42 @@ int main(int argc, char** argv) {
                                     u + 1, units_to_run, unit.root_child_id, unit_chunks.chunk_count,
                                     unit_trained, unit_events, unit_mean, current_lr, step.message);
                         agpt_v2::free_unit_anc_grad_runtime_v2(unit_anc, runtime.contract);
-                        agpt_v2::free_chunk_plan_list(unit_chunks);
                     }
                     double epoch_mean = epoch_events > 0.0 ? (epoch_loss_sum / epoch_events) : 0.0;
-                    std::printf("  train-epoch: epoch %d summary trained_queries=%lld trained_events=%.0f mean_loss=%.6f\n",
+                    std::printf("  train-epoch: epoch %d summary trained_queries=%lld trained_events=%.0f mean_loss=%.6f",
                                 epoch + 1, epoch_trained, epoch_events, epoch_mean);
+                    if (use_phase_mode) {
+                        std::printf(" presentation_start_phase=%d skipped_zero_root_units=%d",
+                                    epoch_phase, skipped_phase_zero_units);
+                    }
+                    if (cfg.rope_position_mode == agpt_v2::RopePositionModeV2::PhaseConditioned) {
+                        double zero_pct = phase_target_nodes > 0
+                            ? 100.0 * (double)phase_target_zero_nodes / (double)phase_target_nodes
+                            : 0.0;
+                        double singleton_pct = phase_target_nodes > 0
+                            ? 100.0 * (double)phase_target_singleton_nodes / (double)phase_target_nodes
+                            : 0.0;
+                        double retained_pct = phase_target_global_mass > 0
+                            ? 100.0 * (double)phase_target_local_mass / (double)phase_target_global_mass
+                            : 0.0;
+                        double prefix_retained_pct = phase_target_prefix_mass > 0
+                            ? 100.0 * (double)phase_target_local_mass / (double)phase_target_prefix_mass
+                            : 0.0;
+                        double global_h = phase_target_global_mass > 0
+                            ? phase_target_global_entropy_mass / (double)phase_target_global_mass
+                            : 0.0;
+                        double local_h = phase_target_local_mass > 0
+                            ? phase_target_local_entropy_mass / (double)phase_target_local_mass
+                            : 0.0;
+                        std::printf(" phase_targets=nodes:%lld zero:%lld(%.1f%%) singleton:%lld(%.1f%%) target_mass:%lld/prefix:%lld(%.1f%%) allphase:%lld(%.1f%%) H:phase=%.4f/global=%.4f",
+                                    phase_target_nodes,
+                                    phase_target_zero_nodes, zero_pct,
+                                    phase_target_singleton_nodes, singleton_pct,
+                                    phase_target_local_mass, phase_target_prefix_mass, prefix_retained_pct,
+                                    phase_target_global_mass, retained_pct,
+                                    local_h, global_h);
+                    }
+                    std::printf("\n");
                     if (save_path && checkpoint_epoch_requested_v2(yaml_cfg.checkpoint_epochs, epoch + 1)) {
                         std::string checkpoint_path = epoch_checkpoint_path_v2(save_path, epoch + 1);
                         double checkpoint_train_wall = wall_seconds_v2() - train_loop_start;
@@ -1447,7 +1665,8 @@ int main(int argc, char** argv) {
                 AGPT_V2_CUDA_CHECK(cudaMemset(runtime.d_opt_v, 0, (size_t)model.total_floats * sizeof(float)));
                 agpt_v2::UnitAncGradRuntimeV2 unit_anc{};
                 if (cfg.anc_grad) {
-                    agpt_v2::init_unit_anc_grad_runtime_v2(unit_anc, runtime.contract, cfg, unit, trie);
+                    agpt_v2::init_unit_anc_grad_runtime_v2(unit_anc, runtime.contract, cfg, unit, trie,
+                                                           pos_stage_ptr, 0, 0);
                     agpt_v2::zero_unit_anc_grad_runtime_v2(unit_anc, runtime.contract);
                 }
                 std::printf("  train-small: unit rc=%d chunks=%d accumulate=true optimizer=%s\n",
@@ -1458,7 +1677,8 @@ int main(int argc, char** argv) {
                 for (int s = 0; s < n_steps; s++) {
                     const agpt_v2::ChunkPlan& chunk = largest_chunks.chunks[s];
                     agpt_v2::ChunkMetadataV2 chunk_meta =
-                        agpt_v2::build_chunk_metadata_v2(cfg, shape, trie, unit, chunk);
+                        agpt_v2::build_chunk_metadata_v2(cfg, shape, trie, unit, chunk,
+                                                         pos_stage_ptr, 0, 0);
                     agpt_v2::ChunkDeviceMetadataV2 chunk_device_meta =
                         upload_chunk_metadata_v2(chunk_meta, upload);
                     agpt_v2::ForwardPassResult chunk_fwd =
@@ -1487,7 +1707,8 @@ int main(int argc, char** argv) {
                 agpt_v2::LossTablesV2 loss_tables = make_loss_tables_view_v2(device_loss_tables);
                 agpt_v2::UnitAncGradRuntimeV2 unit_anc{};
                 if (cfg.anc_grad && plan.largest_by_queries) {
-                    agpt_v2::init_unit_anc_grad_runtime_v2(unit_anc, runtime.contract, cfg, *plan.largest_by_queries, trie);
+                    agpt_v2::init_unit_anc_grad_runtime_v2(unit_anc, runtime.contract, cfg, *plan.largest_by_queries, trie,
+                                                           pos_stage_ptr, 0, 0);
                     agpt_v2::zero_unit_anc_grad_runtime_v2(unit_anc, runtime.contract);
                 }
                 agpt_v2::ForwardPassResult fwd =
@@ -1669,6 +1890,7 @@ int main(int argc, char** argv) {
     if (have_first_chunk_meta) agpt_v2::free_chunk_metadata_v2(first_chunk_meta);
     agpt_v2::free_chunk_plan_list(largest_chunks);
     agpt_v2::free_chunk_plan_list(capacity_chunks);
+    free_unit_chunk_plan_cache_v2(unit_chunk_cache);
     agpt_v2::free_training_plan(training_plan);
     agpt_v2::free_radix_trie_structure(trie);
     agpt_v2::free_model_layout(model);

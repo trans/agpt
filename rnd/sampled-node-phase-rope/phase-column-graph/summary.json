@@ -1,0 +1,20 @@
+{
+  "trie": "/tmp/agpt_snp_25ep_prefix_radix",
+  "position_data": "/tmp/agpt_snp_25ep_position_data",
+  "window": 64,
+  "render_window": 64,
+  "radix_records_seen": 1528495,
+  "records_with_position_substring": 1528495,
+  "skipped_missing_sid": 0,
+  "skipped_empty_bins": 0,
+  "position_bins_seen": 4149779,
+  "implicit_full_state_observations": 12702498,
+  "implicit_state_mass": 16954144,
+  "distinct_token_depth_phase_states": 63488,
+  "distinct_token_phase_states": 3968,
+  "distinct_token_depth_phase_edges": 864210,
+  "edge_observations": 12698530,
+  "edge_mass_total": 15894510,
+  "merge_ratio_full_to_token_depth_phase": 200.0771484375,
+  "merge_ratio_token_depth_phase_to_token_phase": 16.0
+}

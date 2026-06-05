@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <numeric>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -26,8 +27,23 @@ struct PositionTableV2 {
     std::vector<PosBinV2> pos_bins;
 };
 
+struct PhaseTargetEntryV2 {
+    uint16_t phase = 0;
+    uint16_t token = 0;
+    uint32_t count = 0;
+};
+
+struct PhaseTargetTableV2 {
+    int window_size = 0;
+    int radix_count = 0;
+    int64_t total_entries = 0;
+    std::vector<int32_t> offsets;
+    std::vector<PhaseTargetEntryV2> entries;
+};
+
 struct PositionSamplingDataV2 {
     PositionTableV2 prefix_table;
+    PhaseTargetTableV2 prefix_targets;
     std::unordered_map<std::string, int> substring_id_by_tokens;
 };
 
@@ -151,6 +167,45 @@ static inline PositionTableV2 load_prefix_position_table_v2(const char* path) {
     return out;
 }
 
+static inline bool file_exists_v2(const char* path) {
+    FILE* f = std::fopen(path, "rb");
+    if (!f) return false;
+    std::fclose(f);
+    return true;
+}
+
+static inline PhaseTargetTableV2 load_prefix_phase_targets_v2(const char* path) {
+    FILE* f = std::fopen(path, "rb");
+    if (!f) {
+        std::fprintf(stderr, "agpt_train_v2: cannot open phase target table: %s\n", path);
+        std::exit(1);
+    }
+    if (!pos_check_magic_v2(f, "APTG")) {
+        std::fprintf(stderr, "agpt_train_v2: bad phase target table magic: %s\n", path);
+        std::exit(1);
+    }
+
+    PhaseTargetTableV2 out;
+    out.window_size = (int)pos_read_u16_v2(f);
+    (void)pos_read_u16_v2(f);
+    out.radix_count = (int)pos_read_u32_v2(f);
+    out.total_entries = (int64_t)pos_read_u64_v2(f);
+    out.offsets.resize((size_t)out.radix_count + 1);
+    if (std::fread(out.offsets.data(), sizeof(int32_t), (size_t)out.radix_count + 1, f) !=
+        (size_t)out.radix_count + 1) {
+        std::fprintf(stderr, "agpt_train_v2: failed reading phase target offsets: %s\n", path);
+        std::exit(1);
+    }
+    out.entries.resize((size_t)out.total_entries);
+    for (int64_t i = 0; i < out.total_entries; i++) {
+        out.entries[(size_t)i].phase = pos_read_u16_v2(f);
+        out.entries[(size_t)i].token = pos_read_u16_v2(f);
+        out.entries[(size_t)i].count = pos_read_u32_v2(f);
+    }
+    std::fclose(f);
+    return out;
+}
+
 static inline PositionSamplingDataV2 load_position_sampling_data_v2(const char* dir) {
     char path[1024];
     PositionSamplingDataV2 out;
@@ -158,6 +213,10 @@ static inline PositionSamplingDataV2 load_position_sampling_data_v2(const char* 
     out.substring_id_by_tokens = load_substring_catalog_map_v2(path);
     std::snprintf(path, sizeof(path), "%s/prefix_position_table.bin", dir);
     out.prefix_table = load_prefix_position_table_v2(path);
+    std::snprintf(path, sizeof(path), "%s/prefix_phase_targets.bin", dir);
+    if (file_exists_v2(path)) {
+        out.prefix_targets = load_prefix_phase_targets_v2(path);
+    }
     return out;
 }
 
@@ -170,11 +229,9 @@ static inline uint32_t mix_u32_v2(uint32_t x) {
     return x;
 }
 
-static inline int sample_prefix_start_bin_v2(const PositionSamplingStageV2* stage,
-                                             int radix_id,
-                                             int epoch_index,
-                                             int unit_root_child_id,
-                                             int optimizer_step_index) {
+static inline int sample_prefix_start_by_hash_v2(const PositionSamplingStageV2* stage,
+                                                 int radix_id,
+                                                 uint32_t h) {
     if (!stage || !stage->data) return -1;
     if (radix_id < 0 || radix_id >= (int)stage->substring_id_by_radix.size()) return -1;
     int sid = stage->substring_id_by_radix[(size_t)radix_id];
@@ -188,11 +245,6 @@ static inline int sample_prefix_start_bin_v2(const PositionSamplingStageV2* stag
     for (int i = start; i < end; i++) total += (uint64_t)table.pos_bins[(size_t)i].count;
     if (total == 0) return -1;
 
-    uint32_t h = stage->seed;
-    h = mix_u32_v2(h ^ (uint32_t)radix_id);
-    h = mix_u32_v2(h ^ ((uint32_t)epoch_index * 0x9e3779b9u));
-    h = mix_u32_v2(h ^ ((uint32_t)unit_root_child_id * 0x85ebca6bu));
-    h = mix_u32_v2(h ^ ((uint32_t)optimizer_step_index * 0xc2b2ae35u));
     uint64_t ticket = (uint64_t)h % total;
     for (int i = start; i < end; i++) {
         uint32_t count = table.pos_bins[(size_t)i].count;
@@ -202,11 +254,213 @@ static inline int sample_prefix_start_bin_v2(const PositionSamplingStageV2* stag
     return (int)table.pos_bins[(size_t)end - 1].pos;
 }
 
+static inline int prefix_position_bin_count_v2(const PositionSamplingStageV2* stage,
+                                               int radix_id,
+                                               int pos_bin) {
+    if (!stage || !stage->data) return 0;
+    if (radix_id < 0 || radix_id >= (int)stage->substring_id_by_radix.size()) return 0;
+    const PositionTableV2& table = stage->data->prefix_table;
+    if (table.window_size <= 0) return 0;
+    int pos = pos_bin % table.window_size;
+    if (pos < 0) pos += table.window_size;
+    int sid = stage->substring_id_by_radix[(size_t)radix_id];
+    if (sid < 0 || sid >= table.substring_count) return 0;
+    int start = table.pos_offsets[(size_t)sid];
+    int end = table.pos_offsets[(size_t)sid + 1];
+    for (int i = start; i < end; i++) {
+        const PosBinV2& bin = table.pos_bins[(size_t)i];
+        if ((int)bin.pos == pos) return (int)bin.count;
+        if ((int)bin.pos > pos) break;
+    }
+    return 0;
+}
+
+static inline int substring_position_bin_count_v2(const PositionSamplingStageV2* stage,
+                                                  int substring_id,
+                                                  int pos_bin) {
+    if (!stage || !stage->data) return 0;
+    const PositionTableV2& table = stage->data->prefix_table;
+    if (table.window_size <= 0) return 0;
+    int pos = pos_bin % table.window_size;
+    if (pos < 0) pos += table.window_size;
+    if (substring_id < 0 || substring_id >= table.substring_count) return 0;
+    int start = table.pos_offsets[(size_t)substring_id];
+    int end = table.pos_offsets[(size_t)substring_id + 1];
+    for (int i = start; i < end; i++) {
+        const PosBinV2& bin = table.pos_bins[(size_t)i];
+        if ((int)bin.pos == pos) return (int)bin.count;
+        if ((int)bin.pos > pos) break;
+    }
+    return 0;
+}
+
+static inline int prefix_position_endpoint_phase_bin_count_v2(const PositionSamplingStageV2* stage,
+                                                              const RadixTrieStructure& trie,
+                                                              int radix_id,
+                                                              int endpoint_phase) {
+    if (!stage || !stage->data) return 0;
+    if (radix_id < 0 || radix_id >= trie.radix_count) return 0;
+    const PositionTableV2& table = stage->data->prefix_table;
+    if (table.window_size <= 0) return 0;
+    int endpoint_depth_zero_based =
+        trie.edge_first_char_depths[radix_id] + trie.edge_lens[radix_id] - 2;
+    if (endpoint_depth_zero_based < 0) endpoint_depth_zero_based = 0;
+    int start_phase = (endpoint_phase - endpoint_depth_zero_based) % table.window_size;
+    if (start_phase < 0) start_phase += table.window_size;
+    return prefix_position_bin_count_v2(stage, radix_id, start_phase);
+}
+
+static inline int substring_position_endpoint_phase_bin_count_v2(const PositionSamplingStageV2* stage,
+                                                                 int substring_id,
+                                                                 int endpoint_depth_zero_based,
+                                                                 int endpoint_phase) {
+    if (!stage || !stage->data) return 0;
+    const PositionTableV2& table = stage->data->prefix_table;
+    if (table.window_size <= 0) return 0;
+    if (endpoint_depth_zero_based < 0) endpoint_depth_zero_based = 0;
+    int start_phase = (endpoint_phase - endpoint_depth_zero_based) % table.window_size;
+    if (start_phase < 0) start_phase += table.window_size;
+    return substring_position_bin_count_v2(stage, substring_id, start_phase);
+}
+
+static inline int prefix_phase_target_count_v2(const PositionSamplingStageV2* stage,
+                                               int radix_id,
+                                               int presentation_start_phase,
+                                               int token) {
+    if (!stage || !stage->data) return 0;
+    const PhaseTargetTableV2& table = stage->data->prefix_targets;
+    if (table.window_size <= 0 || table.radix_count <= 0) return -1;
+    if (radix_id < 0 || radix_id >= table.radix_count) return 0;
+    int phase = presentation_start_phase % table.window_size;
+    if (phase < 0) phase += table.window_size;
+    int start = table.offsets[(size_t)radix_id];
+    int end = table.offsets[(size_t)radix_id + 1];
+    for (int i = start; i < end; i++) {
+        const PhaseTargetEntryV2& entry = table.entries[(size_t)i];
+        if ((int)entry.phase < phase) continue;
+        if ((int)entry.phase > phase) break;
+        if ((int)entry.token == token) return (int)entry.count;
+        if ((int)entry.token > token) break;
+    }
+    return 0;
+}
+
+static inline bool has_prefix_phase_targets_v2(const PositionSamplingStageV2* stage) {
+    return stage && stage->data && stage->data->prefix_targets.window_size > 0 &&
+           stage->data->prefix_targets.radix_count > 0;
+}
+
+static inline void radix_prefix_tokens_v2(const RadixTrieStructure& trie,
+                                          int radix_id,
+                                          std::vector<int>& out) {
+    out.clear();
+    if (radix_id <= 0 || radix_id >= trie.radix_count) return;
+    int anc_start = trie.ancestor_char_offsets[radix_id];
+    int anc_end = trie.ancestor_char_offsets[radix_id + 1];
+    out.reserve((size_t)(anc_end - anc_start + trie.edge_lens[radix_id]));
+    for (int i = anc_start; i < anc_end; i++) {
+        int char_pos = trie.ancestor_char_ids[i];
+        out.push_back(trie.edge_tokens_flat[char_pos]);
+    }
+    int edge_start = trie.edge_starts[radix_id];
+    int edge_len = trie.edge_lens[radix_id];
+    for (int i = 0; i < edge_len; i++) {
+        out.push_back(trie.edge_tokens_flat[edge_start + i]);
+    }
+}
+
+static inline int sample_prefix_start_bin_v2(const PositionSamplingStageV2* stage,
+                                             int radix_id,
+                                             int epoch_index,
+                                             int unit_root_child_id,
+                                             int optimizer_step_index) {
+    if (!stage) return -1;
+    uint32_t h = stage->seed;
+    h = mix_u32_v2(h ^ (uint32_t)radix_id);
+    h = mix_u32_v2(h ^ ((uint32_t)epoch_index * 0x9e3779b9u));
+    h = mix_u32_v2(h ^ ((uint32_t)unit_root_child_id * 0x85ebca6bu));
+    h = mix_u32_v2(h ^ ((uint32_t)optimizer_step_index * 0xc2b2ae35u));
+    return sample_prefix_start_by_hash_v2(stage, radix_id, h);
+}
+
+static inline int presentation_phase_span_v2(const PositionSamplingStageV2* stage,
+                                             const RadixTrieStructure& trie) {
+    if (!stage || !stage->data || stage->data->prefix_table.window_size <= 0) return -1;
+    int window = stage->data->prefix_table.window_size;
+    (void)trie;
+    return window;
+}
+
+static inline int shuffled_presentation_phase_v2(int epoch_index, int span, unsigned seed) {
+    if (span <= 0) return -1;
+    int cycle = epoch_index / span;
+    int within_cycle = epoch_index % span;
+    if (within_cycle < 0) within_cycle += span;
+    uint32_t h = mix_u32_v2(seed ^ ((uint32_t)cycle * 0x9e3779b9u));
+    int offset = (int)(h % (uint32_t)span);
+    h = mix_u32_v2(h ^ 0x85ebca6bu);
+    int stride = (int)(h % (uint32_t)span);
+    if (stride <= 0) stride = 1;
+    while (std::gcd(stride, span) != 1) {
+        stride++;
+        if (stride >= span) stride = 1;
+    }
+    int phase = (offset + within_cycle * stride) % span;
+    if (phase < 0) phase += span;
+    return phase;
+}
+
+static inline int sample_prefix_start_unit_phase_v2(const PositionSamplingStageV2* stage,
+                                                    const RadixTrieStructure& trie,
+                                                    int radix_id,
+                                                    int epoch_index,
+                                                    int unit_root_child_id,
+                                                    int fixed_offset = -1,
+                                                    bool shuffle = false,
+                                                    unsigned shuffle_seed = 1) {
+    int span = presentation_phase_span_v2(stage, trie);
+    if (span <= 0) return -1;
+    // Coherence rule: this mode uses one corpus-position phase for the whole
+    // epoch/fire. RoPE positions are unwrapped (start+depth) so token order is
+    // preserved; phase-mass lookup remains modulo the position table window.
+    (void)radix_id;
+    (void)unit_root_child_id;
+    int phase = fixed_offset >= 0
+        ? fixed_offset
+        : (shuffle ? shuffled_presentation_phase_v2(epoch_index, span, shuffle_seed) : epoch_index);
+    phase %= span;
+    if (phase < 0) phase += span;
+    return phase;
+}
+
 static inline int sampled_rope_pos_from_start_v2(int sampled_start, int depth_zero_based, int window_size) {
     if (sampled_start < 0 || window_size <= 0) return -1;
     int pos = (sampled_start + depth_zero_based) % window_size;
     if (pos < 0) pos += window_size;
     return pos;
+}
+
+static inline int presentation_rope_pos_from_start_v2(int presentation_start,
+                                                      int depth_zero_based,
+                                                      int window_size) {
+    if (presentation_start < 0 || window_size <= 0) return -1;
+    return presentation_start + depth_zero_based;
+}
+
+static inline int prefix_position_mass_for_presentation_start_v2(const PositionSamplingStageV2* stage,
+                                                                 const RadixTrieStructure& trie,
+                                                                 int radix_id,
+                                                                 int presentation_start_phase) {
+    if (!stage || !stage->data) return 0;
+    const PositionTableV2& table = stage->data->prefix_table;
+    if (table.window_size <= 0) return 0;
+    if (radix_id < 0 || radix_id >= trie.radix_count) return 0;
+    int endpoint_depth_zero_based =
+        trie.edge_first_char_depths[radix_id] + trie.edge_lens[radix_id] - 2;
+    if (endpoint_depth_zero_based < 0) endpoint_depth_zero_based = 0;
+    int endpoint_phase = presentation_rope_pos_from_start_v2(
+        presentation_start_phase, endpoint_depth_zero_based, table.window_size);
+    return prefix_position_endpoint_phase_bin_count_v2(stage, trie, radix_id, endpoint_phase);
 }
 
 static inline PositionSamplingStageV2 build_position_sampling_stage_v2(const PositionSamplingDataV2& data,

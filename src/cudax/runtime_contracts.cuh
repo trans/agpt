@@ -34,6 +34,7 @@ struct ChunkRuntimeContract {
 
 struct TrainerRuntimeContract {
     RuntimeShape shape;
+    int rope_seq_len = 0;
     CacheRuntimeContract cache;
     ChunkRuntimeContract chunk;
     std::size_t optimizer_state_bytes = 0;
@@ -123,6 +124,7 @@ static inline TrainerRuntimeContract build_trainer_runtime_contract(const Runtim
                                                                    long long compact_slot_capacity = 0) {
     TrainerRuntimeContract contract;
     contract.shape = shape;
+    contract.rope_seq_len = shape.rope_seq_len > 0 ? shape.rope_seq_len : shape.seq_len;
     long long cache_capacity = plan.total_compact_char_count;
     if (compact_slot_capacity > cache_capacity) cache_capacity = compact_slot_capacity;
     contract.cache = build_cache_runtime_contract(shape, cache_capacity, shape.n_layers);
