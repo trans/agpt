@@ -1,0 +1,1418 @@
+[
+  {
+    "from_id": 7568,
+    "from_text": "\n\nKING RICHARD I",
+    "first_char_depth": 8,
+    "edge_len": 9,
+    "edge_mass": 227,
+    "fanout": 224,
+    "total": 227,
+    "top_successors": [
+      {
+        "to_id": 396207,
+        "count": 2,
+        "pct": 0.8810572687224669,
+        "text": "II:\nCatesby!\n\nCA"
+      },
+      {
+        "to_id": 396240,
+        "count": 2,
+        "pct": 0.8810572687224669,
+        "text": "II:\nO Ratcliff, "
+      },
+      {
+        "to_id": 399455,
+        "count": 2,
+        "pct": 0.8810572687224669,
+        "text": "I:\nNorthumberlan"
+      },
+      {
+        "to_id": 402417,
+        "count": 1,
+        "pct": 0.44052863436123346,
+        "text": "II:\nStand all ap"
+      },
+      {
+        "to_id": 399342,
+        "count": 1,
+        "pct": 0.44052863436123346,
+        "text": "II:\nGive me thy "
+      },
+      {
+        "to_id": 396242,
+        "count": 1,
+        "pct": 0.44052863436123346,
+        "text": "II:\nO Buckingham"
+      },
+      {
+        "to_id": 402410,
+        "count": 1,
+        "pct": 0.44052863436123346,
+        "text": "II:\nWhy, Bucking"
+      },
+      {
+        "to_id": 396226,
+        "count": 1,
+        "pct": 0.44052863436123346,
+        "text": "II:\nHa! am I kin"
+      }
+    ]
+  },
+  {
+    "from_id": 574,
+    "from_text": "\nKING RICHARD II",
+    "first_char_depth": 7,
+    "edge_len": 10,
+    "edge_mass": 227,
+    "fanout": 224,
+    "total": 227,
+    "top_successors": [
+      {
+        "to_id": 396517,
+        "count": 2,
+        "pct": 0.8810572687224669,
+        "text": "I:\nCatesby!\n\nCAT"
+      },
+      {
+        "to_id": 396563,
+        "count": 2,
+        "pct": 0.8810572687224669,
+        "text": "I:\nO Ratcliff, I"
+      },
+      {
+        "to_id": 335328,
+        "count": 2,
+        "pct": 0.8810572687224669,
+        "text": ":\nNorthumberland"
+      },
+      {
+        "to_id": 402534,
+        "count": 1,
+        "pct": 0.44052863436123346,
+        "text": "I:\nStand all apa"
+      },
+      {
+        "to_id": 399547,
+        "count": 1,
+        "pct": 0.44052863436123346,
+        "text": "I:\nGive me thy h"
+      },
+      {
+        "to_id": 396565,
+        "count": 1,
+        "pct": 0.44052863436123346,
+        "text": "I:\nO Buckingham,"
+      },
+      {
+        "to_id": 402525,
+        "count": 1,
+        "pct": 0.44052863436123346,
+        "text": "I:\nWhy, Buckingh"
+      },
+      {
+        "to_id": 396545,
+        "count": 1,
+        "pct": 0.44052863436123346,
+        "text": "I:\nHa! am I king"
+      }
+    ]
+  },
+  {
+    "from_id": 26202,
+    "from_text": "\n\nDUKE VINCENTIO",
+    "first_char_depth": 8,
+    "edge_len": 9,
+    "edge_mass": 193,
+    "fanout": 193,
+    "total": 193,
+    "top_successors": [
+      {
+        "to_id": 333281,
+        "count": 1,
+        "pct": 0.5181347150259067,
+        "text": ":\nEscalus.\n\nESCA"
+      },
+      {
+        "to_id": 335162,
+        "count": 1,
+        "pct": 0.5181347150259067,
+        "text": ":\nOf government "
+      },
+      {
+        "to_id": 337901,
+        "count": 1,
+        "pct": 0.5181347150259067,
+        "text": ":\nLook where he "
+      },
+      {
+        "to_id": 337505,
+        "count": 1,
+        "pct": 0.5181347150259067,
+        "text": ":\nAngelo,\nThere "
+      },
+      {
+        "to_id": 344954,
+        "count": 1,
+        "pct": 0.5181347150259067,
+        "text": ":\nNo more evasio"
+      },
+      {
+        "to_id": 339111,
+        "count": 1,
+        "pct": 0.5181347150259067,
+        "text": ":\nMy haste may n"
+      },
+      {
+        "to_id": 340713,
+        "count": 1,
+        "pct": 0.5181347150259067,
+        "text": ":\nNo, holy fathe"
+      },
+      {
+        "to_id": 339113,
+        "count": 1,
+        "pct": 0.5181347150259067,
+        "text": ":\nMy holy sir, n"
+      }
+    ]
+  },
+  {
+    "from_id": 9376,
+    "from_text": "\nDUKE VINCENTIO:",
+    "first_char_depth": 7,
+    "edge_len": 10,
+    "edge_mass": 193,
+    "fanout": 193,
+    "total": 193,
+    "top_successors": [
+      {
+        "to_id": 1075,
+        "count": 1,
+        "pct": 0.5181347150259067,
+        "text": "\nEscalus.\n\nESCAL"
+      },
+      {
+        "to_id": 21721,
+        "count": 1,
+        "pct": 0.5181347150259067,
+        "text": "\nOf government t"
+      },
+      {
+        "to_id": 13295,
+        "count": 1,
+        "pct": 0.5181347150259067,
+        "text": "\nLook where he c"
+      },
+      {
+        "to_id": 25321,
+        "count": 1,
+        "pct": 0.5181347150259067,
+        "text": "\nAngelo,\nThere i"
+      },
+      {
+        "to_id": 39194,
+        "count": 1,
+        "pct": 0.5181347150259067,
+        "text": "\nNo more evasion"
+      },
+      {
+        "to_id": 19869,
+        "count": 1,
+        "pct": 0.5181347150259067,
+        "text": "\nMy haste may no"
+      },
+      {
+        "to_id": 22045,
+        "count": 1,
+        "pct": 0.5181347150259067,
+        "text": "\nNo, holy father"
+      },
+      {
+        "to_id": 19873,
+        "count": 1,
+        "pct": 0.5181347150259067,
+        "text": "\nMy holy sir, no"
+      }
+    ]
+  },
+  {
+    "from_id": 374424,
+    "from_text": "DUKE VINCENTIO:\n",
+    "first_char_depth": 6,
+    "edge_len": 11,
+    "edge_mass": 193,
+    "fanout": 193,
+    "total": 193,
+    "top_successors": [
+      {
+        "to_id": 376963,
+        "count": 1,
+        "pct": 0.5181347150259067,
+        "text": "Escalus.\n\nESCALU"
+      },
+      {
+        "to_id": 429926,
+        "count": 1,
+        "pct": 0.5181347150259067,
+        "text": "Of government th"
+      },
+      {
+        "to_id": 411225,
+        "count": 1,
+        "pct": 0.5181347150259067,
+        "text": "Look where he co"
+      },
+      {
+        "to_id": 363538,
+        "count": 1,
+        "pct": 0.5181347150259067,
+        "text": "Angelo,\nThere is"
+      },
+      {
+        "to_id": 425153,
+        "count": 1,
+        "pct": 0.5181347150259067,
+        "text": "No more evasion:"
+      },
+      {
+        "to_id": 416874,
+        "count": 1,
+        "pct": 0.5181347150259067,
+        "text": "My haste may not"
+      },
+      {
+        "to_id": 423064,
+        "count": 1,
+        "pct": 0.5181347150259067,
+        "text": "No, holy father;"
+      },
+      {
+        "to_id": 416878,
+        "count": 1,
+        "pct": 0.5181347150259067,
+        "text": "My holy sir, non"
+      }
+    ]
+  },
+  {
+    "from_id": 326647,
+    "from_text": ".\n\nKING RICHARD ",
+    "first_char_depth": 9,
+    "edge_len": 8,
+    "edge_mass": 167,
+    "fanout": 164,
+    "total": 167,
+    "top_successors": [
+      {
+        "to_id": 394074,
+        "count": 2,
+        "pct": 1.1976047904191616,
+        "text": "III:\nCatesby!\n\nC"
+      },
+      {
+        "to_id": 396304,
+        "count": 2,
+        "pct": 1.1976047904191616,
+        "text": "III:\nO Ratcliff,"
+      },
+      {
+        "to_id": 399278,
+        "count": 2,
+        "pct": 1.1976047904191616,
+        "text": "II:\nNorthumberla"
+      },
+      {
+        "to_id": 402438,
+        "count": 1,
+        "pct": 0.5988023952095808,
+        "text": "III:\nStand all a"
+      },
+      {
+        "to_id": 402432,
+        "count": 1,
+        "pct": 0.5988023952095808,
+        "text": "III:\nWhy, Buckin"
+      },
+      {
+        "to_id": 396297,
+        "count": 1,
+        "pct": 0.5988023952095808,
+        "text": "III:\nHa! am I ki"
+      },
+      {
+        "to_id": 396305,
+        "count": 1,
+        "pct": 0.5988023952095808,
+        "text": "III:\nO bitter co"
+      },
+      {
+        "to_id": 396291,
+        "count": 1,
+        "pct": 0.5988023952095808,
+        "text": "III:\nTut, tut, t"
+      }
+    ]
+  },
+  {
+    "from_id": 328283,
+    "from_text": ".\n\nDUKE VINCENTI",
+    "first_char_depth": 9,
+    "edge_len": 8,
+    "edge_mass": 144,
+    "fanout": 143,
+    "total": 144,
+    "top_successors": [
+      {
+        "to_id": 431587,
+        "count": 2,
+        "pct": 1.3888888888888888,
+        "text": "O:\nCome hither, "
+      },
+      {
+        "to_id": 425693,
+        "count": 1,
+        "pct": 0.6944444444444444,
+        "text": "O:\nEscalus.\n\nESC"
+      },
+      {
+        "to_id": 426662,
+        "count": 1,
+        "pct": 0.6944444444444444,
+        "text": "O:\nOf government"
+      },
+      {
+        "to_id": 430074,
+        "count": 1,
+        "pct": 0.6944444444444444,
+        "text": "O:\nLook where he"
+      },
+      {
+        "to_id": 426698,
+        "count": 1,
+        "pct": 0.6944444444444444,
+        "text": "O:\nAngelo,\nThere"
+      },
+      {
+        "to_id": 430300,
+        "count": 1,
+        "pct": 0.6944444444444444,
+        "text": "O:\nNo more evasi"
+      },
+      {
+        "to_id": 428551,
+        "count": 1,
+        "pct": 0.6944444444444444,
+        "text": "O:\nMy haste may "
+      },
+      {
+        "to_id": 428344,
+        "count": 1,
+        "pct": 0.6944444444444444,
+        "text": "O:\nWe have stric"
+      }
+    ]
+  },
+  {
+    "from_id": 397696,
+    "from_text": "ING RICHARD III:",
+    "first_char_depth": 15,
+    "edge_len": 2,
+    "edge_mass": 133,
+    "fanout": 132,
+    "total": 133,
+    "top_successors": [
+      {
+        "to_id": 11581,
+        "count": 2,
+        "pct": 1.5037593984962405,
+        "text": "\nCatesby!\n\nCATES"
+      },
+      {
+        "to_id": 34275,
+        "count": 1,
+        "pct": 0.7518796992481203,
+        "text": "\nStand all apart"
+      },
+      {
+        "to_id": 47750,
+        "count": 1,
+        "pct": 0.7518796992481203,
+        "text": "\nGive me thy han"
+      },
+      {
+        "to_id": 11954,
+        "count": 1,
+        "pct": 0.7518796992481203,
+        "text": "\nO Buckingham, n"
+      },
+      {
+        "to_id": 33211,
+        "count": 1,
+        "pct": 0.7518796992481203,
+        "text": "\nWhy, Buckingham"
+      },
+      {
+        "to_id": 10771,
+        "count": 1,
+        "pct": 0.7518796992481203,
+        "text": "\nHa! am I king? "
+      },
+      {
+        "to_id": 5431,
+        "count": 1,
+        "pct": 0.7518796992481203,
+        "text": "\nO bitter conseq"
+      },
+      {
+        "to_id": 37109,
+        "count": 1,
+        "pct": 0.7518796992481203,
+        "text": "\nTut, tut, thou "
+      }
+    ]
+  },
+  {
+    "from_id": 420675,
+    "from_text": "NG RICHARD III:\n",
+    "first_char_depth": 14,
+    "edge_len": 3,
+    "edge_mass": 133,
+    "fanout": 132,
+    "total": 133,
+    "top_successors": [
+      {
+        "to_id": 370418,
+        "count": 2,
+        "pct": 1.5037593984962405,
+        "text": "Catesby!\n\nCATESB"
+      },
+      {
+        "to_id": 446625,
+        "count": 1,
+        "pct": 0.7518796992481203,
+        "text": "Stand all apart "
+      },
+      {
+        "to_id": 388764,
+        "count": 1,
+        "pct": 0.7518796992481203,
+        "text": "Give me thy hand"
+      },
+      {
+        "to_id": 427706,
+        "count": 1,
+        "pct": 0.7518796992481203,
+        "text": "O Buckingham, no"
+      },
+      {
+        "to_id": 464329,
+        "count": 1,
+        "pct": 0.7518796992481203,
+        "text": "Why, Buckingham,"
+      },
+      {
+        "to_id": 389670,
+        "count": 1,
+        "pct": 0.7518796992481203,
+        "text": "Ha! am I king? '"
+      },
+      {
+        "to_id": 426334,
+        "count": 1,
+        "pct": 0.7518796992481203,
+        "text": "O bitter consequ"
+      },
+      {
+        "to_id": 454069,
+        "count": 1,
+        "pct": 0.7518796992481203,
+        "text": "Tut, tut, thou a"
+      }
+    ]
+  },
+  {
+    "from_id": 409294,
+    "from_text": "KING RICHARD III",
+    "first_char_depth": 16,
+    "edge_len": 1,
+    "edge_mass": 133,
+    "fanout": 131,
+    "total": 133,
+    "top_successors": [
+      {
+        "to_id": 337299,
+        "count": 2,
+        "pct": 1.5037593984962405,
+        "text": ":\nCatesby!\n\nCATE"
+      },
+      {
+        "to_id": 335199,
+        "count": 2,
+        "pct": 1.5037593984962405,
+        "text": ":\nO Ratcliff, I "
+      },
+      {
+        "to_id": 343768,
+        "count": 1,
+        "pct": 0.7518796992481203,
+        "text": ":\nStand all apar"
+      },
+      {
+        "to_id": 341930,
+        "count": 1,
+        "pct": 0.7518796992481203,
+        "text": ":\nGive me thy ha"
+      },
+      {
+        "to_id": 335208,
+        "count": 1,
+        "pct": 0.7518796992481203,
+        "text": ":\nO Buckingham, "
+      },
+      {
+        "to_id": 343453,
+        "count": 1,
+        "pct": 0.7518796992481203,
+        "text": ":\nWhy, Buckingha"
+      },
+      {
+        "to_id": 336929,
+        "count": 1,
+        "pct": 0.7518796992481203,
+        "text": ":\nHa! am I king?"
+      },
+      {
+        "to_id": 335222,
+        "count": 1,
+        "pct": 0.7518796992481203,
+        "text": ":\nO bitter conse"
+      }
+    ]
+  },
+  {
+    "from_id": 7569,
+    "from_text": "\n\nKING EDWARD IV",
+    "first_char_depth": 8,
+    "edge_len": 9,
+    "edge_mass": 110,
+    "fanout": 109,
+    "total": 110,
+    "top_successors": [
+      {
+        "to_id": 343228,
+        "count": 2,
+        "pct": 1.8181818181818181,
+        "text": ":\nNow, brother R"
+      },
+      {
+        "to_id": 345803,
+        "count": 1,
+        "pct": 0.9090909090909091,
+        "text": ":\nWhy, so: now h"
+      },
+      {
+        "to_id": 344167,
+        "count": 1,
+        "pct": 0.9090909090909091,
+        "text": ":\nTake heed you "
+      },
+      {
+        "to_id": 339152,
+        "count": 1,
+        "pct": 0.9090909090909091,
+        "text": ":\nMadam, yoursel"
+      },
+      {
+        "to_id": 333053,
+        "count": 1,
+        "pct": 0.9090909090909091,
+        "text": ":\nDorset, embrac"
+      },
+      {
+        "to_id": 343237,
+        "count": 1,
+        "pct": 0.9090909090909091,
+        "text": ":\nNow, princely "
+      },
+      {
+        "to_id": 335064,
+        "count": 1,
+        "pct": 0.9090909090909091,
+        "text": ":\nA pleasing cor"
+      },
+      {
+        "to_id": 336894,
+        "count": 1,
+        "pct": 0.9090909090909091,
+        "text": ":\nHappy, indeed,"
+      }
+    ]
+  },
+  {
+    "from_id": 575,
+    "from_text": "\nKING EDWARD IV:",
+    "first_char_depth": 7,
+    "edge_len": 10,
+    "edge_mass": 110,
+    "fanout": 109,
+    "total": 110,
+    "top_successors": [
+      {
+        "to_id": 31604,
+        "count": 2,
+        "pct": 1.8181818181818181,
+        "text": "\nNow, brother Ri"
+      },
+      {
+        "to_id": 44664,
+        "count": 1,
+        "pct": 0.9090909090909091,
+        "text": "\nWhy, so: now ha"
+      },
+      {
+        "to_id": 42837,
+        "count": 1,
+        "pct": 0.9090909090909091,
+        "text": "\nTake heed you d"
+      },
+      {
+        "to_id": 30337,
+        "count": 1,
+        "pct": 0.9090909090909091,
+        "text": "\nMadam, yourself"
+      },
+      {
+        "to_id": 3611,
+        "count": 1,
+        "pct": 0.9090909090909091,
+        "text": "\nDorset, embrace"
+      },
+      {
+        "to_id": 31616,
+        "count": 1,
+        "pct": 0.9090909090909091,
+        "text": "\nNow, princely B"
+      },
+      {
+        "to_id": 15446,
+        "count": 1,
+        "pct": 0.9090909090909091,
+        "text": "\nA pleasing cord"
+      },
+      {
+        "to_id": 20358,
+        "count": 1,
+        "pct": 0.9090909090909091,
+        "text": "\nHappy, indeed, "
+      }
+    ]
+  },
+  {
+    "from_id": 409024,
+    "from_text": "KING EDWARD IV:\n",
+    "first_char_depth": 6,
+    "edge_len": 11,
+    "edge_mass": 110,
+    "fanout": 109,
+    "total": 110,
+    "top_successors": [
+      {
+        "to_id": 424288,
+        "count": 2,
+        "pct": 1.8181818181818181,
+        "text": "Now, brother Ric"
+      },
+      {
+        "to_id": 466039,
+        "count": 1,
+        "pct": 0.9090909090909091,
+        "text": "Why, so: now hav"
+      },
+      {
+        "to_id": 455470,
+        "count": 1,
+        "pct": 0.9090909090909091,
+        "text": "Take heed you da"
+      },
+      {
+        "to_id": 418736,
+        "count": 1,
+        "pct": 0.9090909090909091,
+        "text": "Madam, yourself "
+      },
+      {
+        "to_id": 375670,
+        "count": 1,
+        "pct": 0.9090909090909091,
+        "text": "Dorset, embrace "
+      },
+      {
+        "to_id": 424300,
+        "count": 1,
+        "pct": 0.9090909090909091,
+        "text": "Now, princely Bu"
+      },
+      {
+        "to_id": 357345,
+        "count": 1,
+        "pct": 0.9090909090909091,
+        "text": "A pleasing cordi"
+      },
+      {
+        "to_id": 390407,
+        "count": 1,
+        "pct": 0.9090909090909091,
+        "text": "Happy, indeed, a"
+      }
+    ]
+  },
+  {
+    "from_id": 2808,
+    "from_text": "\nQUEEN ELIZABETH",
+    "first_char_depth": 8,
+    "edge_len": 9,
+    "edge_mass": 98,
+    "fanout": 98,
+    "total": 98,
+    "top_successors": [
+      {
+        "to_id": 341073,
+        "count": 1,
+        "pct": 1.0204081632653061,
+        "text": ":\nWould all were"
+      },
+      {
+        "to_id": 335734,
+        "count": 1,
+        "pct": 1.0204081632653061,
+        "text": ":\nBrother of Glo"
+      },
+      {
+        "to_id": 345662,
+        "count": 1,
+        "pct": 1.0204081632653061,
+        "text": ":\nCome, come, we"
+      },
+      {
+        "to_id": 335722,
+        "count": 1,
+        "pct": 1.0204081632653061,
+        "text": ":\nBy Him that ra"
+      },
+      {
+        "to_id": 344077,
+        "count": 1,
+        "pct": 1.0204081632653061,
+        "text": ":\nMy Lord of Glo"
+      },
+      {
+        "to_id": 335032,
+        "count": 1,
+        "pct": 1.0204081632653061,
+        "text": ":\nAs little joy,"
+      },
+      {
+        "to_id": 335657,
+        "count": 1,
+        "pct": 1.0204081632653061,
+        "text": ":\nSo just is God"
+      },
+      {
+        "to_id": 339372,
+        "count": 1,
+        "pct": 1.0204081632653061,
+        "text": ":\nThus have you "
+      }
+    ]
+  },
+  {
+    "from_id": 435091,
+    "from_text": "QUEEN ELIZABETH:",
+    "first_char_depth": 7,
+    "edge_len": 10,
+    "edge_mass": 98,
+    "fanout": 98,
+    "total": 98,
+    "top_successors": [
+      {
+        "to_id": 23280,
+        "count": 1,
+        "pct": 1.0204081632653061,
+        "text": "\nWould all were "
+      },
+      {
+        "to_id": 27831,
+        "count": 1,
+        "pct": 1.0204081632653061,
+        "text": "\nBrother of Glou"
+      },
+      {
+        "to_id": 47898,
+        "count": 1,
+        "pct": 1.0204081632653061,
+        "text": "\nCome, come, we "
+      },
+      {
+        "to_id": 8259,
+        "count": 1,
+        "pct": 1.0204081632653061,
+        "text": "\nBy Him that rai"
+      },
+      {
+        "to_id": 38359,
+        "count": 1,
+        "pct": 1.0204081632653061,
+        "text": "\nMy Lord of Glou"
+      },
+      {
+        "to_id": 41312,
+        "count": 1,
+        "pct": 1.0204081632653061,
+        "text": "\nAs little joy, "
+      },
+      {
+        "to_id": 6841,
+        "count": 1,
+        "pct": 1.0204081632653061,
+        "text": "\nSo just is God,"
+      },
+      {
+        "to_id": 42985,
+        "count": 1,
+        "pct": 1.0204081632653061,
+        "text": "\nThus have you b"
+      }
+    ]
+  },
+  {
+    "from_id": 457613,
+    "from_text": "UEEN ELIZABETH:\n",
+    "first_char_depth": 6,
+    "edge_len": 11,
+    "edge_mass": 98,
+    "fanout": 98,
+    "total": 98,
+    "top_successors": [
+      {
+        "to_id": 462941,
+        "count": 1,
+        "pct": 1.0204081632653061,
+        "text": "Would all were w"
+      },
+      {
+        "to_id": 367269,
+        "count": 1,
+        "pct": 1.0204081632653061,
+        "text": "Brother of Glouc"
+      },
+      {
+        "to_id": 373731,
+        "count": 1,
+        "pct": 1.0204081632653061,
+        "text": "Come, come, we k"
+      },
+      {
+        "to_id": 365549,
+        "count": 1,
+        "pct": 1.0204081632653061,
+        "text": "By Him that rais"
+      },
+      {
+        "to_id": 418334,
+        "count": 1,
+        "pct": 1.0204081632653061,
+        "text": "My Lord of Glouc"
+      },
+      {
+        "to_id": 362351,
+        "count": 1,
+        "pct": 1.0204081632653061,
+        "text": "As little joy, m"
+      },
+      {
+        "to_id": 442234,
+        "count": 1,
+        "pct": 1.0204081632653061,
+        "text": "So just is God, "
+      },
+      {
+        "to_id": 455667,
+        "count": 1,
+        "pct": 1.0204081632653061,
+        "text": "Thus have you br"
+      }
+    ]
+  },
+  {
+    "from_id": 7594,
+    "from_text": "\n\nQUEEN ELIZABET",
+    "first_char_depth": 9,
+    "edge_len": 8,
+    "edge_mass": 98,
+    "fanout": 97,
+    "total": 98,
+    "top_successors": [
+      {
+        "to_id": 389446,
+        "count": 2,
+        "pct": 2.0408163265306123,
+        "text": "H:\nBut how long "
+      },
+      {
+        "to_id": 389053,
+        "count": 1,
+        "pct": 1.0204081632653061,
+        "text": "H:\nWould all wer"
+      },
+      {
+        "to_id": 389049,
+        "count": 1,
+        "pct": 1.0204081632653061,
+        "text": "H:\nBrother of Gl"
+      },
+      {
+        "to_id": 390099,
+        "count": 1,
+        "pct": 1.0204081632653061,
+        "text": "H:\nCome, come, w"
+      },
+      {
+        "to_id": 389449,
+        "count": 1,
+        "pct": 1.0204081632653061,
+        "text": "H:\nBy Him that r"
+      },
+      {
+        "to_id": 389043,
+        "count": 1,
+        "pct": 1.0204081632653061,
+        "text": "H:\nMy Lord of Gl"
+      },
+      {
+        "to_id": 389441,
+        "count": 1,
+        "pct": 1.0204081632653061,
+        "text": "H:\nAs little joy"
+      },
+      {
+        "to_id": 389431,
+        "count": 1,
+        "pct": 1.0204081632653061,
+        "text": "H:\nSo just is Go"
+      }
+    ]
+  },
+  {
+    "from_id": 409293,
+    "from_text": "KING RICHARD II:",
+    "first_char_depth": 16,
+    "edge_len": 1,
+    "edge_mass": 94,
+    "fanout": 93,
+    "total": 94,
+    "top_successors": [
+      {
+        "to_id": 21996,
+        "count": 2,
+        "pct": 2.127659574468085,
+        "text": "\nNorthumberland,"
+      },
+      {
+        "to_id": 40434,
+        "count": 1,
+        "pct": 1.0638297872340425,
+        "text": "\nWhat doth our c"
+      },
+      {
+        "to_id": 20240,
+        "count": 1,
+        "pct": 1.0638297872340425,
+        "text": "\nHow high a pitc"
+      },
+      {
+        "to_id": 1223,
+        "count": 1,
+        "pct": 1.0638297872340425,
+        "text": "\nMowbray, impart"
+      },
+      {
+        "to_id": 13492,
+        "count": 1,
+        "pct": 1.0638297872340425,
+        "text": "\nWrath-kindled g"
+      },
+      {
+        "to_id": 25523,
+        "count": 1,
+        "pct": 1.0638297872340425,
+        "text": "\nAnd, Norfolk, t"
+      },
+      {
+        "to_id": 12445,
+        "count": 1,
+        "pct": 1.0638297872340425,
+        "text": "\nNorfolk, throw "
+      },
+      {
+        "to_id": 6374,
+        "count": 1,
+        "pct": 1.0638297872340425,
+        "text": "\nRage must be wi"
+      }
+    ]
+  },
+  {
+    "from_id": 397695,
+    "from_text": "ING RICHARD II:\n",
+    "first_char_depth": 15,
+    "edge_len": 2,
+    "edge_mass": 94,
+    "fanout": 93,
+    "total": 94,
+    "top_successors": [
+      {
+        "to_id": 424329,
+        "count": 2,
+        "pct": 2.127659574468085,
+        "text": "Northumberland, "
+      },
+      {
+        "to_id": 465443,
+        "count": 1,
+        "pct": 1.0638297872340425,
+        "text": "What doth our co"
+      },
+      {
+        "to_id": 390285,
+        "count": 1,
+        "pct": 1.0638297872340425,
+        "text": "How high a pitch"
+      },
+      {
+        "to_id": 416914,
+        "count": 1,
+        "pct": 1.0638297872340425,
+        "text": "Mowbray, imparti"
+      },
+      {
+        "to_id": 462269,
+        "count": 1,
+        "pct": 1.0638297872340425,
+        "text": "Wrath-kindled ge"
+      },
+      {
+        "to_id": 359503,
+        "count": 1,
+        "pct": 1.0638297872340425,
+        "text": "And, Norfolk, th"
+      },
+      {
+        "to_id": 424319,
+        "count": 1,
+        "pct": 1.0638297872340425,
+        "text": "Norfolk, throw d"
+      },
+      {
+        "to_id": 437064,
+        "count": 1,
+        "pct": 1.0638297872340425,
+        "text": "Rage must be wit"
+      }
+    ]
+  },
+  {
+    "from_id": 389364,
+    "from_text": "HENRY BOLINGBROK",
+    "first_char_depth": 7,
+    "edge_len": 10,
+    "edge_mass": 88,
+    "fanout": 86,
+    "total": 88,
+    "top_successors": [
+      {
+        "to_id": 380068,
+        "count": 2,
+        "pct": 2.272727272727273,
+        "text": "E:\nMy gracious u"
+      },
+      {
+        "to_id": 380053,
+        "count": 2,
+        "pct": 2.272727272727273,
+        "text": "E:\nGood aunt, st"
+      },
+      {
+        "to_id": 378099,
+        "count": 1,
+        "pct": 1.1363636363636365,
+        "text": "E:\nPale tremblin"
+      },
+      {
+        "to_id": 380048,
+        "count": 1,
+        "pct": 1.1363636363636365,
+        "text": "E:\nLook, what I "
+      },
+      {
+        "to_id": 378169,
+        "count": 1,
+        "pct": 1.1363636363636365,
+        "text": "E:\nO, God defend"
+      },
+      {
+        "to_id": 380205,
+        "count": 1,
+        "pct": 1.1363636363636365,
+        "text": "E:\nHarry of Here"
+      },
+      {
+        "to_id": 380046,
+        "count": 1,
+        "pct": 1.1363636363636365,
+        "text": "E:\nLord marshal,"
+      },
+      {
+        "to_id": 378177,
+        "count": 1,
+        "pct": 1.1363636363636365,
+        "text": "E:\nO let no nobl"
+      }
+    ]
+  },
+  {
+    "from_id": 377131,
+    "from_text": "ENRY BOLINGBROKE",
+    "first_char_depth": 6,
+    "edge_len": 11,
+    "edge_mass": 88,
+    "fanout": 86,
+    "total": 88,
+    "top_successors": [
+      {
+        "to_id": 339103,
+        "count": 2,
+        "pct": 2.272727272727273,
+        "text": ":\nMy gracious un"
+      },
+      {
+        "to_id": 339223,
+        "count": 2,
+        "pct": 2.272727272727273,
+        "text": ":\nGood aunt, sta"
+      },
+      {
+        "to_id": 333083,
+        "count": 1,
+        "pct": 1.1363636363636365,
+        "text": ":\nPale trembling"
+      },
+      {
+        "to_id": 343334,
+        "count": 1,
+        "pct": 1.1363636363636365,
+        "text": ":\nLook, what I s"
+      },
+      {
+        "to_id": 337651,
+        "count": 1,
+        "pct": 1.1363636363636365,
+        "text": ":\nO, God defend "
+      },
+      {
+        "to_id": 334713,
+        "count": 1,
+        "pct": 1.1363636363636365,
+        "text": ":\nHarry of Heref"
+      },
+      {
+        "to_id": 340781,
+        "count": 1,
+        "pct": 1.1363636363636365,
+        "text": ":\nLord marshal, "
+      },
+      {
+        "to_id": 335197,
+        "count": 1,
+        "pct": 1.1363636363636365,
+        "text": ":\nO let no noble"
+      }
+    ]
+  },
+  {
+    "from_id": 419249,
+    "from_text": "NRY BOLINGBROKE:",
+    "first_char_depth": 5,
+    "edge_len": 12,
+    "edge_mass": 88,
+    "fanout": 86,
+    "total": 88,
+    "top_successors": [
+      {
+        "to_id": 38395,
+        "count": 2,
+        "pct": 2.272727272727273,
+        "text": "\nMy gracious unc"
+      },
+      {
+        "to_id": 18000,
+        "count": 2,
+        "pct": 2.272727272727273,
+        "text": "\nGood aunt, stan"
+      },
+      {
+        "to_id": 9255,
+        "count": 1,
+        "pct": 1.1363636363636365,
+        "text": "\nPale trembling "
+      },
+      {
+        "to_id": 39820,
+        "count": 1,
+        "pct": 1.1363636363636365,
+        "text": "\nLook, what I sp"
+      },
+      {
+        "to_id": 12032,
+        "count": 1,
+        "pct": 1.1363636363636365,
+        "text": "\nO, God defend m"
+      },
+      {
+        "to_id": 20418,
+        "count": 1,
+        "pct": 1.1363636363636365,
+        "text": "\nHarry of Herefo"
+      },
+      {
+        "to_id": 32530,
+        "count": 1,
+        "pct": 1.1363636363636365,
+        "text": "\nLord marshal, l"
+      },
+      {
+        "to_id": 5392,
+        "count": 1,
+        "pct": 1.1363636363636365,
+        "text": "\nO let no noble "
+      }
+    ]
+  },
+  {
+    "from_id": 435657,
+    "from_text": "RY BOLINGBROKE:\n",
+    "first_char_depth": 4,
+    "edge_len": 13,
+    "edge_mass": 88,
+    "fanout": 86,
+    "total": 88,
+    "top_successors": [
+      {
+        "to_id": 418381,
+        "count": 2,
+        "pct": 2.272727272727273,
+        "text": "My gracious uncl"
+      },
+      {
+        "to_id": 387883,
+        "count": 2,
+        "pct": 2.272727272727273,
+        "text": "Good aunt, stand"
+      },
+      {
+        "to_id": 433889,
+        "count": 1,
+        "pct": 1.1363636363636365,
+        "text": "Pale trembling c"
+      },
+      {
+        "to_id": 414793,
+        "count": 1,
+        "pct": 1.1363636363636365,
+        "text": "Look, what I spe"
+      },
+      {
+        "to_id": 427786,
+        "count": 1,
+        "pct": 1.1363636363636365,
+        "text": "O, God defend my"
+      },
+      {
+        "to_id": 390480,
+        "count": 1,
+        "pct": 1.1363636363636365,
+        "text": "Harry of Herefor"
+      },
+      {
+        "to_id": 413835,
+        "count": 1,
+        "pct": 1.1363636363636365,
+        "text": "Lord marshal, le"
+      },
+      {
+        "to_id": 426292,
+        "count": 1,
+        "pct": 1.1363636363636365,
+        "text": "O let no noble e"
+      }
+    ]
+  },
+  {
+    "from_id": 7593,
+    "from_text": "\n\nQUEEN MARGARET",
+    "first_char_depth": 9,
+    "edge_len": 8,
+    "edge_mass": 86,
+    "fanout": 86,
+    "total": 86,
+    "top_successors": [
+      {
+        "to_id": 343036,
+        "count": 1,
+        "pct": 1.1627906976744187,
+        "text": ":\nAnd lessen'd b"
+      },
+      {
+        "to_id": 337706,
+        "count": 1,
+        "pct": 1.1627906976744187,
+        "text": ":\nOut, devil! I "
+      },
+      {
+        "to_id": 343676,
+        "count": 1,
+        "pct": 1.1627906976744187,
+        "text": ":\nYea, and much "
+      },
+      {
+        "to_id": 337488,
+        "count": 1,
+        "pct": 1.1627906976744187,
+        "text": ":\nA murderous vi"
+      },
+      {
+        "to_id": 340860,
+        "count": 1,
+        "pct": 1.1627906976744187,
+        "text": ":\nWhich God reve"
+      },
+      {
+        "to_id": 336875,
+        "count": 1,
+        "pct": 1.1627906976744187,
+        "text": ":\nHie thee to he"
+      },
+      {
+        "to_id": 340371,
+        "count": 1,
+        "pct": 1.1627906976744187,
+        "text": ":\nA little joy e"
+      },
+      {
+        "to_id": 338548,
+        "count": 1,
+        "pct": 1.1627906976744187,
+        "text": ":\nBut repetition"
+      }
+    ]
+  }
+]

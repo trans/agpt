@@ -1,0 +1,450 @@
+[
+  {
+    "from_id": 4,
+    "to_id": 332178,
+    "count": 27,
+    "from_text": "\n3 KING HENRY VI",
+    "to_text": "3 KING HENRY VI\n"
+  },
+  {
+    "from_id": 332178,
+    "to_id": 332178,
+    "count": 27,
+    "from_text": "3 KING HENRY VI\n",
+    "to_text": "3 KING HENRY VI\n"
+  },
+  {
+    "from_id": 324382,
+    "to_id": 332178,
+    "count": 22,
+    "from_text": ".\n3 KING HENRY V",
+    "to_text": "3 KING HENRY VI\n"
+  },
+  {
+    "from_id": 7924,
+    "to_id": 441531,
+    "count": 15,
+    "from_text": "\n\nMISTRESS OVERD",
+    "to_text": "STRESS OVERDONE:"
+  },
+  {
+    "from_id": 1203,
+    "to_id": 441531,
+    "count": 15,
+    "from_text": "\nMISTRESS OVERDO",
+    "to_text": "STRESS OVERDONE:"
+  },
+  {
+    "from_id": 415444,
+    "to_id": 441531,
+    "count": 15,
+    "from_text": "MISTRESS OVERDON",
+    "to_text": "STRESS OVERDONE:"
+  },
+  {
+    "from_id": 137031,
+    "to_id": 409294,
+    "count": 12,
+    "from_text": " lord.\n\nKING RIC",
+    "to_text": "KING RICHARD III"
+  },
+  {
+    "from_id": 974776,
+    "to_id": 409294,
+    "count": 12,
+    "from_text": "lord.\n\nKING RICH",
+    "to_text": "KING RICHARD III"
+  },
+  {
+    "from_id": 1522423,
+    "to_id": 374424,
+    "count": 10,
+    "from_text": "y lord.\n\nDUKE VI",
+    "to_text": "DUKE VINCENTIO:\n"
+  },
+  {
+    "from_id": 137022,
+    "to_id": 374424,
+    "count": 10,
+    "from_text": " lord.\n\nDUKE VIN",
+    "to_text": "DUKE VINCENTIO:\n"
+  },
+  {
+    "from_id": 974767,
+    "to_id": 374424,
+    "count": 10,
+    "from_text": "lord.\n\nDUKE VINC",
+    "to_text": "DUKE VINCENTIO:\n"
+  },
+  {
+    "from_id": 326964,
+    "to_id": 441531,
+    "count": 10,
+    "from_text": ".\n\nMISTRESS OVER",
+    "to_text": "STRESS OVERDONE:"
+  },
+  {
+    "from_id": 319512,
+    "to_id": 409294,
+    "count": 9,
+    "from_text": ", my lord.\n\nKING",
+    "to_text": "KING RICHARD III"
+  },
+  {
+    "from_id": 244522,
+    "to_id": 409294,
+    "count": 9,
+    "from_text": " my lord.\n\nKING ",
+    "to_text": "KING RICHARD III"
+  },
+  {
+    "from_id": 1016957,
+    "to_id": 409294,
+    "count": 9,
+    "from_text": "my lord.\n\nKING R",
+    "to_text": "KING RICHARD III"
+  },
+  {
+    "from_id": 1522431,
+    "to_id": 409294,
+    "count": 9,
+    "from_text": "y lord.\n\nKING RI",
+    "to_text": "KING RICHARD III"
+  },
+  {
+    "from_id": 48486,
+    "to_id": 400576,
+    "count": 9,
+    "from_text": " KING HENRY VI\n\n",
+    "to_text": "ING HENRY VI\n\nKI"
+  },
+  {
+    "from_id": 319507,
+    "to_id": 374424,
+    "count": 9,
+    "from_text": ", my lord.\n\nDUKE",
+    "to_text": "DUKE VINCENTIO:\n"
+  },
+  {
+    "from_id": 244515,
+    "to_id": 374424,
+    "count": 9,
+    "from_text": " my lord.\n\nDUKE ",
+    "to_text": "DUKE VINCENTIO:\n"
+  },
+  {
+    "from_id": 1016950,
+    "to_id": 374424,
+    "count": 9,
+    "from_text": "my lord.\n\nDUKE V",
+    "to_text": "DUKE VINCENTIO:\n"
+  },
+  {
+    "from_id": 7568,
+    "to_id": 441163,
+    "count": 8,
+    "from_text": "\n\nKING RICHARD I",
+    "to_text": "RICHARD III:\nThe"
+  },
+  {
+    "from_id": 574,
+    "to_id": 441163,
+    "count": 8,
+    "from_text": "\nKING RICHARD II",
+    "to_text": "RICHARD III:\nThe"
+  },
+  {
+    "from_id": 16318,
+    "to_id": 409024,
+    "count": 8,
+    "from_text": "\n\nGLOUCESTER:\n\nK",
+    "to_text": "KING EDWARD IV:\n"
+  },
+  {
+    "from_id": 3118,
+    "to_id": 409024,
+    "count": 8,
+    "from_text": "\nGLOUCESTER:\n\nKI",
+    "to_text": "KING EDWARD IV:\n"
+  },
+  {
+    "from_id": 386307,
+    "to_id": 409024,
+    "count": 8,
+    "from_text": "GLOUCESTER:\n\nKIN",
+    "to_text": "KING EDWARD IV:\n"
+  },
+  {
+    "from_id": 412374,
+    "to_id": 409024,
+    "count": 8,
+    "from_text": "LOUCESTER:\n\nKING",
+    "to_text": "KING EDWARD IV:\n"
+  },
+  {
+    "from_id": 427325,
+    "to_id": 409024,
+    "count": 8,
+    "from_text": "OUCESTER:\n\nKING ",
+    "to_text": "KING EDWARD IV:\n"
+  },
+  {
+    "from_id": 458586,
+    "to_id": 409024,
+    "count": 8,
+    "from_text": "UCESTER:\n\nKING E",
+    "to_text": "KING EDWARD IV:\n"
+  },
+  {
+    "from_id": 369818,
+    "to_id": 409024,
+    "count": 8,
+    "from_text": "CESTER:\n\nKING ED",
+    "to_text": "KING EDWARD IV:\n"
+  },
+  {
+    "from_id": 380366,
+    "to_id": 409024,
+    "count": 8,
+    "from_text": "ESTER:\n\nKING EDW",
+    "to_text": "KING EDWARD IV:\n"
+  },
+  {
+    "from_id": 443841,
+    "to_id": 409024,
+    "count": 8,
+    "from_text": "STER:\n\nKING EDWA",
+    "to_text": "KING EDWARD IV:\n"
+  },
+  {
+    "from_id": 448726,
+    "to_id": 409024,
+    "count": 8,
+    "from_text": "TER:\n\nKING EDWAR",
+    "to_text": "KING EDWARD IV:\n"
+  },
+  {
+    "from_id": 378607,
+    "to_id": 409024,
+    "count": 8,
+    "from_text": "ER:\n\nKING EDWARD",
+    "to_text": "KING EDWARD IV:\n"
+  },
+  {
+    "from_id": 435805,
+    "to_id": 409024,
+    "count": 8,
+    "from_text": "R:\n\nKING EDWARD ",
+    "to_text": "KING EDWARD IV:\n"
+  },
+  {
+    "from_id": 605297,
+    "to_id": 419249,
+    "count": 7,
+    "from_text": "d.\n\nHENRY BOLING",
+    "to_text": "NRY BOLINGBROKE:"
+  },
+  {
+    "from_id": 326603,
+    "to_id": 448603,
+    "count": 7,
+    "from_text": ".\n\nNORTHUMBERLAN",
+    "to_text": "THUMBERLAND:\nThe"
+  },
+  {
+    "from_id": 7523,
+    "to_id": 448603,
+    "count": 7,
+    "from_text": "\n\nNORTHUMBERLAND",
+    "to_text": "THUMBERLAND:\nThe"
+  },
+  {
+    "from_id": 1856,
+    "to_id": 448603,
+    "count": 7,
+    "from_text": "\nNORTHUMBERLAND:",
+    "to_text": "THUMBERLAND:\nThe"
+  },
+  {
+    "from_id": 419558,
+    "to_id": 448603,
+    "count": 7,
+    "from_text": "NORTHUMBERLAND:\n",
+    "to_text": "THUMBERLAND:\nThe"
+  },
+  {
+    "from_id": 1500361,
+    "to_id": 332178,
+    "count": 7,
+    "from_text": "y.\n3 KING HENRY ",
+    "to_text": "3 KING HENRY VI\n"
+  },
+  {
+    "from_id": 7569,
+    "to_id": 381541,
+    "count": 6,
+    "from_text": "\n\nKING EDWARD IV",
+    "to_text": "EDWARD IV:\nWhy, "
+  },
+  {
+    "from_id": 7569,
+    "to_id": 381530,
+    "count": 6,
+    "from_text": "\n\nKING EDWARD IV",
+    "to_text": "EDWARD IV:\nNow, "
+  },
+  {
+    "from_id": 575,
+    "to_id": 381541,
+    "count": 6,
+    "from_text": "\nKING EDWARD IV:",
+    "to_text": "EDWARD IV:\nWhy, "
+  },
+  {
+    "from_id": 575,
+    "to_id": 381530,
+    "count": 6,
+    "from_text": "\nKING EDWARD IV:",
+    "to_text": "EDWARD IV:\nNow, "
+  },
+  {
+    "from_id": 409024,
+    "to_id": 381541,
+    "count": 6,
+    "from_text": "KING EDWARD IV:\n",
+    "to_text": "EDWARD IV:\nWhy, "
+  },
+  {
+    "from_id": 409024,
+    "to_id": 381530,
+    "count": 6,
+    "from_text": "KING EDWARD IV:\n",
+    "to_text": "EDWARD IV:\nNow, "
+  },
+  {
+    "from_id": 326807,
+    "to_id": 575,
+    "count": 6,
+    "from_text": ".\n\nGLOUCESTER:\n\n",
+    "to_text": "\nKING EDWARD IV:"
+  },
+  {
+    "from_id": 16103,
+    "to_id": 365834,
+    "count": 6,
+    "from_text": "\n\nHENRY BOLINGBR",
+    "to_text": "BOLINGBROKE:\nMy "
+  },
+  {
+    "from_id": 4359,
+    "to_id": 365834,
+    "count": 6,
+    "from_text": "\nHENRY BOLINGBRO",
+    "to_text": "BOLINGBROKE:\nMy "
+  },
+  {
+    "from_id": 389364,
+    "to_id": 365834,
+    "count": 6,
+    "from_text": "HENRY BOLINGBROK",
+    "to_text": "BOLINGBROKE:\nMy "
+  },
+  {
+    "from_id": 377131,
+    "to_id": 365834,
+    "count": 6,
+    "from_text": "ENRY BOLINGBROKE",
+    "to_text": "BOLINGBROKE:\nMy "
+  },
+  {
+    "from_id": 419249,
+    "to_id": 365834,
+    "count": 6,
+    "from_text": "NRY BOLINGBROKE:",
+    "to_text": "BOLINGBROKE:\nMy "
+  },
+  {
+    "from_id": 435657,
+    "to_id": 365834,
+    "count": 6,
+    "from_text": "RY BOLINGBROKE:\n",
+    "to_text": "BOLINGBROKE:\nMy "
+  },
+  {
+    "from_id": 284562,
+    "to_id": 419249,
+    "count": 6,
+    "from_text": "!\n\nHENRY BOLINGB",
+    "to_text": "NRY BOLINGBROKE:"
+  },
+  {
+    "from_id": 326603,
+    "to_id": 447817,
+    "count": 6,
+    "from_text": ".\n\nNORTHUMBERLAN",
+    "to_text": "THUMBERLAND:\nMy "
+  },
+  {
+    "from_id": 7523,
+    "to_id": 447817,
+    "count": 6,
+    "from_text": "\n\nNORTHUMBERLAND",
+    "to_text": "THUMBERLAND:\nMy "
+  },
+  {
+    "from_id": 1856,
+    "to_id": 447817,
+    "count": 6,
+    "from_text": "\nNORTHUMBERLAND:",
+    "to_text": "THUMBERLAND:\nMy "
+  },
+  {
+    "from_id": 419558,
+    "to_id": 447817,
+    "count": 6,
+    "from_text": "NORTHUMBERLAND:\n",
+    "to_text": "THUMBERLAND:\nMy "
+  },
+  {
+    "from_id": 8004,
+    "to_id": 435214,
+    "count": 6,
+    "from_text": "\n\nSIR STEPHEN SC",
+    "to_text": "R STEPHEN SCROOP"
+  },
+  {
+    "from_id": 2369,
+    "to_id": 435214,
+    "count": 6,
+    "from_text": "\nSIR STEPHEN SCR",
+    "to_text": "R STEPHEN SCROOP"
+  },
+  {
+    "from_id": 441581,
+    "to_id": 435214,
+    "count": 6,
+    "from_text": "SIR STEPHEN SCRO",
+    "to_text": "R STEPHEN SCROOP"
+  },
+  {
+    "from_id": 392835,
+    "to_id": 49303,
+    "count": 6,
+    "from_text": "IR STEPHEN SCROO",
+    "to_text": " STEPHEN SCROOP:"
+  },
+  {
+    "from_id": 435214,
+    "to_id": 441886,
+    "count": 6,
+    "from_text": "R STEPHEN SCROOP",
+    "to_text": "STEPHEN SCROOP:\n"
+  },
+  {
+    "from_id": 409610,
+    "to_id": 409024,
+    "count": 6,
+    "from_text": "KING HENRY VI\n\nK",
+    "to_text": "KING EDWARD IV:\n"
+  }
+]

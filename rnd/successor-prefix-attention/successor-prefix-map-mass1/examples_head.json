@@ -1,0 +1,410 @@
+[
+  {
+    "from_id": 385373,
+    "from_text": "First Citizen:\nB",
+    "first_char_depth": 16,
+    "edge_len": 1,
+    "edge_mass": 1,
+    "fanout": 1,
+    "total": 1,
+    "top_successors": [
+      {
+        "to_id": 366648,
+        "count": 1,
+        "pct": 100.0,
+        "text": "Before we procee"
+      }
+    ]
+  },
+  {
+    "from_id": 920257,
+    "from_text": "irst Citizen:\nBe",
+    "first_char_depth": 15,
+    "edge_len": 2,
+    "edge_mass": 1,
+    "fanout": 1,
+    "total": 1,
+    "top_successors": [
+      {
+        "to_id": 366648,
+        "count": 1,
+        "pct": 100.0,
+        "text": "Before we procee"
+      }
+    ]
+  },
+  {
+    "from_id": 1240430,
+    "from_text": "rst Citizen:\nBef",
+    "first_char_depth": 14,
+    "edge_len": 3,
+    "edge_mass": 1,
+    "fanout": 1,
+    "total": 1,
+    "top_successors": [
+      {
+        "to_id": 366648,
+        "count": 1,
+        "pct": 100.0,
+        "text": "Before we procee"
+      }
+    ]
+  },
+  {
+    "from_id": 1287846,
+    "from_text": "st Citizen:\nBefo",
+    "first_char_depth": 13,
+    "edge_len": 4,
+    "edge_mass": 1,
+    "fanout": 1,
+    "total": 1,
+    "top_successors": [
+      {
+        "to_id": 366648,
+        "count": 1,
+        "pct": 100.0,
+        "text": "Before we procee"
+      }
+    ]
+  },
+  {
+    "from_id": 1342600,
+    "from_text": "t Citizen:\nBefor",
+    "first_char_depth": 12,
+    "edge_len": 5,
+    "edge_mass": 1,
+    "fanout": 1,
+    "total": 1,
+    "top_successors": [
+      {
+        "to_id": 366648,
+        "count": 1,
+        "pct": 100.0,
+        "text": "Before we procee"
+      }
+    ]
+  },
+  {
+    "from_id": 927552,
+    "from_text": "itizen:\nBefore w",
+    "first_char_depth": 16,
+    "edge_len": 1,
+    "edge_mass": 1,
+    "fanout": 1,
+    "total": 1,
+    "top_successors": [
+      {
+        "to_id": 1496091,
+        "count": 1,
+        "pct": 100.0,
+        "text": "we proceed any f"
+      }
+    ]
+  },
+  {
+    "from_id": 1407711,
+    "from_text": "tizen:\nBefore we",
+    "first_char_depth": 15,
+    "edge_len": 2,
+    "edge_mass": 1,
+    "fanout": 1,
+    "total": 1,
+    "top_successors": [
+      {
+        "to_id": 1496091,
+        "count": 1,
+        "pct": 100.0,
+        "text": "we proceed any f"
+      }
+    ]
+  },
+  {
+    "from_id": 926325,
+    "from_text": "izen:\nBefore we ",
+    "first_char_depth": 14,
+    "edge_len": 3,
+    "edge_mass": 1,
+    "fanout": 1,
+    "total": 1,
+    "top_successors": [
+      {
+        "to_id": 1496091,
+        "count": 1,
+        "pct": 100.0,
+        "text": "we proceed any f"
+      }
+    ]
+  },
+  {
+    "from_id": 1528472,
+    "from_text": "zen:\nBefore we p",
+    "first_char_depth": 13,
+    "edge_len": 4,
+    "edge_mass": 1,
+    "fanout": 1,
+    "total": 1,
+    "top_successors": [
+      {
+        "to_id": 1496091,
+        "count": 1,
+        "pct": 100.0,
+        "text": "we proceed any f"
+      }
+    ]
+  },
+  {
+    "from_id": 726494,
+    "from_text": "en:\nBefore we pr",
+    "first_char_depth": 12,
+    "edge_len": 5,
+    "edge_mass": 1,
+    "fanout": 1,
+    "total": 1,
+    "top_successors": [
+      {
+        "to_id": 1496091,
+        "count": 1,
+        "pct": 100.0,
+        "text": "we proceed any f"
+      }
+    ]
+  },
+  {
+    "from_id": 1060812,
+    "from_text": "n:\nBefore we pro",
+    "first_char_depth": 11,
+    "edge_len": 6,
+    "edge_mass": 1,
+    "fanout": 1,
+    "total": 1,
+    "top_successors": [
+      {
+        "to_id": 1496091,
+        "count": 1,
+        "pct": 100.0,
+        "text": "we proceed any f"
+      }
+    ]
+  },
+  {
+    "from_id": 335776,
+    "from_text": ":\nBefore we proc",
+    "first_char_depth": 10,
+    "edge_len": 7,
+    "edge_mass": 1,
+    "fanout": 1,
+    "total": 1,
+    "top_successors": [
+      {
+        "to_id": 1496091,
+        "count": 1,
+        "pct": 100.0,
+        "text": "we proceed any f"
+      }
+    ]
+  },
+  {
+    "from_id": 17717,
+    "from_text": "\nBefore we proce",
+    "first_char_depth": 9,
+    "edge_len": 8,
+    "edge_mass": 1,
+    "fanout": 1,
+    "total": 1,
+    "top_successors": [
+      {
+        "to_id": 1496091,
+        "count": 1,
+        "pct": 100.0,
+        "text": "we proceed any f"
+      }
+    ]
+  },
+  {
+    "from_id": 366648,
+    "from_text": "Before we procee",
+    "first_char_depth": 8,
+    "edge_len": 9,
+    "edge_mass": 1,
+    "fanout": 1,
+    "total": 1,
+    "top_successors": [
+      {
+        "to_id": 1496091,
+        "count": 1,
+        "pct": 100.0,
+        "text": "we proceed any f"
+      }
+    ]
+  },
+  {
+    "from_id": 752985,
+    "from_text": "efore we proceed",
+    "first_char_depth": 10,
+    "edge_len": 7,
+    "edge_mass": 1,
+    "fanout": 1,
+    "total": 1,
+    "top_successors": [
+      {
+        "to_id": 1194371,
+        "count": 1,
+        "pct": 100.0,
+        "text": "proceed any furt"
+      }
+    ]
+  },
+  {
+    "from_id": 778164,
+    "from_text": "fore we proceed ",
+    "first_char_depth": 9,
+    "edge_len": 8,
+    "edge_mass": 1,
+    "fanout": 1,
+    "total": 1,
+    "top_successors": [
+      {
+        "to_id": 1194371,
+        "count": 1,
+        "pct": 100.0,
+        "text": "proceed any furt"
+      }
+    ]
+  },
+  {
+    "from_id": 1158994,
+    "from_text": "ore we proceed a",
+    "first_char_depth": 8,
+    "edge_len": 9,
+    "edge_mass": 1,
+    "fanout": 1,
+    "total": 1,
+    "top_successors": [
+      {
+        "to_id": 1194371,
+        "count": 1,
+        "pct": 100.0,
+        "text": "proceed any furt"
+      }
+    ]
+  },
+  {
+    "from_id": 1239467,
+    "from_text": "re we proceed an",
+    "first_char_depth": 7,
+    "edge_len": 10,
+    "edge_mass": 1,
+    "fanout": 1,
+    "total": 1,
+    "top_successors": [
+      {
+        "to_id": 1194371,
+        "count": 1,
+        "pct": 100.0,
+        "text": "proceed any furt"
+      }
+    ]
+  },
+  {
+    "from_id": 695821,
+    "from_text": "e we proceed any",
+    "first_char_depth": 7,
+    "edge_len": 10,
+    "edge_mass": 1,
+    "fanout": 1,
+    "total": 1,
+    "top_successors": [
+      {
+        "to_id": 1249307,
+        "count": 1,
+        "pct": 100.0,
+        "text": "roceed any furth"
+      }
+    ]
+  },
+  {
+    "from_id": 255163,
+    "from_text": " we proceed any ",
+    "first_char_depth": 12,
+    "edge_len": 5,
+    "edge_mass": 1,
+    "fanout": 1,
+    "total": 1,
+    "top_successors": [
+      {
+        "to_id": 173531,
+        "count": 1,
+        "pct": 100.0,
+        "text": " any further, he"
+      }
+    ]
+  },
+  {
+    "from_id": 1496091,
+    "from_text": "we proceed any f",
+    "first_char_depth": 11,
+    "edge_len": 6,
+    "edge_mass": 1,
+    "fanout": 1,
+    "total": 1,
+    "top_successors": [
+      {
+        "to_id": 173531,
+        "count": 1,
+        "pct": 100.0,
+        "text": " any further, he"
+      }
+    ]
+  },
+  {
+    "from_id": 742477,
+    "from_text": "e proceed any fu",
+    "first_char_depth": 10,
+    "edge_len": 7,
+    "edge_mass": 1,
+    "fanout": 1,
+    "total": 1,
+    "top_successors": [
+      {
+        "to_id": 173531,
+        "count": 1,
+        "pct": 100.0,
+        "text": " any further, he"
+      }
+    ]
+  },
+  {
+    "from_id": 253102,
+    "from_text": " proceed any fur",
+    "first_char_depth": 11,
+    "edge_len": 6,
+    "edge_mass": 1,
+    "fanout": 1,
+    "total": 1,
+    "top_successors": [
+      {
+        "to_id": 1044578,
+        "count": 1,
+        "pct": 100.0,
+        "text": "ny further, hear"
+      }
+    ]
+  },
+  {
+    "from_id": 1194371,
+    "from_text": "proceed any furt",
+    "first_char_depth": 10,
+    "edge_len": 7,
+    "edge_mass": 1,
+    "fanout": 1,
+    "total": 1,
+    "top_successors": [
+      {
+        "to_id": 1044578,
+        "count": 1,
+        "pct": 100.0,
+        "text": "ny further, hear"
+      }
+    ]
+  }
+]

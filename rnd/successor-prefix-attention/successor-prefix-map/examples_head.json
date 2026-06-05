@@ -1,0 +1,1418 @@
+[
+  {
+    "from_id": 26202,
+    "from_text": "\n\nDUKE VINCENTIO",
+    "first_char_depth": 8,
+    "edge_len": 9,
+    "edge_mass": 193,
+    "fanout": 156,
+    "total": 193,
+    "top_successors": [
+      {
+        "to_id": 461697,
+        "count": 6,
+        "pct": 3.1088082901554404,
+        "text": "VINCENTIO:\nIt is"
+      },
+      {
+        "to_id": 461172,
+        "count": 5,
+        "pct": 2.5906735751295336,
+        "text": "VINCENTIO:\n'Tis "
+      },
+      {
+        "to_id": 461665,
+        "count": 5,
+        "pct": 2.5906735751295336,
+        "text": "VINCENTIO:\nThis "
+      },
+      {
+        "to_id": 461826,
+        "count": 3,
+        "pct": 1.5544041450777202,
+        "text": "VINCENTIO:\nThere"
+      },
+      {
+        "to_id": 461822,
+        "count": 3,
+        "pct": 1.5544041450777202,
+        "text": "VINCENTIO:\nThat "
+      },
+      {
+        "to_id": 461704,
+        "count": 3,
+        "pct": 1.5544041450777202,
+        "text": "VINCENTIO:\nI kno"
+      },
+      {
+        "to_id": 461829,
+        "count": 3,
+        "pct": 1.5544041450777202,
+        "text": "VINCENTIO:\nSir, "
+      },
+      {
+        "to_id": 461705,
+        "count": 2,
+        "pct": 1.0362694300518134,
+        "text": "VINCENTIO:\nI do "
+      }
+    ]
+  },
+  {
+    "from_id": 9376,
+    "from_text": "\nDUKE VINCENTIO:",
+    "first_char_depth": 7,
+    "edge_len": 10,
+    "edge_mass": 193,
+    "fanout": 156,
+    "total": 193,
+    "top_successors": [
+      {
+        "to_id": 461697,
+        "count": 6,
+        "pct": 3.1088082901554404,
+        "text": "VINCENTIO:\nIt is"
+      },
+      {
+        "to_id": 461172,
+        "count": 5,
+        "pct": 2.5906735751295336,
+        "text": "VINCENTIO:\n'Tis "
+      },
+      {
+        "to_id": 461665,
+        "count": 5,
+        "pct": 2.5906735751295336,
+        "text": "VINCENTIO:\nThis "
+      },
+      {
+        "to_id": 461826,
+        "count": 3,
+        "pct": 1.5544041450777202,
+        "text": "VINCENTIO:\nThere"
+      },
+      {
+        "to_id": 461822,
+        "count": 3,
+        "pct": 1.5544041450777202,
+        "text": "VINCENTIO:\nThat "
+      },
+      {
+        "to_id": 461704,
+        "count": 3,
+        "pct": 1.5544041450777202,
+        "text": "VINCENTIO:\nI kno"
+      },
+      {
+        "to_id": 461829,
+        "count": 3,
+        "pct": 1.5544041450777202,
+        "text": "VINCENTIO:\nSir, "
+      },
+      {
+        "to_id": 461705,
+        "count": 2,
+        "pct": 1.0362694300518134,
+        "text": "VINCENTIO:\nI do "
+      }
+    ]
+  },
+  {
+    "from_id": 374424,
+    "from_text": "DUKE VINCENTIO:\n",
+    "first_char_depth": 6,
+    "edge_len": 11,
+    "edge_mass": 193,
+    "fanout": 156,
+    "total": 193,
+    "top_successors": [
+      {
+        "to_id": 461697,
+        "count": 6,
+        "pct": 3.1088082901554404,
+        "text": "VINCENTIO:\nIt is"
+      },
+      {
+        "to_id": 461172,
+        "count": 5,
+        "pct": 2.5906735751295336,
+        "text": "VINCENTIO:\n'Tis "
+      },
+      {
+        "to_id": 461665,
+        "count": 5,
+        "pct": 2.5906735751295336,
+        "text": "VINCENTIO:\nThis "
+      },
+      {
+        "to_id": 461826,
+        "count": 3,
+        "pct": 1.5544041450777202,
+        "text": "VINCENTIO:\nThere"
+      },
+      {
+        "to_id": 461822,
+        "count": 3,
+        "pct": 1.5544041450777202,
+        "text": "VINCENTIO:\nThat "
+      },
+      {
+        "to_id": 461704,
+        "count": 3,
+        "pct": 1.5544041450777202,
+        "text": "VINCENTIO:\nI kno"
+      },
+      {
+        "to_id": 461829,
+        "count": 3,
+        "pct": 1.5544041450777202,
+        "text": "VINCENTIO:\nSir, "
+      },
+      {
+        "to_id": 461705,
+        "count": 2,
+        "pct": 1.0362694300518134,
+        "text": "VINCENTIO:\nI do "
+      }
+    ]
+  },
+  {
+    "from_id": 7568,
+    "from_text": "\n\nKING RICHARD I",
+    "first_char_depth": 8,
+    "edge_len": 9,
+    "edge_mass": 227,
+    "fanout": 152,
+    "total": 227,
+    "top_successors": [
+      {
+        "to_id": 441163,
+        "count": 8,
+        "pct": 3.5242290748898677,
+        "text": "RICHARD III:\nThe"
+      },
+      {
+        "to_id": 441174,
+        "count": 5,
+        "pct": 2.202643171806167,
+        "text": "RICHARD III:\nWhy"
+      },
+      {
+        "to_id": 440711,
+        "count": 5,
+        "pct": 2.202643171806167,
+        "text": "RICHARD III:\nWel"
+      },
+      {
+        "to_id": 440692,
+        "count": 5,
+        "pct": 2.202643171806167,
+        "text": "RICHARD III:\nAy,"
+      },
+      {
+        "to_id": 441179,
+        "count": 5,
+        "pct": 2.202643171806167,
+        "text": "RICHARD III:\nSay"
+      },
+      {
+        "to_id": 441150,
+        "count": 5,
+        "pct": 2.202643171806167,
+        "text": "RICHARD II:\nWhat"
+      },
+      {
+        "to_id": 441185,
+        "count": 4,
+        "pct": 1.7621145374449338,
+        "text": "RICHARD III:\nSta"
+      },
+      {
+        "to_id": 441173,
+        "count": 4,
+        "pct": 1.7621145374449338,
+        "text": "RICHARD III:\nWha"
+      }
+    ]
+  },
+  {
+    "from_id": 574,
+    "from_text": "\nKING RICHARD II",
+    "first_char_depth": 7,
+    "edge_len": 10,
+    "edge_mass": 227,
+    "fanout": 152,
+    "total": 227,
+    "top_successors": [
+      {
+        "to_id": 441163,
+        "count": 8,
+        "pct": 3.5242290748898677,
+        "text": "RICHARD III:\nThe"
+      },
+      {
+        "to_id": 441174,
+        "count": 5,
+        "pct": 2.202643171806167,
+        "text": "RICHARD III:\nWhy"
+      },
+      {
+        "to_id": 440711,
+        "count": 5,
+        "pct": 2.202643171806167,
+        "text": "RICHARD III:\nWel"
+      },
+      {
+        "to_id": 440692,
+        "count": 5,
+        "pct": 2.202643171806167,
+        "text": "RICHARD III:\nAy,"
+      },
+      {
+        "to_id": 441179,
+        "count": 5,
+        "pct": 2.202643171806167,
+        "text": "RICHARD III:\nSay"
+      },
+      {
+        "to_id": 441150,
+        "count": 5,
+        "pct": 2.202643171806167,
+        "text": "RICHARD II:\nWhat"
+      },
+      {
+        "to_id": 441185,
+        "count": 4,
+        "pct": 1.7621145374449338,
+        "text": "RICHARD III:\nSta"
+      },
+      {
+        "to_id": 441173,
+        "count": 4,
+        "pct": 1.7621145374449338,
+        "text": "RICHARD III:\nWha"
+      }
+    ]
+  },
+  {
+    "from_id": 409294,
+    "from_text": "KING RICHARD III",
+    "first_char_depth": 16,
+    "edge_len": 1,
+    "edge_mass": 133,
+    "fanout": 131,
+    "total": 133,
+    "top_successors": [
+      {
+        "to_id": 396517,
+        "count": 2,
+        "pct": 1.5037593984962405,
+        "text": "I:\nCatesby!\n\nCAT"
+      },
+      {
+        "to_id": 396563,
+        "count": 2,
+        "pct": 1.5037593984962405,
+        "text": "I:\nO Ratcliff, I"
+      },
+      {
+        "to_id": 402534,
+        "count": 1,
+        "pct": 0.7518796992481203,
+        "text": "I:\nStand all apa"
+      },
+      {
+        "to_id": 399547,
+        "count": 1,
+        "pct": 0.7518796992481203,
+        "text": "I:\nGive me thy h"
+      },
+      {
+        "to_id": 396565,
+        "count": 1,
+        "pct": 0.7518796992481203,
+        "text": "I:\nO Buckingham,"
+      },
+      {
+        "to_id": 402525,
+        "count": 1,
+        "pct": 0.7518796992481203,
+        "text": "I:\nWhy, Buckingh"
+      },
+      {
+        "to_id": 396545,
+        "count": 1,
+        "pct": 0.7518796992481203,
+        "text": "I:\nHa! am I king"
+      },
+      {
+        "to_id": 396564,
+        "count": 1,
+        "pct": 0.7518796992481203,
+        "text": "I:\nO bitter cons"
+      }
+    ]
+  },
+  {
+    "from_id": 397696,
+    "from_text": "ING RICHARD III:",
+    "first_char_depth": 15,
+    "edge_len": 2,
+    "edge_mass": 133,
+    "fanout": 131,
+    "total": 133,
+    "top_successors": [
+      {
+        "to_id": 396517,
+        "count": 2,
+        "pct": 1.5037593984962405,
+        "text": "I:\nCatesby!\n\nCAT"
+      },
+      {
+        "to_id": 396563,
+        "count": 2,
+        "pct": 1.5037593984962405,
+        "text": "I:\nO Ratcliff, I"
+      },
+      {
+        "to_id": 402534,
+        "count": 1,
+        "pct": 0.7518796992481203,
+        "text": "I:\nStand all apa"
+      },
+      {
+        "to_id": 399547,
+        "count": 1,
+        "pct": 0.7518796992481203,
+        "text": "I:\nGive me thy h"
+      },
+      {
+        "to_id": 396565,
+        "count": 1,
+        "pct": 0.7518796992481203,
+        "text": "I:\nO Buckingham,"
+      },
+      {
+        "to_id": 402525,
+        "count": 1,
+        "pct": 0.7518796992481203,
+        "text": "I:\nWhy, Buckingh"
+      },
+      {
+        "to_id": 396545,
+        "count": 1,
+        "pct": 0.7518796992481203,
+        "text": "I:\nHa! am I king"
+      },
+      {
+        "to_id": 396564,
+        "count": 1,
+        "pct": 0.7518796992481203,
+        "text": "I:\nO bitter cons"
+      }
+    ]
+  },
+  {
+    "from_id": 420675,
+    "from_text": "NG RICHARD III:\n",
+    "first_char_depth": 14,
+    "edge_len": 3,
+    "edge_mass": 133,
+    "fanout": 131,
+    "total": 133,
+    "top_successors": [
+      {
+        "to_id": 396517,
+        "count": 2,
+        "pct": 1.5037593984962405,
+        "text": "I:\nCatesby!\n\nCAT"
+      },
+      {
+        "to_id": 396563,
+        "count": 2,
+        "pct": 1.5037593984962405,
+        "text": "I:\nO Ratcliff, I"
+      },
+      {
+        "to_id": 402534,
+        "count": 1,
+        "pct": 0.7518796992481203,
+        "text": "I:\nStand all apa"
+      },
+      {
+        "to_id": 399547,
+        "count": 1,
+        "pct": 0.7518796992481203,
+        "text": "I:\nGive me thy h"
+      },
+      {
+        "to_id": 396565,
+        "count": 1,
+        "pct": 0.7518796992481203,
+        "text": "I:\nO Buckingham,"
+      },
+      {
+        "to_id": 402525,
+        "count": 1,
+        "pct": 0.7518796992481203,
+        "text": "I:\nWhy, Buckingh"
+      },
+      {
+        "to_id": 396545,
+        "count": 1,
+        "pct": 0.7518796992481203,
+        "text": "I:\nHa! am I king"
+      },
+      {
+        "to_id": 396564,
+        "count": 1,
+        "pct": 0.7518796992481203,
+        "text": "I:\nO bitter cons"
+      }
+    ]
+  },
+  {
+    "from_id": 328283,
+    "from_text": ".\n\nDUKE VINCENTI",
+    "first_char_depth": 9,
+    "edge_len": 8,
+    "edge_mass": 144,
+    "fanout": 121,
+    "total": 144,
+    "top_successors": [
+      {
+        "to_id": 461172,
+        "count": 5,
+        "pct": 3.4722222222222223,
+        "text": "VINCENTIO:\n'Tis "
+      },
+      {
+        "to_id": 461697,
+        "count": 5,
+        "pct": 3.4722222222222223,
+        "text": "VINCENTIO:\nIt is"
+      },
+      {
+        "to_id": 461665,
+        "count": 4,
+        "pct": 2.7777777777777777,
+        "text": "VINCENTIO:\nThis "
+      },
+      {
+        "to_id": 461705,
+        "count": 2,
+        "pct": 1.3888888888888888,
+        "text": "VINCENTIO:\nI do "
+      },
+      {
+        "to_id": 461734,
+        "count": 2,
+        "pct": 1.3888888888888888,
+        "text": "VINCENTIO:\nLove "
+      },
+      {
+        "to_id": 461671,
+        "count": 2,
+        "pct": 1.3888888888888888,
+        "text": "VINCENTIO:\nSo th"
+      },
+      {
+        "to_id": 461826,
+        "count": 2,
+        "pct": 1.3888888888888888,
+        "text": "VINCENTIO:\nThere"
+      },
+      {
+        "to_id": 461822,
+        "count": 2,
+        "pct": 1.3888888888888888,
+        "text": "VINCENTIO:\nThat "
+      }
+    ]
+  },
+  {
+    "from_id": 326647,
+    "from_text": ".\n\nKING RICHARD ",
+    "first_char_depth": 9,
+    "edge_len": 8,
+    "edge_mass": 167,
+    "fanout": 115,
+    "total": 167,
+    "top_successors": [
+      {
+        "to_id": 440711,
+        "count": 5,
+        "pct": 2.9940119760479043,
+        "text": "RICHARD III:\nWel"
+      },
+      {
+        "to_id": 441163,
+        "count": 5,
+        "pct": 2.9940119760479043,
+        "text": "RICHARD III:\nThe"
+      },
+      {
+        "to_id": 441179,
+        "count": 5,
+        "pct": 2.9940119760479043,
+        "text": "RICHARD III:\nSay"
+      },
+      {
+        "to_id": 441185,
+        "count": 4,
+        "pct": 2.395209580838323,
+        "text": "RICHARD III:\nSta"
+      },
+      {
+        "to_id": 441174,
+        "count": 4,
+        "pct": 2.395209580838323,
+        "text": "RICHARD III:\nWhy"
+      },
+      {
+        "to_id": 439794,
+        "count": 4,
+        "pct": 2.395209580838323,
+        "text": "RICHARD III:\nYou"
+      },
+      {
+        "to_id": 441173,
+        "count": 3,
+        "pct": 1.7964071856287425,
+        "text": "RICHARD III:\nWha"
+      },
+      {
+        "to_id": 440691,
+        "count": 3,
+        "pct": 1.7964071856287425,
+        "text": "RICHARD III:\nAnd"
+      }
+    ]
+  },
+  {
+    "from_id": 409293,
+    "from_text": "KING RICHARD II:",
+    "first_char_depth": 16,
+    "edge_len": 1,
+    "edge_mass": 94,
+    "fanout": 93,
+    "total": 94,
+    "top_successors": [
+      {
+        "to_id": 335328,
+        "count": 2,
+        "pct": 2.127659574468085,
+        "text": ":\nNorthumberland"
+      },
+      {
+        "to_id": 345103,
+        "count": 1,
+        "pct": 1.0638297872340425,
+        "text": ":\nWhat doth our "
+      },
+      {
+        "to_id": 339684,
+        "count": 1,
+        "pct": 1.0638297872340425,
+        "text": ":\nHow high a pit"
+      },
+      {
+        "to_id": 333157,
+        "count": 1,
+        "pct": 1.0638297872340425,
+        "text": ":\nMowbray, impar"
+      },
+      {
+        "to_id": 333604,
+        "count": 1,
+        "pct": 1.0638297872340425,
+        "text": ":\nWrath-kindled "
+      },
+      {
+        "to_id": 340401,
+        "count": 1,
+        "pct": 1.0638297872340425,
+        "text": ":\nAnd, Norfolk, "
+      },
+      {
+        "to_id": 337807,
+        "count": 1,
+        "pct": 1.0638297872340425,
+        "text": ":\nNorfolk, throw"
+      },
+      {
+        "to_id": 333668,
+        "count": 1,
+        "pct": 1.0638297872340425,
+        "text": ":\nRage must be w"
+      }
+    ]
+  },
+  {
+    "from_id": 397695,
+    "from_text": "ING RICHARD II:\n",
+    "first_char_depth": 15,
+    "edge_len": 2,
+    "edge_mass": 94,
+    "fanout": 93,
+    "total": 94,
+    "top_successors": [
+      {
+        "to_id": 335328,
+        "count": 2,
+        "pct": 2.127659574468085,
+        "text": ":\nNorthumberland"
+      },
+      {
+        "to_id": 345103,
+        "count": 1,
+        "pct": 1.0638297872340425,
+        "text": ":\nWhat doth our "
+      },
+      {
+        "to_id": 339684,
+        "count": 1,
+        "pct": 1.0638297872340425,
+        "text": ":\nHow high a pit"
+      },
+      {
+        "to_id": 333157,
+        "count": 1,
+        "pct": 1.0638297872340425,
+        "text": ":\nMowbray, impar"
+      },
+      {
+        "to_id": 333604,
+        "count": 1,
+        "pct": 1.0638297872340425,
+        "text": ":\nWrath-kindled "
+      },
+      {
+        "to_id": 340401,
+        "count": 1,
+        "pct": 1.0638297872340425,
+        "text": ":\nAnd, Norfolk, "
+      },
+      {
+        "to_id": 337807,
+        "count": 1,
+        "pct": 1.0638297872340425,
+        "text": ":\nNorfolk, throw"
+      },
+      {
+        "to_id": 333668,
+        "count": 1,
+        "pct": 1.0638297872340425,
+        "text": ":\nRage must be w"
+      }
+    ]
+  },
+  {
+    "from_id": 7594,
+    "from_text": "\n\nQUEEN ELIZABET",
+    "first_char_depth": 9,
+    "edge_len": 8,
+    "edge_mass": 98,
+    "fanout": 89,
+    "total": 98,
+    "top_successors": [
+      {
+        "to_id": 381832,
+        "count": 3,
+        "pct": 3.061224489795918,
+        "text": "ELIZABETH:\nWhat "
+      },
+      {
+        "to_id": 381825,
+        "count": 3,
+        "pct": 3.061224489795918,
+        "text": "ELIZABETH:\nThat "
+      },
+      {
+        "to_id": 377996,
+        "count": 3,
+        "pct": 3.061224489795918,
+        "text": "ELIZABETH:\nShall"
+      },
+      {
+        "to_id": 379970,
+        "count": 2,
+        "pct": 2.0408163265306123,
+        "text": "ELIZABETH:\nCome,"
+      },
+      {
+        "to_id": 379947,
+        "count": 2,
+        "pct": 2.0408163265306123,
+        "text": "ELIZABETH:\nO, th"
+      },
+      {
+        "to_id": 379973,
+        "count": 2,
+        "pct": 2.0408163265306123,
+        "text": "ELIZABETH:\nBut h"
+      },
+      {
+        "to_id": 378020,
+        "count": 1,
+        "pct": 1.0204081632653061,
+        "text": "ELIZABETH:\nWould"
+      },
+      {
+        "to_id": 378016,
+        "count": 1,
+        "pct": 1.0204081632653061,
+        "text": "ELIZABETH:\nBroth"
+      }
+    ]
+  },
+  {
+    "from_id": 2808,
+    "from_text": "\nQUEEN ELIZABETH",
+    "first_char_depth": 8,
+    "edge_len": 9,
+    "edge_mass": 98,
+    "fanout": 89,
+    "total": 98,
+    "top_successors": [
+      {
+        "to_id": 381832,
+        "count": 3,
+        "pct": 3.061224489795918,
+        "text": "ELIZABETH:\nWhat "
+      },
+      {
+        "to_id": 381825,
+        "count": 3,
+        "pct": 3.061224489795918,
+        "text": "ELIZABETH:\nThat "
+      },
+      {
+        "to_id": 377996,
+        "count": 3,
+        "pct": 3.061224489795918,
+        "text": "ELIZABETH:\nShall"
+      },
+      {
+        "to_id": 379970,
+        "count": 2,
+        "pct": 2.0408163265306123,
+        "text": "ELIZABETH:\nCome,"
+      },
+      {
+        "to_id": 379947,
+        "count": 2,
+        "pct": 2.0408163265306123,
+        "text": "ELIZABETH:\nO, th"
+      },
+      {
+        "to_id": 379973,
+        "count": 2,
+        "pct": 2.0408163265306123,
+        "text": "ELIZABETH:\nBut h"
+      },
+      {
+        "to_id": 378020,
+        "count": 1,
+        "pct": 1.0204081632653061,
+        "text": "ELIZABETH:\nWould"
+      },
+      {
+        "to_id": 378016,
+        "count": 1,
+        "pct": 1.0204081632653061,
+        "text": "ELIZABETH:\nBroth"
+      }
+    ]
+  },
+  {
+    "from_id": 435091,
+    "from_text": "QUEEN ELIZABETH:",
+    "first_char_depth": 7,
+    "edge_len": 10,
+    "edge_mass": 98,
+    "fanout": 89,
+    "total": 98,
+    "top_successors": [
+      {
+        "to_id": 381832,
+        "count": 3,
+        "pct": 3.061224489795918,
+        "text": "ELIZABETH:\nWhat "
+      },
+      {
+        "to_id": 381825,
+        "count": 3,
+        "pct": 3.061224489795918,
+        "text": "ELIZABETH:\nThat "
+      },
+      {
+        "to_id": 377996,
+        "count": 3,
+        "pct": 3.061224489795918,
+        "text": "ELIZABETH:\nShall"
+      },
+      {
+        "to_id": 379970,
+        "count": 2,
+        "pct": 2.0408163265306123,
+        "text": "ELIZABETH:\nCome,"
+      },
+      {
+        "to_id": 379947,
+        "count": 2,
+        "pct": 2.0408163265306123,
+        "text": "ELIZABETH:\nO, th"
+      },
+      {
+        "to_id": 379973,
+        "count": 2,
+        "pct": 2.0408163265306123,
+        "text": "ELIZABETH:\nBut h"
+      },
+      {
+        "to_id": 378020,
+        "count": 1,
+        "pct": 1.0204081632653061,
+        "text": "ELIZABETH:\nWould"
+      },
+      {
+        "to_id": 378016,
+        "count": 1,
+        "pct": 1.0204081632653061,
+        "text": "ELIZABETH:\nBroth"
+      }
+    ]
+  },
+  {
+    "from_id": 457613,
+    "from_text": "UEEN ELIZABETH:\n",
+    "first_char_depth": 6,
+    "edge_len": 11,
+    "edge_mass": 98,
+    "fanout": 89,
+    "total": 98,
+    "top_successors": [
+      {
+        "to_id": 381832,
+        "count": 3,
+        "pct": 3.061224489795918,
+        "text": "ELIZABETH:\nWhat "
+      },
+      {
+        "to_id": 381825,
+        "count": 3,
+        "pct": 3.061224489795918,
+        "text": "ELIZABETH:\nThat "
+      },
+      {
+        "to_id": 377996,
+        "count": 3,
+        "pct": 3.061224489795918,
+        "text": "ELIZABETH:\nShall"
+      },
+      {
+        "to_id": 379970,
+        "count": 2,
+        "pct": 2.0408163265306123,
+        "text": "ELIZABETH:\nCome,"
+      },
+      {
+        "to_id": 379947,
+        "count": 2,
+        "pct": 2.0408163265306123,
+        "text": "ELIZABETH:\nO, th"
+      },
+      {
+        "to_id": 379973,
+        "count": 2,
+        "pct": 2.0408163265306123,
+        "text": "ELIZABETH:\nBut h"
+      },
+      {
+        "to_id": 378020,
+        "count": 1,
+        "pct": 1.0204081632653061,
+        "text": "ELIZABETH:\nWould"
+      },
+      {
+        "to_id": 378016,
+        "count": 1,
+        "pct": 1.0204081632653061,
+        "text": "ELIZABETH:\nBroth"
+      }
+    ]
+  },
+  {
+    "from_id": 7569,
+    "from_text": "\n\nKING EDWARD IV",
+    "first_char_depth": 8,
+    "edge_len": 9,
+    "edge_mass": 110,
+    "fanout": 87,
+    "total": 110,
+    "top_successors": [
+      {
+        "to_id": 381541,
+        "count": 6,
+        "pct": 5.454545454545454,
+        "text": "EDWARD IV:\nWhy, "
+      },
+      {
+        "to_id": 381530,
+        "count": 6,
+        "pct": 5.454545454545454,
+        "text": "EDWARD IV:\nNow, "
+      },
+      {
+        "to_id": 381533,
+        "count": 3,
+        "pct": 2.727272727272727,
+        "text": "EDWARD IV:\nThen "
+      },
+      {
+        "to_id": 381539,
+        "count": 3,
+        "pct": 2.727272727272727,
+        "text": "EDWARD IV:\nWhat "
+      },
+      {
+        "to_id": 377622,
+        "count": 2,
+        "pct": 1.8181818181818181,
+        "text": "EDWARD IV:\nTake "
+      },
+      {
+        "to_id": 379474,
+        "count": 2,
+        "pct": 1.8181818181818181,
+        "text": "EDWARD IV:\nBroth"
+      },
+      {
+        "to_id": 379489,
+        "count": 2,
+        "pct": 1.8181818181818181,
+        "text": "EDWARD IV:\nAy, b"
+      },
+      {
+        "to_id": 379462,
+        "count": 2,
+        "pct": 1.8181818181818181,
+        "text": "EDWARD IV:\nYea, "
+      }
+    ]
+  },
+  {
+    "from_id": 575,
+    "from_text": "\nKING EDWARD IV:",
+    "first_char_depth": 7,
+    "edge_len": 10,
+    "edge_mass": 110,
+    "fanout": 87,
+    "total": 110,
+    "top_successors": [
+      {
+        "to_id": 381541,
+        "count": 6,
+        "pct": 5.454545454545454,
+        "text": "EDWARD IV:\nWhy, "
+      },
+      {
+        "to_id": 381530,
+        "count": 6,
+        "pct": 5.454545454545454,
+        "text": "EDWARD IV:\nNow, "
+      },
+      {
+        "to_id": 381533,
+        "count": 3,
+        "pct": 2.727272727272727,
+        "text": "EDWARD IV:\nThen "
+      },
+      {
+        "to_id": 381539,
+        "count": 3,
+        "pct": 2.727272727272727,
+        "text": "EDWARD IV:\nWhat "
+      },
+      {
+        "to_id": 377622,
+        "count": 2,
+        "pct": 1.8181818181818181,
+        "text": "EDWARD IV:\nTake "
+      },
+      {
+        "to_id": 379474,
+        "count": 2,
+        "pct": 1.8181818181818181,
+        "text": "EDWARD IV:\nBroth"
+      },
+      {
+        "to_id": 379489,
+        "count": 2,
+        "pct": 1.8181818181818181,
+        "text": "EDWARD IV:\nAy, b"
+      },
+      {
+        "to_id": 379462,
+        "count": 2,
+        "pct": 1.8181818181818181,
+        "text": "EDWARD IV:\nYea, "
+      }
+    ]
+  },
+  {
+    "from_id": 409024,
+    "from_text": "KING EDWARD IV:\n",
+    "first_char_depth": 6,
+    "edge_len": 11,
+    "edge_mass": 110,
+    "fanout": 87,
+    "total": 110,
+    "top_successors": [
+      {
+        "to_id": 381541,
+        "count": 6,
+        "pct": 5.454545454545454,
+        "text": "EDWARD IV:\nWhy, "
+      },
+      {
+        "to_id": 381530,
+        "count": 6,
+        "pct": 5.454545454545454,
+        "text": "EDWARD IV:\nNow, "
+      },
+      {
+        "to_id": 381533,
+        "count": 3,
+        "pct": 2.727272727272727,
+        "text": "EDWARD IV:\nThen "
+      },
+      {
+        "to_id": 381539,
+        "count": 3,
+        "pct": 2.727272727272727,
+        "text": "EDWARD IV:\nWhat "
+      },
+      {
+        "to_id": 377622,
+        "count": 2,
+        "pct": 1.8181818181818181,
+        "text": "EDWARD IV:\nTake "
+      },
+      {
+        "to_id": 379474,
+        "count": 2,
+        "pct": 1.8181818181818181,
+        "text": "EDWARD IV:\nBroth"
+      },
+      {
+        "to_id": 379489,
+        "count": 2,
+        "pct": 1.8181818181818181,
+        "text": "EDWARD IV:\nAy, b"
+      },
+      {
+        "to_id": 379462,
+        "count": 2,
+        "pct": 1.8181818181818181,
+        "text": "EDWARD IV:\nYea, "
+      }
+    ]
+  },
+  {
+    "from_id": 7593,
+    "from_text": "\n\nQUEEN MARGARET",
+    "first_char_depth": 9,
+    "edge_len": 8,
+    "edge_mass": 86,
+    "fanout": 81,
+    "total": 86,
+    "top_successors": [
+      {
+        "to_id": 417949,
+        "count": 2,
+        "pct": 2.3255813953488373,
+        "text": "MARGARET:\nAnd le"
+      },
+      {
+        "to_id": 417924,
+        "count": 2,
+        "pct": 2.3255813953488373,
+        "text": "MARGARET:\nI call"
+      },
+      {
+        "to_id": 417120,
+        "count": 2,
+        "pct": 2.3255813953488373,
+        "text": "MARGARET:\nPeace,"
+      },
+      {
+        "to_id": 418561,
+        "count": 2,
+        "pct": 2.3255813953488373,
+        "text": "MARGARET:\nWhat, "
+      },
+      {
+        "to_id": 418558,
+        "count": 2,
+        "pct": 2.3255813953488373,
+        "text": "MARGARET:\nThou h"
+      },
+      {
+        "to_id": 417940,
+        "count": 1,
+        "pct": 1.1627906976744187,
+        "text": "MARGARET:\nOut, d"
+      },
+      {
+        "to_id": 417137,
+        "count": 1,
+        "pct": 1.1627906976744187,
+        "text": "MARGARET:\nYea, a"
+      },
+      {
+        "to_id": 417946,
+        "count": 1,
+        "pct": 1.1627906976744187,
+        "text": "MARGARET:\nA murd"
+      }
+    ]
+  },
+  {
+    "from_id": 2807,
+    "from_text": "\nQUEEN MARGARET:",
+    "first_char_depth": 8,
+    "edge_len": 9,
+    "edge_mass": 86,
+    "fanout": 81,
+    "total": 86,
+    "top_successors": [
+      {
+        "to_id": 417949,
+        "count": 2,
+        "pct": 2.3255813953488373,
+        "text": "MARGARET:\nAnd le"
+      },
+      {
+        "to_id": 417924,
+        "count": 2,
+        "pct": 2.3255813953488373,
+        "text": "MARGARET:\nI call"
+      },
+      {
+        "to_id": 417120,
+        "count": 2,
+        "pct": 2.3255813953488373,
+        "text": "MARGARET:\nPeace,"
+      },
+      {
+        "to_id": 418561,
+        "count": 2,
+        "pct": 2.3255813953488373,
+        "text": "MARGARET:\nWhat, "
+      },
+      {
+        "to_id": 418558,
+        "count": 2,
+        "pct": 2.3255813953488373,
+        "text": "MARGARET:\nThou h"
+      },
+      {
+        "to_id": 417940,
+        "count": 1,
+        "pct": 1.1627906976744187,
+        "text": "MARGARET:\nOut, d"
+      },
+      {
+        "to_id": 417137,
+        "count": 1,
+        "pct": 1.1627906976744187,
+        "text": "MARGARET:\nYea, a"
+      },
+      {
+        "to_id": 417946,
+        "count": 1,
+        "pct": 1.1627906976744187,
+        "text": "MARGARET:\nA murd"
+      }
+    ]
+  },
+  {
+    "from_id": 435090,
+    "from_text": "QUEEN MARGARET:\n",
+    "first_char_depth": 7,
+    "edge_len": 10,
+    "edge_mass": 86,
+    "fanout": 81,
+    "total": 86,
+    "top_successors": [
+      {
+        "to_id": 417949,
+        "count": 2,
+        "pct": 2.3255813953488373,
+        "text": "MARGARET:\nAnd le"
+      },
+      {
+        "to_id": 417924,
+        "count": 2,
+        "pct": 2.3255813953488373,
+        "text": "MARGARET:\nI call"
+      },
+      {
+        "to_id": 417120,
+        "count": 2,
+        "pct": 2.3255813953488373,
+        "text": "MARGARET:\nPeace,"
+      },
+      {
+        "to_id": 418561,
+        "count": 2,
+        "pct": 2.3255813953488373,
+        "text": "MARGARET:\nWhat, "
+      },
+      {
+        "to_id": 418558,
+        "count": 2,
+        "pct": 2.3255813953488373,
+        "text": "MARGARET:\nThou h"
+      },
+      {
+        "to_id": 417940,
+        "count": 1,
+        "pct": 1.1627906976744187,
+        "text": "MARGARET:\nOut, d"
+      },
+      {
+        "to_id": 417137,
+        "count": 1,
+        "pct": 1.1627906976744187,
+        "text": "MARGARET:\nYea, a"
+      },
+      {
+        "to_id": 417946,
+        "count": 1,
+        "pct": 1.1627906976744187,
+        "text": "MARGARET:\nA murd"
+      }
+    ]
+  },
+  {
+    "from_id": 16103,
+    "from_text": "\n\nHENRY BOLINGBR",
+    "first_char_depth": 9,
+    "edge_len": 8,
+    "edge_mass": 88,
+    "fanout": 67,
+    "total": 88,
+    "top_successors": [
+      {
+        "to_id": 365834,
+        "count": 6,
+        "pct": 6.818181818181818,
+        "text": "BOLINGBROKE:\nMy "
+      },
+      {
+        "to_id": 366718,
+        "count": 4,
+        "pct": 4.545454545454546,
+        "text": "BOLINGBROKE:\nThe"
+      },
+      {
+        "to_id": 366713,
+        "count": 4,
+        "pct": 4.545454545454546,
+        "text": "BOLINGBROKE:\nWha"
+      },
+      {
+        "to_id": 365842,
+        "count": 2,
+        "pct": 2.272727272727273,
+        "text": "BOLINGBROKE:\nO, "
+      },
+      {
+        "to_id": 365843,
+        "count": 2,
+        "pct": 2.272727272727273,
+        "text": "BOLINGBROKE:\nLor"
+      },
+      {
+        "to_id": 365830,
+        "count": 2,
+        "pct": 2.272727272727273,
+        "text": "BOLINGBROKE:\nYou"
+      },
+      {
+        "to_id": 366729,
+        "count": 2,
+        "pct": 2.272727272727273,
+        "text": "BOLINGBROKE:\nI s"
+      },
+      {
+        "to_id": 365836,
+        "count": 2,
+        "pct": 2.272727272727273,
+        "text": "BOLINGBROKE:\nHow"
+      }
+    ]
+  },
+  {
+    "from_id": 4359,
+    "from_text": "\nHENRY BOLINGBRO",
+    "first_char_depth": 8,
+    "edge_len": 9,
+    "edge_mass": 88,
+    "fanout": 67,
+    "total": 88,
+    "top_successors": [
+      {
+        "to_id": 365834,
+        "count": 6,
+        "pct": 6.818181818181818,
+        "text": "BOLINGBROKE:\nMy "
+      },
+      {
+        "to_id": 366718,
+        "count": 4,
+        "pct": 4.545454545454546,
+        "text": "BOLINGBROKE:\nThe"
+      },
+      {
+        "to_id": 366713,
+        "count": 4,
+        "pct": 4.545454545454546,
+        "text": "BOLINGBROKE:\nWha"
+      },
+      {
+        "to_id": 365842,
+        "count": 2,
+        "pct": 2.272727272727273,
+        "text": "BOLINGBROKE:\nO, "
+      },
+      {
+        "to_id": 365843,
+        "count": 2,
+        "pct": 2.272727272727273,
+        "text": "BOLINGBROKE:\nLor"
+      },
+      {
+        "to_id": 365830,
+        "count": 2,
+        "pct": 2.272727272727273,
+        "text": "BOLINGBROKE:\nYou"
+      },
+      {
+        "to_id": 366729,
+        "count": 2,
+        "pct": 2.272727272727273,
+        "text": "BOLINGBROKE:\nI s"
+      },
+      {
+        "to_id": 365836,
+        "count": 2,
+        "pct": 2.272727272727273,
+        "text": "BOLINGBROKE:\nHow"
+      }
+    ]
+  }
+]
