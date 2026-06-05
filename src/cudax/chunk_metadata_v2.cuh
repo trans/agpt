@@ -8,6 +8,7 @@
 
 #include "chunk_plan.cuh"
 #include "position_sampling_v2.cuh"
+#include "successor_prefix_v2.cuh"
 #include "types.cuh"
 
 namespace agpt_v2 {
@@ -113,7 +114,8 @@ static inline ChunkMetadataV2 build_chunk_metadata_v2(const TrainerConfig& cfg,
                                                       const ChunkPlan& chunk,
                                                       const PositionSamplingStageV2* pos_stage = nullptr,
                                                       int epoch_index = 0,
-                                                      int optimizer_step_index = 0) {
+                                                      int optimizer_step_index = 0,
+                                                      const SuccessorPrefixTableV2* successor_table = nullptr) {
     ChunkMetadataV2 out;
     out.N = chunk.node_count;
     out.T_q = (int)chunk.query_count;
@@ -153,6 +155,17 @@ static inline ChunkMetadataV2 build_chunk_metadata_v2(const TrainerConfig& cfg,
         int edge_mass = trie.edge_mass[r] > 0 ? trie.edge_mass[r] : 1;
         int edge_start = trie.edge_starts[r];
         int fcd = trie.edge_first_char_depths[r];
+        int succ = successor_prefix_successor_v2(successor_table, r);
+        int succ_anc_len = 0;
+        int succ_own_len = 0;
+        int succ_len = 0;
+        int succ_rope_base = 0;
+        if (succ > 0 && succ < trie.radix_count) {
+            succ_anc_len = trie.ancestor_char_offsets[succ + 1] - trie.ancestor_char_offsets[succ];
+            succ_own_len = trie.edge_lens[succ];
+            succ_len = succ_anc_len + succ_own_len;
+            succ_rope_base = successor_prefix_rope_base_v2(trie, successor_table, r);
+        }
         int sampled_start = -1;
         int effective_mass = edge_mass;
         if (cfg.rope_position_mode == RopePositionModeV2::SampledBin) {
@@ -176,7 +189,7 @@ static inline ChunkMetadataV2 build_chunk_metadata_v2(const TrainerConfig& cfg,
 
         out.h_query_offsets[i] = q_fill;
         out.h_kv_offsets[i] = kv_fill;
-        out.h_kv_lengths[i] = anc_len + own_len;
+        out.h_kv_lengths[i] = anc_len + own_len + succ_len;
         t_anc += anc_len;
 
         for (int j = 0; j < own_len; j++) {
@@ -201,8 +214,41 @@ static inline ChunkMetadataV2 build_chunk_metadata_v2(const TrainerConfig& cfg,
                 out.h_rope_positions[(q_fill + j) * shape.n_heads + h] = pos;
             }
         }
-        q_fill += own_len;
-        kv_fill += anc_len + own_len;
+        if (succ_len > 0) {
+            int out_j = 0;
+            int succ_anc_off = trie.ancestor_char_offsets[succ];
+            for (int a = 0; a < succ_anc_len; a++, out_j++) {
+                int char_pos = trie.ancestor_char_ids[succ_anc_off + a];
+                out.h_query_to_node[q_fill + own_len + out_j] = i;
+                out.h_token_ids[q_fill + own_len + out_j] = trie.edge_tokens_flat[char_pos];
+                out.h_query_weights[q_fill + own_len + out_j] = 0.0f;
+                out.h_char_pos[q_fill + own_len + out_j] = -1;
+                out.h_query_depth[q_fill + own_len + out_j] = succ_rope_base + out_j + 1;
+                int pos = succ_rope_base + out_j;
+                if (pos < 0) pos = 0;
+                if (pos >= rope_seq_len) pos = rope_seq_len - 1;
+                for (int h = 0; h < shape.n_heads; h++) {
+                    out.h_rope_positions[(q_fill + own_len + out_j) * shape.n_heads + h] = pos;
+                }
+            }
+            int succ_edge_start = trie.edge_starts[succ];
+            for (int a = 0; a < succ_own_len; a++, out_j++) {
+                int char_pos = succ_edge_start + a;
+                out.h_query_to_node[q_fill + own_len + out_j] = i;
+                out.h_token_ids[q_fill + own_len + out_j] = trie.edge_tokens_flat[char_pos];
+                out.h_query_weights[q_fill + own_len + out_j] = 0.0f;
+                out.h_char_pos[q_fill + own_len + out_j] = -1;
+                out.h_query_depth[q_fill + own_len + out_j] = succ_rope_base + out_j + 1;
+                int pos = succ_rope_base + out_j;
+                if (pos < 0) pos = 0;
+                if (pos >= rope_seq_len) pos = rope_seq_len - 1;
+                for (int h = 0; h < shape.n_heads; h++) {
+                    out.h_rope_positions[(q_fill + own_len + out_j) * shape.n_heads + h] = pos;
+                }
+            }
+        }
+        q_fill += own_len + succ_len;
+        kv_fill += anc_len + own_len + succ_len;
 
         if (phase_conditioned_targets) {
             out.h_target_counts_offset[i] = (int)target_toks.size();
@@ -299,7 +345,7 @@ static inline ChunkMetadataV2 build_chunk_metadata_v2(const TrainerConfig& cfg,
         int anc_len = trie.ancestor_char_offsets[r + 1] - anc_off;
         out.h_anc_offsets[i] = anc_fill;
         out.h_anc_lengths[i] = anc_len;
-        out.h_own_lengths[i] = trie.edge_lens[r];
+        out.h_own_lengths[i] = trie.edge_lens[r] + successor_prefix_path_len_v2(trie, successor_table, r);
         for (int a = 0; a < anc_len; a++) {
             int char_pos = trie.ancestor_char_ids[anc_off + a];
             out.h_anc_ids[anc_fill] = char_pos;

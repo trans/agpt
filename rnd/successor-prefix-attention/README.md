@@ -13,6 +13,13 @@ For a depth cap occurrence:
 The first diagnostic is implemented in `src/tools/successor_prefix_map.cr`.
 It walks the corpus through the prefix radix trie, records cap occurrences, and
 aggregates observed `A -> B` successor counts while preserving radix node ids.
+It also writes trainer-readable deterministic tables:
+
+- `successors_end.bin`
+- `successors_head.bin`
+
+The table format is `ASUC` v1 plus one `Int32` successor radix id per source
+radix id, with `-1` for no deterministic retained successor.
 
 ## 2026-06-05 Diagnostic
 
@@ -93,3 +100,67 @@ the only loss comes from cases where the continuation cap is not also mass-one.
 The head anchor is slightly more concentrated than the end anchor in the all-cap
 view. That makes it worth keeping both variants through the first trainer
 prototype rather than choosing prematurely.
+
+## Trainer Prototype
+
+The first CUDAX prototype uses the strict deterministic mass-one table. It keeps
+the representation sparse:
+
+- if `successor[A] == -1`, the node is unchanged and has no empty successor
+  positions;
+- if `successor[A] = B`, the full B path is appended as zero-loss continuation
+  rows assigned to A's attention group;
+- appended rows use `query_weight=0`, so they do not add direct loss;
+- appended rows use `char_pos=-1`, so they do not write into the global compact
+  K/V cache;
+- end-anchor rows use RoPE positions `16..31` for depth-16 tries.
+
+The initial config is:
+
+```text
+rnd/successor-prefix-attention/d128L6-depth16-pd1-adam-lr0010-8ep-cq50k-successor-end.yml
+```
+
+Validation:
+
+```text
+bin/agpt_train_v2 \
+  --config rnd/successor-prefix-attention/d128L6-depth16-pd1-adam-lr0010-8ep-cq50k-successor-end.yml \
+  --validate-only
+```
+
+Result:
+
+```text
+mode=train-epoch, trie_depth=16, context_seq_len=16, rope_seq_len=32, successor_prefix=true
+```
+
+Forward smoke:
+
+```text
+bin/agpt_train_v2 \
+  --config rnd/successor-prefix-attention/d128L6-depth16-pd1-adam-lr0010-8ep-cq50k-successor-end.yml \
+  --run-forward-prefix
+```
+
+Result:
+
+```text
+mode=forward
+successor_prefix=end deterministic=966957 skipped_fanout=0
+runtime max_kv_len=32
+forward full-depth scored chunk executed
+```
+
+Cap-heavy smoke:
+
+```text
+bin/agpt_train_v2 \
+  --config rnd/successor-prefix-attention/d128L6-depth16-pd1-adam-lr0010-8ep-cq50k-successor-end.yml \
+  --mode train-small \
+  --steps 72
+```
+
+Result: all 72 chunks of the largest unit completed and a single Adam step was
+applied. This exercises later cap-heavy chunks, not only the shallow first
+chunk.

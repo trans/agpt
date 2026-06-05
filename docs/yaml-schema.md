@@ -321,6 +321,7 @@ every other section is relaxed inside `experimental`:** trainers emit
 | `experimental.rope_position_mode` | enum | `depth` | v2 | Experimental RoPE position source. Values: `depth`, `sampled-bin`, `phase-sweep`, `phase-weighted`. Legacy aliases `sampled-unit-phase` and `sampled-node-phase` map to `phase-weighted`. |
 | `experimental.position_data_dir` | path | absent | v2 | Required when `experimental.rope_position_mode` uses sampled positions. Directory must contain `substrings.bin` and `prefix_position_table.bin`. |
 | `experimental.pos_sample_seed` | integer | `train.seed` | v2 | Optional non-negative override for sampled-position selection. |
+| `experimental.successor_prefix_table` | path | absent | v2 | Optional deterministic successor-prefix table (`ASUC` v1). Appends the successor cap path as zero-loss continuation rows for direct longer-context attention experiments. |
 
 ### Discipline
 

@@ -120,6 +120,7 @@ __global__ static void kv_scatter_compact_bf16_v2(const float* src, const int* c
     int row = idx / d_model;
     int col = idx % d_model;
     int cp = char_pos[row];
+    if (cp < 0) return;
     int slot = compact_slot[cp];
     if (slot < 0) return;
     dst[(long long)slot * d_model + col] = __float2bfloat16(src[row * d_model + col]);
@@ -345,6 +346,7 @@ __global__ static void save_ln1_to_subtree_kernel_v2(const float* ln1_out,
     int q = blockIdx.x;
     if (q >= T_q) return;
     int cp = char_pos[q];
+    if (cp < 0) return;
     int slot = compact_slot[cp];
     if (slot < 0) return;
     int sub_idx = compact_to_subtree[slot];

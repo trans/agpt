@@ -18,6 +18,7 @@ struct YamlConfigV2 {
     std::string corpus_path;
     std::string save_path;
     std::string position_data_dir;
+    std::string successor_prefix_table;
 
     int seed = 42;
     bool seed_set = false;
@@ -260,6 +261,7 @@ static bool yaml_is_known_experimental_field_v2(const std::string& path) {
         "experimental.phase_order_seed",
         "experimental.position_data_dir",
         "experimental.pos_sample_seed",
+        "experimental.successor_prefix_table",
     };
     return fields.find(path) != fields.end();
 }
@@ -533,7 +535,9 @@ static bool apply_yaml_config_v2(const char* config_path,
         yaml_find_v2(doc, "train.growth.divisions") ||
         yaml_find_v2(doc, "train.growth.min_epochs") ||
         yaml_find_v2(doc, "train.growth.epoch_ramp");
-    mode = yaml_cfg.has_growth ? V2Mode::TrainGrowth : V2Mode::TrainEpoch;
+    if (mode == V2Mode::Plan) {
+        mode = yaml_cfg.has_growth ? V2Mode::TrainGrowth : V2Mode::TrainEpoch;
+    }
     cfg.accumulate = true;
 
     if (!yaml_expect_string_v2(doc, "model.init_file", yaml_cfg.model_path, true)) return false;
@@ -603,6 +607,7 @@ static bool apply_yaml_config_v2(const char* config_path,
         cfg.rope_phase_shuffle_seed = (unsigned)phase_order_seed;
     }
     if (!yaml_expect_string_v2(doc, "experimental.position_data_dir", yaml_cfg.position_data_dir, false)) return false;
+    if (!yaml_expect_string_v2(doc, "experimental.successor_prefix_table", yaml_cfg.successor_prefix_table, false)) return false;
     int pos_sample_seed = 0;
     bool has_pos_sample_seed = false;
     if (!yaml_get_int_v2(doc, "experimental.pos_sample_seed", pos_sample_seed, &has_pos_sample_seed)) return false;

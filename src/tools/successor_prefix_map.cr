@@ -292,6 +292,37 @@ def example_rows(edges : Hash(Int32, Hash(Int32, Int64)),
   rows
 end
 
+def write_successor_table(path : String,
+                          edges : Hash(Int32, Hash(Int32, Int64)),
+                          radix_count : Int32,
+                          d_max : Int32,
+                          mode : Int32,
+                          mass_one_only : Bool)
+  successors = Slice(Int32).new(radix_count, -1)
+  deterministic = 0_i64
+  skipped_fanout = 0_i64
+  edges.each do |from, h|
+    if h.size == 1
+      successors[from] = h.first_key
+      deterministic += 1
+    else
+      skipped_fanout += 1
+    end
+  end
+
+  File.open(path, "wb") do |io|
+    io.write("ASUC".to_slice)
+    io.write_bytes(1_u32, IO::ByteFormat::LittleEndian) # version
+    io.write_bytes(radix_count.to_u32, IO::ByteFormat::LittleEndian)
+    io.write_bytes(d_max.to_u32, IO::ByteFormat::LittleEndian)
+    io.write_bytes(mode.to_u32, IO::ByteFormat::LittleEndian) # 1=end, 2=head
+    io.write_bytes((mass_one_only ? 1_u32 : 0_u32), IO::ByteFormat::LittleEndian)
+    io.write_bytes(deterministic.to_u64, IO::ByteFormat::LittleEndian)
+    io.write_bytes(skipped_fanout.to_u64, IO::ByteFormat::LittleEndian)
+    successors.each { |succ| io.write_bytes(succ, IO::ByteFormat::LittleEndian) }
+  end
+end
+
 summary = {
   "trie" => trie_dir,
   "corpus" => corpus_path,
@@ -318,5 +349,7 @@ File.write(File.join(out_dir, "top_end_edges.json"), JSON.parse(top_edge_rows(en
 File.write(File.join(out_dir, "top_head_edges.json"), JSON.parse(top_edge_rows(head_edges, walker, chars, top_edges_limit).to_json).to_pretty_json)
 File.write(File.join(out_dir, "examples_end.json"), JSON.parse(example_rows(end_edges, walker, chars, sample_limit).to_json).to_pretty_json)
 File.write(File.join(out_dir, "examples_head.json"), JSON.parse(example_rows(head_edges, walker, chars, sample_limit).to_json).to_pretty_json)
+write_successor_table(File.join(out_dir, "successors_end.bin"), end_edges, walker.radix_count, d_max, 1, mass_one_only)
+write_successor_table(File.join(out_dir, "successors_head.bin"), head_edges, walker.radix_count, d_max, 2, mass_one_only)
 
 puts JSON.parse(summary.to_json).to_pretty_json

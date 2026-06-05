@@ -465,13 +465,14 @@ static long long active_count_entries_v2(const agpt_v2::RadixTrieStructure& trie
 static agpt_v2::ChunkPlanList build_capacity_chunk_list_for_plan_v2(
     const agpt_v2::RadixTrieStructure& trie,
     const agpt_v2::TrainingPlan& training_plan,
-    int chunk_queries) {
+    int chunk_queries,
+    const agpt_v2::SuccessorPrefixTableV2* successor_table = nullptr) {
     agpt_v2::ChunkPlanList capacity{};
     capacity.chunk_count = 1;
     capacity.chunks = (agpt_v2::ChunkPlan*)std::calloc(1, sizeof(agpt_v2::ChunkPlan));
     for (int u = 0; u < training_plan.unit_count; u++) {
         agpt_v2::ChunkPlanList chunks =
-            agpt_v2::build_chunk_plan_for_unit(trie, training_plan.units[u], chunk_queries);
+            agpt_v2::build_chunk_plan_for_unit(trie, training_plan.units[u], chunk_queries, successor_table);
         for (int c = 0; c < chunks.chunk_count; c++) {
             const agpt_v2::ChunkPlan& chunk = chunks.chunks[c];
             agpt_v2::ChunkPlan& cap = capacity.chunks[0];
@@ -489,11 +490,12 @@ static agpt_v2::ChunkPlanList build_capacity_chunk_list_for_plan_v2(
 static std::vector<agpt_v2::ChunkPlanList> build_unit_chunk_plan_cache_v2(
     const agpt_v2::RadixTrieStructure& trie,
     const agpt_v2::TrainingPlan& training_plan,
-    int chunk_queries) {
+    int chunk_queries,
+    const agpt_v2::SuccessorPrefixTableV2* successor_table = nullptr) {
     std::vector<agpt_v2::ChunkPlanList> cached;
     cached.reserve((size_t)training_plan.unit_count);
     for (int u = 0; u < training_plan.unit_count; u++) {
-        cached.push_back(agpt_v2::build_chunk_plan_for_unit(trie, training_plan.units[u], chunk_queries));
+        cached.push_back(agpt_v2::build_chunk_plan_for_unit(trie, training_plan.units[u], chunk_queries, successor_table));
     }
     return cached;
 }
@@ -769,6 +771,23 @@ int main(int argc, char** argv) {
             seed_override_set = true;
         } else if (std::strcmp(argv[i], "--validate-only") == 0) {
             validate_only = true;
+        } else if (std::strcmp(argv[i], "--steps") == 0 && i + 1 < argc) {
+            steps = std::atoi(argv[++i]);
+        } else if (std::strcmp(argv[i], "--units") == 0 && i + 1 < argc) {
+            unit_limit = std::atoi(argv[++i]);
+        } else if (std::strcmp(argv[i], "--mode") == 0 && i + 1 < argc) {
+            if (!parse_v2_mode(argv[++i], mode)) {
+                std::fprintf(stderr, "agpt_train_v2: unsupported --mode value: %s\n", argv[i]);
+                return 1;
+            }
+        } else if (std::strcmp(argv[i], "--instantiate-runtime") == 0) {
+            mode = V2Mode::InstantiateRuntime;
+        } else if (std::strcmp(argv[i], "--instantiate-chunk-upload") == 0) {
+            mode = V2Mode::Upload;
+        } else if (std::strcmp(argv[i], "--run-forward-prefix") == 0) {
+            mode = V2Mode::Forward;
+        } else if (std::strcmp(argv[i], "--run-backward-head") == 0) {
+            mode = V2Mode::BackwardHead;
         } else {
             saw_non_config_arg = true;
         }
@@ -778,7 +797,7 @@ int main(int argc, char** argv) {
         return 1;
     }
     if (config_path && saw_non_config_arg) {
-        std::fprintf(stderr, "agpt_train_v2: --config may only be combined with --seed and --validate-only\n");
+        std::fprintf(stderr, "agpt_train_v2: --config may only be combined with --seed, --validate-only, --steps/--units, and diagnostic mode flags\n");
         return 1;
     }
 
@@ -1211,6 +1230,15 @@ int main(int argc, char** argv) {
     agpt_v2::RadixTrieStructure trie = agpt_v2::load_radix_structure_minimal(trie_dir);
     shape.seq_len = effective_seq_len_from_trie_v2(trie);
     shape.rope_seq_len = shape.seq_len;
+    agpt_v2::SuccessorPrefixTableV2 successor_table{};
+    agpt_v2::SuccessorPrefixTableV2* successor_table_ptr = nullptr;
+    if (config_path && !yaml_cfg.successor_prefix_table.empty()) {
+        successor_table = agpt_v2::load_successor_prefix_table_v2(
+            yaml_cfg.successor_prefix_table.c_str(), trie.radix_count, shape.seq_len);
+        successor_table_ptr = &successor_table;
+        int successor_rope_len = successor_table.d_max * 2;
+        if (successor_rope_len > shape.rope_seq_len) shape.rope_seq_len = successor_rope_len;
+    }
     if (config_path && yaml_cfg.has_max_depth && yaml_cfg.max_depth != shape.seq_len) {
         std::fprintf(stderr,
                      "agpt_train_v2: YAML train.max_depth (%d) must match trie effective depth (%d)\n",
@@ -1231,10 +1259,16 @@ int main(int argc, char** argv) {
         }
         shape.rope_seq_len = required_rope_seq_len_v2(
             cfg.rope_position_mode, shape.seq_len, pos_data.prefix_table.window_size);
+        if (successor_table_ptr) {
+            int successor_rope_len = successor_table.d_max * 2;
+            if (successor_rope_len > shape.rope_seq_len) shape.rope_seq_len = successor_rope_len;
+        }
     }
     if (validate_only) {
-        std::printf("agpt_train_v2: YAML config validated (mode=%s, trie_depth=%d, context_seq_len=%d, rope_seq_len=%d)\n",
-                    v2_mode_name(mode), effective_seq_len_from_trie_v2(trie), shape.seq_len, shape.rope_seq_len);
+        std::printf("agpt_train_v2: YAML config validated (mode=%s, trie_depth=%d, context_seq_len=%d, rope_seq_len=%d, successor_prefix=%s)\n",
+                    v2_mode_name(mode), effective_seq_len_from_trie_v2(trie), shape.seq_len, shape.rope_seq_len,
+                    successor_table_ptr ? "true" : "false");
+        agpt_v2::free_successor_prefix_table_v2(successor_table);
         agpt_v2::free_radix_trie_structure(trie);
         return 0;
     }
@@ -1247,12 +1281,12 @@ int main(int argc, char** argv) {
     agpt_v2::ExecutionPlan plan = agpt_v2::build_execution_plan(trie, training_plan, cfg.chunk_queries);
     agpt_v2::ChunkPlanList largest_chunks = {};
     if (plan.largest_by_queries) {
-        largest_chunks = agpt_v2::build_chunk_plan_for_unit(trie, *plan.largest_by_queries, cfg.chunk_queries);
+        largest_chunks = agpt_v2::build_chunk_plan_for_unit(trie, *plan.largest_by_queries, cfg.chunk_queries, successor_table_ptr);
     }
     agpt_v2::ChunkPlanList capacity_chunks =
-        build_capacity_chunk_list_for_plan_v2(trie, training_plan, cfg.chunk_queries);
+        build_capacity_chunk_list_for_plan_v2(trie, training_plan, cfg.chunk_queries, successor_table_ptr);
     std::vector<agpt_v2::ChunkPlanList> unit_chunk_cache =
-        build_unit_chunk_plan_cache_v2(trie, training_plan, cfg.chunk_queries);
+        build_unit_chunk_plan_cache_v2(trie, training_plan, cfg.chunk_queries, successor_table_ptr);
     agpt_v2::TrainerRuntimeContract runtime_contract =
         agpt_v2::build_trainer_runtime_contract(shape, cache, plan, capacity_chunks,
                                                 trie.compact_slot_capacity);
@@ -1266,7 +1300,8 @@ int main(int argc, char** argv) {
     bool have_first_chunk_meta = false;
     if (plan.largest_by_queries && largest_chunks.chunk_count > 0) {
         first_chunk_meta = agpt_v2::build_chunk_metadata_v2(cfg, shape, trie, *plan.largest_by_queries,
-                                                            largest_chunks.chunks[0], pos_stage_ptr);
+                                                            largest_chunks.chunks[0], pos_stage_ptr,
+                                                            0, 0, successor_table_ptr);
         have_first_chunk_meta = true;
     }
 
@@ -1325,6 +1360,12 @@ int main(int argc, char** argv) {
             }
         }
     }
+    if (successor_table_ptr) {
+        std::printf(" successor_prefix=%s deterministic=%llu skipped_fanout=%llu",
+                    successor_table.mode == 2 ? "head" : "end",
+                    successor_table.deterministic_count,
+                    successor_table.skipped_fanout_count);
+    }
     std::printf("\n");
     std::printf("  cache contract: K=%s compact_slot_indexed=%s\n",
                 cache.k_space == agpt_v2::KCoordinateSpace::PostRope ? "post-RoPE" : "pre-RoPE",
@@ -1345,7 +1386,7 @@ int main(int argc, char** argv) {
     }
     if (plan.largest_by_compact_chars) {
         agpt_v2::ChunkPlanList compact_chunks =
-            agpt_v2::build_chunk_plan_for_unit(trie, *plan.largest_by_compact_chars, cfg.chunk_queries);
+            agpt_v2::build_chunk_plan_for_unit(trie, *plan.largest_by_compact_chars, cfg.chunk_queries, successor_table_ptr);
         std::printf("  largest-by-compact unit: rc=%d nodes=%d queries=%lld compact_chars=%lld depth=%d est_chunks=%d\n",
                     plan.largest_by_compact_chars->root_child_id,
                     plan.largest_by_compact_chars->node_count,
@@ -1522,7 +1563,8 @@ int main(int argc, char** argv) {
                             const agpt_v2::ChunkPlan& chunk = unit_chunks.chunks[s];
                             agpt_v2::ChunkMetadataV2 chunk_meta =
                                 agpt_v2::build_chunk_metadata_v2(cfg, shape, trie, unit, chunk,
-                                                                 pos_stage_ptr, epoch, optimizer_step_index);
+                                                                 pos_stage_ptr, epoch, optimizer_step_index,
+                                                                 successor_table_ptr);
                             phase_target_nodes += chunk_meta.phase_target_nodes;
                             phase_target_zero_nodes += chunk_meta.phase_target_zero_nodes;
                             phase_target_singleton_nodes += chunk_meta.phase_target_singleton_nodes;
@@ -1678,7 +1720,7 @@ int main(int argc, char** argv) {
                     const agpt_v2::ChunkPlan& chunk = largest_chunks.chunks[s];
                     agpt_v2::ChunkMetadataV2 chunk_meta =
                         agpt_v2::build_chunk_metadata_v2(cfg, shape, trie, unit, chunk,
-                                                         pos_stage_ptr, 0, 0);
+                                                         pos_stage_ptr, 0, 0, successor_table_ptr);
                     agpt_v2::ChunkDeviceMetadataV2 chunk_device_meta =
                         upload_chunk_metadata_v2(chunk_meta, upload);
                     agpt_v2::ForwardPassResult chunk_fwd =
@@ -1892,6 +1934,7 @@ int main(int argc, char** argv) {
     agpt_v2::free_chunk_plan_list(capacity_chunks);
     free_unit_chunk_plan_cache_v2(unit_chunk_cache);
     agpt_v2::free_training_plan(training_plan);
+    agpt_v2::free_successor_prefix_table_v2(successor_table);
     agpt_v2::free_radix_trie_structure(trie);
     agpt_v2::free_model_layout(model);
     return 0;

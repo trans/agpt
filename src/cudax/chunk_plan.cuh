@@ -3,6 +3,7 @@
 
 #include <cstdlib>
 
+#include "successor_prefix_v2.cuh"
 #include "training_unit.cuh"
 
 namespace agpt_v2 {
@@ -30,7 +31,8 @@ static inline void free_chunk_plan_list(ChunkPlanList& list) {
 
 static inline ChunkPlanList build_chunk_plan_for_unit(const RadixTrieStructure& trie,
                                                       const TrainingUnit& unit,
-                                                      int chunk_queries) {
+                                                      int chunk_queries,
+                                                      const SuccessorPrefixTableV2* successor_table = nullptr) {
     if (chunk_queries <= 0) chunk_queries = 50000;
 
     ChunkPlanList list;
@@ -45,10 +47,11 @@ static inline ChunkPlanList build_chunk_plan_for_unit(const RadixTrieStructure& 
         int end = start;
         while (end < unit.node_count) {
             int r = unit.radix_ids[end];
-            int q_next = trie.edge_lens[r];
+            int succ_len = successor_prefix_path_len_v2(trie, successor_table, r);
+            int q_next = trie.edge_lens[r] + succ_len;
             if (end > start && q_sum + q_next > chunk_queries) break;
             q_sum += q_next;
-            int kv_next = trie.edge_first_char_depths[r] + trie.edge_lens[r] - 1;
+            int kv_next = trie.edge_first_char_depths[r] + trie.edge_lens[r] - 1 + succ_len;
             kv_sum += kv_next;
             if (kv_next > max_kv_len) max_kv_len = kv_next;
             if (trie.edge_mass[r] > 1) compact_sum += trie.edge_lens[r];
