@@ -255,6 +255,13 @@ build-agpt-dual-train: build-stubs
     mkdir -p bin
     timeout 10m crystal build src/tools/agpt_dual_train.cr -o bin/agpt_dual_train --release --link-flags="{{root}}/build/kernels.o -lstdc++"
 
+# Build CPU tanh-recurrent AGPT trainer. This is intentionally separate from
+# the attention-based CUDA trainers: it tests AGPT as a trie objective around a
+# simple recurrent f_theta.
+build-agpt-train-recur:
+    mkdir -p bin
+    timeout 10m crystal build src/tools/agpt_train_recur.cr -o bin/agpt_train_recur --release --link-flags="-lopenblas_64"
+
 # Build p2s-attention match index tool (Phase 2/3 of rnd/p2s-attention).
 build-p2s-match: build-stubs
     mkdir -p bin
