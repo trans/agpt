@@ -206,9 +206,43 @@ def estimate_loss_events(records : Array(RecurRecord)) : Int64
   total
 end
 
+# Partition records into independent batches by depth-1 ancestor. Each
+# partition is an independent subtree (one per first-token / root child)
+# that can be optimized with its own Adam step. pd=0 → single batch
+# (whole corpus); pd=1 → V partitions where V is vocab size.
+# Verbatim from Codex's agpt_train_recur (f_θ-agnostic).
+def build_partitions(records : Array(RecurRecord), partition_depth : Int32) : Array(Array(RecurRecord))
+  case partition_depth
+  when 0
+    [records]
+  when 1
+    root_child_by_id = {} of Int32 => Int32
+    partitions = {} of Int32 => Array(RecurRecord)
+
+    records.each do |r|
+      root_child_id =
+        if r.parent_id == 0
+          r.id
+        else
+          parent_root = root_child_by_id[r.parent_id]?
+          raise "parent #{r.parent_id} missing before child #{r.id}; radix records must be parent-ordered" unless parent_root
+          parent_root
+        end
+
+      root_child_by_id[r.id] = root_child_id
+      partitions[root_child_id] ||= [] of RecurRecord
+      partitions[root_child_id] << r
+    end
+
+    partitions.keys.sort.map { |id| partitions[id] }
+  else
+    raise "--partition-depth currently supports only 0 or 1"
+  end
+end
+
 # Precompute x_proj[v, d] = emb[v, d] · w_x^T[d, d]; used by forward_edge so
-# the per-token (W_x · emb) is a table lookup, not a matmul. Recomputed once
-# per epoch (params change between epochs).
+# the per-token (W_x · emb) is a table lookup, not a matmul. Recomputed at
+# the start of each partition batch (params change after every Adam step).
 def compute_x_proj(params : RecurParams) : Array(Float64)
   v = params.vocab_size
   d = params.d_model
@@ -337,7 +371,9 @@ def add_loss_and_head_grads(
   {loss, events}
 end
 
-def train_epoch(
+# Per-partition optimizer step. One Adam update across the records of one
+# partition. Returns the raw loss and event count (caller aggregates).
+def train_batch(
   params : RecurParams,
   adam : AdamState,
   records : Array(RecurRecord),
@@ -348,7 +384,7 @@ def train_epoch(
   beta1 : Float64,
   beta2 : Float64,
   eps : Float64,
-) : {Float64, Float64, Int64}
+) : {Float64, Int64}
   d = params.d_model
   di = d.to_i64
   n_state = endpoint_states.size
@@ -435,8 +471,39 @@ def train_epoch(
   scale = 1.0 / events.to_f
   grads.each_array { |a| a.size.times { |i| a[i] *= scale } }
   adam_update!(params, grads, adam, lr, beta1, beta2, eps)
-  mean_nll = loss * scale
-  {mean_nll, Math.exp(mean_nll), events}
+  {loss, events}
+end
+
+# One epoch = iterate over partitions, one Adam step per non-empty partition.
+# x_proj is recomputed at the start of each partition since params change after
+# every Adam step. Returns aggregate mean_nll / ppl / events / update count.
+def train_epoch(
+  params : RecurParams,
+  adam : AdamState,
+  partitions : Array(Array(RecurRecord)),
+  endpoint_states : Array(Float64),
+  lr : Float64,
+  beta1 : Float64,
+  beta2 : Float64,
+  eps : Float64,
+) : {Float64, Float64, Int64, Int32}
+  loss_total = 0.0
+  events_total = 0_i64
+  updates = 0
+
+  partitions.each do |records|
+    next if records.empty?
+    records_desc = records.sort_by { |r| {-r.endpoint_depth, -r.id} }
+    x_proj = compute_x_proj(params)
+    loss, events = train_batch(params, adam, records, records_desc, endpoint_states, x_proj, lr, beta1, beta2, eps)
+    loss_total += loss
+    events_total += events
+    updates += 1
+  end
+
+  raise "no loss events found in trie records" if events_total == 0
+  mean_nll = loss_total / events_total.to_f
+  {mean_nll, Math.exp(mean_nll), events_total, updates}
 end
 
 def adam_update!(params : RecurParams, grads : RecurParams, adam : AdamState, lr : Float64, beta1 : Float64, beta2 : Float64, eps : Float64)
@@ -477,6 +544,7 @@ lr = 0.001
 seed = 1_u64
 checkpoint_every = 0
 max_nodes = 0
+partition_depth = 0
 dry_run = false
 beta1 = 0.9
 beta2 = 0.999
@@ -493,6 +561,7 @@ OptionParser.parse do |p|
   p.on("--load PATH", "Resume recurrent checkpoint") { |v| load_path = v }
   p.on("--checkpoint-every N", "Write epoch checkpoints every N epochs") { |v| checkpoint_every = v.to_i }
   p.on("--max-nodes N", "Diagnostic: use first N radix records only") { |v| max_nodes = v.to_i }
+  p.on("--partition-depth N", "Subtree optimizer partition depth: 0 full batch, 1 root-child batches (default 0)") { |v| partition_depth = v.to_i }
   p.on("--dry-run", "Load trie and report shape without training") { dry_run = true }
   p.on("-h", "--help", "Help") { puts p; exit 0 }
 end
@@ -501,22 +570,25 @@ raise "--trie required" if trie_dir.empty?
 raise "--d-model must be > 0" if d_model <= 0
 raise "--epochs must be >= 0" if epochs < 0
 raise "--lr must be > 0" if lr <= 0.0
+raise "--partition-depth must be >= 0" if partition_depth < 0
 if save_path.empty? && !dry_run
   raise "--save required unless --dry-run"
 end
 
 reader = RadixTrieReader.new(trie_dir, max_cached: 256)
 records = load_records(reader, max_nodes)
-records_desc = records.sort_by { |r| {-r.endpoint_depth, -r.id} }
 events = estimate_loss_events(records)
 expanded_chars = records.sum(0_i64) { |r| r.edge_tokens.size.to_i64 }
 max_endpoint_depth = records.empty? ? 0 : records.max_of(&.endpoint_depth)
+partitions = build_partitions(records, partition_depth)
 
 puts "AGPT linear-recurrent trainer (openblas hot path)"
 puts "  trie: #{trie_dir}"
 puts "  radix_records: #{records.size}#{max_nodes > 0 ? " (truncated)" : ""}"
 puts "  expanded_states: #{expanded_chars}"
 puts "  loss_events: #{events}"
+puts "  partition_depth: #{partition_depth}"
+puts "  partitions: #{partitions.size}"
 puts "  vocab_size: #{reader.vocab_size}"
 puts "  d_model: #{d_model}"
 puts "  max_endpoint_depth: #{max_endpoint_depth}"
@@ -545,8 +617,7 @@ endpoint_states = Array(Float64).new(reader.radix_count * d_model, 0.0)
 
 (start_epoch + 1).upto(start_epoch + epochs) do |epoch|
   t0 = Time.instant
-  x_proj = compute_x_proj(params)
-  nll, ppl, trained_events = train_epoch(params, adam, records, records_desc, endpoint_states, x_proj, lr, beta1, beta2, eps)
+  nll, ppl, trained_events, updates = train_epoch(params, adam, partitions, endpoint_states, lr, beta1, beta2, eps)
   wall = (Time.instant - t0).total_seconds
   ck_msg = ""
   if checkpoint_every > 0 && epoch % checkpoint_every == 0
@@ -554,8 +625,8 @@ endpoint_states = Array(Float64).new(reader.radix_count * d_model, 0.0)
     save_checkpoint(ck, params, adam, epoch, seed)
     ck_msg = " checkpoint=#{ck}"
   end
-  printf "epoch %6d  nll %.6f  ppl %.6f  events %d  wall %.3fs  adam_step %d%s\n",
-    epoch, nll, ppl, trained_events, wall, adam.step, ck_msg
+  printf "epoch %6d  nll %.6f  ppl %.6f  events %d  updates %d  wall %.3fs  adam_step %d%s\n",
+    epoch, nll, ppl, trained_events, updates, wall, adam.step, ck_msg
 end
 
 save_checkpoint(save_path, params, adam, start_epoch + epochs, seed)
