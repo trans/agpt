@@ -215,6 +215,14 @@ build-agpt-dist-sim: build-stubs
     mkdir -p bin
     timeout 10m crystal build src/tools/agpt_dist_sim.cr -o bin/agpt_dist_sim --release --link-flags="{{root}}/build/kernels.o -lstdc++"
 
+# Build joint-distribution probe for prefix/suffix masked-LM combiner hypothesis.
+# Scores held-out CE under P-only, S-only, product, geometric-mean, and linear-
+# mixture combinations of forward+reverse trie distributions. Tests whether the
+# joint context distribution carries signal beyond either side alone.
+build-prefix-suffix-combine-ppl: build-stubs
+    mkdir -p bin
+    timeout 10m crystal build src/tools/prefix_suffix_combine_ppl.cr -o bin/prefix_suffix_combine_ppl --release --link-flags="{{root}}/build/kernels.o -lstdc++"
+
 # Build wormhole-table builder for the topological-navigation experiment.
 # Per cap, emits a re-entry edge to a prefix-trie node (depth-1 by default).
 # Variants:
