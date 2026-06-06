@@ -223,6 +223,14 @@ build-prefix-suffix-combine-ppl: build-stubs
     mkdir -p bin
     timeout 10m crystal build src/tools/prefix_suffix_combine_ppl.cr -o bin/prefix_suffix_combine_ppl --release --link-flags="{{root}}/build/kernels.o -lstdc++"
 
+# Build linear-recurrence AGPT trainer. f_θ = W_h h_p + W_x emb(x) + b, no
+# activation. Parallel to bin/agpt_train_recur (Codex's tanh-Elman) — same
+# trie machinery, params, optimizer, save format semantics; magic 'ACGL'.
+# For head-to-head measurement of how much per-step nonlinearity contributes.
+build-agpt-train-recur-linear: build-stubs
+    mkdir -p bin
+    timeout 10m crystal build src/tools/agpt_train_recur_linear.cr -o bin/agpt_train_recur_linear --release --link-flags="{{root}}/build/kernels.o -lstdc++"
+
 # Build wormhole-table builder for the topological-navigation experiment.
 # Per cap, emits a re-entry edge to a prefix-trie node (depth-1 by default).
 # Variants:
