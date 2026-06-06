@@ -6,6 +6,7 @@
 #include <chrono>
 #include <cerrno>
 #include <climits>
+#include <filesystem>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -160,6 +161,20 @@ static std::string epoch_checkpoint_path_v2(const std::string& save_path, int ep
     return save_path + suffix;
 }
 
+static void ensure_parent_dir_for_path_v2(const std::string& path) {
+    std::filesystem::path p(path);
+    std::filesystem::path parent = p.parent_path();
+    if (!parent.empty()) {
+        std::error_code ec;
+        std::filesystem::create_directories(parent, ec);
+        if (ec) {
+            std::fprintf(stderr, "agpt_train_v2: cannot create model parent directory %s: %s\n",
+                         parent.string().c_str(), ec.message().c_str());
+            std::exit(1);
+        }
+    }
+}
+
 static void save_device_weights_checkpoint_v2(const char* label,
                                               int epoch,
                                               const std::string& path,
@@ -174,6 +189,7 @@ static void save_device_weights_checkpoint_v2(const char* label,
     AGPT_V2_CUDA_CHECK(cudaMemcpy(h_updated, d_weights,
                                   (size_t)model.total_floats * sizeof(float),
                                   cudaMemcpyDeviceToHost));
+    ensure_parent_dir_for_path_v2(path);
     agpt_v2::save_model_weights_v2(path.c_str(), model, h_updated);
     std::free(h_updated);
     std::printf("  %s: saved epoch %d checkpoint to %s\n", label, epoch, path.c_str());
@@ -1213,6 +1229,7 @@ int main(int argc, char** argv) {
         }
 
         if (save_path) {
+            ensure_parent_dir_for_path_v2(save_path);
             agpt_v2::save_model_weights_v2(save_path, model, h_weights);
             std::printf("  train-growth: saved final weights to %s\n", save_path);
         } else {
@@ -1692,6 +1709,7 @@ int main(int argc, char** argv) {
                     AGPT_V2_CUDA_CHECK(cudaMemcpy(h_updated, runtime.d_weights,
                                                   (size_t)model.total_floats * sizeof(float),
                                                   cudaMemcpyDeviceToHost));
+                    ensure_parent_dir_for_path_v2(save_path);
                     agpt_v2::save_model_weights_v2(save_path, model, h_updated);
                     std::printf("  train-epoch: saved final weights to %s\n", save_path);
                     std::free(h_updated);

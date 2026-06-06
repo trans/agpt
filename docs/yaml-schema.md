@@ -322,6 +322,7 @@ every other section is relaxed inside `experimental`:** trainers emit
 | `experimental.position_data_dir` | path | absent | v2 | Required when `experimental.rope_position_mode` uses sampled positions. Directory must contain `substrings.bin` and `prefix_position_table.bin`. |
 | `experimental.pos_sample_seed` | integer | `train.seed` | v2 | Optional non-negative override for sampled-position selection. |
 | `experimental.successor_prefix_table` | path | absent | v2 | Optional deterministic successor-prefix table (`ASUC` v1). Appends the successor cap path as zero-loss continuation rows for direct longer-context attention experiments. |
+| `experimental.loss_depth_min` / `experimental.loss_depth_max` | int pair | absent | v2 | Optional inclusive query-depth filter for direct CE loss. Queries outside the range remain in the attention/context graph but get zero loss weight. Set both to `16` for cap-only depth-16 training. |
 
 ### Discipline
 

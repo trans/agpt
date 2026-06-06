@@ -64,6 +64,8 @@ struct TrainerConfig {
     int rope_position_offset = -1;
     bool rope_phase_shuffle = false;
     unsigned rope_phase_shuffle_seed = 1;
+    int loss_depth_min = -1;
+    int loss_depth_max = -1;
 };
 
 struct RuntimeShape {

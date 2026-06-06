@@ -1,0 +1,104 @@
+{
+  "schema": "agpt_eval.v1",
+  "metrics": {
+    "lm_eval_rolling_word_perplexity": 51044.36367823719,
+    "lm_eval_rolling_byte_perplexity": 7.264570827360951,
+    "lm_eval_rolling_bits_per_byte": 2.86087756956809,
+    "agpt_fixed_token_perplexity": 6.894603147085973
+  },
+  "lm_eval": {
+    "d128l6-depth16-pd1-adam-lr0010-32ep-cq50k-successor-end_epoch_000008_holdout": {
+      "name": "d128l6-depth16-pd1-adam-lr0010-32ep-cq50k-successor-end_epoch_000008_holdout",
+      "alias": "d128l6-depth16-pd1-adam-lr0010-32ep-cq50k-successor-end_epoch_000008_holdout",
+      "sample_len": 10,
+      "word_perplexity,none": 51044.36367823719,
+      "word_perplexity_stderr,none": "N/A",
+      "byte_perplexity,none": 7.264570827360951,
+      "byte_perplexity_stderr,none": "N/A",
+      "bits_per_byte,none": 2.86087756956809,
+      "bits_per_byte_stderr,none": "N/A"
+    }
+  },
+  "agpt_fixed": {
+    "protocol": "agpt_fixed_token",
+    "perplexity": 6.894603147085973,
+    "tokens_evaluated": 55600,
+    "target_start": null,
+    "target_stop": null,
+    "context_tokens": 16,
+    "vocab_size": 65,
+    "model_seq_len": 16,
+    "per_chunk": [
+      {
+        "path": "/home/trans/Projects/agpt/.worktrees/successor-prefix-attention/data/.splits/4fa9aec1db6b3aea/heldout_chunks/chunk_00.txt",
+        "perplexity": 6.486584341068985,
+        "tokens_evaluated": 5560,
+        "target_start": 16,
+        "target_stop": 5576
+      },
+      {
+        "path": "/home/trans/Projects/agpt/.worktrees/successor-prefix-attention/data/.splits/4fa9aec1db6b3aea/heldout_chunks/chunk_01.txt",
+        "perplexity": 6.201666437611629,
+        "tokens_evaluated": 5560,
+        "target_start": 16,
+        "target_stop": 5576
+      },
+      {
+        "path": "/home/trans/Projects/agpt/.worktrees/successor-prefix-attention/data/.splits/4fa9aec1db6b3aea/heldout_chunks/chunk_02.txt",
+        "perplexity": 7.2156868060308055,
+        "tokens_evaluated": 5560,
+        "target_start": 16,
+        "target_stop": 5576
+      },
+      {
+        "path": "/home/trans/Projects/agpt/.worktrees/successor-prefix-attention/data/.splits/4fa9aec1db6b3aea/heldout_chunks/chunk_03.txt",
+        "perplexity": 7.2131274527932145,
+        "tokens_evaluated": 5560,
+        "target_start": 16,
+        "target_stop": 5576
+      },
+      {
+        "path": "/home/trans/Projects/agpt/.worktrees/successor-prefix-attention/data/.splits/4fa9aec1db6b3aea/heldout_chunks/chunk_04.txt",
+        "perplexity": 7.605921892593083,
+        "tokens_evaluated": 5560,
+        "target_start": 16,
+        "target_stop": 5576
+      },
+      {
+        "path": "/home/trans/Projects/agpt/.worktrees/successor-prefix-attention/data/.splits/4fa9aec1db6b3aea/heldout_chunks/chunk_05.txt",
+        "perplexity": 6.423844811228789,
+        "tokens_evaluated": 5560,
+        "target_start": 16,
+        "target_stop": 5576
+      },
+      {
+        "path": "/home/trans/Projects/agpt/.worktrees/successor-prefix-attention/data/.splits/4fa9aec1db6b3aea/heldout_chunks/chunk_06.txt",
+        "perplexity": 7.82336691874544,
+        "tokens_evaluated": 5560,
+        "target_start": 16,
+        "target_stop": 5576
+      },
+      {
+        "path": "/home/trans/Projects/agpt/.worktrees/successor-prefix-attention/data/.splits/4fa9aec1db6b3aea/heldout_chunks/chunk_07.txt",
+        "perplexity": 6.912938940129935,
+        "tokens_evaluated": 5560,
+        "target_start": 16,
+        "target_stop": 5576
+      },
+      {
+        "path": "/home/trans/Projects/agpt/.worktrees/successor-prefix-attention/data/.splits/4fa9aec1db6b3aea/heldout_chunks/chunk_08.txt",
+        "perplexity": 6.77541288280297,
+        "tokens_evaluated": 5560,
+        "target_start": 16,
+        "target_stop": 5576
+      },
+      {
+        "path": "/home/trans/Projects/agpt/.worktrees/successor-prefix-attention/data/.splits/4fa9aec1db6b3aea/heldout_chunks/chunk_09.txt",
+        "perplexity": 6.474822863079793,
+        "tokens_evaluated": 5560,
+        "target_start": 16,
+        "target_stop": 5576
+      }
+    ]
+  }
+}

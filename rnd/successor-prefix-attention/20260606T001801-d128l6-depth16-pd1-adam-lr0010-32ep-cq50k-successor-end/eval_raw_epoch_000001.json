@@ -1,0 +1,104 @@
+{
+  "schema": "agpt_eval.v1",
+  "metrics": {
+    "lm_eval_rolling_word_perplexity": 3382913.5562264393,
+    "lm_eval_rolling_byte_perplexity": 15.645249082138857,
+    "lm_eval_rolling_bits_per_byte": 3.967652722255328,
+    "agpt_fixed_token_perplexity": 15.72945248605288
+  },
+  "lm_eval": {
+    "d128l6-depth16-pd1-adam-lr0010-32ep-cq50k-successor-end_epoch_000001_holdout": {
+      "name": "d128l6-depth16-pd1-adam-lr0010-32ep-cq50k-successor-end_epoch_000001_holdout",
+      "alias": "d128l6-depth16-pd1-adam-lr0010-32ep-cq50k-successor-end_epoch_000001_holdout",
+      "sample_len": 10,
+      "word_perplexity,none": 3382913.5562264393,
+      "word_perplexity_stderr,none": "N/A",
+      "byte_perplexity,none": 15.645249082138857,
+      "byte_perplexity_stderr,none": "N/A",
+      "bits_per_byte,none": 3.967652722255328,
+      "bits_per_byte_stderr,none": "N/A"
+    }
+  },
+  "agpt_fixed": {
+    "protocol": "agpt_fixed_token",
+    "perplexity": 15.72945248605288,
+    "tokens_evaluated": 55600,
+    "target_start": null,
+    "target_stop": null,
+    "context_tokens": 16,
+    "vocab_size": 65,
+    "model_seq_len": 16,
+    "per_chunk": [
+      {
+        "path": "/home/trans/Projects/agpt/.worktrees/successor-prefix-attention/data/.splits/4fa9aec1db6b3aea/heldout_chunks/chunk_00.txt",
+        "perplexity": 15.905479340615459,
+        "tokens_evaluated": 5560,
+        "target_start": 16,
+        "target_stop": 5576
+      },
+      {
+        "path": "/home/trans/Projects/agpt/.worktrees/successor-prefix-attention/data/.splits/4fa9aec1db6b3aea/heldout_chunks/chunk_01.txt",
+        "perplexity": 15.737949354210514,
+        "tokens_evaluated": 5560,
+        "target_start": 16,
+        "target_stop": 5576
+      },
+      {
+        "path": "/home/trans/Projects/agpt/.worktrees/successor-prefix-attention/data/.splits/4fa9aec1db6b3aea/heldout_chunks/chunk_02.txt",
+        "perplexity": 16.010924004862343,
+        "tokens_evaluated": 5560,
+        "target_start": 16,
+        "target_stop": 5576
+      },
+      {
+        "path": "/home/trans/Projects/agpt/.worktrees/successor-prefix-attention/data/.splits/4fa9aec1db6b3aea/heldout_chunks/chunk_03.txt",
+        "perplexity": 15.966686602654056,
+        "tokens_evaluated": 5560,
+        "target_start": 16,
+        "target_stop": 5576
+      },
+      {
+        "path": "/home/trans/Projects/agpt/.worktrees/successor-prefix-attention/data/.splits/4fa9aec1db6b3aea/heldout_chunks/chunk_04.txt",
+        "perplexity": 16.751662840735957,
+        "tokens_evaluated": 5560,
+        "target_start": 16,
+        "target_stop": 5576
+      },
+      {
+        "path": "/home/trans/Projects/agpt/.worktrees/successor-prefix-attention/data/.splits/4fa9aec1db6b3aea/heldout_chunks/chunk_05.txt",
+        "perplexity": 16.459670521831008,
+        "tokens_evaluated": 5560,
+        "target_start": 16,
+        "target_stop": 5576
+      },
+      {
+        "path": "/home/trans/Projects/agpt/.worktrees/successor-prefix-attention/data/.splits/4fa9aec1db6b3aea/heldout_chunks/chunk_06.txt",
+        "perplexity": 14.823199732815308,
+        "tokens_evaluated": 5560,
+        "target_start": 16,
+        "target_stop": 5576
+      },
+      {
+        "path": "/home/trans/Projects/agpt/.worktrees/successor-prefix-attention/data/.splits/4fa9aec1db6b3aea/heldout_chunks/chunk_07.txt",
+        "perplexity": 15.42831305066875,
+        "tokens_evaluated": 5560,
+        "target_start": 16,
+        "target_stop": 5576
+      },
+      {
+        "path": "/home/trans/Projects/agpt/.worktrees/successor-prefix-attention/data/.splits/4fa9aec1db6b3aea/heldout_chunks/chunk_08.txt",
+        "perplexity": 14.738913899801949,
+        "tokens_evaluated": 5560,
+        "target_start": 16,
+        "target_stop": 5576
+      },
+      {
+        "path": "/home/trans/Projects/agpt/.worktrees/successor-prefix-attention/data/.splits/4fa9aec1db6b3aea/heldout_chunks/chunk_09.txt",
+        "perplexity": 15.588524527858308,
+        "tokens_evaluated": 5560,
+        "target_start": 16,
+        "target_stop": 5576
+      }
+    ]
+  }
+}

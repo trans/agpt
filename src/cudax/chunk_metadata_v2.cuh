@@ -195,10 +195,16 @@ static inline ChunkMetadataV2 build_chunk_metadata_v2(const TrainerConfig& cfg,
         for (int j = 0; j < own_len; j++) {
             out.h_query_to_node[q_fill + j] = i;
             out.h_token_ids[q_fill + j] = trie.edge_tokens_flat[edge_start + j];
-            out.h_query_weights[q_fill + j] = query_weight;
-            out.total_query_weight += (double)query_weight;
+            int query_depth = fcd + j;
+            float depth_query_weight = query_weight;
+            if (cfg.loss_depth_min > 0 &&
+                (query_depth < cfg.loss_depth_min || query_depth > cfg.loss_depth_max)) {
+                depth_query_weight = 0.0f;
+            }
+            out.h_query_weights[q_fill + j] = depth_query_weight;
+            out.total_query_weight += (double)depth_query_weight;
             out.h_char_pos[q_fill + j] = edge_start + j;
-            out.h_query_depth[q_fill + j] = fcd + j;
+            out.h_query_depth[q_fill + j] = query_depth;
             int pos = fcd + j - 1;
             if (sampled_start >= 0) {
                 int sampled_pos = (cfg.rope_position_mode == RopePositionModeV2::SampledBin)

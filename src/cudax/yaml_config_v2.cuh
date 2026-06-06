@@ -262,6 +262,8 @@ static bool yaml_is_known_experimental_field_v2(const std::string& path) {
         "experimental.position_data_dir",
         "experimental.pos_sample_seed",
         "experimental.successor_prefix_table",
+        "experimental.loss_depth_min",
+        "experimental.loss_depth_max",
     };
     return fields.find(path) != fields.end();
 }
@@ -608,6 +610,26 @@ static bool apply_yaml_config_v2(const char* config_path,
     }
     if (!yaml_expect_string_v2(doc, "experimental.position_data_dir", yaml_cfg.position_data_dir, false)) return false;
     if (!yaml_expect_string_v2(doc, "experimental.successor_prefix_table", yaml_cfg.successor_prefix_table, false)) return false;
+    bool has_loss_depth_min = false;
+    bool has_loss_depth_max = false;
+    if (!yaml_get_int_v2(doc, "experimental.loss_depth_min", cfg.loss_depth_min, &has_loss_depth_min)) return false;
+    if (!yaml_get_int_v2(doc, "experimental.loss_depth_max", cfg.loss_depth_max, &has_loss_depth_max)) return false;
+    if (has_loss_depth_min && cfg.loss_depth_min < 1) {
+        std::fprintf(stderr, "agpt_train_v2: YAML experimental.loss_depth_min must be >= 1\n");
+        return false;
+    }
+    if (has_loss_depth_max && cfg.loss_depth_max < 1) {
+        std::fprintf(stderr, "agpt_train_v2: YAML experimental.loss_depth_max must be >= 1\n");
+        return false;
+    }
+    if (has_loss_depth_min != has_loss_depth_max) {
+        std::fprintf(stderr, "agpt_train_v2: experimental.loss_depth_min and experimental.loss_depth_max must be set together\n");
+        return false;
+    }
+    if (has_loss_depth_min && cfg.loss_depth_min > cfg.loss_depth_max) {
+        std::fprintf(stderr, "agpt_train_v2: experimental.loss_depth_min must be <= experimental.loss_depth_max\n");
+        return false;
+    }
     int pos_sample_seed = 0;
     bool has_pos_sample_seed = false;
     if (!yaml_get_int_v2(doc, "experimental.pos_sample_seed", pos_sample_seed, &has_pos_sample_seed)) return false;

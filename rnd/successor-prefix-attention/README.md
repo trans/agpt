@@ -164,3 +164,103 @@ bin/agpt_train_v2 \
 Result: all 72 chunks of the largest unit completed and a single Adam step was
 applied. This exercises later cap-heavy chunks, not only the shallow first
 chunk.
+
+## 2026-06-06 Findings
+
+### Successor-prefix result
+
+The longer successor-prefix run showed that the mechanism can learn:
+
+| run | epoch | fixed PPL | byte PPL | train wall |
+|---|---:|---:|---:|---:|
+| `20260606T001801-d128l6-depth16-pd1-adam-lr0010-32ep-cq50k-successor-end` | 32 | 4.7477 | 5.2333 | 3416s |
+
+However, the current successor-prefix objective is not a clean causal LM
+objective. It appends the real successor cap `B` as context while still scoring
+the source cap path `A`. This lets shallower/current `A` queries attend to
+future `B` rows, so the result must be treated as a leakage diagnostic rather
+than a valid PPL comparison.
+
+The leakage issue is a masking issue, not fundamentally a row-construction
+issue. A valid long-context attention experiment could build rows for a longer
+path once and apply a causal/progressive mask:
+
+- query positions in `A` may see only prior `A` rows;
+- query positions in `B` may see `A` plus prior `B` rows;
+- loss is applied only to rows whose visible context is causal.
+
+This avoids reconstructing separate `A` and `B` views for every depth, but it
+does not fit the current depth-sorted chunk layout cleanly. It would likely
+require a path/sequence-oriented chunk format or a mask-aware attention kernel.
+
+### Cap-only result
+
+We added an experimental depth filter:
+
+```yaml
+experimental:
+  loss_depth_min: 16
+  loss_depth_max: 16
+```
+
+Rows outside the depth range remain in the attention/context graph but get zero
+CE loss weight. This tested whether interior prefix losses are necessary, or
+whether depth-16 cap losses can train through the path.
+
+| run | epoch | fixed PPL | byte PPL | train wall |
+|---|---:|---:|---:|---:|
+| `20260606T043410-d128l6-depth16-pd1-adam-lr0010-32ep-cq50k-cap-only` | 32 | 5.7720 | 9.5786 | 1122s |
+
+Cap-only learns the fixed depth-16 target, but rolling byte PPL is much worse
+and even degrades from epoch 16 to epoch 32. This is consistent with the current
+attention implementation being a poor hybrid for cap-only training:
+
+- nodes do not have intrinsic recurrent hidden states that represent ancestry;
+- path information is supplied by explicit ancestor K/V attention;
+- descendant losses only backpropagate through a partial ancestor K/V bridge;
+- interior rows lose their full local CE training signal when masked out.
+
+The result argues against pure cap-only loss for this attention implementation.
+A banded loss, for example depths `8..16`, may still be worth testing, but the
+larger lesson is architectural.
+
+### Attention AGPT architecture note
+
+Current CUDAX attention AGPT does not implement the abstract paper recurrence
+
+```text
+h_child = f_theta(h_parent, token)
+```
+
+directly. Each query row starts from its token embedding, then attends over
+ancestor K/V gathered from the compact cache. Ancestor path information is
+therefore external to the row rather than intrinsic to a memoized node state.
+
+The `anc_grad` path is also specialized: descendant attention gradients into
+ancestor K/V are accumulated and used to update `W_k` and `W_v`, but they do not
+fully backpropagate through each ancestor row's complete transformer
+computation. This helps explain both the runtime cost and the cap-only
+degradation.
+
+Conclusion: keep this attention implementation as an experimental baseline, but
+do not over-optimize it before testing a cleaner AGPT instantiation.
+
+## Next Line: Recurrent `f_theta`
+
+The AGPT framework in `docs/paper.md` and `/home/trans/Projects/agpt/notes/agpt.cr`
+does not require attention. It only requires a prefix-state transition:
+
+```text
+h_{p.x} = f_theta(h_p, x)
+```
+
+Next research line:
+
+```text
+h_child = tanh(W_h h_parent + W_x emb[x] + b)
+```
+
+This should be implemented as a true stack/recurrent traversal where each node
+state intrinsically represents its ancestry. It will test whether AGPT's real
+advantage is the count-weighted prefix objective and head geometry rather than
+the current transformer-over-path implementation.
