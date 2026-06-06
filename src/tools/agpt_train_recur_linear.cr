@@ -2,24 +2,52 @@ require "option_parser"
 require "../agpt"
 
 # Linear-recurrence AGPT trainer. f_θ = W_h · h_p + W_x · emb(x) + b.
-# No per-step activation. Tests how much of the framework's leverage holds
-# once the per-step nonlinearity is removed; the softmax readout supplies
-# the only nonlinearity in the model.
+# No per-step activation. Tests how much of the framework's leverage
+# holds once the per-step nonlinearity is removed; the softmax readout
+# supplies the only nonlinearity in the model.
 #
 # Forked surgically from `agpt_train_recur.cr` (tanh-Elman). Identical
 # parameter layout (emb, w_h, w_x, b, w_o, c_o), Adam state, save format
-# semantics, and CLI — the only changes are:
-#   - forward_edge: drop `Math.tanh(z)`; assign `z` directly
+# semantics, openblas hot path, and CLI — the only changes are:
+#   - forward_edge: drop `Math.tanh` after the accumulate
 #   - backward: tanh-Jacobian factor `(1 − h²)` becomes 1
-#   - magic word distinguishes the checkpoint family
+#   - magic word distinguishes the checkpoint family ('ACGL' vs 'ACGR')
 # This keeps the head-to-head comparison with tanh-Elman clean: any PPL
 # delta is attributable to the missing activation, not to differences in
-# parameter shape, optimizer cadence, or counting.
+# parameter shape, optimizer cadence, BLAS path, or counting.
 
 include MicroGPT::AGPT
 
 MAGIC_RECUR_LIN = 0x4C474341_u32 # 'ACGL'  (Linear cousin of 'ACGR')
 VERSION_RECUR   =          1_i32
+
+@[Link("openblas_64")]
+lib LibCBLAS
+  fun dgemm = cblas_dgemm(layout : Int64, trans_a : Int64, trans_b : Int64,
+                          m : Int64, n : Int64, k : Int64,
+                          alpha : Float64,
+                          a : Float64*, lda : Int64,
+                          b : Float64*, ldb : Int64,
+                          beta : Float64,
+                          c : Float64*, ldc : Int64)
+  fun dgemv = cblas_dgemv(layout : Int64, trans : Int64,
+                          m : Int64, n : Int64,
+                          alpha : Float64,
+                          a : Float64*, lda : Int64,
+                          x : Float64*, incx : Int64,
+                          beta : Float64,
+                          y : Float64*, incy : Int64)
+  fun dger = cblas_dger(layout : Int64,
+                        m : Int64, n : Int64,
+                        alpha : Float64,
+                        x : Float64*, incx : Int64,
+                        y : Float64*, incy : Int64,
+                        a : Float64*, lda : Int64)
+end
+
+CBLAS_ROW_MAJOR = 101_i64
+CBLAS_NO_TRANS  = 111_i64
+CBLAS_TRANS     = 112_i64
 
 record RecurRecord,
   id : Int32,
@@ -178,25 +206,57 @@ def estimate_loss_events(records : Array(RecurRecord)) : Int64
   total
 end
 
-# Linear recurrence: h_{p·x} = W_h h_p + W_x emb(x) + b. No activation.
-def forward_edge(params : RecurParams, parent_state : Array(Float64), edge : Array(Int32), states : Array(Float64))
+# Precompute x_proj[v, d] = emb[v, d] · w_x^T[d, d]; used by forward_edge so
+# the per-token (W_x · emb) is a table lookup, not a matmul. Recomputed once
+# per epoch (params change between epochs).
+def compute_x_proj(params : RecurParams) : Array(Float64)
+  v = params.vocab_size
   d = params.d_model
-  states.fill(0.0)
-  d.times { |j| states[j] = parent_state[j] }
+  vi = v.to_i64
+  di = d.to_i64
+  proj = Array(Float64).new(v * d, 0.0)
+  LibCBLAS.dgemm(CBLAS_ROW_MAJOR, CBLAS_NO_TRANS, CBLAS_TRANS,
+    vi, di, di,
+    1.0,
+    params.emb.to_unsafe, di,
+    params.w_x.to_unsafe, di,
+    0.0,
+    proj.to_unsafe, di)
+  proj
+end
+
+# Linear recurrence: h_{p·x} = W_h · h_p + W_x · emb(x) + b. No activation.
+def forward_edge(
+  params : RecurParams,
+  x_proj : Array(Float64),
+  endpoint_states : Array(Float64),
+  parent_id : Int32,
+  edge : Array(Int32),
+  states : Array(Float64),
+)
+  d = params.d_model
+  di = d.to_i64
+  if parent_id != 0
+    parent_off = parent_id * d
+    d.times { |j| states[j] = endpoint_states[parent_off + j] }
+  else
+    d.times { |j| states[j] = 0.0 }
+  end
   edge.each_with_index do |tok, pos|
     prev_off = pos * d
     cur_off = (pos + 1) * d
-    d.times do |j|
-      z = params.b[j]
-      wh_base = j * d
-      wx_base = j * d
-      emb_base = tok * d
-      d.times do |k|
-        z += params.w_h[wh_base + k] * states[prev_off + k]
-        z += params.w_x[wx_base + k] * params.emb[emb_base + k]
-      end
-      states[cur_off + j] = z
-    end
+    x_base = tok * d
+    # states[cur] = b + x_proj[tok]
+    d.times { |j| states[cur_off + j] = params.b[j] + x_proj[x_base + j] }
+    # states[cur] += w_h · states[prev]
+    LibCBLAS.dgemv(CBLAS_ROW_MAJOR, CBLAS_NO_TRANS,
+      di, di,
+      1.0,
+      params.w_h.to_unsafe, di,
+      states.to_unsafe + prev_off, 1_i64,
+      1.0,
+      states.to_unsafe + cur_off, 1_i64)
+    # NO activation (linear variant). h = z directly.
   end
 end
 
@@ -220,19 +280,25 @@ def add_loss_and_head_grads(
 ) : {Float64, Int64}
   d = params.d_model
   v = params.vocab_size
+  di = d.to_i64
+  vi = v.to_i64
   logits = Array(Float64).new(v, 0.0)
+  grad_logits = Array(Float64).new(v, 0.0)
   loss = 0.0
   events = 0_i64
 
   records.each do |r|
     next if r.counts.empty?
     state_off = r.id * d
-    v.times do |tok|
-      z = params.c_o[tok]
-      wo_base = tok * d
-      d.times { |j| z += params.w_o[wo_base + j] * endpoint_states[state_off + j] }
-      logits[tok] = z
-    end
+    v.times { |tok| logits[tok] = params.c_o[tok] }
+    # logits += w_o · h
+    LibCBLAS.dgemv(CBLAS_ROW_MAJOR, CBLAS_NO_TRANS,
+      vi, di,
+      1.0,
+      params.w_o.to_unsafe, di,
+      endpoint_states.to_unsafe + state_off, 1_i64,
+      1.0,
+      logits.to_unsafe, 1_i64)
     softmax_logits!(logits)
 
     count_total = 0_i64
@@ -244,22 +310,28 @@ def add_loss_and_head_grads(
     end
     events += count_total
 
-    v.times do |tok|
-      g = logits[tok] * count_total.to_f
-      r.counts.each do |pair|
-        if pair[0] == tok
-          g -= pair[1].to_f
-          break
-        end
-      end
-      grads.c_o[tok] += g
-      wo_base = tok * d
-      d.times do |j|
-        h = endpoint_states[state_off + j]
-        grads.w_o[wo_base + j] += g * h
-        dh[state_off + j] += params.w_o[wo_base + j] * g
-      end
+    count_total_f = count_total.to_f
+    v.times { |tok| grad_logits[tok] = logits[tok] * count_total_f }
+    r.counts.each do |pair|
+      grad_logits[pair[0]] -= pair[1].to_f
     end
+
+    v.times { |tok| grads.c_o[tok] += grad_logits[tok] }
+    # grads.w_o += outer(grad_logits, h)
+    LibCBLAS.dger(CBLAS_ROW_MAJOR,
+      vi, di,
+      1.0,
+      grad_logits.to_unsafe, 1_i64,
+      endpoint_states.to_unsafe + state_off, 1_i64,
+      grads.w_o.to_unsafe, di)
+    # dh += w_o^T · grad_logits
+    LibCBLAS.dgemv(CBLAS_ROW_MAJOR, CBLAS_TRANS,
+      vi, di,
+      1.0,
+      params.w_o.to_unsafe, di,
+      grad_logits.to_unsafe, 1_i64,
+      1.0,
+      dh.to_unsafe + state_off, 1_i64)
   end
 
   {loss, events}
@@ -271,22 +343,21 @@ def train_epoch(
   records : Array(RecurRecord),
   records_desc : Array(RecurRecord),
   endpoint_states : Array(Float64),
+  x_proj : Array(Float64),
   lr : Float64,
   beta1 : Float64,
   beta2 : Float64,
   eps : Float64,
 ) : {Float64, Float64, Int64}
   d = params.d_model
+  di = d.to_i64
   n_state = endpoint_states.size
-  zero_state = Array(Float64).new(d, 0.0)
   edge_states = [] of Float64
 
   records.each do |r|
-    parent_off = r.parent_id * d
-    parent_state = r.parent_id == 0 ? zero_state : endpoint_states[parent_off, d]
     needed = (r.edge_tokens.size + 1) * d
     edge_states = Array(Float64).new(needed, 0.0) if edge_states.size != needed
-    forward_edge(params, parent_state, r.edge_tokens, edge_states)
+    forward_edge(params, x_proj, endpoint_states, r.parent_id, r.edge_tokens, edge_states)
     end_off = r.edge_tokens.size * d
     state_off = r.id * d
     d.times { |j| endpoint_states[state_off + j] = edge_states[end_off + j] }
@@ -297,15 +368,16 @@ def train_epoch(
   loss, events = add_loss_and_head_grads(params, grads, endpoint_states, dh, records)
   raise "no loss events found in trie records" if events == 0
 
+  dh_cur = Array(Float64).new(d, 0.0)
+  dh_prev = Array(Float64).new(d, 0.0)
+  dz = Array(Float64).new(d, 0.0)
   records_desc.each do |r|
     next if r.edge_tokens.empty?
     parent_off = r.parent_id * d
-    parent_state = r.parent_id == 0 ? zero_state : endpoint_states[parent_off, d]
     needed = (r.edge_tokens.size + 1) * d
     edge_states = Array(Float64).new(needed, 0.0) if edge_states.size != needed
-    forward_edge(params, parent_state, r.edge_tokens, edge_states)
+    forward_edge(params, x_proj, endpoint_states, r.parent_id, r.edge_tokens, edge_states)
 
-    dh_cur = Array(Float64).new(d, 0.0)
     state_off = r.id * d
     d.times { |j| dh_cur[j] = dh[state_off + j] }
 
@@ -313,28 +385,45 @@ def train_epoch(
     while pos >= 0
       tok = r.edge_tokens[pos]
       prev_off_local = pos * d
-      _cur_off_local = (pos + 1) * d
-      # Linear recurrence: ∂z/∂h_prev = W_h, ∂z/∂emb = W_x, ∂z/∂b = 1.
-      # No activation Jacobian; dz = dh_cur straight through.
-      dz = Array(Float64).new(d, 0.0)
+      # Linear recurrence: no activation Jacobian. dz = dh_cur straight through.
       d.times do |j|
         dz[j] = dh_cur[j]
         grads.b[j] += dz[j]
       end
 
-      dh_prev = Array(Float64).new(d, 0.0)
+      dh_prev.fill(0.0)
       emb_base = tok * d
-      d.times do |j|
-        wh_base = j * d
-        wx_base = j * d
-        d.times do |k|
-          grads.w_h[wh_base + k] += dz[j] * edge_states[prev_off_local + k]
-          grads.w_x[wx_base + k] += dz[j] * params.emb[emb_base + k]
-          grads.emb[emb_base + k] += dz[j] * params.w_x[wx_base + k]
-          dh_prev[k] += dz[j] * params.w_h[wh_base + k]
-        end
-      end
-      dh_cur = dh_prev
+      # grads.w_h += outer(dz, h_prev)
+      LibCBLAS.dger(CBLAS_ROW_MAJOR,
+        di, di,
+        1.0,
+        dz.to_unsafe, 1_i64,
+        edge_states.to_unsafe + prev_off_local, 1_i64,
+        grads.w_h.to_unsafe, di)
+      # grads.w_x += outer(dz, emb)
+      LibCBLAS.dger(CBLAS_ROW_MAJOR,
+        di, di,
+        1.0,
+        dz.to_unsafe, 1_i64,
+        params.emb.to_unsafe + emb_base, 1_i64,
+        grads.w_x.to_unsafe, di)
+      # grads.emb += w_x^T · dz
+      LibCBLAS.dgemv(CBLAS_ROW_MAJOR, CBLAS_TRANS,
+        di, di,
+        1.0,
+        params.w_x.to_unsafe, di,
+        dz.to_unsafe, 1_i64,
+        1.0,
+        grads.emb.to_unsafe + emb_base, 1_i64)
+      # dh_prev = w_h^T · dz
+      LibCBLAS.dgemv(CBLAS_ROW_MAJOR, CBLAS_TRANS,
+        di, di,
+        1.0,
+        params.w_h.to_unsafe, di,
+        dz.to_unsafe, 1_i64,
+        0.0,
+        dh_prev.to_unsafe, 1_i64)
+      dh_cur, dh_prev = dh_prev, dh_cur
       pos -= 1
     end
 
@@ -423,7 +512,7 @@ events = estimate_loss_events(records)
 expanded_chars = records.sum(0_i64) { |r| r.edge_tokens.size.to_i64 }
 max_endpoint_depth = records.empty? ? 0 : records.max_of(&.endpoint_depth)
 
-puts "AGPT linear-recurrent trainer"
+puts "AGPT linear-recurrent trainer (openblas hot path)"
 puts "  trie: #{trie_dir}"
 puts "  radix_records: #{records.size}#{max_nodes > 0 ? " (truncated)" : ""}"
 puts "  expanded_states: #{expanded_chars}"
@@ -456,7 +545,8 @@ endpoint_states = Array(Float64).new(reader.radix_count * d_model, 0.0)
 
 (start_epoch + 1).upto(start_epoch + epochs) do |epoch|
   t0 = Time.instant
-  nll, ppl, trained_events = train_epoch(params, adam, records, records_desc, endpoint_states, lr, beta1, beta2, eps)
+  x_proj = compute_x_proj(params)
+  nll, ppl, trained_events = train_epoch(params, adam, records, records_desc, endpoint_states, x_proj, lr, beta1, beta2, eps)
   wall = (Time.instant - t0).total_seconds
   ck_msg = ""
   if checkpoint_every > 0 && epoch % checkpoint_every == 0

@@ -227,9 +227,9 @@ build-prefix-suffix-combine-ppl: build-stubs
 # activation. Parallel to bin/agpt_train_recur (Codex's tanh-Elman) — same
 # trie machinery, params, optimizer, save format semantics; magic 'ACGL'.
 # For head-to-head measurement of how much per-step nonlinearity contributes.
-build-agpt-train-recur-linear: build-stubs
+build-agpt-train-recur-linear:
     mkdir -p bin
-    timeout 10m crystal build src/tools/agpt_train_recur_linear.cr -o bin/agpt_train_recur_linear --release --link-flags="{{root}}/build/kernels.o -lstdc++"
+    timeout 10m crystal build src/tools/agpt_train_recur_linear.cr -o bin/agpt_train_recur_linear --release --link-flags="-lopenblas_64"
 
 # Build held-out PPL evaluator for recurrent-AGPT checkpoints. Loads either
 # tanh-Elman (ACGR) or linear (ACGL) checkpoint, walks held-out text through
