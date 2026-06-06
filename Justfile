@@ -231,6 +231,14 @@ build-agpt-train-recur-linear: build-stubs
     mkdir -p bin
     timeout 10m crystal build src/tools/agpt_train_recur_linear.cr -o bin/agpt_train_recur_linear --release --link-flags="{{root}}/build/kernels.o -lstdc++"
 
+# Build held-out PPL evaluator for recurrent-AGPT checkpoints. Loads either
+# tanh-Elman (ACGR) or linear (ACGL) checkpoint, walks held-out text through
+# the appropriate f_θ, reports mean NLL / PPL / BPC. The canonical "real
+# number" — trainers' in-loop PPL is count-weighted train CE, not heldout.
+build-agpt-recur-perplexity: build-stubs
+    mkdir -p bin
+    timeout 10m crystal build src/tools/agpt_recur_perplexity.cr -o bin/agpt_recur_perplexity --release --link-flags="{{root}}/build/kernels.o -lstdc++"
+
 # Build wormhole-table builder for the topological-navigation experiment.
 # Per cap, emits a re-entry edge to a prefix-trie node (depth-1 by default).
 # Variants:
