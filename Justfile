@@ -231,6 +231,14 @@ build-agpt-train-recur-linear:
     mkdir -p bin
     timeout 10m crystal build src/tools/agpt_train_recur_linear.cr -o bin/agpt_train_recur_linear --release --link-flags="-lopenblas_64"
 
+# Build linear-with-RMSNorm-recurrence trainer.
+# f_θ = RMSNorm(W_h h + W_x emb + b; γ). Tests whether per-step magnitude
+# control closes the depth-8 gap with tanh while keeping the cheap-linear
+# property. Magic 'ACGN'.
+build-agpt-train-recur-linear-rms:
+    mkdir -p bin
+    timeout 10m crystal build src/tools/agpt_train_recur_linear_rms.cr -o bin/agpt_train_recur_linear_rms --release --link-flags="-lopenblas_64"
+
 # Build held-out PPL evaluator for recurrent-AGPT checkpoints. Loads either
 # tanh-Elman (ACGR) or linear (ACGL) checkpoint, walks held-out text through
 # the appropriate f_θ, reports mean NLL / PPL / BPC. The canonical "real
