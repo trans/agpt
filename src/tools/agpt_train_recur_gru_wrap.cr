@@ -422,6 +422,255 @@ def softmax_logits!(logits : Array(Float64))
   logits.size.times { |i| logits[i] /= sum }
 end
 
+# Cycle 2 training: per-corpus-position walk of d steps from h_init=h_cap1
+# (stop-gradient). Computes one-hot CE loss at each step and accumulates
+# gradients into shared `grads`. dh_init is discarded (detached bridge).
+#
+# `positions` is the list of corpus positions in this partition (positions
+# whose cap1 has first char matching this partition's first char). All cap1
+# records for these positions have endpoint_states populated by cycle 1.
+#
+# Returns (loss_sum, events_count) for this partition.
+def cycle_2_train(
+  params : RecurParams,
+  grads : RecurParams,
+  endpoint_states : Array(Float64),
+  corpus_tokens : Array(Int32),
+  cap1_by_pos : Array(Int32),
+  positions : Array(Int32),
+  max_depth : Int32,
+  x_proj_z : Array(Float64), x_proj_r : Array(Float64), x_proj_n : Array(Float64),
+) : {Float64, Int64}
+  d = params.d_model
+  di = d.to_i64
+  v = params.vocab_size
+  vi = v.to_i64
+  d_f = d.to_f
+  n = corpus_tokens.size
+
+  loss_sum = 0.0
+  events_count = 0_i64
+
+  # Buffers sized for d+1 states (h_0 = h_init through h_d).
+  needed = (max_depth + 1) * d
+  edge_states = Array(Float64).new(needed, 0.0)
+  z_buf = Array(Float64).new(needed, 0.0)
+  r_buf = Array(Float64).new(needed, 0.0)
+  n_buf = Array(Float64).new(needed, 0.0)
+  m_buf = Array(Float64).new(needed, 0.0)
+  dh_per_step = Array(Float64).new(needed, 0.0)
+
+  dh_cur = Array(Float64).new(d, 0.0)
+  dh_prev = Array(Float64).new(d, 0.0)
+  dz_pre = Array(Float64).new(d, 0.0)
+  dr_pre = Array(Float64).new(d, 0.0)
+  dn_pre = Array(Float64).new(d, 0.0)
+  dm = Array(Float64).new(d, 0.0)
+
+  logits = Array(Float64).new(v, 0.0)
+  grad_logits = Array(Float64).new(v, 0.0)
+
+  positions.each do |p|
+    # Guards.
+    next if p + 2 * max_depth >= n              # need corpus[p+2d] for last prediction target
+    cap1_id = cap1_by_pos[p]
+    next if cap1_id <= 0                        # 0 = root, also catches -1 (invalid)
+
+    # h_0 = stop_gradient(h_cap1)  (just a copy of endpoint_states[cap1_id])
+    cap1_off = cap1_id * d
+    d.times { |j| edge_states[j] = endpoint_states[cap1_off + j] }
+
+    # FORWARD: d steps consuming corpus[p+d..p+2d-1].
+    max_depth.times do |k|
+      tok = corpus_tokens[p + max_depth + k]
+      prev_off = k * d
+      cur_off = (k + 1) * d
+      x_base = tok * d
+
+      # z = sigmoid(b_z + x_proj_z[tok] + W_z h_prev)
+      d.times { |j| z_buf[cur_off + j] = params.b_z[j] + x_proj_z[x_base + j] }
+      LibCBLAS.dgemv(CBLAS_ROW_MAJOR, CBLAS_NO_TRANS,
+        di, di, 1.0, params.w_z.to_unsafe, di,
+        edge_states.to_unsafe + prev_off, 1_i64,
+        1.0, z_buf.to_unsafe + cur_off, 1_i64)
+      d.times { |j| z_buf[cur_off + j] = sigmoid(z_buf[cur_off + j]) }
+
+      # r = sigmoid(b_r + x_proj_r[tok] + W_r h_prev)
+      d.times { |j| r_buf[cur_off + j] = params.b_r[j] + x_proj_r[x_base + j] }
+      LibCBLAS.dgemv(CBLAS_ROW_MAJOR, CBLAS_NO_TRANS,
+        di, di, 1.0, params.w_r.to_unsafe, di,
+        edge_states.to_unsafe + prev_off, 1_i64,
+        1.0, r_buf.to_unsafe + cur_off, 1_i64)
+      d.times { |j| r_buf[cur_off + j] = sigmoid(r_buf[cur_off + j]) }
+
+      # m = r ⊙ h_prev
+      d.times { |j| m_buf[cur_off + j] = r_buf[cur_off + j] * edge_states[prev_off + j] }
+
+      # n = tanh(b_n + x_proj_n[tok] + W_n m)
+      d.times { |j| n_buf[cur_off + j] = params.b_n[j] + x_proj_n[x_base + j] }
+      LibCBLAS.dgemv(CBLAS_ROW_MAJOR, CBLAS_NO_TRANS,
+        di, di, 1.0, params.w_n.to_unsafe, di,
+        m_buf.to_unsafe + cur_off, 1_i64,
+        1.0, n_buf.to_unsafe + cur_off, 1_i64)
+      d.times { |j| n_buf[cur_off + j] = Math.tanh(n_buf[cur_off + j]) }
+
+      # h_new = (1-z) ⊙ h_prev + z ⊙ n
+      d.times do |j|
+        zj = z_buf[cur_off + j]
+        edge_states[cur_off + j] = (1.0 - zj) * edge_states[prev_off + j] + zj * n_buf[cur_off + j]
+      end
+    end
+
+    # HEAD LOSS at each step: at h_{k+1} predict corpus[p+d+k+1].
+    # dh_per_step reset.
+    needed.times { |i| dh_per_step[i] = 0.0 }
+    max_depth.times do |k|
+      cur_off = (k + 1) * d
+      target = corpus_tokens[p + max_depth + k + 1]  # safe due to guard above
+
+      # logits = c_o + W_o · h
+      v.times { |tok| logits[tok] = params.c_o[tok] }
+      LibCBLAS.dgemv(CBLAS_ROW_MAJOR, CBLAS_NO_TRANS,
+        vi, di, 1.0, params.w_o.to_unsafe, di,
+        edge_states.to_unsafe + cur_off, 1_i64,
+        1.0, logits.to_unsafe, 1_i64)
+      softmax_logits!(logits)
+
+      loss_sum -= Math.log(logits[target])
+      events_count += 1
+
+      # grad_logits = softmax - one_hot(target)
+      v.times { |tok| grad_logits[tok] = logits[tok] }
+      grad_logits[target] -= 1.0
+
+      # Head grad accumulation.
+      v.times { |tok| grads.c_o[tok] += grad_logits[tok] }
+      LibCBLAS.dger(CBLAS_ROW_MAJOR,
+        vi, di, 1.0,
+        grad_logits.to_unsafe, 1_i64,
+        edge_states.to_unsafe + cur_off, 1_i64,
+        grads.w_o.to_unsafe, di)
+      # dh at h_{k+1} += W_o^T · grad_logits
+      LibCBLAS.dgemv(CBLAS_ROW_MAJOR, CBLAS_TRANS,
+        vi, di, 1.0,
+        params.w_o.to_unsafe, di,
+        grad_logits.to_unsafe, 1_i64,
+        1.0, dh_per_step.to_unsafe + cur_off, 1_i64)
+    end
+
+    # BACKWARD through cycle 2 (steps d-1 down to 0).
+    k = max_depth - 1
+    while k >= 0
+      tok = corpus_tokens[p + max_depth + k]
+      prev_off = k * d
+      cur_off = (k + 1) * d
+
+      # Pull current step's accumulated dh.
+      d.times { |j| dh_cur[j] = dh_per_step[cur_off + j] }
+
+      # GRU backward at this step (same as cycle 1's per-step backward).
+      d.times do |j|
+        zj = z_buf[cur_off + j]
+        nj = n_buf[cur_off + j]
+        hp = edge_states[prev_off + j]
+        dhj = dh_cur[j]
+        dzj = dhj * (nj - hp)
+        dnj = dhj * zj
+        dn_pre[j] = dnj * (1.0 - nj * nj)
+        dz_pre[j] = dzj * zj * (1.0 - zj)
+        dh_prev[j] = dhj * (1.0 - zj)
+      end
+
+      # dm = W_n^T · dn_pre
+      LibCBLAS.dgemv(CBLAS_ROW_MAJOR, CBLAS_TRANS,
+        di, di, 1.0,
+        params.w_n.to_unsafe, di,
+        dn_pre.to_unsafe, 1_i64,
+        0.0, dm.to_unsafe, 1_i64)
+
+      d.times do |j|
+        rj = r_buf[cur_off + j]
+        hp = edge_states[prev_off + j]
+        dmj = dm[j]
+        drj = dmj * hp
+        dh_prev[j] += dmj * rj
+        dr_pre[j] = drj * rj * (1.0 - rj)
+      end
+
+      LibCBLAS.dgemv(CBLAS_ROW_MAJOR, CBLAS_TRANS,
+        di, di, 1.0,
+        params.w_r.to_unsafe, di,
+        dr_pre.to_unsafe, 1_i64,
+        1.0, dh_prev.to_unsafe, 1_i64)
+      LibCBLAS.dgemv(CBLAS_ROW_MAJOR, CBLAS_TRANS,
+        di, di, 1.0,
+        params.w_z.to_unsafe, di,
+        dz_pre.to_unsafe, 1_i64,
+        1.0, dh_prev.to_unsafe, 1_i64)
+
+      d.times do |j|
+        grads.b_z[j] += dz_pre[j]
+        grads.b_r[j] += dr_pre[j]
+        grads.b_n[j] += dn_pre[j]
+      end
+
+      LibCBLAS.dger(CBLAS_ROW_MAJOR, di, di, 1.0,
+        dz_pre.to_unsafe, 1_i64,
+        edge_states.to_unsafe + prev_off, 1_i64,
+        grads.w_z.to_unsafe, di)
+      LibCBLAS.dger(CBLAS_ROW_MAJOR, di, di, 1.0,
+        dr_pre.to_unsafe, 1_i64,
+        edge_states.to_unsafe + prev_off, 1_i64,
+        grads.w_r.to_unsafe, di)
+      LibCBLAS.dger(CBLAS_ROW_MAJOR, di, di, 1.0,
+        dn_pre.to_unsafe, 1_i64,
+        m_buf.to_unsafe + cur_off, 1_i64,
+        grads.w_n.to_unsafe, di)
+      emb_base = tok * d
+      LibCBLAS.dger(CBLAS_ROW_MAJOR, di, di, 1.0,
+        dz_pre.to_unsafe, 1_i64,
+        params.emb.to_unsafe + emb_base, 1_i64,
+        grads.u_z.to_unsafe, di)
+      LibCBLAS.dger(CBLAS_ROW_MAJOR, di, di, 1.0,
+        dr_pre.to_unsafe, 1_i64,
+        params.emb.to_unsafe + emb_base, 1_i64,
+        grads.u_r.to_unsafe, di)
+      LibCBLAS.dger(CBLAS_ROW_MAJOR, di, di, 1.0,
+        dn_pre.to_unsafe, 1_i64,
+        params.emb.to_unsafe + emb_base, 1_i64,
+        grads.u_n.to_unsafe, di)
+
+      LibCBLAS.dgemv(CBLAS_ROW_MAJOR, CBLAS_TRANS,
+        di, di, 1.0,
+        params.u_z.to_unsafe, di,
+        dz_pre.to_unsafe, 1_i64,
+        1.0, grads.emb.to_unsafe + emb_base, 1_i64)
+      LibCBLAS.dgemv(CBLAS_ROW_MAJOR, CBLAS_TRANS,
+        di, di, 1.0,
+        params.u_r.to_unsafe, di,
+        dr_pre.to_unsafe, 1_i64,
+        1.0, grads.emb.to_unsafe + emb_base, 1_i64)
+      LibCBLAS.dgemv(CBLAS_ROW_MAJOR, CBLAS_TRANS,
+        di, di, 1.0,
+        params.u_n.to_unsafe, di,
+        dn_pre.to_unsafe, 1_i64,
+        1.0, grads.emb.to_unsafe + emb_base, 1_i64)
+
+      # Add dh_prev contribution to previous step's accumulator.
+      # At k=0 this would flow into dh_per_step[0..d] = dh w.r.t. h_init,
+      # which is what we DISCARD (detached bridge). So only accumulate
+      # when k > 0.
+      if k > 0
+        d.times { |j| dh_per_step[prev_off + j] += dh_prev[j] }
+      end
+
+      k -= 1
+    end
+  end
+
+  {loss_sum, events_count}
+end
+
 def add_loss_and_head_grads(
   params : RecurParams,
   grads : RecurParams,
@@ -486,11 +735,15 @@ def train_batch(
   records_desc : Array(RecurRecord),
   endpoint_states : Array(Float64),
   x_proj_z : Array(Float64), x_proj_r : Array(Float64), x_proj_n : Array(Float64),
+  cycle2_positions : Array(Int32),
+  corpus_tokens : Array(Int32),
+  cap1_by_pos : Array(Int32),
+  max_endpoint_depth : Int32,
   lr : Float64,
   beta1 : Float64,
   beta2 : Float64,
   eps : Float64,
-) : {Float64, Int64}
+) : {Float64, Int64, Float64, Int64}
   d = params.d_model
   di = d.to_i64
   n_state = endpoint_states.size
@@ -680,40 +933,61 @@ def train_batch(
     end
   end
 
-  scale = 1.0 / events.to_f
+  # CYCLE 2: walk corpus positions in this partition, accumulating gradient
+  # into the SAME grads buffer.
+  cycle2_loss, cycle2_events = cycle_2_train(
+    params, grads, endpoint_states, corpus_tokens, cap1_by_pos,
+    cycle2_positions, max_endpoint_depth,
+    x_proj_z, x_proj_r, x_proj_n)
+
+  total_events = events + cycle2_events
+  scale = 1.0 / total_events.to_f
   grads.each_array { |a| a.size.times { |i| a[i] *= scale } }
   adam_update!(params, grads, adam, lr, beta1, beta2, eps)
-  {loss, events}
+  {loss, events, cycle2_loss, cycle2_events}
 end
 
 def train_epoch(
   params : RecurParams,
   adam : AdamState,
   partitions : Array(Array(RecurRecord)),
+  positions_by_partition : Array(Array(Int32)),
   endpoint_states : Array(Float64),
+  corpus_tokens : Array(Int32),
+  cap1_by_pos : Array(Int32),
+  max_endpoint_depth : Int32,
   lr : Float64,
   beta1 : Float64,
   beta2 : Float64,
   eps : Float64,
-) : {Float64, Float64, Int64, Int32}
+) : {Float64, Float64, Int64, Int64, Int32}
   loss_total = 0.0
   events_total = 0_i64
+  cycle2_loss_total = 0.0
+  cycle2_events_total = 0_i64
   updates = 0
 
-  partitions.each do |records|
+  partitions.each_with_index do |records, pi|
     next if records.empty?
     records_desc = records.sort_by { |r| {-r.endpoint_depth, -r.id} }
     x_proj_z, x_proj_r, x_proj_n = compute_x_projs(params)
-    loss, events = train_batch(params, adam, records, records_desc, endpoint_states,
-      x_proj_z, x_proj_r, x_proj_n, lr, beta1, beta2, eps)
+    cycle2_positions = positions_by_partition[pi]? || ([] of Int32)
+    loss, events, c2_loss, c2_events = train_batch(
+      params, adam, records, records_desc, endpoint_states,
+      x_proj_z, x_proj_r, x_proj_n,
+      cycle2_positions, corpus_tokens, cap1_by_pos, max_endpoint_depth,
+      lr, beta1, beta2, eps)
     loss_total += loss
     events_total += events
+    cycle2_loss_total += c2_loss
+    cycle2_events_total += c2_events
     updates += 1
   end
 
-  raise "no loss events found in trie records" if events_total == 0
-  mean_nll = loss_total / events_total.to_f
-  {mean_nll, Math.exp(mean_nll), events_total, updates}
+  total_events = events_total + cycle2_events_total
+  raise "no loss events found" if total_events == 0
+  mean_nll = (loss_total + cycle2_loss_total) / total_events.to_f
+  {mean_nll, Math.exp(mean_nll), total_events, cycle2_events_total, updates}
 end
 
 def adam_update!(params : RecurParams, grads : RecurParams, adam : AdamState, lr : Float64, beta1 : Float64, beta2 : Float64, eps : Float64)
@@ -811,6 +1085,28 @@ cap1_by_pos.each_with_index do |id, p|
   end
 end
 
+# Build positions_by_partition: which corpus positions go to which partition.
+# At pd=1, partition by first char of cap1 (= corpus_tokens[p]). Map first-char
+# token → partition index via the partition's root child's edge_tokens[0].
+positions_by_partition = Array(Array(Int32)).new(partitions.size) { [] of Int32 }
+first_char_to_partition_idx = Hash(Int32, Int32).new
+partitions.each_with_index do |part, pi|
+  next if part.empty?
+  root_child = part.first  # root children are the first record in each partition (parent-ordered)
+  next unless root_child.parent_id == 0
+  first_char_to_partition_idx[root_child.edge_tokens[0]] = pi
+end
+corpus_tokens.each_with_index do |tok, p|
+  # Need both cap1 and cap2 (and one more char for the final target).
+  next if p + 2 * max_endpoint_depth >= corpus_tokens.size
+  next if cap1_by_pos[p] <= 0
+  next if cap1_by_pos[p + max_endpoint_depth] <= 0
+  pi = first_char_to_partition_idx[tok]?
+  next unless pi
+  positions_by_partition[pi] << p
+end
+cycle2_total_positions = positions_by_partition.sum(&.size)
+
 puts "AGPT GRU+Wrap recurrent trainer (openblas hot path) — STAGE 1 stub"
 puts "  trie: #{trie_dir}"
 puts "  corpus: #{corpus_path} (#{corpus_tokens.size} tokens)"
@@ -825,6 +1121,7 @@ puts "  d_model: #{d_model}"
 puts "  max_endpoint_depth: #{max_endpoint_depth}"
 puts "  cap1_positions_indexed: #{cap1_pos_total} / #{corpus_tokens.size}"
 puts "  cap2_pair_positions: #{cap2_pairs_available} (corpus positions with both cap1 and cap2 available)"
+puts "  cycle2_positions: #{cycle2_total_positions} (assigned to a partition)"
 puts "  optimizer: adam (lr=#{lr}, beta1=#{beta1}, beta2=#{beta2}, eps=#{eps})"
 
 if dry_run
@@ -850,7 +1147,10 @@ endpoint_states = Array(Float64).new(reader.radix_count * d_model, 0.0)
 
 (start_epoch + 1).upto(start_epoch + epochs) do |epoch|
   t0 = Time.instant
-  nll, ppl, trained_events, updates = train_epoch(params, adam, partitions, endpoint_states, lr, beta1, beta2, eps)
+  nll, ppl, total_events, c2_events, updates = train_epoch(
+    params, adam, partitions, positions_by_partition, endpoint_states,
+    corpus_tokens, cap1_by_pos, max_endpoint_depth,
+    lr, beta1, beta2, eps)
   wall = (Time.instant - t0).total_seconds
   ck_msg = ""
   if checkpoint_every > 0 && epoch % checkpoint_every == 0
@@ -858,8 +1158,8 @@ endpoint_states = Array(Float64).new(reader.radix_count * d_model, 0.0)
     save_checkpoint(ck, params, adam, epoch, seed)
     ck_msg = " checkpoint=#{ck}"
   end
-  printf "epoch %6d  nll %.6f  ppl %.6f  events %d  updates %d  wall %.3fs  adam_step %d%s\n",
-    epoch, nll, ppl, trained_events, updates, wall, adam.step, ck_msg
+  printf "epoch %6d  nll %.6f  ppl %.6f  events %d (c2 %d)  updates %d  wall %.3fs  adam_step %d%s\n",
+    epoch, nll, ppl, total_events, c2_events, updates, wall, adam.step, ck_msg
 end
 
 save_checkpoint(save_path, params, adam, start_epoch + epochs, seed)

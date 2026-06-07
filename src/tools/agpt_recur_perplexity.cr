@@ -32,6 +32,7 @@ MAGIC_RECUR_LIN_RMS    = 0x4E474341_u32 # 'ACGN'  -- agpt_train_recur_linear_rms
 MAGIC_RECUR_GRU        = 0x55474341_u32 # 'ACGU'  -- agpt_train_recur_gru
 MAGIC_RECUR_GRU_ROPE   = 0x50474341_u32 # 'ACGP'  -- agpt_train_recur_gru_rope
 MAGIC_RECUR_GRU_SINPOS = 0x53474341_u32 # 'ACGS'  -- agpt_train_recur_gru_sinpos
+MAGIC_RECUR_GRU_WRAP   = 0x57474341_u32 # 'ACGW'  -- agpt_train_recur_gru_wrap
 EPS_NORM               = 1e-6_f64
 ROPE_BASE              = 10000.0_f64
 
@@ -42,6 +43,7 @@ enum Variant
   GRU
   GRURope
   GRUSinPos
+  GRUWrap
 end
 
 @[AlwaysInline]
@@ -90,7 +92,7 @@ class RecurParams
       yield @w_x
       yield @b
       yield @g if @variant == Variant::LinearRMS
-    when Variant::GRU, Variant::GRURope, Variant::GRUSinPos
+    when Variant::GRU, Variant::GRURope, Variant::GRUSinPos, Variant::GRUWrap
       yield @w_z; yield @w_r; yield @w_n
       yield @u_z; yield @u_r; yield @u_n
       yield @b_z; yield @b_r; yield @b_n
@@ -133,6 +135,7 @@ def load_checkpoint(path : String) : {Variant, RecurParams}
               when MAGIC_RECUR_GRU        then Variant::GRU
               when MAGIC_RECUR_GRU_ROPE   then Variant::GRURope
               when MAGIC_RECUR_GRU_SINPOS then Variant::GRUSinPos
+              when MAGIC_RECUR_GRU_WRAP   then Variant::GRUWrap
               else raise "unknown recur checkpoint magic 0x#{magic.to_s(16)} in #{path}"
               end
     version = io.read_bytes(Int32, IO::ByteFormat::LittleEndian)
@@ -156,7 +159,7 @@ def step!(variant : Variant, params : RecurParams, h : Array(Float64), tok : Int
   d = params.d_model
   emb_base = tok * d
 
-  if variant == Variant::GRU || variant == Variant::GRURope || variant == Variant::GRUSinPos
+  if variant == Variant::GRU || variant == Variant::GRURope || variant == Variant::GRUSinPos || variant == Variant::GRUWrap
     # For GRUSinPos, build augmented input emb[tok] + pos_emb(pos) and feed
     # that through U_? matrices. For GRU/GRURope, use raw emb[tok].
     eff_emb = Array(Float64).new(d, 0.0)
@@ -277,14 +280,16 @@ vocab_path = ""
 seq_len = 16
 max_positions = 8192
 quiet = false
+carry_state = false
 
 OptionParser.parse do |p|
   p.banner = "Usage: agpt_recur_perplexity --checkpoint PATH --file HELDOUT --vocab-file PATH [options]"
   p.on("--checkpoint PATH", "Trained .recur checkpoint (ACGR/ACGL)") { |v| checkpoint_path = v }
   p.on("--file PATH", "Held-out text file") { |v| corpus_path = v }
   p.on("--vocab-file PATH", "Vocab source (defaults to --file)") { |v| vocab_path = v }
-  p.on("--seq-len N", "Context length per position (default 16)") { |v| seq_len = v.to_i }
-  p.on("--max-positions N", "Limit positions scored (default 8192; 0 = all)") { |v| max_positions = v.to_i }
+  p.on("--seq-len N", "Context length per position (default 16; ignored when --carry-state)") { |v| seq_len = v.to_i }
+  p.on("--max-positions N", "Limit positions scored (default 8192; 0 = all; ignored when --carry-state)") { |v| max_positions = v.to_i }
+  p.on("--carry-state", "Streaming eval: walk entire heldout from char 0 with continuous h (no per-position reset). Tests cap-state carry-over across the depth-d boundary.") { carry_state = true }
   p.on("--quiet", "Suppress progress output") { quiet = true }
   p.on("-h", "--help", "") { puts p; exit 0 }
 end
@@ -317,37 +322,54 @@ text.each_char do |c|
   tokens << (tid ? tid : 0)
 end
 
-start_pos = seq_len
-end_pos = tokens.size - 1
-n_avail = end_pos - start_pos
-n_score = (max_positions > 0 && max_positions < n_avail) ? max_positions : n_avail
-stride = (n_avail.to_f64 / n_score.to_f64).clamp(1.0, Float64::MAX)
-
-STDERR.puts "Vocab: #{v}, seq-len: #{seq_len}, scoring #{n_score} positions (stride #{stride.round(2)})" unless quiet
-
 total_nll = 0.0
 n_scored = 0
 t0 = Time.instant
 
 h_buf = Array(Float64).new(d, 0.0)
 
-n_score.times do |i|
-  p = start_pos + (i.to_f64 * stride).to_i
-  break if p >= end_pos
-  target = tokens[p]
-
-  # Reset h to zero (root state) and walk the last seq_len tokens.
-  d.times { |j| h_buf[j] = 0.0 }
-  start_ctx = Math.max(0, p - seq_len)
+if carry_state
+  # Streaming eval: one pass through the corpus, h never reset, predict at
+  # each position from current h. Tests cap-state carry-over across the
+  # depth-d boundary at inference time.
+  STDERR.puts "Vocab: #{v}, streaming eval (carry h across positions), scoring #{tokens.size - 1} positions" unless quiet
   pos = 0
-  (start_ctx...p).each do |q|
-    step!(variant, params, h_buf, tokens[q], pos)
+  tokens.each_with_index do |tok, p|
+    if p > 0
+      nll = neg_log_prob(params, h_buf, tok)
+      total_nll += nll
+      n_scored += 1
+    end
+    step!(variant, params, h_buf, tok, pos)
     pos += 1
   end
+else
+  start_pos = seq_len
+  end_pos = tokens.size - 1
+  n_avail = end_pos - start_pos
+  n_score = (max_positions > 0 && max_positions < n_avail) ? max_positions : n_avail
+  stride = (n_avail.to_f64 / n_score.to_f64).clamp(1.0, Float64::MAX)
 
-  nll = neg_log_prob(params, h_buf, target)
-  total_nll += nll
-  n_scored += 1
+  STDERR.puts "Vocab: #{v}, seq-len: #{seq_len}, scoring #{n_score} positions (stride #{stride.round(2)})" unless quiet
+
+  n_score.times do |i|
+    p = start_pos + (i.to_f64 * stride).to_i
+    break if p >= end_pos
+    target = tokens[p]
+
+    # Reset h to zero (root state) and walk the last seq_len tokens.
+    d.times { |j| h_buf[j] = 0.0 }
+    start_ctx = Math.max(0, p - seq_len)
+    pos = 0
+    (start_ctx...p).each do |q|
+      step!(variant, params, h_buf, tokens[q], pos)
+      pos += 1
+    end
+
+    nll = neg_log_prob(params, h_buf, target)
+    total_nll += nll
+    n_scored += 1
+  end
 end
 
 elapsed = (Time.instant - t0).total_seconds
@@ -356,6 +378,7 @@ ppl = Math.exp(mean_nll)
 bpc = mean_nll / Math.log(2.0)
 
 puts "Variant:            #{variant}"
+puts "Mode:               #{carry_state ? "streaming (carry-state)" : "sliding-window (seq-len #{seq_len})"}"
 puts "Positions scored:   #{n_scored}"
 puts "Mean per-token NLL: #{mean_nll.round(6)} nats"
 puts "Perplexity:         #{ppl.round(4)}"
