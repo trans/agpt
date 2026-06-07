@@ -26,17 +26,20 @@ require "../agpt"
 
 include MicroGPT::AGPT
 
-MAGIC_RECUR_TANH    = 0x52474341_u32 # 'ACGR'  -- Codex's agpt_train_recur
-MAGIC_RECUR_LIN     = 0x4C474341_u32 # 'ACGL'  -- agpt_train_recur_linear
-MAGIC_RECUR_LIN_RMS = 0x4E474341_u32 # 'ACGN'  -- agpt_train_recur_linear_rms
-MAGIC_RECUR_GRU     = 0x55474341_u32 # 'ACGU'  -- agpt_train_recur_gru
-EPS_NORM            = 1e-6_f64
+MAGIC_RECUR_TANH     = 0x52474341_u32 # 'ACGR'  -- Codex's agpt_train_recur
+MAGIC_RECUR_LIN      = 0x4C474341_u32 # 'ACGL'  -- agpt_train_recur_linear
+MAGIC_RECUR_LIN_RMS  = 0x4E474341_u32 # 'ACGN'  -- agpt_train_recur_linear_rms
+MAGIC_RECUR_GRU      = 0x55474341_u32 # 'ACGU'  -- agpt_train_recur_gru
+MAGIC_RECUR_GRU_ROPE = 0x50474341_u32 # 'ACGP'  -- agpt_train_recur_gru_rope
+EPS_NORM             = 1e-6_f64
+ROPE_BASE            = 10000.0_f64
 
 enum Variant
   TanhElman
   Linear
   LinearRMS
   GRU
+  GRURope
 end
 
 @[AlwaysInline]
@@ -85,13 +88,30 @@ class RecurParams
       yield @w_x
       yield @b
       yield @g if @variant == Variant::LinearRMS
-    when Variant::GRU
+    when Variant::GRU, Variant::GRURope
       yield @w_z; yield @w_r; yield @w_n
       yield @u_z; yield @u_r; yield @u_n
       yield @b_z; yield @b_r; yield @b_n
     end
     yield @w_o
     yield @c_o
+  end
+end
+
+# RoPE rotation applied to a d-vector in place (the forward rotation).
+def rope_rotate!(vec : Array(Float64), pos : Int32, d_model : Int32)
+  d2 = d_model // 2
+  d2.times do |k|
+    i = 2 * k
+    j = 2 * k + 1
+    theta_k = ROPE_BASE ** (-2.0 * k.to_f / d_model.to_f)
+    angle = pos.to_f * theta_k
+    c = Math.cos(angle)
+    s = Math.sin(angle)
+    vi = vec[i]
+    vj = vec[j]
+    vec[i] = vi * c - vj * s
+    vec[j] = vi * s + vj * c
   end
 end
 
@@ -105,11 +125,12 @@ def load_checkpoint(path : String) : {Variant, RecurParams}
   File.open(path, "rb") do |io|
     magic = io.read_bytes(UInt32, IO::ByteFormat::LittleEndian)
     variant = case magic
-              when MAGIC_RECUR_TANH    then Variant::TanhElman
-              when MAGIC_RECUR_LIN     then Variant::Linear
-              when MAGIC_RECUR_LIN_RMS then Variant::LinearRMS
-              when MAGIC_RECUR_GRU     then Variant::GRU
-              else raise "unknown recur checkpoint magic 0x#{magic.to_s(16)} in #{path} (expected ACGR=0x52474341, ACGL=0x4C474341, ACGN=0x4E474341, or ACGU=0x55474341)"
+              when MAGIC_RECUR_TANH     then Variant::TanhElman
+              when MAGIC_RECUR_LIN      then Variant::Linear
+              when MAGIC_RECUR_LIN_RMS  then Variant::LinearRMS
+              when MAGIC_RECUR_GRU      then Variant::GRU
+              when MAGIC_RECUR_GRU_ROPE then Variant::GRURope
+              else raise "unknown recur checkpoint magic 0x#{magic.to_s(16)} in #{path} (expected ACGR=0x52474341, ACGL=0x4C474341, ACGN=0x4E474341, ACGU=0x55474341, or ACGP=0x50474341)"
               end
     version = io.read_bytes(Int32, IO::ByteFormat::LittleEndian)
     raise "unsupported recur checkpoint version #{version}" unless version == 1
@@ -126,46 +147,62 @@ def load_checkpoint(path : String) : {Variant, RecurParams}
   end
 end
 
-# One step of f_θ. Mutates `h` in place.
-def step!(variant : Variant, params : RecurParams, h : Array(Float64), tok : Int32)
+# One step of f_θ. Mutates `h` in place. `pos` is the position for RoPE
+# (ignored by non-RoPE variants).
+def step!(variant : Variant, params : RecurParams, h : Array(Float64), tok : Int32, pos : Int32)
   d = params.d_model
   emb_base = tok * d
 
-  if variant == Variant::GRU
-    # GRU step
-    z_pre = Array(Float64).new(d, 0.0)
-    r_pre = Array(Float64).new(d, 0.0)
-    n_pre = Array(Float64).new(d, 0.0)
+  if variant == Variant::GRU || variant == Variant::GRURope
+    # Compute U_? · emb(tok) once, then rotate per gate if GRURope.
+    ux_z = Array(Float64).new(d, 0.0)
+    ux_r = Array(Float64).new(d, 0.0)
+    ux_n = Array(Float64).new(d, 0.0)
     d.times do |j|
-      zp = params.b_z[j]
-      rp = params.b_r[j]
-      wz_base = j * d
-      wr_base = j * d
+      uz = 0.0
+      ur = 0.0
+      un = 0.0
       uz_base = j * d
       ur_base = j * d
-      d.times do |k|
-        zp += params.w_z[wz_base + k] * h[k]
-        zp += params.u_z[uz_base + k] * params.emb[emb_base + k]
-        rp += params.w_r[wr_base + k] * h[k]
-        rp += params.u_r[ur_base + k] * params.emb[emb_base + k]
-      end
-      z_pre[j] = zp
-      r_pre[j] = rp
-    end
-    z = Array(Float64).new(d) { |j| sigmoid(z_pre[j]) }
-    r = Array(Float64).new(d) { |j| sigmoid(r_pre[j]) }
-    m = Array(Float64).new(d) { |j| r[j] * h[j] }
-    d.times do |j|
-      np = params.b_n[j]
-      wn_base = j * d
       un_base = j * d
       d.times do |k|
-        np += params.w_n[wn_base + k] * m[k]
-        np += params.u_n[un_base + k] * params.emb[emb_base + k]
+        ek = params.emb[emb_base + k]
+        uz += params.u_z[uz_base + k] * ek
+        ur += params.u_r[ur_base + k] * ek
+        un += params.u_n[un_base + k] * ek
       end
-      n_pre[j] = np
+      ux_z[j] = uz
+      ux_r[j] = ur
+      ux_n[j] = un
     end
-    n_tilde = Array(Float64).new(d) { |j| Math.tanh(n_pre[j]) }
+    if variant == Variant::GRURope
+      rope_rotate!(ux_z, pos, d)
+      rope_rotate!(ux_r, pos, d)
+      rope_rotate!(ux_n, pos, d)
+    end
+
+    z = Array(Float64).new(d, 0.0)
+    r = Array(Float64).new(d, 0.0)
+    d.times do |j|
+      zp = params.b_z[j] + ux_z[j]
+      rp = params.b_r[j] + ux_r[j]
+      wz_base = j * d
+      wr_base = j * d
+      d.times do |k|
+        zp += params.w_z[wz_base + k] * h[k]
+        rp += params.w_r[wr_base + k] * h[k]
+      end
+      z[j] = sigmoid(zp)
+      r[j] = sigmoid(rp)
+    end
+    m = Array(Float64).new(d) { |j| r[j] * h[j] }
+    n_tilde = Array(Float64).new(d, 0.0)
+    d.times do |j|
+      np = params.b_n[j] + ux_n[j]
+      wn_base = j * d
+      d.times { |k| np += params.w_n[wn_base + k] * m[k] }
+      n_tilde[j] = Math.tanh(np)
+    end
     d.times { |j| h[j] = (1.0 - z[j]) * h[j] + z[j] * n_tilde[j] }
     return
   end
@@ -285,8 +322,10 @@ n_score.times do |i|
   # Reset h to zero (root state) and walk the last seq_len tokens.
   d.times { |j| h_buf[j] = 0.0 }
   start_ctx = Math.max(0, p - seq_len)
+  pos = 0
   (start_ctx...p).each do |q|
-    step!(variant, params, h_buf, tokens[q])
+    step!(variant, params, h_buf, tokens[q], pos)
+    pos += 1
   end
 
   nll = neg_log_prob(params, h_buf, target)

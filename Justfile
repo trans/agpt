@@ -246,6 +246,12 @@ build-agpt-train-recur-gru:
     mkdir -p bin
     timeout 10m crystal build src/tools/agpt_train_recur_gru.cr -o bin/agpt_train_recur_gru --release --link-flags="-lopenblas_64"
 
+# Build GRU+RoPE recurrent trainer. Same GRU as agpt_train_recur_gru but with
+# rotary position encoding applied to U_? · emb at each position. Magic 'ACGP'.
+build-agpt-train-recur-gru-rope:
+    mkdir -p bin
+    timeout 10m crystal build src/tools/agpt_train_recur_gru_rope.cr -o bin/agpt_train_recur_gru_rope --release --link-flags="-lopenblas_64"
+
 # Build held-out PPL evaluator for recurrent-AGPT checkpoints. Loads either
 # tanh-Elman (ACGR) or linear (ACGL) checkpoint, walks held-out text through
 # the appropriate f_θ, reports mean NLL / PPL / BPC. The canonical "real
