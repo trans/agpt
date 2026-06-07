@@ -26,13 +26,14 @@ require "../agpt"
 
 include MicroGPT::AGPT
 
-MAGIC_RECUR_TANH     = 0x52474341_u32 # 'ACGR'  -- Codex's agpt_train_recur
-MAGIC_RECUR_LIN      = 0x4C474341_u32 # 'ACGL'  -- agpt_train_recur_linear
-MAGIC_RECUR_LIN_RMS  = 0x4E474341_u32 # 'ACGN'  -- agpt_train_recur_linear_rms
-MAGIC_RECUR_GRU      = 0x55474341_u32 # 'ACGU'  -- agpt_train_recur_gru
-MAGIC_RECUR_GRU_ROPE = 0x50474341_u32 # 'ACGP'  -- agpt_train_recur_gru_rope
-EPS_NORM             = 1e-6_f64
-ROPE_BASE            = 10000.0_f64
+MAGIC_RECUR_TANH       = 0x52474341_u32 # 'ACGR'  -- Codex's agpt_train_recur
+MAGIC_RECUR_LIN        = 0x4C474341_u32 # 'ACGL'  -- agpt_train_recur_linear
+MAGIC_RECUR_LIN_RMS    = 0x4E474341_u32 # 'ACGN'  -- agpt_train_recur_linear_rms
+MAGIC_RECUR_GRU        = 0x55474341_u32 # 'ACGU'  -- agpt_train_recur_gru
+MAGIC_RECUR_GRU_ROPE   = 0x50474341_u32 # 'ACGP'  -- agpt_train_recur_gru_rope
+MAGIC_RECUR_GRU_SINPOS = 0x53474341_u32 # 'ACGS'  -- agpt_train_recur_gru_sinpos
+EPS_NORM               = 1e-6_f64
+ROPE_BASE              = 10000.0_f64
 
 enum Variant
   TanhElman
@@ -40,6 +41,7 @@ enum Variant
   LinearRMS
   GRU
   GRURope
+  GRUSinPos
 end
 
 @[AlwaysInline]
@@ -88,7 +90,7 @@ class RecurParams
       yield @w_x
       yield @b
       yield @g if @variant == Variant::LinearRMS
-    when Variant::GRU, Variant::GRURope
+    when Variant::GRU, Variant::GRURope, Variant::GRUSinPos
       yield @w_z; yield @w_r; yield @w_n
       yield @u_z; yield @u_r; yield @u_n
       yield @b_z; yield @b_r; yield @b_n
@@ -125,12 +127,13 @@ def load_checkpoint(path : String) : {Variant, RecurParams}
   File.open(path, "rb") do |io|
     magic = io.read_bytes(UInt32, IO::ByteFormat::LittleEndian)
     variant = case magic
-              when MAGIC_RECUR_TANH     then Variant::TanhElman
-              when MAGIC_RECUR_LIN      then Variant::Linear
-              when MAGIC_RECUR_LIN_RMS  then Variant::LinearRMS
-              when MAGIC_RECUR_GRU      then Variant::GRU
-              when MAGIC_RECUR_GRU_ROPE then Variant::GRURope
-              else raise "unknown recur checkpoint magic 0x#{magic.to_s(16)} in #{path} (expected ACGR=0x52474341, ACGL=0x4C474341, ACGN=0x4E474341, ACGU=0x55474341, or ACGP=0x50474341)"
+              when MAGIC_RECUR_TANH       then Variant::TanhElman
+              when MAGIC_RECUR_LIN        then Variant::Linear
+              when MAGIC_RECUR_LIN_RMS    then Variant::LinearRMS
+              when MAGIC_RECUR_GRU        then Variant::GRU
+              when MAGIC_RECUR_GRU_ROPE   then Variant::GRURope
+              when MAGIC_RECUR_GRU_SINPOS then Variant::GRUSinPos
+              else raise "unknown recur checkpoint magic 0x#{magic.to_s(16)} in #{path}"
               end
     version = io.read_bytes(Int32, IO::ByteFormat::LittleEndian)
     raise "unsupported recur checkpoint version #{version}" unless version == 1
@@ -153,8 +156,22 @@ def step!(variant : Variant, params : RecurParams, h : Array(Float64), tok : Int
   d = params.d_model
   emb_base = tok * d
 
-  if variant == Variant::GRU || variant == Variant::GRURope
-    # Compute U_? · emb(tok) once, then rotate per gate if GRURope.
+  if variant == Variant::GRU || variant == Variant::GRURope || variant == Variant::GRUSinPos
+    # For GRUSinPos, build augmented input emb[tok] + pos_emb(pos) and feed
+    # that through U_? matrices. For GRU/GRURope, use raw emb[tok].
+    eff_emb = Array(Float64).new(d, 0.0)
+    if variant == Variant::GRUSinPos
+      d2 = d // 2
+      d2.times do |k|
+        theta_k = ROPE_BASE ** (-2.0 * k.to_f / d.to_f)
+        angle = pos.to_f * theta_k
+        eff_emb[2 * k]     = params.emb[emb_base + 2 * k]     + Math.sin(angle)
+        eff_emb[2 * k + 1] = params.emb[emb_base + 2 * k + 1] + Math.cos(angle)
+      end
+    else
+      d.times { |k| eff_emb[k] = params.emb[emb_base + k] }
+    end
+
     ux_z = Array(Float64).new(d, 0.0)
     ux_r = Array(Float64).new(d, 0.0)
     ux_n = Array(Float64).new(d, 0.0)
@@ -166,7 +183,7 @@ def step!(variant : Variant, params : RecurParams, h : Array(Float64), tok : Int
       ur_base = j * d
       un_base = j * d
       d.times do |k|
-        ek = params.emb[emb_base + k]
+        ek = eff_emb[k]
         uz += params.u_z[uz_base + k] * ek
         ur += params.u_r[ur_base + k] * ek
         un += params.u_n[un_base + k] * ek
