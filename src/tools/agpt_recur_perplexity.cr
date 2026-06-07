@@ -29,12 +29,19 @@ include MicroGPT::AGPT
 MAGIC_RECUR_TANH    = 0x52474341_u32 # 'ACGR'  -- Codex's agpt_train_recur
 MAGIC_RECUR_LIN     = 0x4C474341_u32 # 'ACGL'  -- agpt_train_recur_linear
 MAGIC_RECUR_LIN_RMS = 0x4E474341_u32 # 'ACGN'  -- agpt_train_recur_linear_rms
+MAGIC_RECUR_GRU     = 0x55474341_u32 # 'ACGU'  -- agpt_train_recur_gru
 EPS_NORM            = 1e-6_f64
 
 enum Variant
   TanhElman
   Linear
   LinearRMS
+  GRU
+end
+
+@[AlwaysInline]
+def sigmoid(x : Float64) : Float64
+  1.0 / (1.0 + Math.exp(-x))
 end
 
 class RecurParams
@@ -42,10 +49,15 @@ class RecurParams
   getter d_model : Int32
   property variant : Variant = Variant::Linear
   getter emb : Array(Float64)
+  # tanh / linear / linear+RMS use the single W_h, W_x, b layout
   getter w_h : Array(Float64)
   getter w_x : Array(Float64)
   getter b : Array(Float64)
   getter g : Array(Float64) # RMSNorm gain; unused for tanh / linear
+  # GRU uses three gates each
+  getter w_z : Array(Float64); getter w_r : Array(Float64); getter w_n : Array(Float64)
+  getter u_z : Array(Float64); getter u_r : Array(Float64); getter u_n : Array(Float64)
+  getter b_z : Array(Float64); getter b_r : Array(Float64); getter b_n : Array(Float64)
   getter w_o : Array(Float64)
   getter c_o : Array(Float64)
 
@@ -57,6 +69,9 @@ class RecurParams
     @w_x = Array(Float64).new(d * d, 0.0)
     @b   = Array(Float64).new(d, 0.0)
     @g   = Array(Float64).new(d, 1.0)
+    @w_z = Array(Float64).new(d * d, 0.0); @w_r = Array(Float64).new(d * d, 0.0); @w_n = Array(Float64).new(d * d, 0.0)
+    @u_z = Array(Float64).new(d * d, 0.0); @u_r = Array(Float64).new(d * d, 0.0); @u_n = Array(Float64).new(d * d, 0.0)
+    @b_z = Array(Float64).new(d, 0.0);     @b_r = Array(Float64).new(d, 0.0);     @b_n = Array(Float64).new(d, 0.0)
     @w_o = Array(Float64).new(v * d, 0.0)
     @c_o = Array(Float64).new(v, 0.0)
   end
@@ -64,10 +79,17 @@ class RecurParams
   # Iterate in the same order the trainer wrote them.
   def each_array(&block : Array(Float64) ->)
     yield @emb
-    yield @w_h
-    yield @w_x
-    yield @b
-    yield @g if @variant == Variant::LinearRMS
+    case @variant
+    when Variant::TanhElman, Variant::Linear, Variant::LinearRMS
+      yield @w_h
+      yield @w_x
+      yield @b
+      yield @g if @variant == Variant::LinearRMS
+    when Variant::GRU
+      yield @w_z; yield @w_r; yield @w_n
+      yield @u_z; yield @u_r; yield @u_n
+      yield @b_z; yield @b_r; yield @b_n
+    end
     yield @w_o
     yield @c_o
   end
@@ -86,7 +108,8 @@ def load_checkpoint(path : String) : {Variant, RecurParams}
               when MAGIC_RECUR_TANH    then Variant::TanhElman
               when MAGIC_RECUR_LIN     then Variant::Linear
               when MAGIC_RECUR_LIN_RMS then Variant::LinearRMS
-              else raise "unknown recur checkpoint magic 0x#{magic.to_s(16)} in #{path} (expected ACGR=0x52474341, ACGL=0x4C474341, or ACGN=0x4E474341)"
+              when MAGIC_RECUR_GRU     then Variant::GRU
+              else raise "unknown recur checkpoint magic 0x#{magic.to_s(16)} in #{path} (expected ACGR=0x52474341, ACGL=0x4C474341, ACGN=0x4E474341, or ACGU=0x55474341)"
               end
     version = io.read_bytes(Int32, IO::ByteFormat::LittleEndian)
     raise "unsupported recur checkpoint version #{version}" unless version == 1
@@ -106,9 +129,49 @@ end
 # One step of f_θ. Mutates `h` in place.
 def step!(variant : Variant, params : RecurParams, h : Array(Float64), tok : Int32)
   d = params.d_model
-  # Use a scratch z buffer; h is read fully before being overwritten.
-  z = Array(Float64).new(d, 0.0)
   emb_base = tok * d
+
+  if variant == Variant::GRU
+    # GRU step
+    z_pre = Array(Float64).new(d, 0.0)
+    r_pre = Array(Float64).new(d, 0.0)
+    n_pre = Array(Float64).new(d, 0.0)
+    d.times do |j|
+      zp = params.b_z[j]
+      rp = params.b_r[j]
+      wz_base = j * d
+      wr_base = j * d
+      uz_base = j * d
+      ur_base = j * d
+      d.times do |k|
+        zp += params.w_z[wz_base + k] * h[k]
+        zp += params.u_z[uz_base + k] * params.emb[emb_base + k]
+        rp += params.w_r[wr_base + k] * h[k]
+        rp += params.u_r[ur_base + k] * params.emb[emb_base + k]
+      end
+      z_pre[j] = zp
+      r_pre[j] = rp
+    end
+    z = Array(Float64).new(d) { |j| sigmoid(z_pre[j]) }
+    r = Array(Float64).new(d) { |j| sigmoid(r_pre[j]) }
+    m = Array(Float64).new(d) { |j| r[j] * h[j] }
+    d.times do |j|
+      np = params.b_n[j]
+      wn_base = j * d
+      un_base = j * d
+      d.times do |k|
+        np += params.w_n[wn_base + k] * m[k]
+        np += params.u_n[un_base + k] * params.emb[emb_base + k]
+      end
+      n_pre[j] = np
+    end
+    n_tilde = Array(Float64).new(d) { |j| Math.tanh(n_pre[j]) }
+    d.times { |j| h[j] = (1.0 - z[j]) * h[j] + z[j] * n_tilde[j] }
+    return
+  end
+
+  # tanh / linear / linear+RMS share the same W_h h + W_x emb + b structure.
+  z = Array(Float64).new(d, 0.0)
   d.times do |j|
     zj = params.b[j]
     wh_base = j * d

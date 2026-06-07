@@ -239,6 +239,13 @@ build-agpt-train-recur-linear-rms:
     mkdir -p bin
     timeout 10m crystal build src/tools/agpt_train_recur_linear_rms.cr -o bin/agpt_train_recur_linear_rms --release --link-flags="-lopenblas_64"
 
+# Build standard-GRU recurrent trainer. Three gates (update, reset, candidate)
+# over a single hidden state. Tests gating-as-selective-routing hypothesis
+# for closing the cheap-recur → attention PPL gap. Magic 'ACGU'.
+build-agpt-train-recur-gru:
+    mkdir -p bin
+    timeout 10m crystal build src/tools/agpt_train_recur_gru.cr -o bin/agpt_train_recur_gru --release --link-flags="-lopenblas_64"
+
 # Build held-out PPL evaluator for recurrent-AGPT checkpoints. Loads either
 # tanh-Elman (ACGR) or linear (ACGL) checkpoint, walks held-out text through
 # the appropriate f_θ, reports mean NLL / PPL / BPC. The canonical "real
