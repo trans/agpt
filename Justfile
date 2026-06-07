@@ -258,6 +258,13 @@ build-agpt-train-recur-gru-sinpos:
     mkdir -p bin
     timeout 10m crystal build src/tools/agpt_train_recur_gru_sinpos.cr -o bin/agpt_train_recur_gru_sinpos --release --link-flags="-lopenblas_64"
 
+# Build GRU+Wrap recurrent trainer (k=2 detached wrap-around). Cycle 1 standard;
+# cycle 2 walks the corpus's next-d-gram from h_init=stop_gradient(h_cap1) per
+# corpus position. Magic 'ACGW'. Reads --corpus to build cap1-by-position index.
+build-agpt-train-recur-gru-wrap:
+    mkdir -p bin
+    timeout 10m crystal build src/tools/agpt_train_recur_gru_wrap.cr -o bin/agpt_train_recur_gru_wrap --release --link-flags="-lopenblas_64"
+
 # Build held-out PPL evaluator for recurrent-AGPT checkpoints. Loads either
 # tanh-Elman (ACGR) or linear (ACGL) checkpoint, walks held-out text through
 # the appropriate f_θ, reports mean NLL / PPL / BPC. The canonical "real
