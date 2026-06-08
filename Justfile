@@ -262,6 +262,11 @@ build-agpt-train-recur:
     mkdir -p bin
     timeout 10m crystal build src/tools/agpt_train_recur.cr -o bin/agpt_train_recur --release --link-flags="-lopenblas_64"
 
+# Build CPU recurrent AGPT held-out evaluator.
+build-agpt-recur-perplexity:
+    mkdir -p bin
+    timeout 10m crystal build src/tools/agpt_recur_perplexity.cr -o bin/agpt_recur_perplexity --release
+
 # Build p2s-attention match index tool (Phase 2/3 of rnd/p2s-attention).
 build-p2s-match: build-stubs
     mkdir -p bin
