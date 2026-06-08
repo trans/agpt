@@ -33,6 +33,7 @@ MAGIC_RECUR_GRU        = 0x55474341_u32 # 'ACGU'  -- agpt_train_recur_gru
 MAGIC_RECUR_GRU_ROPE   = 0x50474341_u32 # 'ACGP'  -- agpt_train_recur_gru_rope
 MAGIC_RECUR_GRU_SINPOS = 0x53474341_u32 # 'ACGS'  -- agpt_train_recur_gru_sinpos
 MAGIC_RECUR_GRU_WRAP   = 0x57474341_u32 # 'ACGW'  -- agpt_train_recur_gru_wrap
+MAGIC_GRU_LM           = 0x42474341_u32 # 'ACGB'  -- agpt_train_gru_lm (no-trie baseline)
 EPS_NORM               = 1e-6_f64
 ROPE_BASE              = 10000.0_f64
 
@@ -44,6 +45,7 @@ enum Variant
   GRURope
   GRUSinPos
   GRUWrap
+  GRULM
 end
 
 @[AlwaysInline]
@@ -92,7 +94,7 @@ class RecurParams
       yield @w_x
       yield @b
       yield @g if @variant == Variant::LinearRMS
-    when Variant::GRU, Variant::GRURope, Variant::GRUSinPos, Variant::GRUWrap
+    when Variant::GRU, Variant::GRURope, Variant::GRUSinPos, Variant::GRUWrap, Variant::GRULM
       yield @w_z; yield @w_r; yield @w_n
       yield @u_z; yield @u_r; yield @u_n
       yield @b_z; yield @b_r; yield @b_n
@@ -136,6 +138,7 @@ def load_checkpoint(path : String) : {Variant, RecurParams}
               when MAGIC_RECUR_GRU_ROPE   then Variant::GRURope
               when MAGIC_RECUR_GRU_SINPOS then Variant::GRUSinPos
               when MAGIC_RECUR_GRU_WRAP   then Variant::GRUWrap
+              when MAGIC_GRU_LM           then Variant::GRULM
               else raise "unknown recur checkpoint magic 0x#{magic.to_s(16)} in #{path}"
               end
     version = io.read_bytes(Int32, IO::ByteFormat::LittleEndian)
@@ -159,7 +162,7 @@ def step!(variant : Variant, params : RecurParams, h : Array(Float64), tok : Int
   d = params.d_model
   emb_base = tok * d
 
-  if variant == Variant::GRU || variant == Variant::GRURope || variant == Variant::GRUSinPos || variant == Variant::GRUWrap
+  if variant == Variant::GRU || variant == Variant::GRURope || variant == Variant::GRUSinPos || variant == Variant::GRUWrap || variant == Variant::GRULM
     # For GRUSinPos, build augmented input emb[tok] + pos_emb(pos) and feed
     # that through U_? matrices. For GRU/GRURope, use raw emb[tok].
     eff_emb = Array(Float64).new(d, 0.0)

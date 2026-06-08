@@ -265,6 +265,14 @@ build-agpt-train-recur-gru-wrap:
     mkdir -p bin
     timeout 10m crystal build src/tools/agpt_train_recur_gru_wrap.cr -o bin/agpt_train_recur_gru_wrap --release --link-flags="-lopenblas_64"
 
+# Build vanilla GRU LM trainer — no trie, truncated BPTT over length-T corpus
+# chunks from h=0. Param layout matches ACGU so checkpoints load via the same
+# eval harness (agpt_recur_perplexity). Magic 'ACGB'. Baseline control for the
+# cheap-f_θ AGPT runs: answers "does the trie help vs vanilla GRU LM?"
+build-agpt-train-gru-lm:
+    mkdir -p bin
+    timeout 10m crystal build src/tools/agpt_train_gru_lm.cr -o bin/agpt_train_gru_lm --release --link-flags="-lopenblas_64"
+
 # Build held-out PPL evaluator for recurrent-AGPT checkpoints. Loads either
 # tanh-Elman (ACGR) or linear (ACGL) checkpoint, walks held-out text through
 # the appropriate f_θ, reports mean NLL / PPL / BPC. The canonical "real
