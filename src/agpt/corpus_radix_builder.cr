@@ -31,12 +31,14 @@ module MicroGPT
         getter counts       : Array(Int32)
         getter first_child  : Array(Int32)
         getter next_sibling : Array(Int32)
+        getter target_counts : Array(Hash(Int32, Int32)?)
 
         def initialize
           @tokens       = [] of Int32
           @counts       = [] of Int32
           @first_child  = [] of Int32
           @next_sibling = [] of Int32
+          @target_counts = [] of Hash(Int32, Int32)?
           # Allocate root at id=0. Token gets set by the caller (it represents
           # the subtree's depth-1 char).
           add_node(-1)
@@ -52,6 +54,7 @@ module MicroGPT
           @counts       << 0
           @first_child  << -1
           @next_sibling << -1
+          @target_counts << nil
           id
         end
 
@@ -86,6 +89,22 @@ module MicroGPT
           while cid != -1
             yield @tokens.unsafe_fetch(cid), cid, @counts.unsafe_fetch(cid)
             cid = @next_sibling.unsafe_fetch(cid)
+          end
+        end
+
+        def increment_target(node : Int32, token : Int32) : Nil
+          counts = @target_counts[node]?
+          if counts.nil?
+            counts = {} of Int32 => Int32
+            @target_counts[node] = counts
+          end
+          counts[token] = (counts[token]? || 0) + 1
+        end
+
+        def each_target(node : Int32, & : Int32, Int32 -> _) : Nil
+          return unless counts = @target_counts[node]?
+          counts.each do |token, count|
+            yield token, count
           end
         end
       end
@@ -124,10 +143,22 @@ module MicroGPT
         @per_subtree : Bool = false,
         @subtree_level : Int32 = 1,
         @prune_min_mass : Int32 = 1,
-        @prune_min_depth : Int32 = 4
+        @prune_min_depth : Int32 = 4,
+        @stride : Int32 = 1,
+        @phase : Int32 = 0,
+        @target_offset : Int32 = 0
       )
         unless @subtree_level == 1
           raise "CorpusRadixBuilder currently only supports subtree_level=1 (unigram)"
+        end
+        if @stride <= 0
+          raise "CorpusRadixBuilder stride must be > 0"
+        end
+        if @phase < 0 || @phase >= @stride
+          raise "CorpusRadixBuilder phase must satisfy 0 <= phase < stride"
+        end
+        if @target_offset < 0
+          raise "CorpusRadixBuilder target_offset must be >= 0"
         end
       end
 
@@ -139,20 +170,25 @@ module MicroGPT
 
         # Use circular lookahead at the corpus tail: suffix starts remain
         # limited to the original corpus, but each start can read a full
-        # max-depth context by wrapping into the first max_depth tokens.
-        # This avoids skewed end-of-corpus partial suffixes.
+        # max-depth context by wrapping into the first max_depth tokens. For
+        # stride-N paths, the farthest path lookahead is max_depth * stride
+        # original positions; a custom target offset may require a different
+        # endpoint-relative lookahead. This avoids skewed end-of-corpus partial
+        # suffixes.
         build_tokens = @corpus_tokens
         if @max_depth > 0 && !@corpus_tokens.empty?
-          wrap_len = Math.min(@max_depth, @corpus_tokens.size)
+          target_lookahead = @target_offset > 0 ? ((@max_depth - 1) * @stride + @target_offset) : (@max_depth * @stride)
+          wrap_len = Math.min(Math.max(@max_depth * @stride, target_lookahead), @corpus_tokens.size)
           build_tokens = @corpus_tokens + @corpus_tokens[0, wrap_len]
         end
 
         # Index the original corpus once: positions[c] = sorted list of i such that
-        # corpus_tokens[i] == c. Then a subtree's D-gram set is just D-gram(i)
-        # for each i in positions[c]. ~vocab_size lists, total size = corpus
-        # length.
+        # corpus_tokens[i] == c and i belongs to the selected stride phase.
+        # Then a subtree's D-gram set is just stride-D-gram(i) for each i in
+        # positions[c]. ~vocab_size lists, total size = selected start count.
         positions = Array.new(@vocab_size) { [] of Int32 }
         @corpus_tokens.each_with_index do |tok, i|
+          next unless (i % @stride) == @phase
           positions[tok] << i
         end
 
@@ -268,19 +304,29 @@ module MicroGPT
         starts.each do |i|
           current_id = 0
           trie.counts[current_id] += 1
-          # Insert chars at depths 2..max_depth+1 (positions i+1..i+max_depth).
+          if @target_offset > 0
+            target_idx = i + @target_offset
+            trie.increment_target(current_id, token_source.unsafe_fetch(target_idx)) if target_idx < token_source.size
+          end
+          # Insert chars at depths 2..max_depth+1. For stride=1 these are
+          # positions i+1..i+max_depth. For stride=N they are positions
+          # i+N, i+2N, ..., i+max_depth*N.
           # See the StreamingRadixBuilder-equivalence note: the depth-
           # (max_depth+1) layer exists only to populate endpoint_counts at
           # the depth-max_depth radix nodes; no radix record is emitted at
           # depth > max_depth.
-          last = i + @max_depth + 1
+          last = i + (@max_depth * @stride) + 1
           last = token_source.size if last > token_source.size
-          j = i + 1
+          j = i + @stride
           while j < last
             tok = token_source.unsafe_fetch(j)
             current_id = trie.get_or_add_child(current_id, tok)
             trie.counts[current_id] += 1
-            j += 1
+            if @target_offset > 0
+              target_idx = j + @target_offset
+              trie.increment_target(current_id, token_source.unsafe_fetch(target_idx)) if target_idx < token_source.size
+            end
+            j += @stride
           end
         end
         trie
@@ -330,10 +376,17 @@ module MicroGPT
             edge_tokens << trie.tokens.unsafe_fetch(current_id)
           end
 
-          # Build endpoint_counts from this node's children.
+          # Build endpoint_counts from this node's children, unless a custom
+          # target offset asks the node to predict a non-child future token.
           endpoint_counts = [] of {Int32, Int32}
-          trie.each_child(current_id) do |tok, _cid, count|
-            endpoint_counts << {tok, count}
+          if @target_offset > 0
+            trie.each_target(current_id) do |tok, count|
+              endpoint_counts << {tok, count}
+            end
+          else
+            trie.each_child(current_id) do |tok, _cid, count|
+              endpoint_counts << {tok, count}
+            end
           end
 
           # End-of-corpus tail: empty endpoint counts means we hit corpus end
@@ -390,7 +443,7 @@ module MicroGPT
           end
 
           # Queue each branching child of the endpoint as a new edge head.
-          if endpoint_counts.size >= 2
+          if endpoint_counts.size >= 2 && current_depth < @max_depth
             trie.each_child(current_id) do |child_tok, child_id, _count|
               work << {child_id, child_tok, radix_id, current_depth + 1}
             end

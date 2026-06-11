@@ -42,4 +42,74 @@ describe "AGPT corpus radix builder" do
       FileUtils.rm_rf(tmpdir) if Dir.exists?(tmpdir)
     end
   end
+
+  it "builds stride-phase paths from every Nth corpus position" do
+    tokens = [0, 1, 2, 3, 4, 5] of Int32
+    tmpdir = File.join(Dir.tempdir, "agpt_corpus_radix_stride_#{Random.rand(UInt64)}")
+
+    begin
+      builder = MicroGPT::AGPT::CorpusRadixBuilder.new(
+        corpus_tokens: tokens,
+        vocab_size: 6,
+        max_depth: 2,
+        out_dir: tmpdir,
+        corpus_hash: 0_u64,
+        tokenizer_tag: "test",
+        progress: false,
+        stride: 2,
+        phase: 1,
+      )
+      builder.build
+
+      reader = MicroGPT::AGPT::RadixTrieReader.new(tmpdir)
+      reader.corpus_token_count.should eq tokens.size
+
+      by_edge = {} of Array(Int32) => Array({Int32, Int32})
+      read_radix_records(tmpdir).each do |record|
+        by_edge[record.edge_tokens] = record.counts
+      end
+
+      by_edge.size.should eq 3
+      by_edge[[1, 3]].should eq [{5, 1}]
+      by_edge[[3, 5]].should eq [{1, 1}]
+      by_edge[[5, 1]].should eq [{3, 1}]
+    ensure
+      FileUtils.rm_rf(tmpdir) if Dir.exists?(tmpdir)
+    end
+  end
+
+  it "can target an offset that is not the next stride child" do
+    tokens = [0, 1, 2, 3, 4, 5] of Int32
+    tmpdir = File.join(Dir.tempdir, "agpt_corpus_radix_target_offset_#{Random.rand(UInt64)}")
+
+    begin
+      builder = MicroGPT::AGPT::CorpusRadixBuilder.new(
+        corpus_tokens: tokens,
+        vocab_size: 6,
+        max_depth: 2,
+        out_dir: tmpdir,
+        corpus_hash: 0_u64,
+        tokenizer_tag: "test",
+        progress: false,
+        stride: 2,
+        phase: 0,
+        target_offset: 1,
+      )
+      builder.build
+      reader = MicroGPT::AGPT::RadixTrieReader.new(tmpdir)
+      reader.depth_file_count.should eq 3
+
+      by_edge = {} of Array(Int32) => Array({Int32, Int32})
+      read_radix_records(tmpdir).each do |record|
+        by_edge[record.edge_tokens] = record.counts
+      end
+
+      by_edge.size.should eq 3
+      by_edge[[0, 2]].should eq [{3, 1}]
+      by_edge[[2, 4]].should eq [{5, 1}]
+      by_edge[[4, 0]].should eq [{1, 1}]
+    ensure
+      FileUtils.rm_rf(tmpdir) if Dir.exists?(tmpdir)
+    end
+  end
 end

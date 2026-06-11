@@ -267,6 +267,11 @@ build-agpt-recur-perplexity:
     mkdir -p bin
     timeout 10m crystal build src/tools/agpt_recur_perplexity.cr -o bin/agpt_recur_perplexity --release
 
+# Build fixed-mixture evaluator for adjacent + stride recurrent oracles.
+build-agpt-recur-oracle-mix:
+    mkdir -p bin
+    timeout 10m crystal build src/tools/agpt_recur_oracle_mix.cr -o bin/agpt_recur_oracle_mix --release
+
 # Build p2s-attention match index tool (Phase 2/3 of rnd/p2s-attention).
 build-p2s-match: build-stubs
     mkdir -p bin

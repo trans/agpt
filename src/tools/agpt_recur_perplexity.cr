@@ -157,6 +157,9 @@ corpus_path = ""
 vocab_path = ""
 seq_len = 16
 max_positions = 8192
+stride_step = 1
+phase = 0
+target_offset = 0
 quiet = false
 
 OptionParser.parse do |p|
@@ -165,6 +168,9 @@ OptionParser.parse do |p|
   p.on("--file PATH", "Held-out text file") { |v| corpus_path = v }
   p.on("--vocab-file PATH", "Vocab source (defaults to --file)") { |v| vocab_path = v }
   p.on("--seq-len N", "Context length per position (default 16)") { |v| seq_len = v.to_i }
+  p.on("--stride N", "Evaluate strided context positions p-N*seq_len...p-N,p (default 1)") { |v| stride_step = v.to_i }
+  p.on("--phase N", "Only score target positions where p mod stride == phase (default 0)") { |v| phase = v.to_i }
+  p.on("--target-offset N", "Predict endpoint+N instead of endpoint+stride for strided contexts (default 0)") { |v| target_offset = v.to_i }
   p.on("--max-positions N", "Limit positions scored (default 8192; 0 = all)") { |v| max_positions = v.to_i }
   p.on("--quiet", "Suppress progress output") { quiet = true }
   p.on("-h", "--help", "Help") { puts p; exit 0 }
@@ -174,6 +180,9 @@ abort "missing --checkpoint" if checkpoint_path.empty?
 abort "missing --file" if corpus_path.empty?
 vocab_path = corpus_path if vocab_path.empty?
 abort "--seq-len must be > 0" if seq_len <= 0
+abort "--stride must be > 0" if stride_step <= 0
+abort "--phase must satisfy 0 <= phase < stride" if phase < 0 || phase >= stride_step
+abort "--target-offset must be >= 0" if target_offset < 0
 
 variant, params = load_checkpoint(checkpoint_path)
 v = params.vocab_size
@@ -194,13 +203,18 @@ File.read(corpus_path).each_char do |c|
   tokens << (char_to_id[c]? || 0)
 end
 
-start_pos = seq_len
+effective_offset = target_offset > 0 ? target_offset : stride_step
+start_pos = effective_offset + ((seq_len - 1) * stride_step)
 end_pos = tokens.size - 1
-n_avail = end_pos - start_pos
+n_avail = ((start_pos...end_pos).count do |p|
+  endpoint = p - effective_offset
+  (endpoint % stride_step) == phase
+end)
+abort "no positions available for seq-len=#{seq_len}, stride=#{stride_step}, phase=#{phase}, target-offset=#{target_offset}" if n_avail <= 0
 n_score = (max_positions > 0 && max_positions < n_avail) ? max_positions : n_avail
 stride = (n_avail.to_f64 / n_score.to_f64).clamp(1.0, Float64::MAX)
 
-STDERR.puts "Vocab: #{v}, seq-len: #{seq_len}, scoring #{n_score} positions (stride #{stride.round(2)})" unless quiet
+STDERR.puts "Vocab: #{v}, seq-len: #{seq_len}, eval-stride: #{stride_step}, phase: #{phase}, target-offset: #{target_offset}, scoring #{n_score} positions (sample stride #{stride.round(2)})" unless quiet
 
 total_nll = 0.0
 n_scored = 0
@@ -208,12 +222,27 @@ t0 = Time.instant
 h = Array(Float64).new(d, 0.0)
 
 n_score.times do |i|
-  p = start_pos + (i.to_f64 * stride).to_i
+  ordinal = (i.to_f64 * stride).to_i
+  p = start_pos
+  seen = 0
+  while p < end_pos
+    endpoint = p - effective_offset
+    if (endpoint % stride_step) == phase
+      break if seen >= ordinal
+      seen += 1
+    end
+    p += 1
+  end
   break if p >= end_pos
   target = tokens[p]
 
   h.fill(0.0)
-  (p - seq_len...p).each { |q| step!(variant, params, h, tokens[q], q) }
+  endpoint = p - effective_offset
+  q = endpoint - ((seq_len - 1) * stride_step)
+  seq_len.times do
+    step!(variant, params, h, tokens[q], q)
+    q += stride_step
+  end
 
   total_nll += neg_log_prob(params, h, target)
   n_scored += 1
