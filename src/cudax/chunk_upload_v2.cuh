@@ -35,6 +35,7 @@ struct ChunkUploadRuntimeV2 {
     int* d_kv_lengths = nullptr;
     int* d_token_ids = nullptr;
     float* d_query_weights = nullptr;
+    float* d_query_grad_scales = nullptr;
     int* d_rope_positions = nullptr;
     int* d_char_pos = nullptr;
     ChunkDeviceScratchPoolV2 scratch;
@@ -48,6 +49,7 @@ struct ChunkDeviceMetadataV2 {
     int* d_read_pos_flat = nullptr;
     int* d_query_depth = nullptr;
     float* d_query_weights = nullptr;
+    float* d_query_grad_scales = nullptr;
     int* d_target_counts_offset = nullptr;
     int* d_target_counts_len = nullptr;
     int* d_target_counts_tok = nullptr;
@@ -93,6 +95,7 @@ static inline void init_chunk_upload_runtime_v2(ChunkUploadRuntimeV2& runtime,
     AGPT_V2_CUDA_CHECK(cudaMalloc(&runtime.d_kv_lengths, node_cap * sizeof(int)));
     AGPT_V2_CUDA_CHECK(cudaMalloc(&runtime.d_token_ids, query_cap * sizeof(int)));
     AGPT_V2_CUDA_CHECK(cudaMalloc(&runtime.d_query_weights, query_cap * sizeof(float)));
+    AGPT_V2_CUDA_CHECK(cudaMalloc(&runtime.d_query_grad_scales, query_cap * sizeof(float)));
     AGPT_V2_CUDA_CHECK(cudaMalloc(&runtime.d_rope_positions, query_cap * n_heads * sizeof(int)));
     AGPT_V2_CUDA_CHECK(cudaMalloc(&runtime.d_char_pos, query_cap * sizeof(int)));
 }
@@ -106,6 +109,7 @@ static inline void free_chunk_upload_runtime_v2(ChunkUploadRuntimeV2& runtime) {
     if (runtime.d_kv_lengths) cudaFree(runtime.d_kv_lengths);
     if (runtime.d_token_ids) cudaFree(runtime.d_token_ids);
     if (runtime.d_query_weights) cudaFree(runtime.d_query_weights);
+    if (runtime.d_query_grad_scales) cudaFree(runtime.d_query_grad_scales);
     if (runtime.d_rope_positions) cudaFree(runtime.d_rope_positions);
     if (runtime.d_char_pos) cudaFree(runtime.d_char_pos);
     runtime = ChunkUploadRuntimeV2{};
@@ -141,6 +145,7 @@ static inline ChunkDeviceMetadataV2 upload_chunk_metadata_v2(const ChunkMetadata
     AGPT_V2_CUDA_CHECK(cudaMemcpy(runtime.d_query_to_node, meta.h_query_to_node, meta.T_q * sizeof(int), cudaMemcpyHostToDevice));
     AGPT_V2_CUDA_CHECK(cudaMemcpy(runtime.d_token_ids, meta.h_token_ids, meta.T_q * sizeof(int), cudaMemcpyHostToDevice));
     AGPT_V2_CUDA_CHECK(cudaMemcpy(runtime.d_query_weights, meta.h_query_weights, meta.T_q * sizeof(float), cudaMemcpyHostToDevice));
+    AGPT_V2_CUDA_CHECK(cudaMemcpy(runtime.d_query_grad_scales, meta.h_query_grad_scales, meta.T_q * sizeof(float), cudaMemcpyHostToDevice));
     AGPT_V2_CUDA_CHECK(cudaMemcpy(runtime.d_rope_positions, meta.h_rope_positions, (long long)meta.T_q * runtime.n_heads * sizeof(int), cudaMemcpyHostToDevice));
     AGPT_V2_CUDA_CHECK(cudaMemcpy(runtime.d_char_pos, meta.h_char_pos, meta.T_q * sizeof(int), cudaMemcpyHostToDevice));
     AGPT_V2_CUDA_CHECK(cudaMemcpy(runtime.scratch.query_depth.ptr, meta.h_query_depth, meta.T_q * sizeof(int), cudaMemcpyHostToDevice));
@@ -161,6 +166,7 @@ static inline ChunkDeviceMetadataV2 upload_chunk_metadata_v2(const ChunkMetadata
     out.d_read_pos_flat = runtime.scratch.read_pos_flat.ptr;
     out.d_query_depth = runtime.scratch.query_depth.ptr;
     out.d_query_weights = runtime.d_query_weights;
+    out.d_query_grad_scales = runtime.d_query_grad_scales;
     if (meta.h_target_counts_offset && meta.h_target_counts_len) {
         out.d_target_counts_offset = runtime.scratch.target_counts_offset.ptr;
         out.d_target_counts_len = runtime.scratch.target_counts_len.ptr;

@@ -1,0 +1,42 @@
+description: "Hybrid V2 attention AGPT corrected orchestrator: pd1-100 checkpoint + random-descendants context-only stochastic refinement, d64 L2 depth16 seq_len16 Adam lr0.0003 cosine floor 10%, 10000 random full-subtree units x2 repeats"
+experiment: hybrid-agpt
+run_slug: d64L2-depth16-pd1-100ep-randdesc-u10000-r2-lr0003-contextonly-cosfloor10-corrected
+
+corpus:
+  path: data/.splits/4fa9aec1db6b3aea/train_corpus.txt
+  heldout: data/.splits/4fa9aec1db6b3aea/heldout_corpus.txt
+  vocab_source: data/input.txt
+
+model:
+  init_file: rnd/stochastic-agpt/20260611T160456-d64l2-depth16-pd1-100ep/checkpoint.model
+
+train:
+  budget:
+    unit: epochs
+    value: 1
+  quiet: false
+  optimizer:
+    name: adam
+    lr: 0.0003
+    momentum_beta: 0.9
+    beta: 0.999
+  lr_schedule:
+    name: warmup-cosine
+    warmup_epochs: 0
+    min_lr_ratio: 0.1
+  seq_len: 16
+  max_depth: 16
+  partition_depth: 1
+  chunk_queries: 20000
+  anc_grad: true
+
+lightning:
+  enabled: true
+  updates: 10000
+  anchor_mode: random-descendants
+  seed: 43
+  repeats_per_sample: 2
+
+eval:
+  batch_size: 1
+  device: cpu

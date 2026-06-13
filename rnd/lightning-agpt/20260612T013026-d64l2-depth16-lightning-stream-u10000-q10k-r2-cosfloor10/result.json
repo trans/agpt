@@ -1,0 +1,29 @@
+{
+  "run_id": "20260612T013026-d64l2-depth16-lightning-stream-u10000-q10k-r2-cosfloor10",
+  "experiment": "lightning-agpt",
+  "wall_seconds": 158.579830462,
+  "train_wall_seconds": 126.219294858,
+  "convert_wall_seconds": 4.093030436,
+  "eval_wall_seconds": 23.173721904,
+  "started_utc": "2026-06-12T01:30:26Z",
+  "ended_utc": "2026-06-12T01:33:04Z",
+  "trainer": "v2",
+  "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+  "eval": {
+    "split": "multi-chunk-heldout",
+    "source_path": null,
+    "source_sha256": null,
+    "chunks_dir": "data/.splits/4fa9aec1db6b3aea/heldout_chunks",
+    "benchmark": null,
+    "task_name": "d64l2-depth16-lightning-stream-u10000-q10k-r2-cosfloor10_holdout"
+  },
+  "metrics": {
+    "lm_eval_rolling_word_perplexity": 13467.140825045244,
+    "lm_eval_rolling_byte_perplexity": 5.693184474876716,
+    "lm_eval_rolling_bits_per_byte": 2.5092358477841987,
+    "agpt_fixed_token_perplexity": 5.419650301850088
+  },
+  "checkpoint_sha": "3153094fffae13985c451d800757f29484617e42e182cfec3782350ee5b799c6",
+  "checkpoint_results": null,
+  "experimental_used": null
+}

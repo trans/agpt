@@ -178,7 +178,8 @@ static inline void run_forward_output_stage_v2(const TrainerConfig& cfg,
         loss_tables.d_counts_offset, loss_tables.d_counts_len, loss_tables.d_counts_tok, loss_tables.d_counts_val,
         device_meta.d_target_counts_offset, device_meta.d_target_counts_len,
         device_meta.d_target_counts_tok, device_meta.d_target_counts_val,
-        device_meta.d_query_weights, buf.output.d_logits, buf.output.loss, T_q, cfg.vocab_size);
+        device_meta.d_query_weights, device_meta.d_query_grad_scales,
+        buf.output.d_logits, buf.output.loss, T_q, cfg.vocab_size);
 }
 
 #endif

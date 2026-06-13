@@ -400,6 +400,14 @@ static const char* rope_position_mode_name_v2(agpt_v2::RopePositionModeV2 mode) 
     return "unknown";
 }
 
+static const char* lightning_anchor_mode_name_v2(agpt_v2::LightningAnchorModeV2 mode) {
+    switch (mode) {
+        case agpt_v2::LightningAnchorModeV2::TraversalStop: return "traversal-stop";
+        case agpt_v2::LightningAnchorModeV2::RandomDescendants: return "random-descendants";
+    }
+    return "unknown";
+}
+
 static bool rope_position_mode_uses_position_data_v2(agpt_v2::RopePositionModeV2 mode) {
     return mode == agpt_v2::RopePositionModeV2::SampledBin ||
            mode == agpt_v2::RopePositionModeV2::PhaseSweep ||
@@ -449,7 +457,10 @@ static float scheduled_lr(const agpt_v2::TrainerConfig& cfg,
     if (progress > 1.0f) progress = 1.0f;
     constexpr float kPi = 3.14159265358979323846f;
     float cosine = 0.5f * (1.0f + std::cos(kPi * progress));
-    return cfg.lr * cosine;
+    float min_ratio = cfg.lr_min_ratio;
+    if (min_ratio < 0.0f) min_ratio = 0.0f;
+    if (min_ratio > 1.0f) min_ratio = 1.0f;
+    return cfg.lr * (min_ratio + (1.0f - min_ratio) * cosine);
 }
 
 static void scale_gradients_for_fire(cublasHandle_t cublas,
@@ -500,6 +511,35 @@ static agpt_v2::ChunkPlanList build_capacity_chunk_list_for_plan_v2(
         }
         agpt_v2::free_chunk_plan_list(chunks);
     }
+    return capacity;
+}
+
+static agpt_v2::ChunkPlanList build_lightning_capacity_chunk_list_v2(
+    const agpt_v2::TrainerConfig& cfg,
+    const agpt_v2::RuntimeShape& shape,
+    const agpt_v2::SuccessorPrefixTableV2* successor_table = nullptr) {
+    int chunk_queries = cfg.chunk_queries > 0 ? cfg.chunk_queries : 50000;
+    int context = shape.seq_len > 0 ? shape.seq_len : 1;
+    int successor_context = successor_table ? context : 0;
+    int max_kv_len = context + successor_context;
+    if (max_kv_len < 1) max_kv_len = 1;
+
+    long long query_cap = (long long)chunk_queries + (long long)max_kv_len;
+    long long node_cap_ll = query_cap;
+    if (node_cap_ll < 1) node_cap_ll = 1;
+    if (node_cap_ll > 1000000000LL) node_cap_ll = 1000000000LL;
+
+    agpt_v2::ChunkPlanList capacity{};
+    capacity.chunk_count = 1;
+    capacity.chunks = (agpt_v2::ChunkPlan*)std::calloc(1, sizeof(agpt_v2::ChunkPlan));
+    capacity.chunks[0].chunk_index = 0;
+    capacity.chunks[0].start_node_index = 0;
+    capacity.chunks[0].end_node_index = (int)node_cap_ll;
+    capacity.chunks[0].node_count = (int)node_cap_ll;
+    capacity.chunks[0].query_count = query_cap;
+    capacity.chunks[0].kv_count = query_cap * (long long)max_kv_len;
+    capacity.chunks[0].compact_char_count = query_cap;
+    capacity.chunks[0].max_kv_len = max_kv_len;
     return capacity;
 }
 
@@ -586,8 +626,9 @@ static void run_train_epoch_on_radix_host_v2(const agpt_v2::TrainerConfig& cfg,
                                              const agpt_v2::PositionSamplingStageV2* pos_stage = nullptr) {
     double t_total0 = wall_seconds_v2();
     agpt_v2::CacheLayout cache = agpt_v2::make_cache_layout(shape);
-    agpt_v2::TrainingPlan training_plan =
-        agpt_v2::build_training_plan_for_partition_depth(trie, cfg.partition_depth);
+    agpt_v2::TrainingPlan training_plan = cfg.lightning_enabled
+        ? agpt_v2::build_lightning_training_plan_v2(trie, cfg)
+        : agpt_v2::build_training_plan_for_partition_depth(trie, cfg.partition_depth);
     if (training_plan.unit_count <= 0) {
         std::printf("  train-growth-stage: skipped, no pd=%d training units at radix_nodes=%d\n",
                     cfg.partition_depth, trie.radix_count);
@@ -751,6 +792,7 @@ int main(int argc, char** argv) {
     const char* corpus_path = nullptr;
     const char* growth_frontiers_arg = nullptr;
     const char* position_data_dir = nullptr;
+    const char* target_sidecar_path = nullptr;
     const char* save_path = nullptr;
     V2Mode mode = V2Mode::Plan;
     int steps = 3;
@@ -828,6 +870,7 @@ int main(int argc, char** argv) {
         else if (std::strcmp(argv[i], "--growth-final-frontier") == 0 && i + 1 < argc) growth_final_frontier = std::atoi(argv[++i]);
         else if (std::strcmp(argv[i], "--growth-train-frac") == 0 && i + 1 < argc) growth_train_frac = std::atof(argv[++i]);
         else if (std::strcmp(argv[i], "--position-data") == 0 && i + 1 < argc) position_data_dir = argv[++i];
+        else if (std::strcmp(argv[i], "--target-sidecar") == 0 && i + 1 < argc) target_sidecar_path = argv[++i];
         else if (std::strcmp(argv[i], "--pos-sample-seed") == 0 && i + 1 < argc) cfg.pos_sample_seed = (unsigned)std::strtoul(argv[++i], nullptr, 10);
         else if (std::strcmp(argv[i], "--rope-position-mode") == 0 && i + 1 < argc) {
             if (!parse_rope_position_mode_v2(argv[++i], cfg.rope_position_mode)) {
@@ -856,6 +899,7 @@ int main(int argc, char** argv) {
             }
         }
         else if (std::strcmp(argv[i], "--warmup-epochs") == 0 && i + 1 < argc) cfg.warmup_epochs = std::atoi(argv[++i]);
+        else if (std::strcmp(argv[i], "--lr-min-ratio") == 0 && i + 1 < argc) cfg.lr_min_ratio = std::atof(argv[++i]);
         else if (std::strcmp(argv[i], "--growth-min-epochs") == 0 && i + 1 < argc) growth_min_epochs = std::atoi(argv[++i]);
         else if (std::strcmp(argv[i], "--growth-epoch-schedule") == 0 && i + 1 < argc) {
             if (!parse_growth_epoch_schedule_v2(argv[++i], growth_epoch_schedule)) {
@@ -914,6 +958,7 @@ int main(int argc, char** argv) {
         corpus_path = yaml_cfg.corpus_path.c_str();
         save_path = yaml_cfg.save_path.empty() ? nullptr : yaml_cfg.save_path.c_str();
         position_data_dir = yaml_cfg.position_data_dir.empty() ? nullptr : yaml_cfg.position_data_dir.c_str();
+        target_sidecar_path = yaml_cfg.target_sidecar.empty() ? nullptr : yaml_cfg.target_sidecar.c_str();
         std::sort(yaml_cfg.checkpoint_epochs.begin(), yaml_cfg.checkpoint_epochs.end());
         yaml_cfg.checkpoint_epochs.erase(
             std::unique(yaml_cfg.checkpoint_epochs.begin(), yaml_cfg.checkpoint_epochs.end()),
@@ -933,8 +978,9 @@ int main(int argc, char** argv) {
                      "  [--growth-max-depth N]\n"
                      "  [--epochs N] [--partition-depth 0|1] [--chunk-queries N] [--lr F] [--optimizer adam|sgd|momentum|rmsprop]\n"
                      "  [--momentum-beta F] [--rmsprop-beta F] [--lr-schedule constant|warmup-cosine]\n"
-                     "  [--warmup-epochs N] [--growth-min-epochs N] [--growth-epoch-schedule fixed|linear-ramp|linear-decay] [--steps N]\n"
+                     "  [--warmup-epochs N] [--lr-min-ratio F] [--growth-min-epochs N] [--growth-epoch-schedule fixed|linear-ramp|linear-decay] [--steps N]\n"
                      "  [--rope-position-mode depth|sampled-bin|phase-sweep|phase-weighted|phase-conditioned] [--position-data DIR] [--pos-sample-seed N]\n"
+                     "  [--target-sidecar PATH]\n"
                      "  [--anc-grad] [--ablate-anc-grad]\n"
                      "  [--units N]\n"
                      "  [--save PATH]\n"
@@ -944,9 +990,9 @@ int main(int argc, char** argv) {
                          "                         [--run-forward-prefix] [--run-backward-head]\n");
         return 1;
     }
-    if (cfg.partition_depth < 0 || cfg.partition_depth > 1) {
+    if (cfg.partition_depth < 0) {
         std::fprintf(stderr,
-                     "agpt_train_v2: only --partition-depth 0 or 1 is supported in the v2 baseline planner\n");
+                     "agpt_train_v2: --partition-depth must be non-negative\n");
         return 1;
     }
     if (explicit_anc_grad && ablate_anc_grad) {
@@ -974,6 +1020,16 @@ int main(int argc, char** argv) {
         std::fprintf(stderr,
                      "agpt_train_v2: --rope-position-mode %s requires --position-data DIR\n",
                      rope_position_mode_name_v2(cfg.rope_position_mode));
+        return 1;
+    }
+    if (target_sidecar_path && !position_data_dir) {
+        std::fprintf(stderr,
+                     "agpt_train_v2: --target-sidecar requires --position-data DIR for radix->substring mapping\n");
+        return 1;
+    }
+    if (target_sidecar_path && mode == V2Mode::TrainGrowth) {
+        std::fprintf(stderr,
+                     "agpt_train_v2: --target-sidecar is only supported for fixed-trie training\n");
         return 1;
     }
     if (cfg.chunk_queries <= 0) cfg.chunk_queries = 50000;
@@ -1015,7 +1071,7 @@ int main(int argc, char** argv) {
     if (mode == V2Mode::TrainGrowth) {
         agpt_v2::PositionSamplingDataV2 pos_data;
         bool have_pos_data = false;
-        if (rope_position_mode_uses_position_data_v2(cfg.rope_position_mode)) {
+        if (rope_position_mode_uses_position_data_v2(cfg.rope_position_mode) || target_sidecar_path) {
             pos_data = agpt_v2::load_position_sampling_data_v2(position_data_dir);
             have_pos_data = true;
             if (pos_data.prefix_table.window_size <= 0) {
@@ -1153,8 +1209,8 @@ int main(int argc, char** argv) {
                     total_unit_steps);
         std::printf("  growth-frontiers: source=%s divisions=%d train_frac=%.6f final_frontier=%d\n",
                     growth_schedule_source, growth_divisions, growth_train_frac, frontiers.back());
-        std::printf("  config: lr=%.6f warmup_epochs=%d partition_depth=%d chunk_queries=%d anc_grad=%s\n",
-                    cfg.lr, cfg.warmup_epochs, cfg.partition_depth, cfg.chunk_queries,
+        std::printf("  config: lr=%.6f warmup_epochs=%d lr_min_ratio=%.3f partition_depth=%d chunk_queries=%d anc_grad=%s\n",
+                    cfg.lr, cfg.warmup_epochs, cfg.lr_min_ratio, cfg.partition_depth, cfg.chunk_queries,
                     cfg.anc_grad ? "true" : "false");
         std::printf("  rope-position: mode=%s", rope_position_mode_name_v2(cfg.rope_position_mode));
         if (have_pos_data) {
@@ -1265,7 +1321,7 @@ int main(int argc, char** argv) {
     }
     agpt_v2::PositionSamplingDataV2 pos_data;
     bool have_pos_data = false;
-    if (rope_position_mode_uses_position_data_v2(cfg.rope_position_mode)) {
+    if (rope_position_mode_uses_position_data_v2(cfg.rope_position_mode) || target_sidecar_path) {
         pos_data = agpt_v2::load_position_sampling_data_v2(position_data_dir);
         have_pos_data = true;
         if (pos_data.prefix_table.window_size <= 0) {
@@ -1274,17 +1330,34 @@ int main(int argc, char** argv) {
             agpt_v2::free_radix_trie_structure(trie);
             return 1;
         }
-        shape.rope_seq_len = required_rope_seq_len_v2(
-            cfg.rope_position_mode, shape.seq_len, pos_data.prefix_table.window_size);
+        if (rope_position_mode_uses_position_data_v2(cfg.rope_position_mode)) {
+            shape.rope_seq_len = required_rope_seq_len_v2(
+                cfg.rope_position_mode, shape.seq_len, pos_data.prefix_table.window_size);
+        }
         if (successor_table_ptr) {
             int successor_rope_len = successor_table.d_max * 2;
             if (successor_rope_len > shape.rope_seq_len) shape.rope_seq_len = successor_rope_len;
         }
     }
+    agpt_v2::TargetSidecarTableV2 target_sidecar{};
+    const agpt_v2::TargetSidecarTableV2* target_sidecar_ptr = nullptr;
+    if (target_sidecar_path) {
+        target_sidecar = agpt_v2::load_target_sidecar_table_v2(target_sidecar_path);
+        if (target_sidecar.substring_count != pos_data.prefix_table.substring_count) {
+            std::fprintf(stderr,
+                         "agpt_train_v2: target sidecar substring_count=%u does not match position_data substrings=%d\n",
+                         target_sidecar.substring_count, pos_data.prefix_table.substring_count);
+            agpt_v2::free_successor_prefix_table_v2(successor_table);
+            agpt_v2::free_radix_trie_structure(trie);
+            return 1;
+        }
+        target_sidecar_ptr = &target_sidecar;
+    }
     if (validate_only) {
-        std::printf("agpt_train_v2: YAML config validated (mode=%s, trie_depth=%d, context_seq_len=%d, rope_seq_len=%d, successor_prefix=%s)\n",
+        std::printf("agpt_train_v2: YAML config validated (mode=%s, trie_depth=%d, context_seq_len=%d, rope_seq_len=%d, successor_prefix=%s, target_sidecar=%s)\n",
                     v2_mode_name(mode), effective_seq_len_from_trie_v2(trie), shape.seq_len, shape.rope_seq_len,
-                    successor_table_ptr ? "true" : "false");
+                    successor_table_ptr ? "true" : "false",
+                    target_sidecar_ptr ? "true" : "false");
         agpt_v2::free_successor_prefix_table_v2(successor_table);
         agpt_v2::free_radix_trie_structure(trie);
         return 0;
@@ -1293,17 +1366,30 @@ int main(int argc, char** argv) {
     cfg.rope_seq_len = shape.rope_seq_len;
     agpt_v2::ModelLayout model = agpt_v2::make_model_layout(shape);
     agpt_v2::CacheLayout cache = agpt_v2::make_cache_layout(shape);
-    agpt_v2::TrainingPlan training_plan =
-        agpt_v2::build_training_plan_for_partition_depth(trie, cfg.partition_depth);
+    agpt_v2::LightningChildIndexV2 lightning_child_index{};
+    if (cfg.lightning_enabled) {
+        lightning_child_index = agpt_v2::build_lightning_child_index_v2(trie);
+    }
+    agpt_v2::TrainingPlan training_plan{};
+    if (cfg.lightning_enabled) {
+        training_plan.unit_count = 1;
+        training_plan.units = (agpt_v2::TrainingUnit*)std::calloc(1, sizeof(agpt_v2::TrainingUnit));
+        training_plan.units[0] = agpt_v2::build_lightning_sample_unit_v2(trie, lightning_child_index, cfg, 0);
+    } else {
+        training_plan = agpt_v2::build_training_plan_for_partition_depth(trie, cfg.partition_depth);
+    }
     agpt_v2::ExecutionPlan plan = agpt_v2::build_execution_plan(trie, training_plan, cfg.chunk_queries);
     agpt_v2::ChunkPlanList largest_chunks = {};
     if (plan.largest_by_queries) {
         largest_chunks = agpt_v2::build_chunk_plan_for_unit(trie, *plan.largest_by_queries, cfg.chunk_queries, successor_table_ptr);
     }
-    agpt_v2::ChunkPlanList capacity_chunks =
-        build_capacity_chunk_list_for_plan_v2(trie, training_plan, cfg.chunk_queries, successor_table_ptr);
-    std::vector<agpt_v2::ChunkPlanList> unit_chunk_cache =
-        build_unit_chunk_plan_cache_v2(trie, training_plan, cfg.chunk_queries, successor_table_ptr);
+    agpt_v2::ChunkPlanList capacity_chunks = cfg.lightning_enabled
+        ? build_lightning_capacity_chunk_list_v2(cfg, shape, successor_table_ptr)
+        : build_capacity_chunk_list_for_plan_v2(trie, training_plan, cfg.chunk_queries, successor_table_ptr);
+    std::vector<agpt_v2::ChunkPlanList> unit_chunk_cache;
+    if (!cfg.lightning_enabled) {
+        unit_chunk_cache = build_unit_chunk_plan_cache_v2(trie, training_plan, cfg.chunk_queries, successor_table_ptr);
+    }
     agpt_v2::TrainerRuntimeContract runtime_contract =
         agpt_v2::build_trainer_runtime_contract(shape, cache, plan, capacity_chunks,
                                                 trie.compact_slot_capacity);
@@ -1318,7 +1404,8 @@ int main(int argc, char** argv) {
     if (plan.largest_by_queries && largest_chunks.chunk_count > 0) {
         first_chunk_meta = agpt_v2::build_chunk_metadata_v2(cfg, shape, trie, *plan.largest_by_queries,
                                                             largest_chunks.chunks[0], pos_stage_ptr,
-                                                            0, 0, successor_table_ptr);
+                                                            0, 0, successor_table_ptr,
+                                                            target_sidecar_ptr);
         have_first_chunk_meta = true;
     }
 
@@ -1338,9 +1425,39 @@ int main(int argc, char** argv) {
     }
     std::printf("  trie: %d radix nodes, %lld edge chars, %d endpoint depths\n",
                 trie.radix_count, trie.total_edge_chars, trie.depth_file_count);
-    std::printf("  config: epochs=%d lr=%.6f optimizer=%s schedule=%s warmup_epochs=%d partition_depth=%d chunk_queries=%d accumulate=%s\n",
-                cfg.epochs, cfg.lr, v2_optimizer_name(cfg.optimizer), v2_lr_schedule_name(cfg.lr_schedule), cfg.warmup_epochs,
+    std::printf("  config: epochs=%d lr=%.6f optimizer=%s schedule=%s warmup_epochs=%d lr_min_ratio=%.3f partition_depth=%d chunk_queries=%d accumulate=%s\n",
+                cfg.epochs, cfg.lr, v2_optimizer_name(cfg.optimizer), v2_lr_schedule_name(cfg.lr_schedule), cfg.warmup_epochs, cfg.lr_min_ratio,
                 cfg.partition_depth, cfg.chunk_queries, cfg.accumulate ? "true" : "false");
+    if (cfg.dropout_node_keep_prob < 1.0f) {
+        std::printf("  dropout: node_keep_prob=%.3f seed=%u\n",
+                    cfg.dropout_node_keep_prob, cfg.dropout_seed);
+    }
+    if (cfg.entropy_gate_min_scale < 1.0f) {
+        std::printf("  entropy-gate: min_scale=%.3f\n", cfg.entropy_gate_min_scale);
+    }
+    if (cfg.entropy_grad_min_scale < 1.0f) {
+        std::printf("  entropy-grad: min_scale=%.3f\n", cfg.entropy_grad_min_scale);
+    }
+    if (cfg.lightning_enabled) {
+        if (cfg.lightning_anchor_mode == agpt_v2::LightningAnchorModeV2::RandomDescendants) {
+            std::printf("  lightning: enabled updates=%d anchor_mode=%s query_budget=ignored chunk_queries=%d seed=%u repeats_per_sample=%d\n",
+                        cfg.lightning_updates,
+                        lightning_anchor_mode_name_v2(cfg.lightning_anchor_mode),
+                        cfg.chunk_queries,
+                        cfg.lightning_seed,
+                        cfg.lightning_repeats_per_sample);
+        } else {
+            std::printf("  lightning: enabled updates=%d anchor_mode=%s query_budget=%d seed=%u stop_p=%.3f sample_fanout=%d anchors_per_step=%d repeats_per_sample=%d\n",
+                        cfg.lightning_updates,
+                        lightning_anchor_mode_name_v2(cfg.lightning_anchor_mode),
+                        cfg.lightning_query_budget > 0 ? cfg.lightning_query_budget : cfg.chunk_queries,
+                        cfg.lightning_seed,
+                        cfg.lightning_stop_p,
+                        cfg.lightning_sample_fanout,
+                        cfg.lightning_anchors_per_step,
+                        cfg.lightning_repeats_per_sample);
+        }
+    }
     if (!yaml_cfg.checkpoint_epochs.empty()) {
         std::printf("  checkpoint_epochs:");
         for (int epoch : yaml_cfg.checkpoint_epochs) std::printf(" %d", epoch);
@@ -1362,6 +1479,13 @@ int main(int argc, char** argv) {
                     trie.radix_count);
         if (pos_data.prefix_targets.window_size > 0) {
             std::printf(" phase_targets=%lld", (long long)pos_data.prefix_targets.total_entries);
+        }
+        if (target_sidecar_ptr) {
+            std::printf(" target_sidecar=%s sidecar_entries=%llu sidecar_scale=%u sidecar_mix=%.3f",
+                        target_sidecar_path,
+                        (unsigned long long)target_sidecar.total_entries,
+                        target_sidecar.scale,
+                        cfg.target_sidecar_mix);
         }
         if (cfg.rope_position_mode == agpt_v2::RopePositionModeV2::PhaseSweep ||
             cfg.rope_position_mode == agpt_v2::RopePositionModeV2::PhaseWeighted ||
@@ -1387,11 +1511,18 @@ int main(int argc, char** argv) {
     std::printf("  cache contract: K=%s compact_slot_indexed=%s\n",
                 cache.k_space == agpt_v2::KCoordinateSpace::PostRope ? "post-RoPE" : "pre-RoPE",
                 cache.compact_slot_indexed ? "true" : "false");
-    std::printf("  pd=%d plan: %d training units, %lld node-visits, %lld query positions,\n"
-                "           %lld compact chars, ~%lld chunks/epoch at chunk_queries=%d\n",
-                cfg.partition_depth,
-                plan.training_unit_count, plan.total_node_count, plan.total_query_count,
-                plan.total_compact_char_count, plan.estimated_chunk_count, cfg.chunk_queries);
+    if (cfg.lightning_enabled) {
+        std::printf("  lightning plan: streaming updates=%d; probe nodes=%lld queries=%lld compact_chars=%lld chunks=%lld at chunk_queries=%d\n",
+                    cfg.lightning_updates,
+                    plan.total_node_count, plan.total_query_count,
+                    plan.total_compact_char_count, plan.estimated_chunk_count, cfg.chunk_queries);
+    } else {
+        std::printf("  pd=%d plan: %d training units, %lld node-visits, %lld query positions,\n"
+                    "           %lld compact chars, ~%lld chunks/epoch at chunk_queries=%d\n",
+                    cfg.partition_depth, plan.training_unit_count, plan.total_node_count,
+                    plan.total_query_count, plan.total_compact_char_count,
+                    plan.estimated_chunk_count, cfg.chunk_queries);
+    }
     if (plan.largest_by_queries) {
         std::printf("  largest-by-query unit: rc=%d nodes=%d queries=%lld compact_chars=%lld depth=%d est_chunks=%d\n",
                     plan.largest_by_queries->root_child_id,
@@ -1504,16 +1635,19 @@ int main(int argc, char** argv) {
                     ? agpt_v2::presentation_phase_span_v2(pos_stage_ptr, trie)
                     : -1;
                 int epochs = cfg.epochs > 0 ? cfg.epochs : 1;
-                int units_to_run = plan.training_unit_count;
+                int units_to_run = cfg.lightning_enabled ? cfg.lightning_updates : plan.training_unit_count;
                 if (unit_limit > 0 && unit_limit < units_to_run) units_to_run = unit_limit;
                 if (units_to_run < 1) units_to_run = 1;
+                int repeats_per_sample = cfg.lightning_enabled ? cfg.lightning_repeats_per_sample : 1;
+                if (repeats_per_sample < 1) repeats_per_sample = 1;
                 int optimizer_step_index = 0;
                 AGPT_V2_CUDA_CHECK(cudaMemset(runtime.d_opt_m, 0, (size_t)model.total_floats * sizeof(float)));
                 AGPT_V2_CUDA_CHECK(cudaMemset(runtime.d_opt_v, 0, (size_t)model.total_floats * sizeof(float)));
-                std::printf("  train-epoch: epochs=%d units=%d accumulate=%s optimizer=%s\n",
-                            epochs, units_to_run, cfg.accumulate ? "true" : "false", v2_optimizer_name(cfg.optimizer));
-                long long total_unit_steps = (long long)epochs * (long long)units_to_run;
-                long long warmup_unit_steps = (long long)cfg.warmup_epochs * (long long)units_to_run;
+                std::printf("  train-epoch: epochs=%d units=%d repeats_per_sample=%d accumulate=%s optimizer=%s\n",
+                            epochs, units_to_run, repeats_per_sample,
+                            cfg.accumulate ? "true" : "false", v2_optimizer_name(cfg.optimizer));
+                long long total_unit_steps = (long long)epochs * (long long)units_to_run * (long long)repeats_per_sample;
+                long long warmup_unit_steps = (long long)cfg.warmup_epochs * (long long)units_to_run * (long long)repeats_per_sample;
                 if (total_unit_steps < 1) total_unit_steps = 1;
                 double train_loop_start = wall_seconds_v2();
                 for (int epoch = 0; epoch < epochs; epoch++) {
@@ -1547,117 +1681,152 @@ int main(int argc, char** argv) {
                     agpt_v2::zero_cache_runtime_v2(runtime.cache);
                     std::printf("  train-epoch: epoch %d/%d\n", epoch + 1, epochs);
                     for (int u = 0; u < units_to_run; u++) {
-                        const agpt_v2::TrainingUnit& unit = training_plan.units[u];
+                        agpt_v2::TrainingUnit streamed_unit{};
+                        agpt_v2::ChunkPlanList streamed_chunks{};
+                        const agpt_v2::TrainingUnit* unit_ptr = nullptr;
+                        const agpt_v2::ChunkPlanList* unit_chunks_ptr = nullptr;
+                        if (cfg.lightning_enabled) {
+                            streamed_unit = agpt_v2::build_lightning_sample_unit_v2(
+                                trie, lightning_child_index, cfg,
+                                epoch * units_to_run + u);
+                            streamed_chunks = agpt_v2::build_chunk_plan_for_unit(
+                                trie, streamed_unit, cfg.chunk_queries, successor_table_ptr);
+                            unit_ptr = &streamed_unit;
+                            unit_chunks_ptr = &streamed_chunks;
+                        } else {
+                            unit_ptr = &training_plan.units[u];
+                            unit_chunks_ptr = &unit_chunk_cache[u];
+                        }
+                        const agpt_v2::TrainingUnit& unit = *unit_ptr;
                         if (cfg.rope_position_mode == agpt_v2::RopePositionModeV2::PhaseWeighted ||
                             cfg.rope_position_mode == agpt_v2::RopePositionModeV2::PhaseConditioned) {
                             int root_phase_mass = agpt_v2::prefix_position_mass_for_presentation_start_v2(
                                 pos_stage_ptr, trie, unit.root_child_id, epoch_phase);
                             if (root_phase_mass <= 0) {
                                 skipped_phase_zero_units++;
+                                if (cfg.lightning_enabled) {
+                                    agpt_v2::free_chunk_plan_list(streamed_chunks);
+                                    agpt_v2::free_training_unit(streamed_unit);
+                                }
                                 continue;
                             }
                         }
-                        const agpt_v2::ChunkPlanList& unit_chunks = unit_chunk_cache[u];
+                        const agpt_v2::ChunkPlanList& unit_chunks = *unit_chunks_ptr;
                         if (unit_chunks.chunk_count <= 0) {
                             std::printf("    unit %d/%d rc=%d chunks=0 skipped\n",
                                         u + 1, units_to_run, unit.root_child_id);
+                            if (cfg.lightning_enabled) {
+                                agpt_v2::free_chunk_plan_list(streamed_chunks);
+                                agpt_v2::free_training_unit(streamed_unit);
+                            }
                             continue;
                         }
 
-                        long long global_unit_step = (long long)epoch * (long long)units_to_run + (long long)u;
-                        float current_lr = scheduled_lr(cfg, global_unit_step, total_unit_steps, warmup_unit_steps);
-                        AGPT_V2_CUDA_CHECK(cudaMemset(runtime.d_grads, 0, runtime.contract.weight_and_grad_bytes / 2));
-                        agpt_v2::UnitAncGradRuntimeV2 unit_anc{};
-                        if (cfg.anc_grad) {
-                            agpt_v2::init_unit_anc_grad_runtime_v2(unit_anc, runtime.contract, cfg, unit, trie,
-                                                                   pos_stage_ptr, epoch, optimizer_step_index);
-                            agpt_v2::zero_unit_anc_grad_runtime_v2(unit_anc, runtime.contract);
-                        }
-                        double unit_loss_sum = 0.0;
-                        double unit_events = 0.0;
-                        long long unit_trained = 0;
-                        for (int s = 0; s < unit_chunks.chunk_count; s++) {
-                            const agpt_v2::ChunkPlan& chunk = unit_chunks.chunks[s];
-                            agpt_v2::ChunkMetadataV2 chunk_meta =
-                                agpt_v2::build_chunk_metadata_v2(cfg, shape, trie, unit, chunk,
-                                                                 pos_stage_ptr, epoch, optimizer_step_index,
-                                                                 successor_table_ptr);
-                            phase_target_nodes += chunk_meta.phase_target_nodes;
-                            phase_target_zero_nodes += chunk_meta.phase_target_zero_nodes;
-                            phase_target_singleton_nodes += chunk_meta.phase_target_singleton_nodes;
-                            phase_target_prefix_mass += chunk_meta.phase_target_prefix_mass;
-                            phase_target_global_mass += chunk_meta.phase_target_global_mass;
-                            phase_target_local_mass += chunk_meta.phase_target_local_mass;
-                            phase_target_global_entropy_mass += chunk_meta.phase_target_global_entropy_mass;
-                            phase_target_local_entropy_mass += chunk_meta.phase_target_local_entropy_mass;
-                            agpt_v2::ChunkDeviceMetadataV2 chunk_device_meta =
-                                upload_chunk_metadata_v2(chunk_meta, upload);
-                            agpt_v2::ForwardDiagDumpConfigV2 diag_dump{};
-                            if (diag_probe.enabled &&
-                                diag_probe.epoch == (epoch + 1) &&
-                                diag_probe.root_id == unit.root_child_id) {
-                                diag_dump.tensor_dir = diag_probe.tensor_dir;
-                                diag_dump.epoch = epoch + 1;
-                                diag_dump.root_id = unit.root_child_id;
-                                diag_dump.chunk_idx = s + 1;
-                                diag_dump.active = true;
+                        for (int repeat = 0; repeat < repeats_per_sample; repeat++) {
+                            float current_lr = scheduled_lr(cfg, optimizer_step_index, total_unit_steps, warmup_unit_steps);
+                            AGPT_V2_CUDA_CHECK(cudaMemset(runtime.d_grads, 0, runtime.contract.weight_and_grad_bytes / 2));
+                            agpt_v2::UnitAncGradRuntimeV2 unit_anc{};
+                            if (cfg.anc_grad) {
+                                agpt_v2::init_unit_anc_grad_runtime_v2(unit_anc, runtime.contract, cfg, unit, trie,
+                                                                       pos_stage_ptr, epoch, optimizer_step_index);
+                                agpt_v2::zero_unit_anc_grad_runtime_v2(unit_anc, runtime.contract);
                             }
-                            agpt_v2::ForwardPassResult chunk_fwd =
-                                agpt_v2::run_forward_prefix_v2(cfg, model, chunk_meta, chunk_device_meta, upload, epoch_loss_tables, runtime,
-                                                               cfg.anc_grad ? &unit_anc : nullptr,
-                                                               diag_dump.active ? &diag_dump : nullptr);
-                            if (!chunk_fwd.ok) {
-                                abort_bad_forward_v2("train-epoch", epoch + 1, u, units_to_run,
-                                                     unit.root_child_id, s, unit_chunks.chunk_count, chunk_fwd);
-                            }
-                            if (diag_dump.active && diag_probe.exit_after) {
-                                std::printf("  diag-fire-exit: dumped forward tensors at epoch=%d root_id=%d chunk=%d\n",
-                                            diag_dump.epoch, diag_dump.root_id, diag_dump.chunk_idx);
-                                agpt_v2::free_chunk_metadata_v2(chunk_meta);
-                                agpt_v2::free_unit_anc_grad_runtime_v2(unit_anc, runtime.contract);
-                                if (save_path) {
-                                    std::printf("  diag-fire-exit: skipping save due to early exit\n");
+                            double unit_loss_sum = 0.0;
+                            double unit_events = 0.0;
+                            long long unit_trained = 0;
+                            for (int s = 0; s < unit_chunks.chunk_count; s++) {
+                                const agpt_v2::ChunkPlan& chunk = unit_chunks.chunks[s];
+                                agpt_v2::ChunkMetadataV2 chunk_meta =
+                                    agpt_v2::build_chunk_metadata_v2(cfg, shape, trie, unit, chunk,
+                                                                     pos_stage_ptr, epoch, optimizer_step_index,
+                                                                     successor_table_ptr,
+                                                                     target_sidecar_ptr);
+                                phase_target_nodes += chunk_meta.phase_target_nodes;
+                                phase_target_zero_nodes += chunk_meta.phase_target_zero_nodes;
+                                phase_target_singleton_nodes += chunk_meta.phase_target_singleton_nodes;
+                                phase_target_prefix_mass += chunk_meta.phase_target_prefix_mass;
+                                phase_target_global_mass += chunk_meta.phase_target_global_mass;
+                                phase_target_local_mass += chunk_meta.phase_target_local_mass;
+                                phase_target_global_entropy_mass += chunk_meta.phase_target_global_entropy_mass;
+                                phase_target_local_entropy_mass += chunk_meta.phase_target_local_entropy_mass;
+                                agpt_v2::ChunkDeviceMetadataV2 chunk_device_meta =
+                                    upload_chunk_metadata_v2(chunk_meta, upload);
+                                agpt_v2::ForwardDiagDumpConfigV2 diag_dump{};
+                                if (diag_probe.enabled &&
+                                    diag_probe.epoch == (epoch + 1) &&
+                                    diag_probe.root_id == unit.root_child_id) {
+                                    diag_dump.tensor_dir = diag_probe.tensor_dir;
+                                    diag_dump.epoch = epoch + 1;
+                                    diag_dump.root_id = unit.root_child_id;
+                                    diag_dump.chunk_idx = s + 1;
+                                    diag_dump.active = true;
                                 }
-                                free_device_loss_tables_v2(device_loss_tables);
-                                free_chunk_upload_runtime_v2(upload);
-                                agpt_v2::free_trainer_runtime_v2(runtime);
-                                agpt_v2::free_chunk_metadata_v2(first_chunk_meta);
-                                agpt_v2::free_chunk_plan_list(largest_chunks);
-                                agpt_v2::free_chunk_plan_list(capacity_chunks);
-                                free_unit_chunk_plan_cache_v2(unit_chunk_cache);
-                                agpt_v2::free_training_plan(training_plan);
-                                agpt_v2::free_radix_trie_structure(trie);
-                                return 0;
+                                agpt_v2::ForwardPassResult chunk_fwd =
+                                    agpt_v2::run_forward_prefix_v2(cfg, model, chunk_meta, chunk_device_meta, upload, epoch_loss_tables, runtime,
+                                                                   cfg.anc_grad ? &unit_anc : nullptr,
+                                                                   diag_dump.active ? &diag_dump : nullptr);
+                                if (!chunk_fwd.ok) {
+                                    abort_bad_forward_v2("train-epoch", epoch + 1, u, units_to_run,
+                                                         unit.root_child_id, s, unit_chunks.chunk_count, chunk_fwd);
+                                }
+                                if (diag_dump.active && diag_probe.exit_after) {
+                                    std::printf("  diag-fire-exit: dumped forward tensors at epoch=%d root_id=%d chunk=%d\n",
+                                                diag_dump.epoch, diag_dump.root_id, diag_dump.chunk_idx);
+                                    agpt_v2::free_chunk_metadata_v2(chunk_meta);
+                                    agpt_v2::free_unit_anc_grad_runtime_v2(unit_anc, runtime.contract);
+                                    if (save_path) {
+                                        std::printf("  diag-fire-exit: skipping save due to early exit\n");
+                                    }
+                                    free_device_loss_tables_v2(device_loss_tables);
+                                    free_chunk_upload_runtime_v2(upload);
+                                    agpt_v2::free_trainer_runtime_v2(runtime);
+                                    agpt_v2::free_chunk_metadata_v2(first_chunk_meta);
+                                    agpt_v2::free_chunk_plan_list(largest_chunks);
+                                    agpt_v2::free_chunk_plan_list(capacity_chunks);
+                                    free_unit_chunk_plan_cache_v2(unit_chunk_cache);
+                                    if (cfg.lightning_enabled) {
+                                        agpt_v2::free_chunk_plan_list(streamed_chunks);
+                                        agpt_v2::free_training_unit(streamed_unit);
+                                    }
+                                    agpt_v2::free_training_plan(training_plan);
+                                    agpt_v2::free_radix_trie_structure(trie);
+                                    return 0;
+                                }
+                                agpt_v2::BackwardPassResult chunk_bwd =
+                                    agpt_v2::run_backward_output_head_v2(cfg, model, chunk_meta, chunk_device_meta, upload, chunk_fwd, runtime,
+                                                                         cfg.anc_grad ? &unit_anc : nullptr,
+                                                                         s == 0, s + 1 == unit_chunks.chunk_count);
+                                (void)chunk_bwd;
+                                unit_loss_sum += (double)chunk_fwd.mean_loss * chunk_fwd.trained_events;
+                                unit_events += chunk_fwd.trained_events;
+                                unit_trained += chunk_fwd.trained_queries;
+                                epoch_loss_sum += (double)chunk_fwd.mean_loss * chunk_fwd.trained_events;
+                                epoch_events += chunk_fwd.trained_events;
+                                epoch_trained += chunk_fwd.trained_queries;
+                                agpt_v2::free_chunk_metadata_v2(chunk_meta);
                             }
-                            agpt_v2::BackwardPassResult chunk_bwd =
-                                agpt_v2::run_backward_output_head_v2(cfg, model, chunk_meta, chunk_device_meta, upload, chunk_fwd, runtime,
-                                                                     cfg.anc_grad ? &unit_anc : nullptr,
-                                                                     s == 0, s + 1 == unit_chunks.chunk_count);
-                            (void)chunk_bwd;
-                            unit_loss_sum += (double)chunk_fwd.mean_loss * chunk_fwd.trained_events;
-                            unit_events += chunk_fwd.trained_events;
-                            unit_trained += chunk_fwd.trained_queries;
-                            epoch_loss_sum += (double)chunk_fwd.mean_loss * chunk_fwd.trained_events;
-                            epoch_events += chunk_fwd.trained_events;
-                            epoch_trained += chunk_fwd.trained_queries;
-                            agpt_v2::free_chunk_metadata_v2(chunk_meta);
-                        }
 
-                        if (unit_events <= 0.0 || unit_trained <= 0) {
-                            abort_empty_training_unit_v2("train-epoch", epoch + 1, u, units_to_run,
-                                                         unit.root_child_id, unit_chunks.chunk_count,
-                                                         unit_trained, unit_events);
+                            if (unit_events <= 0.0 || unit_trained <= 0) {
+                                abort_empty_training_unit_v2("train-epoch", epoch + 1, u, units_to_run,
+                                                             unit.root_child_id, unit_chunks.chunk_count,
+                                                             unit_trained, unit_events);
+                            }
+                            scale_gradients_for_fire(runtime.cublas, runtime.d_grads, model.total_floats, unit_events);
+                            agpt_v2::OptimizerStepResult step =
+                                agpt_v2::run_optimizer_step_stateful(cfg, current_lr, runtime.d_weights, runtime.d_grads,
+                                                                     runtime.d_opt_m, runtime.d_opt_v,
+                                                                     model.total_floats, ++optimizer_step_index);
+                            double unit_mean = unit_events > 0.0 ? (unit_loss_sum / unit_events) : 0.0;
+                            std::printf("    unit %d/%d repeat %d/%d rc=%d chunks=%d trained_queries=%lld trained_events=%.0f mean_loss=%.6f lr=%.6g step=%s\n",
+                                        u + 1, units_to_run, repeat + 1, repeats_per_sample,
+                                        unit.root_child_id, unit_chunks.chunk_count,
+                                        unit_trained, unit_events, unit_mean, current_lr, step.message);
+                            agpt_v2::free_unit_anc_grad_runtime_v2(unit_anc, runtime.contract);
                         }
-                        scale_gradients_for_fire(runtime.cublas, runtime.d_grads, model.total_floats, unit_events);
-                        agpt_v2::OptimizerStepResult step =
-                            agpt_v2::run_optimizer_step_stateful(cfg, current_lr, runtime.d_weights, runtime.d_grads,
-                                                                 runtime.d_opt_m, runtime.d_opt_v,
-                                                                 model.total_floats, ++optimizer_step_index);
-                        double unit_mean = unit_events > 0.0 ? (unit_loss_sum / unit_events) : 0.0;
-                        std::printf("    unit %d/%d rc=%d chunks=%d trained_queries=%lld trained_events=%.0f mean_loss=%.6f lr=%.6g step=%s\n",
-                                    u + 1, units_to_run, unit.root_child_id, unit_chunks.chunk_count,
-                                    unit_trained, unit_events, unit_mean, current_lr, step.message);
-                        agpt_v2::free_unit_anc_grad_runtime_v2(unit_anc, runtime.contract);
+                        if (cfg.lightning_enabled) {
+                            agpt_v2::free_chunk_plan_list(streamed_chunks);
+                            agpt_v2::free_training_unit(streamed_unit);
+                        }
                     }
                     double epoch_mean = epoch_events > 0.0 ? (epoch_loss_sum / epoch_events) : 0.0;
                     std::printf("  train-epoch: epoch %d summary trained_queries=%lld trained_events=%.0f mean_loss=%.6f",
@@ -1666,7 +1835,8 @@ int main(int argc, char** argv) {
                         std::printf(" presentation_start_phase=%d skipped_zero_root_units=%d",
                                     epoch_phase, skipped_phase_zero_units);
                     }
-                    if (cfg.rope_position_mode == agpt_v2::RopePositionModeV2::PhaseConditioned) {
+                    if (cfg.rope_position_mode == agpt_v2::RopePositionModeV2::PhaseConditioned ||
+                        target_sidecar_ptr) {
                         double zero_pct = phase_target_nodes > 0
                             ? 100.0 * (double)phase_target_zero_nodes / (double)phase_target_nodes
                             : 0.0;
@@ -1685,7 +1855,8 @@ int main(int argc, char** argv) {
                         double local_h = phase_target_local_mass > 0
                             ? phase_target_local_entropy_mass / (double)phase_target_local_mass
                             : 0.0;
-                        std::printf(" phase_targets=nodes:%lld zero:%lld(%.1f%%) singleton:%lld(%.1f%%) target_mass:%lld/prefix:%lld(%.1f%%) allphase:%lld(%.1f%%) H:phase=%.4f/global=%.4f",
+                        std::printf(" %s=nodes:%lld zero:%lld(%.1f%%) singleton:%lld(%.1f%%) target_mass:%lld/prefix:%lld(%.1f%%) allphase:%lld(%.1f%%) H:local=%.4f/global=%.4f",
+                                    target_sidecar_ptr ? "target_sidecar" : "phase_targets",
                                     phase_target_nodes,
                                     phase_target_zero_nodes, zero_pct,
                                     phase_target_singleton_nodes, singleton_pct,
@@ -1738,7 +1909,8 @@ int main(int argc, char** argv) {
                     const agpt_v2::ChunkPlan& chunk = largest_chunks.chunks[s];
                     agpt_v2::ChunkMetadataV2 chunk_meta =
                         agpt_v2::build_chunk_metadata_v2(cfg, shape, trie, unit, chunk,
-                                                         pos_stage_ptr, 0, 0, successor_table_ptr);
+                                                         pos_stage_ptr, 0, 0, successor_table_ptr,
+                                                         target_sidecar_ptr);
                     agpt_v2::ChunkDeviceMetadataV2 chunk_device_meta =
                         upload_chunk_metadata_v2(chunk_meta, upload);
                     agpt_v2::ForwardPassResult chunk_fwd =

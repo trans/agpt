@@ -19,6 +19,7 @@ struct YamlConfigV2 {
     std::string save_path;
     std::string position_data_dir;
     std::string successor_prefix_table;
+    std::string target_sidecar;
 
     int seed = 42;
     bool seed_set = false;
@@ -223,6 +224,7 @@ static bool yaml_is_consumed_field_v2(const std::string& path) {
         "train.optimizer.grad_clip_norm",
         "train.lr_schedule.name",
         "train.lr_schedule.warmup_epochs",
+        "train.lr_schedule.min_lr_ratio",
         "train.seq_len",
         "train.max_depth",
         "train.partition_depth",
@@ -236,6 +238,18 @@ static bool yaml_is_consumed_field_v2(const std::string& path) {
         "train.growth.divisions",
         "train.growth.min_epochs",
         "train.growth.epoch_ramp",
+        "lightning.enabled",
+        "lightning.updates",
+        "lightning.query_budget",
+        "lightning.seed",
+        "lightning.stop_p",
+        "lightning.anchor_mode",
+        "lightning.sample_fanout",
+        "lightning.fanout",
+        "lightning.anchors_per_step",
+        "lightning.paths_per_anchor",
+        "lightning.children_per_branch",
+        "lightning.repeats_per_sample",
     };
     return fields.find(path) != fields.end();
 }
@@ -262,8 +276,14 @@ static bool yaml_is_known_experimental_field_v2(const std::string& path) {
         "experimental.position_data_dir",
         "experimental.pos_sample_seed",
         "experimental.successor_prefix_table",
+        "experimental.target_sidecar",
+        "experimental.target_sidecar_mix",
         "experimental.loss_depth_min",
         "experimental.loss_depth_max",
+        "experimental.entropy_gate_min_scale",
+        "experimental.entropy_grad_min_scale",
+        "experimental.dropout_node_keep_prob",
+        "experimental.dropout_seed",
     };
     return fields.find(path) != fields.end();
 }
@@ -302,6 +322,7 @@ static bool validate_yaml_registry_v2(const YamlDocV2& doc) {
         "train.growth",
         "eval",
         "experimental",
+        "lightning",
     };
     for (const auto& block : doc.blocks) {
         if (blocks.find(block) == blocks.end()) {
@@ -414,6 +435,24 @@ static bool parse_mass_weight_v2(const char* text, agpt_v2::MassWeightModeV2& ou
     }
     if (std::strcmp(text, "inv-linear") == 0) {
         out = agpt_v2::MassWeightModeV2::InvLinear;
+        return true;
+    }
+    return false;
+}
+
+static bool parse_lightning_anchor_mode_v2(const char* text, agpt_v2::LightningAnchorModeV2& out) {
+    if (std::strcmp(text, "traversal-stop") == 0 ||
+        std::strcmp(text, "traversal_stop") == 0 ||
+        std::strcmp(text, "traversal") == 0) {
+        out = agpt_v2::LightningAnchorModeV2::TraversalStop;
+        return true;
+    }
+    if (std::strcmp(text, "random-descendants") == 0 ||
+        std::strcmp(text, "random_descendants") == 0 ||
+        std::strcmp(text, "descendants") == 0 ||
+        std::strcmp(text, "random-subtree") == 0 ||
+        std::strcmp(text, "random_subtree") == 0) {
+        out = agpt_v2::LightningAnchorModeV2::RandomDescendants;
         return true;
     }
     return false;
@@ -610,6 +649,12 @@ static bool apply_yaml_config_v2(const char* config_path,
     }
     if (!yaml_expect_string_v2(doc, "experimental.position_data_dir", yaml_cfg.position_data_dir, false)) return false;
     if (!yaml_expect_string_v2(doc, "experimental.successor_prefix_table", yaml_cfg.successor_prefix_table, false)) return false;
+    if (!yaml_expect_string_v2(doc, "experimental.target_sidecar", yaml_cfg.target_sidecar, false)) return false;
+    if (!yaml_get_float_v2(doc, "experimental.target_sidecar_mix", cfg.target_sidecar_mix)) return false;
+    if (cfg.target_sidecar_mix < 0.0f || cfg.target_sidecar_mix > 1.0f) {
+        std::fprintf(stderr, "agpt_train_v2: YAML experimental.target_sidecar_mix must be in [0, 1]\n");
+        return false;
+    }
     bool has_loss_depth_min = false;
     bool has_loss_depth_max = false;
     if (!yaml_get_int_v2(doc, "experimental.loss_depth_min", cfg.loss_depth_min, &has_loss_depth_min)) return false;
@@ -629,6 +674,31 @@ static bool apply_yaml_config_v2(const char* config_path,
     if (has_loss_depth_min && cfg.loss_depth_min > cfg.loss_depth_max) {
         std::fprintf(stderr, "agpt_train_v2: experimental.loss_depth_min must be <= experimental.loss_depth_max\n");
         return false;
+    }
+    if (!yaml_get_float_v2(doc, "experimental.entropy_gate_min_scale", cfg.entropy_gate_min_scale)) return false;
+    if (cfg.entropy_gate_min_scale <= 0.0f || cfg.entropy_gate_min_scale > 1.0f) {
+        std::fprintf(stderr, "agpt_train_v2: YAML experimental.entropy_gate_min_scale must be in (0, 1]\n");
+        return false;
+    }
+    if (!yaml_get_float_v2(doc, "experimental.entropy_grad_min_scale", cfg.entropy_grad_min_scale)) return false;
+    if (cfg.entropy_grad_min_scale <= 0.0f || cfg.entropy_grad_min_scale > 1.0f) {
+        std::fprintf(stderr, "agpt_train_v2: YAML experimental.entropy_grad_min_scale must be in (0, 1]\n");
+        return false;
+    }
+    if (!yaml_get_float_v2(doc, "experimental.dropout_node_keep_prob", cfg.dropout_node_keep_prob)) return false;
+    if (cfg.dropout_node_keep_prob <= 0.0f || cfg.dropout_node_keep_prob > 1.0f) {
+        std::fprintf(stderr, "agpt_train_v2: YAML experimental.dropout_node_keep_prob must be in (0, 1]\n");
+        return false;
+    }
+    int dropout_seed = 0;
+    bool has_dropout_seed = false;
+    if (!yaml_get_int_v2(doc, "experimental.dropout_seed", dropout_seed, &has_dropout_seed)) return false;
+    if (has_dropout_seed) {
+        if (dropout_seed < 0) {
+            std::fprintf(stderr, "agpt_train_v2: YAML experimental.dropout_seed must be non-negative\n");
+            return false;
+        }
+        cfg.dropout_seed = (unsigned)dropout_seed;
     }
     int pos_sample_seed = 0;
     bool has_pos_sample_seed = false;
@@ -674,11 +744,116 @@ static bool apply_yaml_config_v2(const char* config_path,
         }
     }
     if (!yaml_get_int_v2(doc, "train.lr_schedule.warmup_epochs", cfg.warmup_epochs)) return false;
+    if (!yaml_get_float_v2(doc, "train.lr_schedule.min_lr_ratio", cfg.lr_min_ratio)) return false;
+    if (cfg.lr_min_ratio < 0.0f || cfg.lr_min_ratio > 1.0f) {
+        std::fprintf(stderr, "agpt_train_v2: YAML train.lr_schedule.min_lr_ratio must be in [0, 1]\n");
+        return false;
+    }
 
     if (!yaml_get_int_v2(doc, "train.partition_depth", cfg.partition_depth)) return false;
     if (!yaml_get_int_v2(doc, "train.chunk_queries", cfg.chunk_queries)) return false;
     if (!yaml_get_int_sequence_v2(doc, "train.checkpoint_epochs", yaml_cfg.checkpoint_epochs)) return false;
     if (!yaml_get_bool_v2(doc, "train.anc_grad", cfg.anc_grad)) return false;
+    if (!yaml_get_bool_v2(doc, "lightning.enabled", cfg.lightning_enabled)) return false;
+    if (!yaml_get_int_v2(doc, "lightning.updates", cfg.lightning_updates)) return false;
+    if (!yaml_get_int_v2(doc, "lightning.query_budget", cfg.lightning_query_budget)) return false;
+    int lightning_seed = 0;
+    bool has_lightning_seed = false;
+    if (!yaml_get_int_v2(doc, "lightning.seed", lightning_seed, &has_lightning_seed)) return false;
+    if (has_lightning_seed) {
+        if (lightning_seed < 0) {
+            std::fprintf(stderr, "agpt_train_v2: YAML lightning.seed must be non-negative\n");
+            return false;
+        }
+        cfg.lightning_seed = (unsigned)lightning_seed;
+    } else {
+        cfg.lightning_seed = cfg.pos_sample_seed;
+    }
+    if (!yaml_get_float_v2(doc, "lightning.stop_p", cfg.lightning_stop_p)) return false;
+    const YamlScalarV2* lightning_anchor_mode = yaml_find_v2(doc, "lightning.anchor_mode");
+    if (lightning_anchor_mode && !parse_lightning_anchor_mode_v2(lightning_anchor_mode->value.c_str(), cfg.lightning_anchor_mode)) {
+        std::fprintf(stderr, "agpt_train_v2: unsupported YAML lightning.anchor_mode: %s\n",
+                     lightning_anchor_mode->value.c_str());
+        return false;
+    }
+    int lightning_sample_fanout = cfg.lightning_sample_fanout;
+    int alias_fanout = cfg.lightning_sample_fanout;
+    int legacy_paths_per_anchor = cfg.lightning_sample_fanout;
+    bool has_lightning_sample_fanout = false;
+    bool has_alias_fanout = false;
+    bool has_legacy_paths_per_anchor = false;
+    if (!yaml_get_int_v2(doc, "lightning.sample_fanout", lightning_sample_fanout, &has_lightning_sample_fanout)) return false;
+    if (!yaml_get_int_v2(doc, "lightning.fanout", alias_fanout, &has_alias_fanout)) return false;
+    if (!yaml_get_int_v2(doc, "lightning.paths_per_anchor", legacy_paths_per_anchor, &has_legacy_paths_per_anchor)) return false;
+    if (has_lightning_sample_fanout && has_alias_fanout && lightning_sample_fanout != alias_fanout) {
+        std::fprintf(stderr, "agpt_train_v2: lightning.sample_fanout conflicts with alias lightning.fanout\n");
+        return false;
+    }
+    if (has_lightning_sample_fanout && has_legacy_paths_per_anchor && lightning_sample_fanout != legacy_paths_per_anchor) {
+        std::fprintf(stderr, "agpt_train_v2: lightning.sample_fanout conflicts with legacy lightning.paths_per_anchor\n");
+        return false;
+    }
+    if (has_alias_fanout && has_legacy_paths_per_anchor && alias_fanout != legacy_paths_per_anchor) {
+        std::fprintf(stderr, "agpt_train_v2: lightning.fanout conflicts with legacy lightning.paths_per_anchor\n");
+        return false;
+    }
+    if (has_lightning_sample_fanout) {
+        cfg.lightning_sample_fanout = lightning_sample_fanout;
+    } else if (has_alias_fanout) {
+        cfg.lightning_sample_fanout = alias_fanout;
+    } else if (has_legacy_paths_per_anchor) {
+        cfg.lightning_sample_fanout = legacy_paths_per_anchor;
+    }
+    int lightning_anchors_per_step = cfg.lightning_anchors_per_step;
+    int legacy_children_per_branch = cfg.lightning_anchors_per_step;
+    bool has_lightning_anchors_per_step = false;
+    bool has_legacy_children_per_branch = false;
+    if (!yaml_get_int_v2(doc, "lightning.anchors_per_step", lightning_anchors_per_step, &has_lightning_anchors_per_step)) return false;
+    if (!yaml_get_int_v2(doc, "lightning.children_per_branch", legacy_children_per_branch, &has_legacy_children_per_branch)) return false;
+    if (has_lightning_anchors_per_step && has_legacy_children_per_branch &&
+        lightning_anchors_per_step != legacy_children_per_branch) {
+        std::fprintf(stderr, "agpt_train_v2: lightning.anchors_per_step conflicts with legacy lightning.children_per_branch\n");
+        return false;
+    }
+    if (has_lightning_anchors_per_step) {
+        cfg.lightning_anchors_per_step = lightning_anchors_per_step;
+    } else if (has_legacy_children_per_branch) {
+        cfg.lightning_anchors_per_step = legacy_children_per_branch;
+    }
+    if (!yaml_get_int_v2(doc, "lightning.repeats_per_sample", cfg.lightning_repeats_per_sample)) return false;
+    if (cfg.lightning_enabled) {
+        if (cfg.lightning_updates <= 0) cfg.lightning_updates = cfg.epochs;
+        if (cfg.lightning_updates <= 0) {
+            std::fprintf(stderr, "agpt_train_v2: lightning.updates must be positive when lightning.enabled=true\n");
+            return false;
+        }
+        if (cfg.lightning_query_budget <= 0 &&
+            cfg.lightning_anchor_mode != agpt_v2::LightningAnchorModeV2::RandomDescendants) {
+            cfg.lightning_query_budget = cfg.chunk_queries > 0 ? cfg.chunk_queries : 50000;
+        }
+        if (cfg.lightning_query_budget <= 0 &&
+            cfg.lightning_anchor_mode != agpt_v2::LightningAnchorModeV2::RandomDescendants) {
+            std::fprintf(stderr, "agpt_train_v2: lightning.query_budget must be positive when lightning.enabled=true\n");
+            return false;
+        }
+        if (!(cfg.lightning_stop_p >= 0.0f && cfg.lightning_stop_p <= 1.0f)) {
+            std::fprintf(stderr, "agpt_train_v2: lightning.stop_p must be in [0, 1]\n");
+            return false;
+        }
+        if (cfg.lightning_sample_fanout <= 0) {
+            std::fprintf(stderr, "agpt_train_v2: lightning.sample_fanout must be positive when lightning.enabled=true\n");
+            return false;
+        }
+        if (cfg.lightning_anchors_per_step <= 0) {
+            std::fprintf(stderr, "agpt_train_v2: lightning.anchors_per_step must be positive when lightning.enabled=true\n");
+            return false;
+        }
+        if (cfg.lightning_repeats_per_sample <= 0) {
+            std::fprintf(stderr, "agpt_train_v2: lightning.repeats_per_sample must be positive when lightning.enabled=true\n");
+            return false;
+        }
+        cfg.epochs = 1;
+    }
     const YamlScalarV2* mass_weight = yaml_find_v2(doc, "train.mass_weight");
     if (mass_weight && !parse_mass_weight_v2(mass_weight->value.c_str(), cfg.mass_weight)) {
         std::fprintf(stderr, "agpt_train_v2: unsupported YAML train.mass_weight: %s\n",

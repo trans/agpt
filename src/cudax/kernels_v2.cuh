@@ -382,6 +382,7 @@ __global__ static void agpt_loss_per_query_kernel_v2(
     const int* local_counts_tok,
     const int* local_counts_val,
     const float* query_weights,
+    const float* query_grad_scales,
     float* d_logits,
     float* loss_out,
     int T_q, int V) {
@@ -461,6 +462,10 @@ __global__ static void agpt_loss_per_query_kernel_v2(
                 loss *= weight;
                 for (int j = 0; j < V; j++) grad_row[j] *= weight;
             }
+            float grad_scale = query_grad_scales ? query_grad_scales[q] : 1.0f;
+            if (grad_scale != 1.0f) {
+                for (int j = 0; j < V; j++) grad_row[j] *= grad_scale;
+            }
             loss_out[q] = loss;
         } else {
             int target = token_ids[q + 1];
@@ -471,6 +476,10 @@ __global__ static void agpt_loss_per_query_kernel_v2(
             if (weight != 1.0f) {
                 loss *= weight;
                 for (int j = 0; j < V; j++) grad_row[j] *= weight;
+            }
+            float grad_scale = query_grad_scales ? query_grad_scales[q] : 1.0f;
+            if (grad_scale != 1.0f) {
+                for (int j = 0; j < V; j++) grad_row[j] *= grad_scale;
             }
             loss_out[q] = loss;
         }
@@ -491,6 +500,7 @@ static inline void launch_agpt_loss_per_query_v2(const float* logits,
                                                  const int* local_counts_tok,
                                                  const int* local_counts_val,
                                                  const float* query_weights,
+                                                 const float* query_grad_scales,
                                                  float* d_logits,
                                                  float* loss_out,
                                                  int T_q, int V) {
@@ -503,7 +513,7 @@ static inline void launch_agpt_loss_per_query_v2(const float* logits,
         logits, query_to_node, query_offsets, radix_ids, token_ids,
         counts_offset, counts_len, counts_tok, counts_val,
         local_counts_offset, local_counts_len, local_counts_tok, local_counts_val,
-        query_weights, d_logits, loss_out, T_q, V);
+        query_weights, query_grad_scales, d_logits, loss_out, T_q, V);
 }
 
 __global__ static void bias_grad_accum_kernel_v2(const float* grad, int rows, int cols,

@@ -1,0 +1,29 @@
+{
+  "run_id": "20260612T215441-d64l2-depth16-pd1-100ep-traversal-u10000-r2-lr00003-contexto",
+  "experiment": "hybrid-agpt",
+  "wall_seconds": 306.229315731,
+  "train_wall_seconds": 276.659121225,
+  "convert_wall_seconds": 3.974763858,
+  "eval_wall_seconds": 20.568310293,
+  "started_utc": "2026-06-12T21:54:41Z",
+  "ended_utc": "2026-06-12T21:59:47Z",
+  "trainer": "v2",
+  "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+  "eval": {
+    "split": "multi-chunk-heldout",
+    "source_path": null,
+    "source_sha256": null,
+    "chunks_dir": "data/.splits/4fa9aec1db6b3aea/heldout_chunks",
+    "benchmark": null,
+    "task_name": "d64l2-depth16-pd1-100ep-traversal-u10000-r2-lr00003-contexto_holdout"
+  },
+  "metrics": {
+    "lm_eval_rolling_word_perplexity": 14580.500229186624,
+    "lm_eval_rolling_byte_perplexity": 5.776512099140988,
+    "lm_eval_rolling_bits_per_byte": 2.530198645643023,
+    "agpt_fixed_token_perplexity": 5.433156152070935
+  },
+  "checkpoint_sha": "1f7a96e5059a8c22c5eb9abd8825f313fc69146786173e8bf2e2844b77e5382e",
+  "checkpoint_results": null,
+  "experimental_used": null
+}

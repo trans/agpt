@@ -1,0 +1,205 @@
+{
+  "run_id": "20260611T173031-d64l2-depth16-pd1-100ep-lossdepth7",
+  "experiment": "stochastic-agpt",
+  "wall_seconds": 886.894329938,
+  "train_wall_seconds": 610.349324904,
+  "convert_wall_seconds": 3.993142249,
+  "eval_wall_seconds": 19.705632927,
+  "started_utc": "2026-06-11T17:30:31Z",
+  "ended_utc": "2026-06-11T17:45:18Z",
+  "trainer": "v2",
+  "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+  "eval": {
+    "split": "multi-chunk-heldout",
+    "source_path": null,
+    "source_sha256": null,
+    "chunks_dir": "data/.splits/4fa9aec1db6b3aea/heldout_chunks",
+    "benchmark": null,
+    "task_name": "d64l2-depth16-pd1-100ep-lossdepth7_holdout"
+  },
+  "metrics": {
+    "lm_eval_rolling_word_perplexity": 9215.419018613733,
+    "lm_eval_rolling_byte_perplexity": 5.311487631020236,
+    "lm_eval_rolling_bits_per_byte": 2.4091159848177637,
+    "agpt_fixed_token_perplexity": 4.769960765233838
+  },
+  "checkpoint_sha": "41820330617ecc301c75ab340a341688ceefa928f9131eddb366b6349784348b",
+  "checkpoint_results": [
+    {
+      "epoch": 10,
+      "checkpoint_path": "rnd/stochastic-agpt/20260611T173031-d64l2-depth16-pd1-100ep-lossdepth7/checkpoint.epoch_000010.model",
+      "checkpoint_sha": "4a25b17278f4b373ac06caff3ab1a55ad52b424abfd7bff5e5684b7e5f5f2111",
+      "hf_dir": "rnd/stochastic-agpt/20260611T173031-d64l2-depth16-pd1-100ep-lossdepth7/hf_checkpoint_epoch_000010",
+      "eval_raw_json": "rnd/stochastic-agpt/20260611T173031-d64l2-depth16-pd1-100ep-lossdepth7/eval_raw_epoch_000010.json",
+      "task_name": "d64l2-depth16-pd1-100ep-lossdepth7_epoch_000010_holdout",
+      "train_wall_seconds": 57.725842,
+      "convert_wall_seconds": 4.224342709,
+      "eval_wall_seconds": 19.941819404,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 85526.71374752521,
+        "lm_eval_rolling_byte_perplexity": 7.983875228142582,
+        "lm_eval_rolling_bits_per_byte": 2.997089174439388,
+        "agpt_fixed_token_perplexity": 7.575469994540184
+      }
+    },
+    {
+      "epoch": 20,
+      "checkpoint_path": "rnd/stochastic-agpt/20260611T173031-d64l2-depth16-pd1-100ep-lossdepth7/checkpoint.epoch_000020.model",
+      "checkpoint_sha": "2883cc0e2dc80b92c2d39ec84463630a5016f5ee5f440cee3b8e82e897fe9e1b",
+      "hf_dir": "rnd/stochastic-agpt/20260611T173031-d64l2-depth16-pd1-100ep-lossdepth7/hf_checkpoint_epoch_000020",
+      "eval_raw_json": "rnd/stochastic-agpt/20260611T173031-d64l2-depth16-pd1-100ep-lossdepth7/eval_raw_epoch_000020.json",
+      "task_name": "d64l2-depth16-pd1-100ep-lossdepth7_epoch_000020_holdout",
+      "train_wall_seconds": 121.843685,
+      "convert_wall_seconds": 4.449838136,
+      "eval_wall_seconds": 20.500580379,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 33386.389396395614,
+        "lm_eval_rolling_byte_perplexity": 6.721747855075987,
+        "lm_eval_rolling_bits_per_byte": 2.7488364255596047,
+        "agpt_fixed_token_perplexity": 6.205717852884031
+      }
+    },
+    {
+      "epoch": 30,
+      "checkpoint_path": "rnd/stochastic-agpt/20260611T173031-d64l2-depth16-pd1-100ep-lossdepth7/checkpoint.epoch_000030.model",
+      "checkpoint_sha": "6ebf404cbf7eccb8994708ca5119b897187031a55811dd8c3e1c3c95cb18ccdd",
+      "hf_dir": "rnd/stochastic-agpt/20260611T173031-d64l2-depth16-pd1-100ep-lossdepth7/hf_checkpoint_epoch_000030",
+      "eval_raw_json": "rnd/stochastic-agpt/20260611T173031-d64l2-depth16-pd1-100ep-lossdepth7/eval_raw_epoch_000030.json",
+      "task_name": "d64l2-depth16-pd1-100ep-lossdepth7_epoch_000030_holdout",
+      "train_wall_seconds": 184.361393,
+      "convert_wall_seconds": 4.737747312,
+      "eval_wall_seconds": 20.667384326,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 22096.470995944255,
+        "lm_eval_rolling_byte_perplexity": 6.232943882570787,
+        "lm_eval_rolling_bits_per_byte": 2.6399137237063957,
+        "agpt_fixed_token_perplexity": 5.6943719114499745
+      }
+    },
+    {
+      "epoch": 40,
+      "checkpoint_path": "rnd/stochastic-agpt/20260611T173031-d64l2-depth16-pd1-100ep-lossdepth7/checkpoint.epoch_000040.model",
+      "checkpoint_sha": "ec80a9179b66ccbc3d93c45b16d74bdd7653c2d7b7acdfe3d950d29cd2f6f247",
+      "hf_dir": "rnd/stochastic-agpt/20260611T173031-d64l2-depth16-pd1-100ep-lossdepth7/hf_checkpoint_epoch_000040",
+      "eval_raw_json": "rnd/stochastic-agpt/20260611T173031-d64l2-depth16-pd1-100ep-lossdepth7/eval_raw_epoch_000040.json",
+      "task_name": "d64l2-depth16-pd1-100ep-lossdepth7_epoch_000040_holdout",
+      "train_wall_seconds": 248.268498,
+      "convert_wall_seconds": 4.200536069,
+      "eval_wall_seconds": 20.510393582,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 15983.14249516957,
+        "lm_eval_rolling_byte_perplexity": 5.874387516878379,
+        "lm_eval_rolling_bits_per_byte": 2.554438439349893,
+        "agpt_fixed_token_perplexity": 5.32631298264075
+      }
+    },
+    {
+      "epoch": 50,
+      "checkpoint_path": "rnd/stochastic-agpt/20260611T173031-d64l2-depth16-pd1-100ep-lossdepth7/checkpoint.epoch_000050.model",
+      "checkpoint_sha": "d7cd32d9312c1e56833030c70eb3e9fe728391690a609462f7d070d2cd2bbb72",
+      "hf_dir": "rnd/stochastic-agpt/20260611T173031-d64l2-depth16-pd1-100ep-lossdepth7/hf_checkpoint_epoch_000050",
+      "eval_raw_json": "rnd/stochastic-agpt/20260611T173031-d64l2-depth16-pd1-100ep-lossdepth7/eval_raw_epoch_000050.json",
+      "task_name": "d64l2-depth16-pd1-100ep-lossdepth7_epoch_000050_holdout",
+      "train_wall_seconds": 305.805504,
+      "convert_wall_seconds": 4.238808366,
+      "eval_wall_seconds": 20.304677526,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 13301.104186212258,
+        "lm_eval_rolling_byte_perplexity": 5.680279428248655,
+        "lm_eval_rolling_bits_per_byte": 2.505961901531531,
+        "agpt_fixed_token_perplexity": 5.108759414609014
+      }
+    },
+    {
+      "epoch": 60,
+      "checkpoint_path": "rnd/stochastic-agpt/20260611T173031-d64l2-depth16-pd1-100ep-lossdepth7/checkpoint.epoch_000060.model",
+      "checkpoint_sha": "a1ede8b1f75d8dce3e5d052c0b49bd9df1a1a1ce1d6751f45bb2699ffc6efe7f",
+      "hf_dir": "rnd/stochastic-agpt/20260611T173031-d64l2-depth16-pd1-100ep-lossdepth7/hf_checkpoint_epoch_000060",
+      "eval_raw_json": "rnd/stochastic-agpt/20260611T173031-d64l2-depth16-pd1-100ep-lossdepth7/eval_raw_epoch_000060.json",
+      "task_name": "d64l2-depth16-pd1-100ep-lossdepth7_epoch_000060_holdout",
+      "train_wall_seconds": 362.258151,
+      "convert_wall_seconds": 4.129077688,
+      "eval_wall_seconds": 21.26561824,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 11475.400385673218,
+        "lm_eval_rolling_byte_perplexity": 5.528921958823002,
+        "lm_eval_rolling_bits_per_byte": 2.466998208077259,
+        "agpt_fixed_token_perplexity": 4.958203324256396
+      }
+    },
+    {
+      "epoch": 70,
+      "checkpoint_path": "rnd/stochastic-agpt/20260611T173031-d64l2-depth16-pd1-100ep-lossdepth7/checkpoint.epoch_000070.model",
+      "checkpoint_sha": "55cd8377c35cbe78fc7c82566a354a48bbe7442e5420e28b929f9c029599af4a",
+      "hf_dir": "rnd/stochastic-agpt/20260611T173031-d64l2-depth16-pd1-100ep-lossdepth7/hf_checkpoint_epoch_000070",
+      "eval_raw_json": "rnd/stochastic-agpt/20260611T173031-d64l2-depth16-pd1-100ep-lossdepth7/eval_raw_epoch_000070.json",
+      "task_name": "d64l2-depth16-pd1-100ep-lossdepth7_epoch_000070_holdout",
+      "train_wall_seconds": 420.697717,
+      "convert_wall_seconds": 4.441750732,
+      "eval_wall_seconds": 20.662194438,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 10424.061281322189,
+        "lm_eval_rolling_byte_perplexity": 5.432587877802079,
+        "lm_eval_rolling_bits_per_byte": 2.44163960669949,
+        "agpt_fixed_token_perplexity": 4.880373893867064
+      }
+    },
+    {
+      "epoch": 80,
+      "checkpoint_path": "rnd/stochastic-agpt/20260611T173031-d64l2-depth16-pd1-100ep-lossdepth7/checkpoint.epoch_000080.model",
+      "checkpoint_sha": "0d1e9ae6da5a1dec68de8ca05e50b3911294d19063d099cc1adea67dd6b7e09d",
+      "hf_dir": "rnd/stochastic-agpt/20260611T173031-d64l2-depth16-pd1-100ep-lossdepth7/hf_checkpoint_epoch_000080",
+      "eval_raw_json": "rnd/stochastic-agpt/20260611T173031-d64l2-depth16-pd1-100ep-lossdepth7/eval_raw_epoch_000080.json",
+      "task_name": "d64l2-depth16-pd1-100ep-lossdepth7_epoch_000080_holdout",
+      "train_wall_seconds": 482.759056,
+      "convert_wall_seconds": 4.490111668,
+      "eval_wall_seconds": 20.959458495,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 9553.229624786984,
+        "lm_eval_rolling_byte_perplexity": 5.346582335042872,
+        "lm_eval_rolling_bits_per_byte": 2.418616980514848,
+        "agpt_fixed_token_perplexity": 4.80464274309607
+      }
+    },
+    {
+      "epoch": 90,
+      "checkpoint_path": "rnd/stochastic-agpt/20260611T173031-d64l2-depth16-pd1-100ep-lossdepth7/checkpoint.epoch_000090.model",
+      "checkpoint_sha": "291dd2a43d573e2a252c261e1dcfff2f235f8f7a459459b8c6b9780eb16c8f21",
+      "hf_dir": "rnd/stochastic-agpt/20260611T173031-d64l2-depth16-pd1-100ep-lossdepth7/hf_checkpoint_epoch_000090",
+      "eval_raw_json": "rnd/stochastic-agpt/20260611T173031-d64l2-depth16-pd1-100ep-lossdepth7/eval_raw_epoch_000090.json",
+      "task_name": "d64l2-depth16-pd1-100ep-lossdepth7_epoch_000090_holdout",
+      "train_wall_seconds": 546.250235,
+      "convert_wall_seconds": 4.470776006,
+      "eval_wall_seconds": 19.480688728,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 9287.1718897038,
+        "lm_eval_rolling_byte_perplexity": 5.319028833681668,
+        "lm_eval_rolling_bits_per_byte": 2.4111628576189355,
+        "agpt_fixed_token_perplexity": 4.774622447481808
+      }
+    },
+    {
+      "epoch": 100,
+      "checkpoint_path": "rnd/stochastic-agpt/20260611T173031-d64l2-depth16-pd1-100ep-lossdepth7/checkpoint.epoch_000100.model",
+      "checkpoint_sha": "41820330617ecc301c75ab340a341688ceefa928f9131eddb366b6349784348b",
+      "hf_dir": "rnd/stochastic-agpt/20260611T173031-d64l2-depth16-pd1-100ep-lossdepth7/hf_checkpoint_epoch_000100",
+      "eval_raw_json": "rnd/stochastic-agpt/20260611T173031-d64l2-depth16-pd1-100ep-lossdepth7/eval_raw_epoch_000100.json",
+      "task_name": "d64l2-depth16-pd1-100ep-lossdepth7_epoch_000100_holdout",
+      "train_wall_seconds": 609.093389,
+      "convert_wall_seconds": 4.568893036,
+      "eval_wall_seconds": 20.596557628,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 9215.419018613733,
+        "lm_eval_rolling_byte_perplexity": 5.311487631020236,
+        "lm_eval_rolling_bits_per_byte": 2.4091159848177637,
+        "agpt_fixed_token_perplexity": 4.769960765233838
+      }
+    }
+  ],
+  "experimental_used": {
+    "v2": [
+      "loss_depth_max",
+      "loss_depth_min"
+    ]
+  }
+}

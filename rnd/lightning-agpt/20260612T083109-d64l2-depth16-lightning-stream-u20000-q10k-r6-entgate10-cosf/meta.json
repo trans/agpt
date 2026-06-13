@@ -1,0 +1,50 @@
+{
+  "config_sha256": "a9c88e0c3a61289c088b26f26dad1685f88bce621ee9b91836a2e2fe1e42ba57",
+  "started_utc": "2026-06-12T08:31:09Z",
+  "trainer": "v2",
+  "trainer_bin": "bin/agpt_train_v2",
+  "git_sha": "fe7f68d3aa7ef65ee52f578484a272ac44a35343",
+  "git_branch": "main",
+  "git_dirty": true,
+  "host": "neo14",
+  "command": "bin/agpt_experiment",
+  "corpus": {
+    "path": "data/.splits/4fa9aec1db6b3aea/train_corpus.txt",
+    "sha256": "a4eb0b78cc80ab36479895725d46f09b2a6b948bc8f5b842f8cb68432148fb65",
+    "byte_count": 1059634,
+    "carve": null
+  },
+  "model_init": {
+    "path": "rnd/cudax-d16-linear-mass-rerun/seeds/shake-d64L2-h4-dff256-d16-seed42.model",
+    "sha256": "42d7db0384e6f962af0cf6bc491eff5de343f04070f342a9fed0e46d43f1bf6a",
+    "header": {
+      "magic": 1296519252,
+      "d_model": 64,
+      "n_heads": 4,
+      "n_layers": 2,
+      "d_ff": 256,
+      "vocab": 65,
+      "seq_len": 16
+    }
+  },
+  "trie_path": "data/.tries/64e9fe109211b366",
+  "environment": {
+    "cuda": "Cuda compilation tools, release 13.3, V13.3.33",
+    "gpu": "NVIDIA GeForce RTX 4070 Laptop GPU, 610.43.02, 8188 MiB",
+    "crystal": "Crystal 1.20.2 [b571930] (2026-05-16)",
+    "python": "Python 3.14.5",
+    "python_packages": {
+      "torch": "2.12.0",
+      "transformers": "5.5.0",
+      "lm_eval": "0.4.12",
+      "accelerate": "1.13.0",
+      "datasets": "4.8.5"
+    },
+    "env_vars": {}
+  },
+  "ended_utc": "2026-06-12T08:43:57Z",
+  "wall_seconds": 768.450553176,
+  "train_wall_seconds": 738.653693367,
+  "convert_wall_seconds": 4.231536987,
+  "eval_wall_seconds": 20.769533043
+}

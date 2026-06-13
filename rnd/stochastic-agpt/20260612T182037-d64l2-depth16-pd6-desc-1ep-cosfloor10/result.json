@@ -1,0 +1,29 @@
+{
+  "run_id": "20260612T182037-d64l2-depth16-pd6-desc-1ep-cosfloor10",
+  "experiment": "stochastic-agpt",
+  "wall_seconds": 281.556734845,
+  "train_wall_seconds": 252.04306328,
+  "convert_wall_seconds": 3.892082695,
+  "eval_wall_seconds": 20.78486724,
+  "started_utc": "2026-06-12T18:20:37Z",
+  "ended_utc": "2026-06-12T18:25:19Z",
+  "trainer": "v2",
+  "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+  "eval": {
+    "split": "multi-chunk-heldout",
+    "source_path": null,
+    "source_sha256": null,
+    "chunks_dir": "data/.splits/4fa9aec1db6b3aea/heldout_chunks",
+    "benchmark": null,
+    "task_name": "d64l2-depth16-pd6-desc-1ep-cosfloor10_holdout"
+  },
+  "metrics": {
+    "lm_eval_rolling_word_perplexity": 2648760.177044832,
+    "lm_eval_rolling_byte_perplexity": 14.960524651411626,
+    "lm_eval_rolling_bits_per_byte": 3.9030888649469695,
+    "agpt_fixed_token_perplexity": 14.388537688308727
+  },
+  "checkpoint_sha": "659d18762348a6c6c2ece5e9a2559900fbc0117f10ef6db67fef92b05c9a9fb8",
+  "checkpoint_results": null,
+  "experimental_used": null
+}

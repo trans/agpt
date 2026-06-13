@@ -107,6 +107,7 @@ module AgptExperiment
     include JSON::Serializable
     property name : String = "constant"
     property warmup_epochs : Int32 = 0
+    property min_lr_ratio : Float64 = 0.0
   end
 
   struct GrowthBlock
@@ -155,6 +156,23 @@ module AgptExperiment
     property limit : Int32?
   end
 
+  struct LightningBlock
+    include YAML::Serializable
+    include JSON::Serializable
+    property enabled : Bool = false
+    property updates : Int32?
+    property query_budget : Int32?
+    property seed : Int32?
+    property stop_p : Float64?
+    property anchor_mode : String?
+    property sample_fanout : Int32?
+    property fanout : Int32?
+    property anchors_per_step : Int32?
+    property paths_per_anchor : Int32?
+    property children_per_branch : Int32?
+    property repeats_per_sample : Int32?
+  end
+
   class Config
     include YAML::Serializable
     include JSON::Serializable
@@ -166,6 +184,7 @@ module AgptExperiment
     property model : ModelBlock?
     property train : TrainBlock
     property eval : EvalBlock?
+    property lightning : LightningBlock?
     # Free-form pass-through for in-development knobs. The orchestrator does
     # NOT validate field names inside `experimental`; trainers warn on
     # unknown keys. See docs/yaml-schema.md "experimental" section.
@@ -541,6 +560,21 @@ module AgptExperiment
         raise "unknown --trainer #{name.inspect}; expected v1|v2|microgpt or a path to a binary"
       end
     end
+  end
+
+  def self.validate_trainer_config!(trainer : Trainer, trainer_bin : String, resolved_yml : String, log_path : String) : Nil
+    return unless trainer == Trainer::V2
+
+    args = ["--config", resolved_yml, "--validate-only"]
+    File.open(log_path, "a") do |io|
+      io.puts "agpt_experiment: preflight trainer validation: #{trainer_bin} #{args.join(" ")}"
+    end
+    status = spawn_tee(trainer_bin, args, log_path, append: true)
+    return if status.success?
+
+    STDERR.puts "trainer config validation failed (exit #{status.exit_code}); tail of #{log_path}:"
+    STDERR.puts File.read(log_path).split('\n').last(20).join('\n')
+    exit 3
   end
 
   # ---------------------------------------------------------------------------
@@ -959,6 +993,7 @@ module AgptExperiment
 
     # ---- train ----
     # All trainers (v1, v2, microgpt, custom) now accept `--config <yaml> [--seed N]`.
+    validate_trainer_config!(trainer, trainer_bin, run.resolved_yml, run.train_log)
     trainer_args = ["--config", run.resolved_yml]
     if so = seed_override
       trainer_args << "--seed" << so.to_s

@@ -55,6 +55,7 @@ corpus: {...}                   # data + heldout + carve provenance
 trie: {...}                     # AGPT only — trie/index spec
 model: {...}                    # architecture
 train: {...}                    # training protocol
+lightning: {...}                # optional stochastic AGPT sampling
 eval: {...}                     # evaluation protocol
 ```
 
@@ -217,6 +218,7 @@ split caches, tries are content-hashed and cached at
 |---|---|---|---|---|
 | `train.lr_schedule.name` | enum | `constant` | v1, v2, mg | `constant` \| `cosine` \| `warmup-cosine`. |
 | `train.lr_schedule.warmup_epochs` | int | 0 | v1, v2, mg | Warmup duration in epochs. |
+| `train.lr_schedule.min_lr_ratio` | float | 0.0 | v2 | Floor for non-constant schedules as a ratio of `train.optimizer.lr`. |
 
 ### Context window — sibling fields with cross-check rule
 
@@ -239,6 +241,20 @@ split caches, tries are content-hashed and cached at
 | `train.fire_norm` | enum | `mass` | v1, v2 | `events` \| `mass` \| `weight` \| `none`. Per-fire gradient divisor. |
 | `train.entropy_lambda` | float | 0.0 | v1, v2 | Entropy regularizer weight. |
 | `train.ce_only` | bool | false | v1, v2 | Force endpoint queries to single-target CE. |
+
+## `lightning` (v2 stochastic AGPT)
+
+| field | type | default | consumers | notes |
+|---|---|---|---|---|
+| `lightning.enabled` | bool | false | v2, orch | Enable streamed stochastic AGPT units instead of the static pd0/pd1 plan. |
+| `lightning.updates` | int | `train.budget.value` | v2, orch | Number of sampled training units / optimizer steps before repeats. |
+| `lightning.anchor_mode` | enum | `traversal-stop` | v2, orch | `traversal-stop` samples anchors with `stop_p` and random descendant paths; `random-descendants` selects one non-root radix node uniformly and trains its full descendant subtree. |
+| `lightning.query_budget` | int | `train.chunk_queries` | v2, orch | Target query rows for `traversal-stop`. Ignored by `random-descendants`; use `train.chunk_queries` for CUDA chunk size. |
+| `lightning.seed` | int | `train.seed` | v2, orch | Deterministic sampler seed. |
+| `lightning.stop_p` | float in [0, 1] | 0.35 | v2, orch | Traversal stop probability for `traversal-stop`; ignored by `random-descendants`. |
+| `lightning.sample_fanout` | int | 32 | v2, orch | Random descendant paths per anchor for `traversal-stop`; ignored by `random-descendants`. Alias: `lightning.fanout`. |
+| `lightning.anchors_per_step` | int | 1 | v2, orch | Number of anchors used to fill one `traversal-stop` unit; ignored by `random-descendants`. |
+| `lightning.repeats_per_sample` | int | 1 | v2, orch | Optimizer repeats on the same sampled unit before drawing the next unit. |
 
 ### `train.growth` — v2 today, v1 planned
 
@@ -322,7 +338,13 @@ every other section is relaxed inside `experimental`:** trainers emit
 | `experimental.position_data_dir` | path | absent | v2 | Required when `experimental.rope_position_mode` uses sampled positions. Directory must contain `substrings.bin` and `prefix_position_table.bin`. |
 | `experimental.pos_sample_seed` | integer | `train.seed` | v2 | Optional non-negative override for sampled-position selection. |
 | `experimental.successor_prefix_table` | path | absent | v2 | Optional deterministic successor-prefix table (`ASUC` v1). Appends the successor cap path as zero-loss continuation rows for direct longer-context attention experiments. |
+| `experimental.target_sidecar` | path | absent | v2 | Optional count-gated target table (`AGTS` v1). Replaces each endpoint's raw trie target counts with sidecar counts keyed by substring id. Requires `experimental.position_data_dir` for the `radix_id -> substring_id` map. Fixed-trie training only. |
+| `experimental.target_sidecar_mix` | float | 1.0 | v2 | Mixture weight for `experimental.target_sidecar`. `1.0` uses sidecar targets only; `0.2` trains on `80%` raw trie distribution plus `20%` sidecar distribution. |
 | `experimental.loss_depth_min` / `experimental.loss_depth_max` | int pair | absent | v2 | Optional inclusive query-depth filter for direct CE loss. Queries outside the range remain in the attention/context graph but get zero loss weight. Set both to `16` for cap-only depth-16 training. |
+| `experimental.dropout_node_keep_prob` | float | 1.0 | v2 | Structural target-node dropout. Nodes remain in the attention/context graph, but own query/loss rows are randomly zero-weighted when dropped. |
+| `experimental.dropout_seed` | int | 1 | v2 | Seed for structural target-node dropout. |
+| `experimental.entropy_gate_min_scale` | float | 1.0 | v2 | Loss-weight gate for target entropy. `1.0` disables; lower values damp low-entropy rows while preserving high-entropy endpoint rows. |
+| `experimental.entropy_grad_min_scale` | float | 1.0 | v2 | Gradient-only entropy gate. `1.0` disables; lower values damp node gradients using endpoint target entropy while leaving reported loss weights unchanged. |
 
 ### Discipline
 

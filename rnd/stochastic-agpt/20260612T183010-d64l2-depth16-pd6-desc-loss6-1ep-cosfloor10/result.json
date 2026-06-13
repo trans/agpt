@@ -1,0 +1,34 @@
+{
+  "run_id": "20260612T183010-d64l2-depth16-pd6-desc-loss6-1ep-cosfloor10",
+  "experiment": "stochastic-agpt",
+  "wall_seconds": 278.957258632,
+  "train_wall_seconds": 251.977566322,
+  "convert_wall_seconds": 3.800339925,
+  "eval_wall_seconds": 17.92259776,
+  "started_utc": "2026-06-12T18:30:10Z",
+  "ended_utc": "2026-06-12T18:34:49Z",
+  "trainer": "v2",
+  "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+  "eval": {
+    "split": "multi-chunk-heldout",
+    "source_path": null,
+    "source_sha256": null,
+    "chunks_dir": "data/.splits/4fa9aec1db6b3aea/heldout_chunks",
+    "benchmark": null,
+    "task_name": "d64l2-depth16-pd6-desc-loss6-1ep-cosfloor10_holdout"
+  },
+  "metrics": {
+    "lm_eval_rolling_word_perplexity": 27260.339422461555,
+    "lm_eval_rolling_byte_perplexity": 6.477056259359234,
+    "lm_eval_rolling_bits_per_byte": 2.695338275306844,
+    "agpt_fixed_token_perplexity": 5.203851296466732
+  },
+  "checkpoint_sha": "aa277cc598bd67d2f81e5b23d0d58fcf476cb74c0976525b865232d9cebd63a4",
+  "checkpoint_results": null,
+  "experimental_used": {
+    "v2": [
+      "loss_depth_max",
+      "loss_depth_min"
+    ]
+  }
+}

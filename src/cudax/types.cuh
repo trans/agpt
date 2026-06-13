@@ -32,6 +32,11 @@ enum class MassWeightModeV2 {
     InvLinear = 5,
 };
 
+enum class LightningAnchorModeV2 {
+    TraversalStop = 0,
+    RandomDescendants = 1,
+};
+
 struct TrainerConfig {
     int d_model = 0;
     int n_heads = 0;
@@ -54,6 +59,7 @@ struct TrainerConfig {
     LrSchedule lr_schedule = LrSchedule::Constant;
     OptimizerKind optimizer = OptimizerKind::RMSProp;
     int warmup_epochs = 0;
+    float lr_min_ratio = 0.0f;
 
     bool anc_grad = false;
     bool accumulate = false;
@@ -66,6 +72,21 @@ struct TrainerConfig {
     unsigned rope_phase_shuffle_seed = 1;
     int loss_depth_min = -1;
     int loss_depth_max = -1;
+    float entropy_gate_min_scale = 1.0f;
+    float entropy_grad_min_scale = 1.0f;
+    float dropout_node_keep_prob = 1.0f;
+    unsigned dropout_seed = 1;
+    float target_sidecar_mix = 1.0f;
+
+    bool lightning_enabled = false;
+    int lightning_updates = 0;
+    int lightning_query_budget = 0;
+    unsigned lightning_seed = 1;
+    float lightning_stop_p = 0.35f;
+    int lightning_sample_fanout = 32;
+    int lightning_anchors_per_step = 1;
+    int lightning_repeats_per_sample = 1;
+    LightningAnchorModeV2 lightning_anchor_mode = LightningAnchorModeV2::TraversalStop;
 };
 
 struct RuntimeShape {
