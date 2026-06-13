@@ -1055,7 +1055,9 @@ class SegmentMemoryRow:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train a char LM with trie-derived variable segments and attention over segment states.")
     parser.add_argument("--input", type=Path, default=Path("data/input.txt"))
+    parser.add_argument("--train-input", type=Path, default=None)
     parser.add_argument("--eval-input", type=Path, default=None)
+    parser.add_argument("--vocab-input", type=Path, default=None)
     parser.add_argument("--output", type=Path, default=Path("runs/segment_memory_model.csv"))
     parser.add_argument("--run-id", type=str, default=None)
     parser.add_argument("--seed", type=int, default=1337)
@@ -1324,17 +1326,21 @@ def main() -> None:
     started = time.perf_counter()
 
     text = read_text(args.input)
-    split = split_text(text, train_fraction=args.train_fraction)
+    split = None if args.train_input is not None and args.eval_input is not None else split_text(text, train_fraction=args.train_fraction)
+    train_source_text = read_text(args.train_input) if args.train_input is not None else split.train_text
     if args.max_train_chars is not None:
-        train_text = split.train_text[: args.max_train_chars]
+        train_text = train_source_text[: args.max_train_chars]
     else:
-        train_text = split.train_text
+        train_text = train_source_text
     if args.eval_input is not None:
         eval_source_text = read_text(args.eval_input)
     else:
+        if split is None:
+            split = split_text(text, train_fraction=args.train_fraction)
         eval_source_text = split.val_text
     eval_text = eval_source_text[: args.eval_max_chars] if args.eval_max_chars is not None else eval_source_text
-    vocab = CharVocab.from_text(text)
+    vocab_text = read_text(args.vocab_input) if args.vocab_input is not None else text
+    vocab = CharVocab.from_text(vocab_text)
     train_ids_list = vocab.encode(train_text)
     eval_ids_list = vocab.encode(eval_text)
 
@@ -1575,6 +1581,27 @@ def main() -> None:
                 f"peak_rss_mb={row.peak_rss_kb / 1024:.1f}",
                 flush=True,
             )
+            if best_val_ppl is None or val_ppl < best_val_ppl:
+                best_val_ppl = val_ppl
+                best_epoch = 0
+                best_step = step
+                save_checkpoint(
+                    args.best_checkpoint_output,
+                    model,
+                    optimizer,
+                    0,
+                    step,
+                    vocab,
+                    args,
+                    best_val_ppl=best_val_ppl,
+                    best_epoch=best_epoch,
+                    best_step=best_step,
+                )
+                print(
+                    f"best_checkpoint={args.best_checkpoint_output} "
+                    f"best_epoch={best_epoch} best_step={best_step} best_val_ppl={best_val_ppl:.3f}",
+                    flush=True,
+                )
         for epoch in range(start_epoch, args.epochs + 1):
             model.train()
             memory: list[MemoryEntry] = []

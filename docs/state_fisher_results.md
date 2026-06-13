@@ -1848,3 +1848,39 @@ old chunk 9:   current validation tail
 So the older carved heldout can only be used as a fair protocol if the model and
 count prior are trained on that carved train split from the start, not when
 evaluating a checkpoint trained on the current contiguous 90/10 split.
+
+The harness now supports this fair carved protocol with explicit source files:
+
+```text
+--train-input <carved train_corpus.txt>
+--eval-input  <carved heldout_corpus.txt>
+--vocab-input data/input.txt
+```
+
+Fair carved-split count-prior-only audit:
+
+```text
+train: /home/trans/Projects/agpt/data/.splits/4fa9aec1db6b3aea/train_corpus.txt
+eval:  /home/trans/Projects/agpt/data/.splits/4fa9aec1db6b3aea/heldout_corpus.txt
+cache: runs/count_prior_carved_d8_entropy_suffix.pt
+
+count prior fit-tail PPL: 4.790
+heldout PPL:              3.859
+```
+
+This reproduces the old count-gate baseline (`~3.86`) under the segment harness,
+so the carved-split path is valid.
+
+One epoch of the current gated-xattn residual on top of that carved count prior:
+
+```text
+epoch 0 initial prior: 3.859
+epoch 1 residual:      3.958
+```
+
+So this residual setup improves the harder current tail-10% split, but on the
+old carved split it initially hurts a count prior that is already very strong.
+That points to a tuning/objective issue rather than a failure of the count prior.
+
+`--eval-initial` now participates in best-checkpoint tracking. This matters for
+prior-residual runs where the best state may be the initial zero-residual prior.

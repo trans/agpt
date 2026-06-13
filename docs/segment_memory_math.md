@@ -532,6 +532,45 @@ Best point: epoch 9 at `4.116` heldout PPL. The slight epoch-10 regression is a
 good sign for protocol sanity: the curve crossed the KN-parity region and then
 flattened, rather than falling indefinitely.
 
+## Carved Split Audit
+
+The old carved split must be treated as a separate protocol. Evaluating a model
+trained on the current contiguous 90/10 split against the old carved heldout is
+invalid because most old heldout chunks lie inside the current train slice.
+
+The fair carved protocol uses:
+
+```text
+train_input = old train_corpus.txt
+eval_input  = old heldout_corpus.txt
+vocab_input = full data/input.txt
+```
+
+Under that protocol, the frozen recursive count-gate prior alone reaches:
+
+```text
+count prior only: 3.859 PPL
+```
+
+That reproduces the old count-gate baseline. Adding the current gated-xattn
+residual for one epoch worsened heldout:
+
+```text
+epoch 0 prior:     3.859
+epoch 1 residual:  3.958
+```
+
+So the residual-memory branch is useful on the current tail-10% split, but the
+current objective is not automatically beneficial when the count prior is already
+near the carved-split floor. This is the main caveat for the present math:
+
+```text
+logits_t = log p_count_gate(x_{<=t}) + residual_logits_t
+```
+
+is structurally clean, but the residual needs a trust/regularization rule so it
+does not damage a strong prior.
+
 ## Questions For Review
 
 Useful second-opinion questions:
