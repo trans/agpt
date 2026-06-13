@@ -265,6 +265,8 @@ class SegmentMemoryLM(nn.Module):
         input_rope: bool,
         feedback_gate_bias: float,
         feedback_delta_cap: float,
+        prior_residual_scale: float,
+        prior_residual_l2: float,
         record_aux_weight: float,
         terminal_record_aux_weight: float,
         retrieval_aux_weight: float,
@@ -283,6 +285,8 @@ class SegmentMemoryLM(nn.Module):
         self.attention_heads = attention_heads
         self.input_rope = input_rope
         self.feedback_delta_cap = feedback_delta_cap
+        self.prior_residual_scale = prior_residual_scale
+        self.prior_residual_l2 = prior_residual_l2
         self.record_aux_weight = record_aux_weight
         self.terminal_record_aux_weight = terminal_record_aux_weight
         self.retrieval_aux_weight = retrieval_aux_weight
@@ -722,10 +726,16 @@ class SegmentMemoryLM(nn.Module):
                 else:
                     logits = self.late_logits(raw_state, context)
                 if prior_log_probs is not None:
-                    logits = logits + prior_log_probs[pos : pos + 1]
+                    residual_logits = self.prior_residual_scale * logits
+                    logits = prior_log_probs[pos : pos + 1] + residual_logits
+                else:
+                    residual_logits = None
                 target = ids[pos + 1].view(1)
                 token_loss = F.cross_entropy(logits, target, reduction="none")
-                losses.append(token_loss.sum())
+                token_segment_loss = token_loss.sum()
+                if self.training and residual_logits is not None and self.prior_residual_l2 > 0.0:
+                    token_segment_loss = token_segment_loss + self.prior_residual_l2 * residual_logits.square().mean()
+                losses.append(token_segment_loss)
                 token_count += 1
                 merge_stats(stats, attn_stats)
                 stats["context_norm_sum"] += float(context.detach().norm(dim=1).sum().item())
@@ -954,13 +964,18 @@ class SegmentMemoryLM(nn.Module):
                     )
                     stats["diagnostic_token_count"] += float(tokens.numel())
             if prior_log_probs is not None:
-                logits = logits + prior_log_probs[start:end]
+                residual_logits = self.prior_residual_scale * logits
+                logits = prior_log_probs[start:end] + residual_logits
+            else:
+                residual_logits = None
             merge_stats(stats, attn_stats)
             stats["context_norm_sum"] += float(context.detach().norm(dim=1).sum().item())
             stats["token_count"] += float(tokens.numel())
             targets = ids[start + 1 : end + 1]
             token_losses = F.cross_entropy(logits, targets, reduction="none")
             segment_loss = token_losses.sum()
+            if self.training and residual_logits is not None and self.prior_residual_l2 > 0.0:
+                segment_loss = segment_loss + self.prior_residual_l2 * residual_logits.square().mean(dim=1).sum()
             terminal = state[-1:].contiguous()
             if self.training and self.record_aux_weight > 0.0:
                 record_seq = self.write_memory(hidden_seq)
@@ -1085,6 +1100,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--token-feedback", choices=["none", "context", "gated", "dual-gated"], default="none")
     parser.add_argument("--feedback-gate-bias", type=float, default=-6.0)
     parser.add_argument("--feedback-delta-cap", type=float, default=1.0)
+    parser.add_argument("--prior-residual-scale", type=float, default=1.0)
+    parser.add_argument("--prior-residual-l2", type=float, default=0.0)
     parser.add_argument(
         "--mixing",
         choices=[
@@ -1432,6 +1449,8 @@ def main() -> None:
         input_rope=args.input_rope,
         feedback_gate_bias=args.feedback_gate_bias,
         feedback_delta_cap=args.feedback_delta_cap,
+        prior_residual_scale=args.prior_residual_scale,
+        prior_residual_l2=args.prior_residual_l2,
         record_aux_weight=args.record_aux_weight,
         terminal_record_aux_weight=args.terminal_record_aux_weight,
         retrieval_aux_weight=args.retrieval_aux_weight,
@@ -1513,6 +1532,7 @@ def main() -> None:
             f"carry_hidden={args.carry_hidden} "
             f"feedback_state={args.feedback_state} token_feedback={args.token_feedback} input_rope={args.input_rope} "
             f"feedback_gate_bias={args.feedback_gate_bias} feedback_delta_cap={args.feedback_delta_cap} "
+            f"prior_residual_scale={args.prior_residual_scale} prior_residual_l2={args.prior_residual_l2} "
             f"record_aux_weight={args.record_aux_weight} terminal_record_aux_weight={args.terminal_record_aux_weight} "
             f"retrieval_aux_weight={args.retrieval_aux_weight} "
             f"utility_aux_weight={args.utility_aux_weight} utility_temperature={args.utility_temperature} "

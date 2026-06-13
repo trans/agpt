@@ -571,6 +571,32 @@ logits_t = log p_count_gate(x_{<=t}) + residual_logits_t
 is structurally clean, but the residual needs a trust/regularization rule so it
 does not damage a strong prior.
 
+The first working trust rule was deliberately simple:
+
+```text
+logits_t = log p_count_gate(x_{<=t}) + alpha * residual_logits_t
+
+loss = CE(logits_t, target)
+     + lambda * ||alpha * residual_logits_t||^2
+```
+
+With:
+
+```text
+alpha  = 0.25
+lambda = 0.01
+```
+
+the carved split improved:
+
+```text
+prior only:      3.8594965
+regularized e1: 3.8335766
+```
+
+This suggests the residual should not be hard-gated off by prior confidence.
+Instead, it should receive gradient, but pay a cost for changing the prior.
+
 ## Questions For Review
 
 Useful second-opinion questions:

@@ -1884,3 +1884,29 @@ That points to a tuning/objective issue rather than a failure of the count prior
 
 `--eval-initial` now participates in best-checkpoint tracking. This matters for
 prior-residual runs where the best state may be the initial zero-residual prior.
+
+Residual trust knobs were added:
+
+```text
+--prior-residual-scale  scales residual logits before adding them to log p_prior
+--prior-residual-l2     penalizes squared residual logits during training
+```
+
+The first carved split trust run used:
+
+```text
+prior_residual_scale = 0.25
+prior_residual_l2    = 0.01
+```
+
+and improved over the prior:
+
+```text
+epoch 0 initial prior: 3.8594965
+epoch 1 regularized:   3.8335766
+```
+
+This is the first carved-split result where the neural residual helps rather
+than damaging the already-strong count prior. The interpretation is consistent
+with the current hypothesis: the residual path needs enough gradient to learn,
+but must be charged for overriding a strong empirical prior.
