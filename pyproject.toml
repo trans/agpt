@@ -1,0 +1,11 @@
+[project]
+name = "agpt-ultra"
+version = "0.1.0"
+description = "Prefix-structured character language model experiments."
+requires-python = ">=3.11"
+dependencies = [
+  "torch",
+]
+
+[tool.pyright]
+include = ["agpt_ultra", "scripts", "tests"]
