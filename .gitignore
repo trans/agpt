@@ -19,6 +19,7 @@ data/gutenberg/*.txt
 data/gutenberg_5m.txt
 rnd/convergence/**/*.csv
 data/input.agpt.model
+data/input.model
 data/input.random.model
 data/synth_wrap_*.txt
 data/wormhole_*.txt
