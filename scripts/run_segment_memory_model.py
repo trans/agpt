@@ -89,6 +89,8 @@ def empty_stats() -> dict[str, float]:
         "utility_loss": 0.0,
         "utility_count": 0.0,
         "utility_target_entropy_sum": 0.0,
+        "residual_alpha_sum": 0.0,
+        "residual_alpha_count": 0.0,
     }
 
 
@@ -267,6 +269,9 @@ class SegmentMemoryLM(nn.Module):
         feedback_delta_cap: float,
         prior_residual_scale: float,
         prior_residual_l2: float,
+        prior_residual_gate: str,
+        prior_residual_gate_max: float,
+        prior_residual_gate_features: int,
         record_aux_weight: float,
         terminal_record_aux_weight: float,
         retrieval_aux_weight: float,
@@ -287,6 +292,8 @@ class SegmentMemoryLM(nn.Module):
         self.feedback_delta_cap = feedback_delta_cap
         self.prior_residual_scale = prior_residual_scale
         self.prior_residual_l2 = prior_residual_l2
+        self.prior_residual_gate = prior_residual_gate
+        self.prior_residual_gate_max = prior_residual_gate_max
         self.record_aux_weight = record_aux_weight
         self.terminal_record_aux_weight = terminal_record_aux_weight
         self.retrieval_aux_weight = retrieval_aux_weight
@@ -367,6 +374,15 @@ class SegmentMemoryLM(nn.Module):
         self.record_head = nn.Linear(hidden_size, vocab_size)
         self.gated_head = nn.Linear(3 * hidden_size, vocab_size)
         self.state_head = nn.Linear(hidden_size, vocab_size)
+        if prior_residual_gate == "context":
+            if prior_residual_gate_features <= 0:
+                raise ValueError("context residual gate requires feature rows")
+            self.residual_trust_gate = nn.Linear(prior_residual_gate_features, 1, bias=False)
+            nn.init.zeros_(self.residual_trust_gate.weight)
+        elif prior_residual_gate == "none":
+            self.residual_trust_gate = None
+        else:
+            raise ValueError(f"unknown prior_residual_gate: {prior_residual_gate}")
         inv_freq = 1.0 / (
             10000
             ** (torch.arange(0, self.rope_dim, 2, dtype=torch.float32) / max(1, self.rope_dim))
@@ -392,6 +408,24 @@ class SegmentMemoryLM(nn.Module):
 
     def zero_state(self, device: torch.device) -> torch.Tensor:
         return torch.zeros(1, 1, self.hidden_size, device=device)
+
+    def apply_prior_residual(
+        self,
+        logits: torch.Tensor,
+        prior_log_probs: torch.Tensor | None,
+        prior_gate_features: torch.Tensor | None,
+    ) -> tuple[torch.Tensor, torch.Tensor | None, torch.Tensor | None]:
+        if prior_log_probs is None:
+            return logits, None, None
+        if self.prior_residual_gate == "context":
+            if prior_gate_features is None or self.residual_trust_gate is None:
+                raise ValueError("context residual gate requires prior_gate_features")
+            alpha = self.prior_residual_gate_max * torch.sigmoid(self.residual_trust_gate(prior_gate_features))
+            residual_logits = alpha * logits
+        else:
+            alpha = None
+            residual_logits = self.prior_residual_scale * logits
+        return prior_log_probs + residual_logits, residual_logits, alpha
 
     def write_memory(self, state: torch.Tensor) -> torch.Tensor:
         if self.memory_record == "raw":
@@ -694,6 +728,7 @@ class SegmentMemoryLM(nn.Module):
         carry_hidden: bool,
         token_feedback: str,
         prior_log_probs: torch.Tensor | None,
+        prior_gate_features: torch.Tensor | None,
     ) -> tuple[torch.Tensor, int, list[MemoryEntry], torch.Tensor | None, dict[str, float]]:
         losses: list[torch.Tensor] = []
         token_count = 0
@@ -725,11 +760,14 @@ class SegmentMemoryLM(nn.Module):
                     logits = self.attn_head(context)
                 else:
                     logits = self.late_logits(raw_state, context)
-                if prior_log_probs is not None:
-                    residual_logits = self.prior_residual_scale * logits
-                    logits = prior_log_probs[pos : pos + 1] + residual_logits
-                else:
-                    residual_logits = None
+                logits, residual_logits, residual_alpha = self.apply_prior_residual(
+                    logits,
+                    prior_log_probs[pos : pos + 1] if prior_log_probs is not None else None,
+                    prior_gate_features[pos : pos + 1] if prior_gate_features is not None else None,
+                )
+                if residual_alpha is not None:
+                    stats["residual_alpha_sum"] += float(residual_alpha.detach().sum().item())
+                    stats["residual_alpha_count"] += float(residual_alpha.numel())
                 target = ids[pos + 1].view(1)
                 token_loss = F.cross_entropy(logits, target, reduction="none")
                 token_segment_loss = token_loss.sum()
@@ -790,6 +828,7 @@ class SegmentMemoryLM(nn.Module):
         feedback_state: str = "gru",
         token_feedback: str = "none",
         prior_log_probs: torch.Tensor | None = None,
+        prior_gate_features: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, int, list[MemoryEntry], torch.Tensor | None, dict[str, float]]:
         if token_feedback != "none":
             return self.segment_loss_token_feedback(
@@ -802,6 +841,7 @@ class SegmentMemoryLM(nn.Module):
                 carry_hidden,
                 token_feedback,
                 prior_log_probs,
+                prior_gate_features,
             )
         losses: list[torch.Tensor] = []
         token_count = 0
@@ -963,11 +1003,14 @@ class SegmentMemoryLM(nn.Module):
                         F.cross_entropy(context_only_logits, targets, reduction="sum").detach().item()
                     )
                     stats["diagnostic_token_count"] += float(tokens.numel())
-            if prior_log_probs is not None:
-                residual_logits = self.prior_residual_scale * logits
-                logits = prior_log_probs[start:end] + residual_logits
-            else:
-                residual_logits = None
+            logits, residual_logits, residual_alpha = self.apply_prior_residual(
+                logits,
+                prior_log_probs[start:end] if prior_log_probs is not None else None,
+                prior_gate_features[start:end] if prior_gate_features is not None else None,
+            )
+            if residual_alpha is not None:
+                stats["residual_alpha_sum"] += float(residual_alpha.detach().sum().item())
+                stats["residual_alpha_count"] += float(residual_alpha.numel())
             merge_stats(stats, attn_stats)
             stats["context_norm_sum"] += float(context.detach().norm(dim=1).sum().item())
             stats["token_count"] += float(tokens.numel())
@@ -1065,6 +1108,7 @@ class SegmentMemoryRow:
     later_token_ppl: float | None
     runtime_sec: float
     peak_rss_kb: int
+    mean_residual_alpha: float | None = None
 
 
 def parse_args() -> argparse.Namespace:
@@ -1102,6 +1146,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--feedback-delta-cap", type=float, default=1.0)
     parser.add_argument("--prior-residual-scale", type=float, default=1.0)
     parser.add_argument("--prior-residual-l2", type=float, default=0.0)
+    parser.add_argument("--prior-residual-gate", choices=["none", "context"], default="none")
+    parser.add_argument(
+        "--prior-residual-gate-max",
+        type=float,
+        default=0.0,
+        help="Maximum alpha for context residual gate. Defaults to 2 * --prior-residual-scale.",
+    )
     parser.add_argument(
         "--mixing",
         choices=[
@@ -1195,6 +1246,30 @@ def precompute_count_prior_log_probs(
     return rows.to(device)
 
 
+def precompute_count_prior_feature_rows(
+    ids: list[int],
+    model: CountModel,
+    depth: int,
+    device: torch.device,
+) -> torch.Tensor:
+    feature_count = len(model.feature_names())
+    if len(ids) < 2:
+        return torch.empty((0, feature_count), dtype=torch.float32, device=device)
+    tokens = bytes(ids)
+    rows = torch.zeros((len(ids) - 1, feature_count), dtype=torch.float32)
+    if feature_count > 0:
+        rows[:, -1] = 1.0
+    for pos in range(len(ids) - 1):
+        target_pos = pos + 1
+        ctx = tokens[max(0, target_pos - depth) : target_pos]
+        for d in range(min(depth, len(ctx)), 0, -1):
+            feats = model.features(ctx[-d:])
+            if feats is not None:
+                rows[pos] = torch.tensor(feats, dtype=torch.float32)
+                break
+    return rows.to(device)
+
+
 def ids_digest(ids: list[int]) -> str:
     return hashlib.sha256(bytes(ids)).hexdigest()
 
@@ -1211,6 +1286,7 @@ def count_prior_cache_meta(args: argparse.Namespace, train_ids: list[int], eval_
         "max_fit_positions": args.count_prior_max_fit_positions,
         "extra_features": args.count_prior_extra_features,
         "seed": args.seed,
+        "schema": "log_probs_and_feature_rows_v1",
     }
 
 
@@ -1228,6 +1304,7 @@ def evaluate(
     feedback_state: str,
     token_feedback: str,
     prior_log_probs: torch.Tensor | None = None,
+    prior_gate_features: torch.Tensor | None = None,
 ) -> tuple[float, float, float, dict[str, float]]:
     model.eval()
     memory: list[MemoryEntry] = []
@@ -1241,6 +1318,7 @@ def evaluate(
         feedback_state=feedback_state,
         token_feedback=token_feedback,
         prior_log_probs=prior_log_probs,
+        prior_gate_features=prior_gate_features,
     )
     if tokens == 0:
         raise ValueError("cannot evaluate no tokens")
@@ -1372,6 +1450,9 @@ def main() -> None:
     eval_ids = torch.tensor(eval_ids_list, dtype=torch.long, device=device)
     train_prior_log_probs: torch.Tensor | None = None
     eval_prior_log_probs: torch.Tensor | None = None
+    train_prior_gate_features: torch.Tensor | None = None
+    eval_prior_gate_features: torch.Tensor | None = None
+    prior_gate_feature_count = 0
     if args.count_prior == "frozen":
         prior_started = time.perf_counter()
         count_history: list[dict[str, float]] = []
@@ -1382,6 +1463,10 @@ def main() -> None:
             if count_prior_cache_matches(cache, cache_meta):
                 train_prior_log_probs = cache["train_log_probs"].to(device)
                 eval_prior_log_probs = cache["eval_log_probs"].to(device)
+                if "train_gate_features" in cache and "eval_gate_features" in cache:
+                    train_prior_gate_features = cache["train_gate_features"].to(device)
+                    eval_prior_gate_features = cache["eval_gate_features"].to(device)
+                    prior_gate_feature_count = int(train_prior_gate_features.shape[1])
                 count_history = cache.get("history", [])
                 cache_loaded = True
             else:
@@ -1412,6 +1497,19 @@ def main() -> None:
                 args.count_prior_depth,
                 device,
             )
+            train_prior_gate_features = precompute_count_prior_feature_rows(
+                train_ids_list,
+                count_model,
+                args.count_prior_depth,
+                device,
+            )
+            eval_prior_gate_features = precompute_count_prior_feature_rows(
+                eval_ids_list,
+                count_model,
+                args.count_prior_depth,
+                device,
+            )
+            prior_gate_feature_count = int(train_prior_gate_features.shape[1])
             if args.count_prior_cache is not None:
                 args.count_prior_cache.parent.mkdir(parents=True, exist_ok=True)
                 tmp_cache = args.count_prior_cache.with_suffix(f"{args.count_prior_cache.suffix}.tmp")
@@ -1421,10 +1519,16 @@ def main() -> None:
                         "history": count_history,
                         "train_log_probs": train_prior_log_probs.detach().cpu(),
                         "eval_log_probs": eval_prior_log_probs.detach().cpu(),
+                        "train_gate_features": train_prior_gate_features.detach().cpu(),
+                        "eval_gate_features": eval_prior_gate_features.detach().cpu(),
                     },
                     tmp_cache,
                 )
                 tmp_cache.replace(args.count_prior_cache)
+        if args.prior_residual_gate == "context" and (
+            train_prior_gate_features is None or eval_prior_gate_features is None
+        ):
+            raise ValueError("context residual gate requires count-prior feature rows; rebuild the count prior cache")
         print(
             f"count_prior=frozen depth={args.count_prior_depth} "
             f"features={args.count_prior_extra_features} "
@@ -1433,6 +1537,11 @@ def main() -> None:
             f"build_precompute_sec={time.perf_counter() - prior_started:.2f}",
             flush=True,
         )
+    if args.prior_residual_gate != "none" and args.count_prior != "frozen":
+        raise ValueError("--prior-residual-gate requires --count-prior frozen")
+    prior_residual_gate_max = (
+        args.prior_residual_gate_max if args.prior_residual_gate_max > 0.0 else 2.0 * args.prior_residual_scale
+    )
     model = SegmentMemoryLM(
         vocab.size,
         args.embedding_size,
@@ -1451,6 +1560,9 @@ def main() -> None:
         feedback_delta_cap=args.feedback_delta_cap,
         prior_residual_scale=args.prior_residual_scale,
         prior_residual_l2=args.prior_residual_l2,
+        prior_residual_gate=args.prior_residual_gate,
+        prior_residual_gate_max=prior_residual_gate_max,
+        prior_residual_gate_features=prior_gate_feature_count,
         record_aux_weight=args.record_aux_weight,
         terminal_record_aux_weight=args.terminal_record_aux_weight,
         retrieval_aux_weight=args.retrieval_aux_weight,
@@ -1533,6 +1645,7 @@ def main() -> None:
             f"feedback_state={args.feedback_state} token_feedback={args.token_feedback} input_rope={args.input_rope} "
             f"feedback_gate_bias={args.feedback_gate_bias} feedback_delta_cap={args.feedback_delta_cap} "
             f"prior_residual_scale={args.prior_residual_scale} prior_residual_l2={args.prior_residual_l2} "
+            f"prior_residual_gate={args.prior_residual_gate} prior_residual_gate_max={prior_residual_gate_max} "
             f"record_aux_weight={args.record_aux_weight} terminal_record_aux_weight={args.terminal_record_aux_weight} "
             f"retrieval_aux_weight={args.retrieval_aux_weight} "
             f"utility_aux_weight={args.utility_aux_weight} utility_temperature={args.utility_temperature} "
@@ -1553,8 +1666,10 @@ def main() -> None:
                 feedback_state=args.feedback_state,
                 token_feedback=args.token_feedback,
                 prior_log_probs=eval_prior_log_probs,
+                prior_gate_features=eval_prior_gate_features,
             )
             mean_gate, mean_context_norm, mean_delta_norm = row_stats(val_stats)
+            mean_residual_alpha = mean_or_none(val_stats["residual_alpha_sum"], val_stats["residual_alpha_count"])
             (
                 no_memory_ppl,
                 context_only_ppl,
@@ -1592,6 +1707,7 @@ def main() -> None:
                 later_token_ppl=later_token_ppl,
                 runtime_sec=time.perf_counter() - started,
                 peak_rss_kb=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
+                mean_residual_alpha=mean_residual_alpha,
             )
             writer.writerow(asdict(row))
             handle.flush()
@@ -1645,6 +1761,7 @@ def main() -> None:
                     feedback_state=args.feedback_state,
                     token_feedback=args.token_feedback,
                     prior_log_probs=train_prior_log_probs,
+                    prior_gate_features=train_prior_gate_features,
                 )
                 step_profile.forward_sec += time.perf_counter() - t0
                 if tokens == 0:
@@ -1686,9 +1803,14 @@ def main() -> None:
                         feedback_state=args.feedback_state,
                         token_feedback=args.token_feedback,
                         prior_log_probs=eval_prior_log_probs,
+                        prior_gate_features=eval_prior_gate_features,
                     )
                     epoch_profile.eval_sec += time.perf_counter() - t0
                     mean_gate, mean_context_norm, mean_delta_norm = row_stats(val_stats)
+                    mean_residual_alpha = mean_or_none(
+                        val_stats["residual_alpha_sum"],
+                        val_stats["residual_alpha_count"],
+                    )
                     (
                         no_memory_ppl,
                         context_only_ppl,
@@ -1726,12 +1848,15 @@ def main() -> None:
                         later_token_ppl=later_token_ppl,
                         runtime_sec=time.perf_counter() - started,
                         peak_rss_kb=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
+                        mean_residual_alpha=mean_residual_alpha,
                     )
                     writer.writerow(asdict(row))
                     handle.flush()
                     print(
                         f"epoch={epoch} step={step} train_nll={train_nll:.4f} "
-                        f"val_ppl={val_ppl:.3f} runtime_sec={row.runtime_sec:.2f} "
+                        f"val_ppl={val_ppl:.3f} "
+                        f"mean_residual_alpha={mean_residual_alpha if mean_residual_alpha is not None else float('nan'):.4f} "
+                        f"runtime_sec={row.runtime_sec:.2f} "
                         f"peak_rss_mb={row.peak_rss_kb / 1024:.1f}",
                         flush=True,
                     )
@@ -1745,9 +1870,11 @@ def main() -> None:
                 feedback_state=args.feedback_state,
                 token_feedback=args.token_feedback,
                 prior_log_probs=eval_prior_log_probs,
+                prior_gate_features=eval_prior_gate_features,
             )
             epoch_profile.eval_sec += time.perf_counter() - t0
             mean_gate, mean_context_norm, mean_delta_norm = row_stats(val_stats)
+            mean_residual_alpha = mean_or_none(val_stats["residual_alpha_sum"], val_stats["residual_alpha_count"])
             (
                 no_memory_ppl,
                 context_only_ppl,
@@ -1785,6 +1912,7 @@ def main() -> None:
                 later_token_ppl=later_token_ppl,
                 runtime_sec=time.perf_counter() - started,
                 peak_rss_kb=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
+                mean_residual_alpha=mean_residual_alpha,
             )
             writer.writerow(asdict(row))
             handle.flush()
@@ -1793,6 +1921,7 @@ def main() -> None:
                 f"mean_gate={mean_gate if mean_gate is not None else float('nan'):.4f} "
                 f"mean_context_norm={mean_context_norm if mean_context_norm is not None else float('nan'):.4f} "
                 f"mean_delta_norm={mean_delta_norm if mean_delta_norm is not None else float('nan'):.4f} "
+                f"mean_residual_alpha={mean_residual_alpha if mean_residual_alpha is not None else float('nan'):.4f} "
                 f"no_memory_ppl={no_memory_ppl if no_memory_ppl is not None else float('nan'):.3f} "
                 f"context_only_ppl={context_only_ppl if context_only_ppl is not None else float('nan'):.3f} "
                 f"attn_top={mean_attn_top_weight if mean_attn_top_weight is not None else float('nan'):.3f} "
