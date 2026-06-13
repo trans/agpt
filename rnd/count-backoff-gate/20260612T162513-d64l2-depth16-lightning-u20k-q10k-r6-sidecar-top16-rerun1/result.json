@@ -1,0 +1,34 @@
+{
+  "run_id": "20260612T162513-d64l2-depth16-lightning-u20k-q10k-r6-sidecar-top16-rerun1",
+  "experiment": "count-backoff-gate",
+  "wall_seconds": 846.516245409,
+  "train_wall_seconds": 810.057812539,
+  "convert_wall_seconds": 4.802663735,
+  "eval_wall_seconds": 23.900489945,
+  "started_utc": "2026-06-12T16:25:13Z",
+  "ended_utc": "2026-06-12T16:39:20Z",
+  "trainer": "v2",
+  "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+  "eval": {
+    "split": "multi-chunk-heldout",
+    "source_path": null,
+    "source_sha256": null,
+    "chunks_dir": "data/.splits/4fa9aec1db6b3aea/heldout_chunks",
+    "benchmark": null,
+    "task_name": "d64l2-depth16-lightning-u20k-q10k-r6-sidecar-top16-rerun1_holdout"
+  },
+  "metrics": {
+    "lm_eval_rolling_word_perplexity": 32758.89659585001,
+    "lm_eval_rolling_byte_perplexity": 6.698458415437056,
+    "lm_eval_rolling_bits_per_byte": 2.7438291116443607,
+    "agpt_fixed_token_perplexity": 6.00456371728437
+  },
+  "checkpoint_sha": "6ce3e2f37021cf89d4036354d4704cda4e6445c30723b1d0d0dce6a0be2a38e5",
+  "checkpoint_results": null,
+  "experimental_used": {
+    "v2": [
+      "position_data_dir",
+      "target_sidecar"
+    ]
+  }
+}
