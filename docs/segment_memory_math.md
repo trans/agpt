@@ -597,6 +597,20 @@ regularized e1: 3.8335766
 This suggests the residual should not be hard-gated off by prior confidence.
 Instead, it should receive gradient, but pay a cost for changing the prior.
 
+The first small sweep supports that view:
+
+```text
+d64, alpha=0.10, lambda=0.01: best 3.815
+d96, alpha=0.10, lambda=0.01: best 3.852, then drifted badly
+d96, alpha=0.05, lambda=0.01: best 3.845
+d96, alpha=0.10, lambda=0.05: best 3.822, stable
+```
+
+So increasing width without increasing trust pressure makes the residual more
+dangerous. Stronger residual regularization mostly fixes stability for d96, but
+the best current configuration remains the smaller d64 residual. This points to
+residual-budget calibration as the main issue, not simply model capacity.
+
 ## Questions For Review
 
 Useful second-opinion questions:

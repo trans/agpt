@@ -1245,7 +1245,7 @@ def evaluate(
     if tokens == 0:
         raise ValueError("cannot evaluate no tokens")
     nll = float(loss.item()) / tokens
-    return nll, math.exp(nll), nll / math.log(2.0), stats
+    return nll, math.exp(nll) if nll <= 700.0 else float("inf"), nll / math.log(2.0), stats
 
 
 def row_stats(stats: dict[str, float]) -> tuple[float | None, float | None, float | None]:

@@ -1910,3 +1910,27 @@ This is the first carved-split result where the neural residual helps rather
 than damaging the already-strong count prior. The interpretation is consistent
 with the current hypothesis: the residual path needs enough gradient to learn,
 but must be charged for overriding a strong empirical prior.
+
+Small trust/capacity sweep on the fair carved split:
+
+```text
+model  alpha  residual_L2  curve
+d64    0.10   0.01         3.859 -> 3.815 -> 3.880 -> 3.910
+d96    0.10   0.01         3.859 -> 3.852 -> 3.939 -> 4.030
+d96    0.05   0.01         3.859 -> 3.855 -> 3.845 -> 3.884
+d96    0.10   0.05         3.859 -> 3.822 -> 3.823 -> 3.855
+d64    0.05   0.01         3.859 -> overflow during epoch-1 eval
+```
+
+Interpretation:
+
+```text
+- The best point is still d64, alpha=0.10, L2=0.01 at 3.815.
+- Wider d96 is not automatically better.
+- d96 can be stabilized by stronger residual regularization.
+- Higher L2 helped d96 more than lowering alpha.
+- Too-small alpha on d64 was not benign; it produced a pathological eval NLL.
+```
+
+`evaluate()` now guards `math.exp(nll)` and reports `inf` PPL for extreme NLL
+instead of crashing. This is mostly a robustness fix for bad sweep points.
