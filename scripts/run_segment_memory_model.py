@@ -2,14 +2,17 @@ from __future__ import annotations
 
 import argparse
 import csv
+import gc
 import hashlib
 import math
+import json
 import resource
 import sys
 import time
 from dataclasses import asdict, dataclass, fields
 from pathlib import Path
 
+import numpy as np
 import torch
 from torch import nn
 import torch.nn.functional as F
@@ -18,11 +21,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from agpt_ultra.data import CharVocab, read_text
 from agpt_ultra.eval import split_text
-from agpt_ultra.count_gate import CountModel, expand_extra_features, select_positions, train_gate
+from agpt_ultra.count_gate import CountModel, PackedCountModel, expand_extra_features, select_positions, train_gate
 from agpt_ultra.run_ids import prefixed_path, resolve_run_id
+from agpt_ultra.vectorized_count_prior import build_depth_prior_tables, compile_prior_rows_numpy_mmap
 
 
 MemoryEntry = tuple[torch.Tensor, int]
+PriorRows = torch.Tensor | np.memmap
 
 
 @dataclass
@@ -729,6 +734,7 @@ class SegmentMemoryLM(nn.Module):
         token_feedback: str,
         prior_log_probs: torch.Tensor | None,
         prior_gate_features: torch.Tensor | None,
+        prior_offset: int,
     ) -> tuple[torch.Tensor, int, list[MemoryEntry], torch.Tensor | None, dict[str, float]]:
         losses: list[torch.Tensor] = []
         token_count = 0
@@ -762,8 +768,12 @@ class SegmentMemoryLM(nn.Module):
                     logits = self.late_logits(raw_state, context)
                 logits, residual_logits, residual_alpha = self.apply_prior_residual(
                     logits,
-                    prior_log_probs[pos : pos + 1] if prior_log_probs is not None else None,
-                    prior_gate_features[pos : pos + 1] if prior_gate_features is not None else None,
+                    prior_log_probs[pos - prior_offset : pos + 1 - prior_offset]
+                    if prior_log_probs is not None
+                    else None,
+                    prior_gate_features[pos - prior_offset : pos + 1 - prior_offset]
+                    if prior_gate_features is not None
+                    else None,
                 )
                 if residual_alpha is not None:
                     stats["residual_alpha_sum"] += float(residual_alpha.detach().sum().item())
@@ -829,6 +839,7 @@ class SegmentMemoryLM(nn.Module):
         token_feedback: str = "none",
         prior_log_probs: torch.Tensor | None = None,
         prior_gate_features: torch.Tensor | None = None,
+        prior_offset: int = 0,
     ) -> tuple[torch.Tensor, int, list[MemoryEntry], torch.Tensor | None, dict[str, float]]:
         if token_feedback != "none":
             return self.segment_loss_token_feedback(
@@ -842,6 +853,7 @@ class SegmentMemoryLM(nn.Module):
                 token_feedback,
                 prior_log_probs,
                 prior_gate_features,
+                prior_offset,
             )
         losses: list[torch.Tensor] = []
         token_count = 0
@@ -1005,8 +1017,10 @@ class SegmentMemoryLM(nn.Module):
                     stats["diagnostic_token_count"] += float(tokens.numel())
             logits, residual_logits, residual_alpha = self.apply_prior_residual(
                 logits,
-                prior_log_probs[start:end] if prior_log_probs is not None else None,
-                prior_gate_features[start:end] if prior_gate_features is not None else None,
+                prior_log_probs[start - prior_offset : end - prior_offset] if prior_log_probs is not None else None,
+                prior_gate_features[start - prior_offset : end - prior_offset]
+                if prior_gate_features is not None
+                else None,
             )
             if residual_alpha is not None:
                 stats["residual_alpha_sum"] += float(residual_alpha.detach().sum().item())
@@ -1198,6 +1212,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--count-prior-max-fit-positions", type=int, default=50000)
     parser.add_argument("--count-prior-extra-features", default="entropy_delta,suffix_stats")
     parser.add_argument("--count-prior-cache", type=Path, default=None)
+    parser.add_argument("--count-prior-impl", choices=["python", "packed"], default="python")
+    parser.add_argument("--count-prior-theta-json", type=Path, default=None)
+    parser.add_argument("--count-prior-precompute", choices=["python", "numpy"], default="python")
+    parser.add_argument("--count-prior-storage", choices=["device", "cpu", "mmap"], default="device")
+    parser.add_argument("--count-prior-log-prob-dtype", choices=["float32", "float16"], default="float32")
+    parser.add_argument(
+        "--count-prior-precompute-cache-clear-every",
+        type=int,
+        default=0,
+        help="Clear count-prior memoization caches every N precompute rows. 0 keeps caches until the model is released.",
+    )
     return parser.parse_args()
 
 
@@ -1216,13 +1241,26 @@ def fit_count_gate_prior(
     max_fit_positions: int,
     extra_features: str,
     seed: int,
+    impl: str,
+    theta_json: Path | None,
 ) -> tuple[CountModel, list[float], list[dict[str, float]]]:
     split = int(len(train_ids) * (1.0 - valid_ratio))
     split = max(depth + 1, min(split, len(train_ids) - depth - 1))
     count_train = bytes(train_ids[:split])
     valid = bytes(train_ids[split:])
-    model = CountModel(count_train, vocab_size, depth, expand_extra_features(extra_features))
+    model_cls = PackedCountModel if impl == "packed" else CountModel
+    model = model_cls(count_train, vocab_size, depth, expand_extra_features(extra_features))
     model.build()
+    if theta_json is not None:
+        payload = json.loads(theta_json.read_text(encoding="utf-8"))
+        feature_names = model.feature_names()
+        if payload.get("feature_names") != feature_names:
+            raise ValueError(
+                f"theta feature mismatch: expected {feature_names}, got {payload.get('feature_names')}"
+            )
+        theta_map = payload["theta"]
+        theta = [float(theta_map[name]) for name in feature_names]
+        return model, theta, payload.get("history", [])
     fit_positions = select_positions(len(valid), max_fit_positions, 1, seed)
     theta, history = train_gate(model, valid, depth, fit_positions, epochs, lr)
     return model, theta, history
@@ -1234,15 +1272,19 @@ def precompute_count_prior_log_probs(
     theta: list[float],
     depth: int,
     device: torch.device,
+    dtype: torch.dtype = torch.float32,
 ) -> torch.Tensor:
     if len(ids) < 2:
-        return torch.empty((0, model.vocab_size), dtype=torch.float32, device=device)
+        return torch.empty((0, model.vocab_size), dtype=dtype, device=device)
     tokens = bytes(ids)
-    rows = torch.empty((len(ids) - 1, model.vocab_size), dtype=torch.float32)
+    rows = torch.empty((len(ids) - 1, model.vocab_size), dtype=dtype)
     for pos in range(len(ids) - 1):
         target_pos = pos + 1
         ctx = tokens[max(0, target_pos - depth) : target_pos]
-        rows[pos] = torch.tensor(model.gated_distribution(ctx, theta), dtype=torch.float32).log()
+        rows[pos] = torch.tensor(
+            [math.log(prob) for prob in model.gated_distribution(ctx, theta)],
+            dtype=dtype,
+        )
     return rows.to(device)
 
 
@@ -1251,12 +1293,13 @@ def precompute_count_prior_feature_rows(
     model: CountModel,
     depth: int,
     device: torch.device,
+    dtype: torch.dtype = torch.float32,
 ) -> torch.Tensor:
     feature_count = len(model.feature_names())
     if len(ids) < 2:
-        return torch.empty((0, feature_count), dtype=torch.float32, device=device)
+        return torch.empty((0, feature_count), dtype=dtype, device=device)
     tokens = bytes(ids)
-    rows = torch.zeros((len(ids) - 1, feature_count), dtype=torch.float32)
+    rows = torch.zeros((len(ids) - 1, feature_count), dtype=dtype)
     if feature_count > 0:
         rows[:, -1] = 1.0
     for pos in range(len(ids) - 1):
@@ -1265,9 +1308,148 @@ def precompute_count_prior_feature_rows(
         for d in range(min(depth, len(ctx)), 0, -1):
             feats = model.features(ctx[-d:])
             if feats is not None:
-                rows[pos] = torch.tensor(feats, dtype=torch.float32)
+                rows[pos] = torch.tensor(feats, dtype=dtype)
                 break
     return rows.to(device)
+
+
+def numpy_dtype_for_torch(dtype: torch.dtype) -> np.dtype:
+    if dtype == torch.float16:
+        return np.dtype("float16")
+    if dtype == torch.float32:
+        return np.dtype("float32")
+    raise ValueError(f"unsupported dtype for memmap prior cache: {dtype}")
+
+
+def precompute_count_prior_log_probs_mmap(
+    ids: list[int],
+    model: CountModel,
+    theta: list[float],
+    depth: int,
+    path: Path,
+    dtype: torch.dtype,
+    clear_cache_every: int = 0,
+) -> np.memmap:
+    np_dtype = numpy_dtype_for_torch(dtype)
+    shape = (max(0, len(ids) - 1), model.vocab_size)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    rows = np.memmap(path, dtype=np_dtype, mode="w+", shape=shape)
+    if shape[0] == 0:
+        rows.flush()
+        return np.memmap(path, dtype=np_dtype, mode="r", shape=shape)
+    tokens = bytes(ids)
+    for pos in range(len(ids) - 1):
+        target_pos = pos + 1
+        ctx = tokens[max(0, target_pos - depth) : target_pos]
+        rows[pos] = [math.log(prob) for prob in model.gated_distribution(ctx, theta)]
+        if clear_cache_every > 0 and pos > 0 and pos % clear_cache_every == 0:
+            model.clear_runtime_caches()
+    rows.flush()
+    del rows
+    return np.memmap(path, dtype=np_dtype, mode="r", shape=shape)
+
+
+def precompute_count_prior_feature_rows_mmap(
+    ids: list[int],
+    model: CountModel,
+    depth: int,
+    path: Path,
+    dtype: torch.dtype = torch.float32,
+    clear_cache_every: int = 0,
+) -> np.memmap:
+    np_dtype = numpy_dtype_for_torch(dtype)
+    feature_count = len(model.feature_names())
+    shape = (max(0, len(ids) - 1), feature_count)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    rows = np.memmap(path, dtype=np_dtype, mode="w+", shape=shape)
+    rows[:] = 0.0
+    if feature_count > 0:
+        rows[:, -1] = 1.0
+    if shape[0] == 0:
+        rows.flush()
+        return np.memmap(path, dtype=np_dtype, mode="r", shape=shape)
+    tokens = bytes(ids)
+    for pos in range(len(ids) - 1):
+        target_pos = pos + 1
+        ctx = tokens[max(0, target_pos - depth) : target_pos]
+        for d in range(min(depth, len(ctx)), 0, -1):
+            feats = model.features(ctx[-d:])
+            if feats is not None:
+                rows[pos] = feats
+                break
+        if clear_cache_every > 0 and pos > 0 and pos % clear_cache_every == 0:
+            model.clear_runtime_caches()
+    rows.flush()
+    del rows
+    return np.memmap(path, dtype=np_dtype, mode="r", shape=shape)
+
+
+def precompute_count_prior_rows_mmap(
+    ids: list[int],
+    model: CountModel,
+    theta: list[float],
+    depth: int,
+    log_path: Path,
+    feature_path: Path,
+    log_dtype: torch.dtype,
+    feature_dtype: torch.dtype = torch.float32,
+    clear_cache_every: int = 0,
+) -> tuple[np.memmap, np.memmap]:
+    log_np_dtype = numpy_dtype_for_torch(log_dtype)
+    feature_np_dtype = numpy_dtype_for_torch(feature_dtype)
+    row_count = max(0, len(ids) - 1)
+    log_shape = (row_count, model.vocab_size)
+    feature_count = len(model.feature_names())
+    feature_shape = (row_count, feature_count)
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    feature_path.parent.mkdir(parents=True, exist_ok=True)
+    log_rows = np.memmap(log_path, dtype=log_np_dtype, mode="w+", shape=log_shape)
+    feature_rows = np.memmap(feature_path, dtype=feature_np_dtype, mode="w+", shape=feature_shape)
+    feature_rows[:] = 0.0
+    if feature_count > 0:
+        feature_rows[:, -1] = 1.0
+    if row_count == 0:
+        log_rows.flush()
+        feature_rows.flush()
+        return (
+            np.memmap(log_path, dtype=log_np_dtype, mode="r", shape=log_shape),
+            np.memmap(feature_path, dtype=feature_np_dtype, mode="r", shape=feature_shape),
+        )
+    tokens = bytes(ids)
+    for pos in range(row_count):
+        target_pos = pos + 1
+        ctx = tokens[max(0, target_pos - depth) : target_pos]
+        log_rows[pos] = [math.log(prob) for prob in model.gated_distribution(ctx, theta)]
+        for d in range(min(depth, len(ctx)), 0, -1):
+            feats = model.features(ctx[-d:])
+            if feats is not None:
+                feature_rows[pos] = feats
+                break
+        if clear_cache_every > 0 and pos > 0 and pos % clear_cache_every == 0:
+            model.clear_runtime_caches()
+    log_rows.flush()
+    feature_rows.flush()
+    del log_rows, feature_rows
+    return (
+        np.memmap(log_path, dtype=log_np_dtype, mode="r", shape=log_shape),
+        np.memmap(feature_path, dtype=feature_np_dtype, mode="r", shape=feature_shape),
+    )
+
+
+def load_prior_mmap(path: Path, dtype: str, shape: tuple[int, int]) -> np.memmap:
+    return np.memmap(path, dtype=np.dtype(dtype), mode="r", shape=shape)
+
+
+def prior_rows_to_device(rows: PriorRows | None, start: int, end: int, device: torch.device) -> torch.Tensor | None:
+    if rows is None:
+        return None
+    if isinstance(rows, torch.Tensor):
+        return rows[start:end].to(device)
+    return torch.tensor(np.asarray(rows[start:end]), device=device)
+
+
+def prior_mmap_sidecar_path(cache_path: Path, name: str) -> Path:
+    return cache_path.with_suffix(f"{cache_path.suffix}.{name}.dat")
 
 
 def ids_digest(ids: list[int]) -> str:
@@ -1275,6 +1457,9 @@ def ids_digest(ids: list[int]) -> str:
 
 
 def count_prior_cache_meta(args: argparse.Namespace, train_ids: list[int], eval_ids: list[int], vocab: CharVocab) -> dict[str, object]:
+    theta_json_digest = None
+    if args.count_prior_theta_json is not None:
+        theta_json_digest = hashlib.sha256(args.count_prior_theta_json.read_bytes()).hexdigest()
     return {
         "train_digest": ids_digest(train_ids),
         "eval_digest": ids_digest(eval_ids),
@@ -1286,6 +1471,11 @@ def count_prior_cache_meta(args: argparse.Namespace, train_ids: list[int], eval_
         "max_fit_positions": args.count_prior_max_fit_positions,
         "extra_features": args.count_prior_extra_features,
         "seed": args.seed,
+        "impl": args.count_prior_impl,
+        "theta_json_digest": theta_json_digest,
+        "precompute": args.count_prior_precompute,
+        "log_prob_dtype": args.count_prior_log_prob_dtype,
+        "storage": args.count_prior_storage,
         "schema": "log_probs_and_feature_rows_v1",
     }
 
@@ -1439,18 +1629,16 @@ def main() -> None:
     train_ids_list = vocab.encode(train_text)
     eval_ids_list = vocab.encode(eval_text)
 
-    trie = PrefixCountTrie(vocab.size)
-    trie.insert_suffixes(train_ids_list, args.max_depth)
-    train_segments = segment_ids(train_ids_list, trie, args.max_depth, args.unique_threshold)
-    eval_segments = segment_ids(eval_ids_list, trie, args.max_depth, args.unique_threshold)
-    mean_segment_len, max_segment_len = segment_stats(train_segments)
-
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    prior_storage_device = torch.device("cpu") if args.count_prior_storage in {"cpu", "mmap"} else device
+    prior_log_prob_dtype = (
+        torch.float16 if args.count_prior_log_prob_dtype == "float16" else torch.float32
+    )
     train_ids = torch.tensor(train_ids_list, dtype=torch.long, device=device)
     eval_ids = torch.tensor(eval_ids_list, dtype=torch.long, device=device)
-    train_prior_log_probs: torch.Tensor | None = None
+    train_prior_log_probs: PriorRows | None = None
     eval_prior_log_probs: torch.Tensor | None = None
-    train_prior_gate_features: torch.Tensor | None = None
+    train_prior_gate_features: PriorRows | None = None
     eval_prior_gate_features: torch.Tensor | None = None
     prior_gate_feature_count = 0
     if args.count_prior == "frozen":
@@ -1461,14 +1649,52 @@ def main() -> None:
         if args.count_prior_cache is not None and args.count_prior_cache.exists():
             cache = torch.load(args.count_prior_cache, map_location="cpu", weights_only=False)
             if count_prior_cache_matches(cache, cache_meta):
-                train_prior_log_probs = cache["train_log_probs"].to(device)
-                eval_prior_log_probs = cache["eval_log_probs"].to(device)
-                if "train_gate_features" in cache and "eval_gate_features" in cache:
-                    train_prior_gate_features = cache["train_gate_features"].to(device)
-                    eval_prior_gate_features = cache["eval_gate_features"].to(device)
-                    prior_gate_feature_count = int(train_prior_gate_features.shape[1])
-                count_history = cache.get("history", [])
-                cache_loaded = True
+                if cache.get("format") == "mmap":
+                    train_prior_log_probs = load_prior_mmap(
+                        Path(cache["train_log_probs_path"]),
+                        cache["log_prob_dtype"],
+                        tuple(cache["train_log_probs_shape"]),
+                    )
+                    eval_prior_log_probs_mmap = load_prior_mmap(
+                        Path(cache["eval_log_probs_path"]),
+                        cache["log_prob_dtype"],
+                        tuple(cache["eval_log_probs_shape"]),
+                    )
+                    eval_prior_log_probs = prior_rows_to_device(
+                        eval_prior_log_probs_mmap,
+                        0,
+                        eval_prior_log_probs_mmap.shape[0],
+                        device,
+                    )
+                    if "train_gate_features_path" in cache and "eval_gate_features_path" in cache:
+                        train_prior_gate_features = load_prior_mmap(
+                            Path(cache["train_gate_features_path"]),
+                            cache["feature_dtype"],
+                            tuple(cache["train_gate_features_shape"]),
+                        )
+                        eval_prior_gate_features_mmap = load_prior_mmap(
+                            Path(cache["eval_gate_features_path"]),
+                            cache["feature_dtype"],
+                            tuple(cache["eval_gate_features_shape"]),
+                        )
+                        eval_prior_gate_features = prior_rows_to_device(
+                            eval_prior_gate_features_mmap,
+                            0,
+                            eval_prior_gate_features_mmap.shape[0],
+                            device,
+                        )
+                        prior_gate_feature_count = int(train_prior_gate_features.shape[1])
+                    count_history = cache.get("history", [])
+                    cache_loaded = True
+                else:
+                    train_prior_log_probs = cache["train_log_probs"].to(prior_storage_device)
+                    eval_prior_log_probs = cache["eval_log_probs"].to(device)
+                    if "train_gate_features" in cache and "eval_gate_features" in cache:
+                        train_prior_gate_features = cache["train_gate_features"].to(prior_storage_device)
+                        eval_prior_gate_features = cache["eval_gate_features"].to(device)
+                        prior_gate_feature_count = int(train_prior_gate_features.shape[1])
+                    count_history = cache.get("history", [])
+                    cache_loaded = True
             else:
                 print(f"count_prior_cache_miss={args.count_prior_cache}", flush=True)
         if train_prior_log_probs is None or eval_prior_log_probs is None:
@@ -1482,55 +1708,145 @@ def main() -> None:
                 args.count_prior_max_fit_positions,
                 args.count_prior_extra_features,
                 args.seed,
+                args.count_prior_impl,
+                args.count_prior_theta_json,
             )
-            train_prior_log_probs = precompute_count_prior_log_probs(
-                train_ids_list,
-                count_model,
-                count_theta,
-                args.count_prior_depth,
-                device,
-            )
-            eval_prior_log_probs = precompute_count_prior_log_probs(
-                eval_ids_list,
-                count_model,
-                count_theta,
-                args.count_prior_depth,
-                device,
-            )
-            train_prior_gate_features = precompute_count_prior_feature_rows(
-                train_ids_list,
-                count_model,
-                args.count_prior_depth,
-                device,
-            )
-            eval_prior_gate_features = precompute_count_prior_feature_rows(
-                eval_ids_list,
-                count_model,
-                args.count_prior_depth,
-                device,
-            )
+            if args.count_prior_storage == "mmap":
+                if args.count_prior_cache is None:
+                    raise ValueError("--count-prior-storage mmap requires --count-prior-cache")
+                train_log_path = prior_mmap_sidecar_path(args.count_prior_cache, "train_log_probs")
+                eval_log_path = prior_mmap_sidecar_path(args.count_prior_cache, "eval_log_probs")
+                train_feature_path = prior_mmap_sidecar_path(args.count_prior_cache, "train_gate_features")
+                eval_feature_path = prior_mmap_sidecar_path(args.count_prior_cache, "eval_gate_features")
+                if args.count_prior_precompute == "numpy":
+                    if not isinstance(count_model, PackedCountModel):
+                        raise ValueError("--count-prior-precompute numpy requires --count-prior-impl packed")
+                    depth_prior_tables = build_depth_prior_tables(count_model, count_theta)
+                    train_prior_log_probs, train_prior_gate_features = compile_prior_rows_numpy_mmap(
+                        train_ids_list,
+                        count_model,
+                        depth_prior_tables,
+                        train_log_path,
+                        train_feature_path,
+                        log_dtype=numpy_dtype_for_torch(prior_log_prob_dtype),
+                    )
+                    eval_prior_log_probs_mmap, eval_prior_gate_features_mmap = compile_prior_rows_numpy_mmap(
+                        eval_ids_list,
+                        count_model,
+                        depth_prior_tables,
+                        eval_log_path,
+                        eval_feature_path,
+                        log_dtype=numpy_dtype_for_torch(prior_log_prob_dtype),
+                    )
+                else:
+                    train_prior_log_probs, train_prior_gate_features = precompute_count_prior_rows_mmap(
+                        train_ids_list,
+                        count_model,
+                        count_theta,
+                        args.count_prior_depth,
+                        train_log_path,
+                        train_feature_path,
+                        prior_log_prob_dtype,
+                        clear_cache_every=args.count_prior_precompute_cache_clear_every,
+                    )
+                    eval_prior_log_probs_mmap, eval_prior_gate_features_mmap = precompute_count_prior_rows_mmap(
+                        eval_ids_list,
+                        count_model,
+                        count_theta,
+                        args.count_prior_depth,
+                        eval_log_path,
+                        eval_feature_path,
+                        prior_log_prob_dtype,
+                        clear_cache_every=args.count_prior_precompute_cache_clear_every,
+                    )
+                eval_prior_log_probs = prior_rows_to_device(
+                    eval_prior_log_probs_mmap,
+                    0,
+                    eval_prior_log_probs_mmap.shape[0],
+                    device,
+                )
+                eval_prior_gate_features = prior_rows_to_device(
+                    eval_prior_gate_features_mmap,
+                    0,
+                    eval_prior_gate_features_mmap.shape[0],
+                    device,
+                )
+            else:
+                train_prior_log_probs = precompute_count_prior_log_probs(
+                    train_ids_list,
+                    count_model,
+                    count_theta,
+                    args.count_prior_depth,
+                    prior_storage_device,
+                    prior_log_prob_dtype,
+                )
+                eval_prior_log_probs = precompute_count_prior_log_probs(
+                    eval_ids_list,
+                    count_model,
+                    count_theta,
+                    args.count_prior_depth,
+                    device,
+                    prior_log_prob_dtype,
+                )
+                train_prior_gate_features = precompute_count_prior_feature_rows(
+                    train_ids_list,
+                    count_model,
+                    args.count_prior_depth,
+                    prior_storage_device,
+                )
+                eval_prior_gate_features = precompute_count_prior_feature_rows(
+                    eval_ids_list,
+                    count_model,
+                    args.count_prior_depth,
+                    device,
+                )
             prior_gate_feature_count = int(train_prior_gate_features.shape[1])
             if args.count_prior_cache is not None:
                 args.count_prior_cache.parent.mkdir(parents=True, exist_ok=True)
                 tmp_cache = args.count_prior_cache.with_suffix(f"{args.count_prior_cache.suffix}.tmp")
-                torch.save(
-                    {
-                        "meta": cache_meta,
-                        "history": count_history,
-                        "train_log_probs": train_prior_log_probs.detach().cpu(),
-                        "eval_log_probs": eval_prior_log_probs.detach().cpu(),
-                        "train_gate_features": train_prior_gate_features.detach().cpu(),
-                        "eval_gate_features": eval_prior_gate_features.detach().cpu(),
-                    },
-                    tmp_cache,
-                )
+                if args.count_prior_storage == "mmap":
+                    torch.save(
+                        {
+                            "meta": cache_meta,
+                            "format": "mmap",
+                            "history": count_history,
+                            "log_prob_dtype": numpy_dtype_for_torch(prior_log_prob_dtype).name,
+                            "feature_dtype": "float32",
+                            "train_log_probs_path": str(train_log_path),
+                            "eval_log_probs_path": str(eval_log_path),
+                            "train_gate_features_path": str(train_feature_path),
+                            "eval_gate_features_path": str(eval_feature_path),
+                            "train_log_probs_shape": tuple(train_prior_log_probs.shape),
+                            "eval_log_probs_shape": tuple(eval_prior_log_probs_mmap.shape),
+                            "train_gate_features_shape": tuple(train_prior_gate_features.shape),
+                            "eval_gate_features_shape": tuple(eval_prior_gate_features_mmap.shape),
+                            "feature_count": prior_gate_feature_count,
+                        },
+                        tmp_cache,
+                    )
+                else:
+                    torch.save(
+                        {
+                            "meta": cache_meta,
+                            "history": count_history,
+                            "train_log_probs": train_prior_log_probs.detach().cpu(),
+                            "eval_log_probs": eval_prior_log_probs.detach().cpu(),
+                            "train_gate_features": train_prior_gate_features.detach().cpu(),
+                            "eval_gate_features": eval_prior_gate_features.detach().cpu(),
+                        },
+                        tmp_cache,
+                    )
                 tmp_cache.replace(args.count_prior_cache)
+            del count_model, count_theta
+            gc.collect()
         if args.prior_residual_gate == "context" and (
             train_prior_gate_features is None or eval_prior_gate_features is None
         ):
             raise ValueError("context residual gate requires count-prior feature rows; rebuild the count prior cache")
         print(
             f"count_prior=frozen depth={args.count_prior_depth} "
+            f"impl={args.count_prior_impl} "
+            f"theta_json={args.count_prior_theta_json} "
             f"features={args.count_prior_extra_features} "
             f"fit_ppl={count_history[-1]['ppl'] if count_history else float('nan'):.3f} "
             f"cache_loaded={cache_loaded} cache={args.count_prior_cache} "
@@ -1539,6 +1855,13 @@ def main() -> None:
         )
     if args.prior_residual_gate != "none" and args.count_prior != "frozen":
         raise ValueError("--prior-residual-gate requires --count-prior frozen")
+
+    trie = PrefixCountTrie(vocab.size)
+    trie.insert_suffixes(train_ids_list, args.max_depth)
+    train_segments = segment_ids(train_ids_list, trie, args.max_depth, args.unique_threshold)
+    eval_segments = segment_ids(eval_ids_list, trie, args.max_depth, args.unique_threshold)
+    mean_segment_len, max_segment_len = segment_stats(train_segments)
+
     prior_residual_gate_max = (
         args.prior_residual_gate_max if args.prior_residual_gate_max > 0.0 else 2.0 * args.prior_residual_scale
     )
@@ -1646,10 +1969,14 @@ def main() -> None:
             f"feedback_gate_bias={args.feedback_gate_bias} feedback_delta_cap={args.feedback_delta_cap} "
             f"prior_residual_scale={args.prior_residual_scale} prior_residual_l2={args.prior_residual_l2} "
             f"prior_residual_gate={args.prior_residual_gate} prior_residual_gate_max={prior_residual_gate_max} "
+            f"count_prior_storage={args.count_prior_storage} count_prior_log_prob_dtype={args.count_prior_log_prob_dtype} "
+            f"count_prior_precompute={args.count_prior_precompute} "
             f"record_aux_weight={args.record_aux_weight} terminal_record_aux_weight={args.terminal_record_aux_weight} "
             f"retrieval_aux_weight={args.retrieval_aux_weight} "
             f"utility_aux_weight={args.utility_aux_weight} utility_temperature={args.utility_temperature} "
             f"count_prior={args.count_prior} count_prior_depth={args.count_prior_depth} "
+            f"count_prior_impl={args.count_prior_impl} "
+            f"count_prior_theta_json={args.count_prior_theta_json} "
             f"checkpoint_output={args.checkpoint_output} best_checkpoint_output={args.best_checkpoint_output} "
             f"profile={args.profile} "
             f"device={device} output={args.output}",
@@ -1751,6 +2078,20 @@ def main() -> None:
                 optimizer.zero_grad(set_to_none=True)
                 step_profile.zero_sec += time.perf_counter() - t0
                 t0 = time.perf_counter()
+                prior_offset = batch_segments[0][0]
+                prior_end = batch_segments[-1][1]
+                batch_prior_log_probs = prior_rows_to_device(
+                    train_prior_log_probs,
+                    prior_offset,
+                    prior_end,
+                    device,
+                )
+                batch_prior_gate_features = prior_rows_to_device(
+                    train_prior_gate_features,
+                    prior_offset,
+                    prior_end,
+                    device,
+                )
                 loss, tokens, memory, carried_hidden, train_stats = model.segment_loss(
                     train_ids,
                     batch_segments,
@@ -1760,8 +2101,9 @@ def main() -> None:
                     carry_hidden=args.carry_hidden,
                     feedback_state=args.feedback_state,
                     token_feedback=args.token_feedback,
-                    prior_log_probs=train_prior_log_probs,
-                    prior_gate_features=train_prior_gate_features,
+                    prior_log_probs=batch_prior_log_probs,
+                    prior_gate_features=batch_prior_gate_features,
+                    prior_offset=prior_offset,
                 )
                 step_profile.forward_sec += time.perf_counter() - t0
                 if tokens == 0:

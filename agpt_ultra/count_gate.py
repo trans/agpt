@@ -19,6 +19,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
+import numpy as np
+
 
 EPS = 1.0e-12
 SUFFIX_FEATURES = [
@@ -157,9 +159,121 @@ def expand_extra_features(raw: str) -> list[str]:
 
 @dataclass
 class ContextStats:
-    counts: Counter[int]
+    counts: Counter[int] | "PackedCounts"
     total: int
     types: int
+
+
+class PackedCounts:
+    def __init__(self, tokens: np.ndarray, counts: np.ndarray):
+        self.tokens = tokens
+        self.counts = counts
+
+    def get(self, token: int, default: int = 0) -> int:
+        idx = np.searchsorted(self.tokens, token)
+        if idx < len(self.tokens) and int(self.tokens[idx]) == token:
+            return int(self.counts[idx])
+        return default
+
+    def items(self):
+        for token, count in zip(self.tokens, self.counts):
+            yield int(token), int(count)
+
+    def values(self):
+        for count in self.counts:
+            yield int(count)
+
+    def __len__(self) -> int:
+        return int(len(self.tokens))
+
+
+class PackedNgramTable:
+    def __init__(
+        self,
+        keys: np.ndarray,
+        offsets: np.ndarray,
+        tokens: np.ndarray,
+        counts: np.ndarray,
+        totals: np.ndarray,
+        types: np.ndarray,
+    ):
+        self.keys = keys
+        self.offsets = offsets
+        self.tokens = tokens
+        self.counts = counts
+        self.totals = totals
+        self.types = types
+
+    @classmethod
+    def empty(cls) -> "PackedNgramTable":
+        return cls(
+            np.empty(0, dtype=np.uint64),
+            np.zeros(1, dtype=np.uint32),
+            np.empty(0, dtype=np.uint8),
+            np.empty(0, dtype=np.uint32),
+            np.empty(0, dtype=np.uint32),
+            np.empty(0, dtype=np.uint16),
+        )
+
+    @classmethod
+    def from_pairs(cls, keys: np.ndarray, targets: np.ndarray) -> "PackedNgramTable":
+        if len(keys) == 0:
+            return cls.empty()
+        keys = np.asarray(keys, dtype=np.uint64)
+        targets = np.asarray(targets, dtype=np.uint8)
+        order = np.lexsort((targets, keys))
+        sorted_keys = keys[order]
+        sorted_targets = targets[order]
+        pair_change = np.empty(len(sorted_keys), dtype=bool)
+        pair_change[0] = True
+        pair_change[1:] = (sorted_keys[1:] != sorted_keys[:-1]) | (sorted_targets[1:] != sorted_targets[:-1])
+        pair_starts = np.nonzero(pair_change)[0]
+        pair_counts = np.diff(np.append(pair_starts, len(sorted_keys))).astype(np.uint32, copy=False)
+        pair_keys = sorted_keys[pair_starts]
+        pair_targets = sorted_targets[pair_starts]
+
+        key_change = np.empty(len(pair_keys), dtype=bool)
+        key_change[0] = True
+        key_change[1:] = pair_keys[1:] != pair_keys[:-1]
+        key_starts = np.nonzero(key_change)[0]
+        unique_keys = pair_keys[key_starts].astype(np.uint64, copy=False)
+        offsets = np.append(key_starts, len(pair_keys)).astype(np.uint32, copy=False)
+        totals = np.add.reduceat(pair_counts.astype(np.uint64), key_starts).astype(np.uint32, copy=False)
+        types = np.diff(offsets).astype(np.uint16, copy=False)
+        return cls(
+            unique_keys,
+            offsets,
+            pair_targets.astype(np.uint8, copy=False),
+            pair_counts,
+            totals,
+            types,
+        )
+
+    def stats(self, key: int) -> ContextStats | None:
+        idx = np.searchsorted(self.keys, np.uint64(key))
+        if idx >= len(self.keys) or int(self.keys[idx]) != key:
+            return None
+        start = int(self.offsets[idx])
+        end = int(self.offsets[idx + 1])
+        return ContextStats(
+            counts=PackedCounts(self.tokens[start:end], self.counts[start:end]),
+            total=int(self.totals[idx]),
+            types=int(self.types[idx]),
+        )
+
+
+def pack_context(ctx: bytes) -> int:
+    key = 0
+    for token in ctx:
+        key = (key << 8) | token
+    return key
+
+
+def packed_keys_for_windows(tokens: np.ndarray, starts: int, rows: int, depth: int) -> np.ndarray:
+    keys = np.zeros(rows, dtype=np.uint64)
+    for offset in range(depth):
+        keys = (keys << np.uint64(8)) | tokens[starts + offset : starts + offset + rows].astype(np.uint64)
+    return keys
 
 
 class CountModel:
@@ -193,6 +307,15 @@ class CountModel:
             *self.extra_features,
             "bias",
         ]
+
+    def clear_runtime_caches(self) -> None:
+        self._stats_cache.clear()
+        self._suffix_stats_cache.clear()
+        self._wb_prob_cache.clear()
+        self._suffix_wb_prob_cache.clear()
+        self._entropy_cache.clear()
+        self._suffix_entropy_cache.clear()
+        self._feature_cache.clear()
 
     def build(self) -> None:
         for i, target in enumerate(self.tokens):
@@ -499,6 +622,98 @@ class CountModel:
         if z <= 0.0:
             return [1.0 / self.vocab_size] * self.vocab_size
         return [max(p / z, EPS) for p in probs]
+
+
+class PackedCountModel(CountModel):
+    def __init__(self, tokens: bytes, vocab_size: int, depth: int, extra_features: list[str]):
+        self.tokens = tokens
+        self.vocab_size = vocab_size
+        self.depth = depth
+        self.extra_features = extra_features
+        self.tables: list[PackedNgramTable] = [PackedNgramTable.empty() for _ in range(depth + 1)]
+        self.suffix_tables: list[PackedNgramTable] = [PackedNgramTable.empty() for _ in range(depth + 1)]
+        self._stats_cache: dict[bytes, ContextStats | None] = {}
+        self._suffix_stats_cache: dict[bytes, ContextStats | None] = {}
+        self._wb_prob_cache: dict[tuple[bytes, int], float] = {}
+        self._suffix_wb_prob_cache: dict[tuple[bytes, int], float] = {}
+        self._entropy_cache: dict[bytes, float] = {}
+        self._suffix_entropy_cache: dict[bytes, float] = {}
+        self._feature_cache: dict[bytes, tuple[float, ...] | None] = {}
+        self.unigram_probs = [1.0 / vocab_size] * vocab_size
+        self.suffix_unigram_probs = [1.0 / vocab_size] * vocab_size
+
+    def build(self) -> None:
+        arr = np.frombuffer(self.tokens, dtype=np.uint8)
+        n = len(arr)
+        for d in range(self.depth + 1):
+            if d == 0:
+                self.tables[d] = PackedNgramTable.from_pairs(
+                    np.zeros(n, dtype=np.uint64),
+                    arr,
+                )
+            elif n > d:
+                self.tables[d] = PackedNgramTable.from_pairs(
+                    packed_keys_for_windows(arr, 0, n - d, d),
+                    arr[d:n],
+                )
+            else:
+                self.tables[d] = PackedNgramTable.empty()
+
+        suffix_root_rows = max(0, n - 1)
+        self.suffix_tables[0] = PackedNgramTable.from_pairs(
+            np.zeros(suffix_root_rows, dtype=np.uint64),
+            arr[:suffix_root_rows],
+        )
+        for d in range(1, self.depth + 1):
+            rows = n - d
+            if rows > 0:
+                self.suffix_tables[d] = PackedNgramTable.from_pairs(
+                    packed_keys_for_windows(arr, 1, rows, d),
+                    arr[:rows],
+                )
+            else:
+                self.suffix_tables[d] = PackedNgramTable.empty()
+
+        root = self.tables[0].stats(0)
+        if root is not None and root.total > 0:
+            self.unigram_probs = [
+                max(root.counts.get(tok, 0) / root.total, EPS) for tok in range(self.vocab_size)
+            ]
+            z = sum(self.unigram_probs)
+            self.unigram_probs = [p / z for p in self.unigram_probs]
+
+        suffix_root = self.suffix_tables[0].stats(0)
+        if suffix_root is not None and suffix_root.total > 0:
+            self.suffix_unigram_probs = [
+                max(suffix_root.counts.get(tok, 0) / suffix_root.total, EPS)
+                for tok in range(self.vocab_size)
+            ]
+            z = sum(self.suffix_unigram_probs)
+            self.suffix_unigram_probs = [p / z for p in self.suffix_unigram_probs]
+
+    def stats(self, ctx: bytes) -> ContextStats | None:
+        cached = self._stats_cache.get(ctx)
+        if cached is not None or ctx in self._stats_cache:
+            return cached
+        d = len(ctx)
+        if d > self.depth:
+            ctx = ctx[-self.depth :]
+            d = self.depth
+        stats = self.tables[d].stats(pack_context(ctx))
+        self._stats_cache[ctx] = stats
+        return stats
+
+    def suffix_stats(self, ctx: bytes) -> ContextStats | None:
+        cached = self._suffix_stats_cache.get(ctx)
+        if cached is not None or ctx in self._suffix_stats_cache:
+            return cached
+        d = len(ctx)
+        if d > self.depth:
+            ctx = ctx[: self.depth]
+            d = self.depth
+        stats = self.suffix_tables[d].stats(pack_context(ctx))
+        self._suffix_stats_cache[ctx] = stats
+        return stats
 
 
 def mean_loss_for_positions(
