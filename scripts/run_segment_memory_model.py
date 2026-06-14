@@ -278,6 +278,7 @@ class SegmentMemoryLM(nn.Module):
         prior_residual_gate: str,
         prior_residual_gate_max: float,
         prior_residual_gate_features: int,
+        prior_residual_state_features: list[int],
         record_aux_weight: float,
         terminal_record_aux_weight: float,
         retrieval_aux_weight: float,
@@ -389,6 +390,26 @@ class SegmentMemoryLM(nn.Module):
             self.residual_trust_gate = None
         else:
             raise ValueError(f"unknown prior_residual_gate: {prior_residual_gate}")
+        if prior_residual_state_features:
+            self.register_buffer(
+                "prior_residual_state_feature_indices",
+                torch.tensor(prior_residual_state_features, dtype=torch.long),
+                persistent=False,
+            )
+            self.prior_state_residual = nn.Sequential(
+                nn.Linear(len(prior_residual_state_features), hidden_size),
+                nn.GELU(),
+                nn.Linear(hidden_size, vocab_size),
+            )
+            nn.init.zeros_(self.prior_state_residual[-1].weight)
+            nn.init.zeros_(self.prior_state_residual[-1].bias)
+        else:
+            self.register_buffer(
+                "prior_residual_state_feature_indices",
+                torch.empty(0, dtype=torch.long),
+                persistent=False,
+            )
+            self.prior_state_residual = None
         inv_freq = 1.0 / (
             10000
             ** (torch.arange(0, self.rope_dim, 2, dtype=torch.float32) / max(1, self.rope_dim))
@@ -423,6 +444,14 @@ class SegmentMemoryLM(nn.Module):
     ) -> tuple[torch.Tensor, torch.Tensor | None, torch.Tensor | None]:
         if prior_log_probs is None:
             return logits, None, None
+        if self.prior_state_residual is not None:
+            if prior_gate_features is None:
+                raise ValueError("prior residual state features require prior_gate_features")
+            selected_features = prior_gate_features.index_select(
+                1,
+                self.prior_residual_state_feature_indices.to(prior_gate_features.device),
+            )
+            logits = logits + self.prior_state_residual(selected_features.to(dtype=logits.dtype))
         if self.prior_residual_gate == "context":
             if prior_gate_features is None or self.residual_trust_gate is None:
                 raise ValueError("context residual gate requires prior_gate_features")
@@ -1163,6 +1192,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--prior-residual-l2", type=float, default=0.0)
     parser.add_argument("--prior-residual-gate", choices=["none", "context"], default="none")
     parser.add_argument(
+        "--prior-residual-state-features",
+        default="",
+        help="Comma-separated prior feature columns to feed to an auxiliary residual-state MLP, e.g. 0,3.",
+    )
+    parser.add_argument(
         "--prior-residual-gate-max",
         type=float,
         default=0.0,
@@ -1225,6 +1259,12 @@ def parse_args() -> argparse.Namespace:
         help="Clear count-prior memoization caches every N precompute rows. 0 keeps caches until the model is released.",
     )
     return parser.parse_args()
+
+
+def parse_feature_indices(raw: str) -> list[int]:
+    if not raw.strip():
+        return []
+    return [int(part.strip()) for part in raw.split(",") if part.strip()]
 
 
 def segment_stats(segments: list[tuple[int, int]]) -> tuple[float, int]:
@@ -1871,6 +1911,17 @@ def main() -> None:
     prior_residual_gate_max = (
         args.prior_residual_gate_max if args.prior_residual_gate_max > 0.0 else 2.0 * args.prior_residual_scale
     )
+    prior_residual_state_features = parse_feature_indices(args.prior_residual_state_features)
+    if prior_residual_state_features and prior_gate_feature_count <= 0:
+        raise ValueError("--prior-residual-state-features requires count-prior feature rows")
+    invalid_state_features = [
+        index for index in prior_residual_state_features if index < 0 or index >= prior_gate_feature_count
+    ]
+    if invalid_state_features:
+        raise ValueError(
+            f"invalid --prior-residual-state-features {invalid_state_features}; "
+            f"feature count is {prior_gate_feature_count}"
+        )
     model = SegmentMemoryLM(
         vocab.size,
         args.embedding_size,
@@ -1892,6 +1943,7 @@ def main() -> None:
         prior_residual_gate=args.prior_residual_gate,
         prior_residual_gate_max=prior_residual_gate_max,
         prior_residual_gate_features=prior_gate_feature_count,
+        prior_residual_state_features=prior_residual_state_features,
         record_aux_weight=args.record_aux_weight,
         terminal_record_aux_weight=args.terminal_record_aux_weight,
         retrieval_aux_weight=args.retrieval_aux_weight,
@@ -1975,6 +2027,7 @@ def main() -> None:
             f"feedback_gate_bias={args.feedback_gate_bias} feedback_delta_cap={args.feedback_delta_cap} "
             f"prior_residual_scale={args.prior_residual_scale} prior_residual_l2={args.prior_residual_l2} "
             f"prior_residual_gate={args.prior_residual_gate} prior_residual_gate_max={prior_residual_gate_max} "
+            f"prior_residual_state_features={prior_residual_state_features} "
             f"count_prior_storage={args.count_prior_storage} count_prior_log_prob_dtype={args.count_prior_log_prob_dtype} "
             f"count_prior_precompute={args.count_prior_precompute} "
             f"record_aux_weight={args.record_aux_weight} terminal_record_aux_weight={args.terminal_record_aux_weight} "
