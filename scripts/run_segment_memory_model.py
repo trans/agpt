@@ -340,6 +340,7 @@ class SegmentMemoryLM(nn.Module):
         input_rope: bool,
         feedback_gate_bias: float,
         feedback_delta_cap: float,
+        prior_strength: float,
         prior_residual_scale: float,
         prior_residual_l2: float,
         prior_residual_gate: str,
@@ -364,6 +365,7 @@ class SegmentMemoryLM(nn.Module):
         self.attention_heads = attention_heads
         self.input_rope = input_rope
         self.feedback_delta_cap = feedback_delta_cap
+        self.prior_strength = prior_strength
         self.prior_residual_scale = prior_residual_scale
         self.prior_residual_l2 = prior_residual_l2
         self.prior_residual_gate = prior_residual_gate
@@ -527,7 +529,7 @@ class SegmentMemoryLM(nn.Module):
         else:
             alpha = None
             residual_logits = self.prior_residual_scale * logits
-        return prior_log_probs + residual_logits, residual_logits, alpha
+        return self.prior_strength * prior_log_probs + residual_logits, residual_logits, alpha
 
     def write_memory(self, state: torch.Tensor) -> torch.Tensor:
         if self.memory_record == "raw":
@@ -1272,6 +1274,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--token-feedback", choices=["none", "context", "gated", "dual-gated"], default="none")
     parser.add_argument("--feedback-gate-bias", type=float, default=-6.0)
     parser.add_argument("--feedback-delta-cap", type=float, default=1.0)
+    parser.add_argument("--prior-strength", type=float, default=1.0)
     parser.add_argument("--prior-residual-scale", type=float, default=1.0)
     parser.add_argument("--prior-residual-l2", type=float, default=0.0)
     parser.add_argument("--prior-residual-gate", choices=["none", "context"], default="none")
@@ -2022,6 +2025,7 @@ def main() -> None:
         input_rope=args.input_rope,
         feedback_gate_bias=args.feedback_gate_bias,
         feedback_delta_cap=args.feedback_delta_cap,
+        prior_strength=args.prior_strength,
         prior_residual_scale=args.prior_residual_scale,
         prior_residual_l2=args.prior_residual_l2,
         prior_residual_gate=args.prior_residual_gate,
@@ -2109,6 +2113,7 @@ def main() -> None:
             f"carry_hidden={args.carry_hidden} "
             f"feedback_state={args.feedback_state} token_feedback={args.token_feedback} input_rope={args.input_rope} "
             f"feedback_gate_bias={args.feedback_gate_bias} feedback_delta_cap={args.feedback_delta_cap} "
+            f"prior_strength={args.prior_strength} "
             f"prior_residual_scale={args.prior_residual_scale} prior_residual_l2={args.prior_residual_l2} "
             f"prior_residual_gate={args.prior_residual_gate} prior_residual_gate_max={prior_residual_gate_max} "
             f"prior_residual_state_features={prior_residual_state_features} "
