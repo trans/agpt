@@ -8,6 +8,7 @@ import math
 import json
 import resource
 import sys
+import tempfile
 import time
 from dataclasses import asdict, dataclass, fields
 from pathlib import Path
@@ -1721,23 +1722,28 @@ def main() -> None:
                 if args.count_prior_precompute == "numpy":
                     if not isinstance(count_model, PackedCountModel):
                         raise ValueError("--count-prior-precompute numpy requires --count-prior-impl packed")
-                    depth_prior_tables = build_depth_prior_tables(count_model, count_theta)
-                    train_prior_log_probs, train_prior_gate_features = compile_prior_rows_numpy_mmap(
-                        train_ids_list,
-                        count_model,
-                        depth_prior_tables,
-                        train_log_path,
-                        train_feature_path,
-                        log_dtype=numpy_dtype_for_torch(prior_log_prob_dtype),
-                    )
-                    eval_prior_log_probs_mmap, eval_prior_gate_features_mmap = compile_prior_rows_numpy_mmap(
-                        eval_ids_list,
-                        count_model,
-                        depth_prior_tables,
-                        eval_log_path,
-                        eval_feature_path,
-                        log_dtype=numpy_dtype_for_torch(prior_log_prob_dtype),
-                    )
+                    with tempfile.TemporaryDirectory(
+                        dir=args.count_prior_cache.parent,
+                        prefix=f"{args.count_prior_cache.stem}.depth_cache.",
+                    ) as depth_cache_dir:
+                        depth_prior_tables = build_depth_prior_tables(count_model, count_theta, depth_cache_dir)
+                        train_prior_log_probs, train_prior_gate_features = compile_prior_rows_numpy_mmap(
+                            train_ids_list,
+                            count_model,
+                            depth_prior_tables,
+                            train_log_path,
+                            train_feature_path,
+                            log_dtype=numpy_dtype_for_torch(prior_log_prob_dtype),
+                        )
+                        eval_prior_log_probs_mmap, eval_prior_gate_features_mmap = compile_prior_rows_numpy_mmap(
+                            eval_ids_list,
+                            count_model,
+                            depth_prior_tables,
+                            eval_log_path,
+                            eval_feature_path,
+                            log_dtype=numpy_dtype_for_torch(prior_log_prob_dtype),
+                        )
+                        del depth_prior_tables
                 else:
                     train_prior_log_probs, train_prior_gate_features = precompute_count_prior_rows_mmap(
                         train_ids_list,

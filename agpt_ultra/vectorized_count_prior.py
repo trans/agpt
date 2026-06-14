@@ -21,6 +21,28 @@ class DepthPriorTable:
     gates: np.ndarray
 
 
+def _store_array(array: np.ndarray, cache_dir: Path | None, name: str) -> np.ndarray:
+    array = np.asarray(array)
+    if cache_dir is None:
+        return array
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    path = cache_dir / f"{name}.dat"
+    out = np.memmap(path, dtype=array.dtype, mode="w+", shape=array.shape)
+    out[:] = array
+    out.flush()
+    return out
+
+
+def _empty_cached(cache_dir: Path | None, name: str, shape: tuple[int, ...], dtype=np.float32) -> np.ndarray:
+    if cache_dir is None:
+        return np.empty(shape, dtype=dtype)
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    path = cache_dir / f"{name}.dat"
+    out = np.memmap(path, dtype=np.dtype(dtype), mode="w+", shape=shape)
+    out.flush()
+    return out
+
+
 def _sigmoid(x: np.ndarray) -> np.ndarray:
     out = np.empty_like(x, dtype=np.float32)
     pos = x >= 0
@@ -89,20 +111,23 @@ def _back_indices_for_suffix(table: PackedNgramTable, previous: PackedNgramTable
     return np.searchsorted(previous.keys, back_keys).astype(np.int64)
 
 
-def _suffix_feature_maps(model: PackedCountModel) -> dict[str, list[np.ndarray]]:
+def _suffix_feature_maps(model: PackedCountModel, cache_dir: Path | None = None) -> dict[str, list[np.ndarray]]:
     vocab_size = model.vocab_size
     root_entropy = -sum(p * np.log(max(p, EPS)) for p in model.suffix_unigram_probs) / np.log(vocab_size)
     previous_wb = np.asarray(model.suffix_unigram_probs, dtype=np.float32)[None, :]
     previous_entropy = np.asarray([root_entropy], dtype=np.float32)
     previous_table = model.suffix_tables[0]
-    result = {name: [np.empty(0, dtype=np.float32)] for name in SUFFIX_FEATURES}
+    result = {
+        name: [_empty_cached(cache_dir, f"suffix_{name}_d0", (0,), np.float32)]
+        for name in SUFFIX_FEATURES
+    }
 
     for depth in range(1, model.depth + 1):
         table = model.suffix_tables[depth]
         n = len(table.keys)
         if n == 0:
             for name in SUFFIX_FEATURES:
-                result[name].append(np.empty(0, dtype=np.float32))
+                result[name].append(_empty_cached(cache_dir, f"suffix_{name}_d{depth}", (0,), np.float32))
             previous_table = table
             previous_wb = np.empty((0, vocab_size), dtype=np.float32)
             previous_entropy = np.empty(0, dtype=np.float32)
@@ -113,22 +138,39 @@ def _suffix_feature_maps(model: PackedCountModel) -> dict[str, list[np.ndarray]]
         total = table.totals.astype(np.float32)
         types = table.types.astype(np.float32)
         result["suffix_mass_norm"].append(
-            (np.log1p(total) / np.log1p(len(model.tokens))).astype(np.float32)
+            _store_array(
+                (np.log1p(total) / np.log1p(len(model.tokens))).astype(np.float32),
+                cache_dir,
+                f"suffix_mass_norm_d{depth}",
+            )
         )
-        result["suffix_reliability"].append((total / (total + types)).astype(np.float32))
-        result["suffix_entropy_norm"].append(entropy)
-        result["suffix_kl_gain"].append(kl_gain)
-        result["suffix_entropy_delta"].append((previous_entropy[back_idx] - entropy).astype(np.float32))
+        result["suffix_reliability"].append(
+            _store_array((total / (total + types)).astype(np.float32), cache_dir, f"suffix_reliability_d{depth}")
+        )
+        result["suffix_entropy_norm"].append(
+            _store_array(entropy, cache_dir, f"suffix_entropy_norm_d{depth}")
+        )
+        result["suffix_kl_gain"].append(
+            _store_array(kl_gain, cache_dir, f"suffix_kl_gain_d{depth}")
+        )
+        result["suffix_entropy_delta"].append(
+            _store_array((previous_entropy[back_idx] - entropy).astype(np.float32), cache_dir, f"suffix_entropy_delta_d{depth}")
+        )
         previous_wb = _dense_wb_from_backoff(table, back_idx, previous_wb)
         previous_entropy = entropy
         previous_table = table
     return result
 
 
-def build_depth_prior_tables(model: PackedCountModel, theta: list[float]) -> list[DepthPriorTable]:
+def build_depth_prior_tables(
+    model: PackedCountModel,
+    theta: list[float],
+    cache_dir: Path | str | None = None,
+) -> list[DepthPriorTable]:
+    cache_path = Path(cache_dir) if cache_dir is not None else None
     feature_names = model.feature_names()
     feature_index = {name: idx for idx, name in enumerate(feature_names)}
-    suffix_maps = _suffix_feature_maps(model)
+    suffix_maps = _suffix_feature_maps(model, cache_path)
     vocab_size = model.vocab_size
     root_entropy = -sum(p * np.log(max(p, EPS)) for p in model.unigram_probs) / np.log(vocab_size)
     previous_wb = np.asarray(model.unigram_probs, dtype=np.float32)[None, :]
@@ -142,7 +184,9 @@ def build_depth_prior_tables(model: PackedCountModel, theta: list[float]) -> lis
         n = len(table.keys)
         features = np.zeros((n, len(feature_names)), dtype=np.float32)
         if n == 0:
-            output.append(DepthPriorTable(table=table, features=features, gates=np.empty(0, dtype=np.float32)))
+            features = _empty_cached(cache_path, f"prefix_features_d{depth}", (0, len(feature_names)), np.float32)
+            gates = _empty_cached(cache_path, f"prefix_gates_d{depth}", (0,), np.float32)
+            output.append(DepthPriorTable(table=table, features=features, gates=gates))
             previous_table = table
             previous_wb = np.empty((0, vocab_size), dtype=np.float32)
             previous_entropy = np.empty(0, dtype=np.float32)
@@ -175,6 +219,8 @@ def build_depth_prior_tables(model: PackedCountModel, theta: list[float]) -> lis
 
         features[:, feature_index["bias"]] = 1.0
         gates = _sigmoid(features @ theta_arr)
+        features = _store_array(features, cache_path, f"prefix_features_d{depth}")
+        gates = _store_array(gates, cache_path, f"prefix_gates_d{depth}")
         output.append(DepthPriorTable(table=table, features=features, gates=gates))
         previous_wb = _dense_wb_from_backoff(table, back_idx, previous_wb)
         previous_entropy = entropy
