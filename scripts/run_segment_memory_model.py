@@ -174,15 +174,23 @@ class GatedCrossAttentionBlock(nn.Module):
     def __init__(self, hidden_size: int, heads: int, memory_size: int | None = None, mlp_mult: int = 4) -> None:
         super().__init__()
         memory_size = memory_size or hidden_size
+        if hidden_size % heads != 0:
+            raise ValueError(f"hidden_size {hidden_size} must be divisible by heads {heads}")
+        self.hidden_size = hidden_size
+        self.heads = heads
+        self.head_dim = hidden_size // heads
+        self.rope_dim = self.head_dim - self.head_dim % 2
         self.ln_q = nn.LayerNorm(hidden_size)
         self.ln_kv = nn.LayerNorm(memory_size)
-        self.attn = nn.MultiheadAttention(
-            hidden_size,
-            heads,
-            kdim=memory_size,
-            vdim=memory_size,
-            batch_first=True,
+        self.q_proj = nn.Linear(hidden_size, hidden_size)
+        self.k_proj = nn.Linear(memory_size, hidden_size)
+        self.v_proj = nn.Linear(memory_size, hidden_size)
+        self.out_proj = nn.Linear(hidden_size, hidden_size)
+        inv_freq = 1.0 / (
+            10000
+            ** (torch.arange(0, self.rope_dim, 2, dtype=torch.float32) / max(1, self.rope_dim))
         )
+        self.register_buffer("rope_inv_freq", inv_freq, persistent=False)
         self.gate_attn = nn.Parameter(torch.zeros(1))
         self.ln_mlp = nn.LayerNorm(hidden_size)
         self.mlp = nn.Sequential(
@@ -192,14 +200,73 @@ class GatedCrossAttentionBlock(nn.Module):
         )
         self.gate_mlp = nn.Parameter(torch.zeros(1))
 
-    def forward(self, hidden: torch.Tensor, memory: torch.Tensor) -> torch.Tensor:
+    def apply_rope(self, x: torch.Tensor, positions: torch.Tensor, use_rope: bool) -> torch.Tensor:
+        if not use_rope or self.rope_dim == 0:
+            return x
+        rope_part = x[..., : self.rope_dim]
+        pass_part = x[..., self.rope_dim :]
+        angles = positions.to(device=x.device, dtype=x.dtype).view(1, 1, -1, 1) * self.rope_inv_freq.to(
+            dtype=x.dtype
+        ).view(1, 1, 1, -1)
+        cos = torch.cos(angles)
+        sin = torch.sin(angles)
+        even = rope_part[..., 0::2]
+        odd = rope_part[..., 1::2]
+        rotated = torch.stack((even * cos - odd * sin, even * sin + odd * cos), dim=-1).flatten(-2)
+        if pass_part.numel() == 0:
+            return rotated
+        return torch.cat([rotated, pass_part], dim=-1)
+
+    def forward(
+        self,
+        hidden: torch.Tensor,
+        memory: torch.Tensor,
+        query_positions: torch.Tensor | None = None,
+        memory_positions: torch.Tensor | None = None,
+        use_rope: bool = True,
+        return_diagnostics: bool = False,
+    ) -> torch.Tensor | tuple[torch.Tensor, dict[str, float]]:
+        stats = empty_stats()
         if memory.shape[1] > 0:
+            batch_size, query_count, _ = hidden.shape
+            memory_count = memory.shape[1]
+            query_norm = self.ln_q(hidden)
             memory_norm = self.ln_kv(memory)
-            attn_out, _ = self.attn(self.ln_q(hidden), memory_norm, memory_norm, need_weights=False)
+            query = self.q_proj(query_norm).view(batch_size, query_count, self.heads, self.head_dim).transpose(1, 2)
+            key = self.k_proj(memory_norm).view(batch_size, memory_count, self.heads, self.head_dim).transpose(1, 2)
+            value = self.v_proj(memory_norm).view(batch_size, memory_count, self.heads, self.head_dim).transpose(1, 2)
+            if query_positions is None:
+                query_positions = torch.zeros(query_count, device=hidden.device)
+            if memory_positions is None:
+                memory_positions = torch.arange(-memory_count, 0, device=hidden.device)
+            query = self.apply_rope(query, query_positions, use_rope)
+            key = self.apply_rope(key, memory_positions, use_rope)
+            scores = query @ key.transpose(-2, -1) / math.sqrt(self.head_dim)
+            weights = torch.softmax(scores, dim=-1)
+            if return_diagnostics:
+                mean_weights = weights.mean(dim=1).squeeze(0)
+                eps = torch.finfo(mean_weights.dtype).eps
+                entropy = -(mean_weights * mean_weights.clamp_min(eps).log()).sum(dim=1)
+                top_weight = mean_weights.max(dim=1).values
+                top_indices = mean_weights.argmax(dim=1)
+                distances = (query_positions[:, None] - memory_positions[None, :]).abs().to(dtype=mean_weights.dtype)
+                mean_distance = (mean_weights * distances).sum(dim=1)
+                stats["attn_entropy_sum"] = float(entropy.detach().sum().item())
+                stats["attn_top_weight_sum"] = float(top_weight.detach().sum().item())
+                stats["attn_char_distance_sum"] = float(mean_distance.detach().sum().item())
+                stats["attn_token_count"] = float(query_count)
+                stats["attn_prev_weight_sum"] = float(mean_weights.detach().sum().item())
+                stats["attn_top_is_prev_sum"] = float(torch.ones_like(top_indices, dtype=mean_weights.dtype).sum().item())
+            attn_out = weights @ value
+            attn_out = attn_out.transpose(1, 2).contiguous().view(batch_size, query_count, self.hidden_size)
+            attn_out = self.out_proj(attn_out)
         else:
             attn_out = torch.zeros_like(hidden)
         hidden = hidden + torch.tanh(self.gate_attn) * attn_out
-        return hidden + torch.tanh(self.gate_mlp) * self.mlp(self.ln_mlp(hidden))
+        hidden = hidden + torch.tanh(self.gate_mlp) * self.mlp(self.ln_mlp(hidden))
+        if return_diagnostics:
+            return hidden, stats
+        return hidden
 
 
 class PrefixCountTrie:
@@ -1015,14 +1082,31 @@ class SegmentMemoryLM(nn.Module):
                 mem_entries = memory[-max_memory:]
                 if mem_entries:
                     mem = self.memory_interface_norm(torch.cat([entry[0] for entry in mem_entries], dim=0)).unsqueeze(0)
+                    if self.rope_positions == "char":
+                        memory_positions = torch.tensor([entry[1] for entry in mem_entries], device=ids.device)
+                    else:
+                        memory_positions = torch.arange(-len(mem_entries), 0, device=ids.device)
                 else:
                     mem = hidden_seq.new_zeros((1, 0, self.hidden_size))
+                    memory_positions = torch.empty(0, device=ids.device)
                 state_batch = hidden_seq.unsqueeze(0)
+                attn_stats = empty_stats()
                 for block in self.gated_xattn_blocks:
-                    state_batch = block(state_batch, mem)
+                    block_out = block(
+                        state_batch,
+                        mem,
+                        query_positions=query_positions if self.rope_positions == "char" else torch.zeros_like(query_positions),
+                        memory_positions=memory_positions,
+                        use_rope=self.use_rope,
+                        return_diagnostics=collect_diagnostics,
+                    )
+                    if collect_diagnostics:
+                        state_batch, block_stats = block_out
+                        merge_stats(attn_stats, block_stats)
+                    else:
+                        state_batch = block_out
                 state = state_batch.squeeze(0)
                 context = state - hidden_seq
-                attn_stats = empty_stats()
                 logits = self.gru_head(state)
                 for block in self.gated_xattn_blocks:
                     stats["gate_sum"] += float(torch.tanh(block.gate_attn).detach().abs().item())
