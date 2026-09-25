@@ -18,6 +18,8 @@ struct YamlConfigV2 {
     std::string corpus_path;
     std::string save_path;
     std::string position_data_dir;
+    std::string partition_depth_map;
+    int unit_order_seed = -1;
     std::string successor_prefix_table;
     std::string target_sidecar;
 
@@ -274,6 +276,8 @@ static bool yaml_is_known_experimental_field_v2(const std::string& path) {
         "experimental.phase_order",
         "experimental.phase_order_seed",
         "experimental.position_data_dir",
+        "experimental.partition_depth_map",
+        "experimental.unit_order_seed",
         "experimental.pos_sample_seed",
         "experimental.successor_prefix_table",
         "experimental.target_sidecar",
@@ -648,6 +652,8 @@ static bool apply_yaml_config_v2(const char* config_path,
         cfg.rope_phase_shuffle_seed = (unsigned)phase_order_seed;
     }
     if (!yaml_expect_string_v2(doc, "experimental.position_data_dir", yaml_cfg.position_data_dir, false)) return false;
+    if (!yaml_expect_string_v2(doc, "experimental.partition_depth_map", yaml_cfg.partition_depth_map, false)) return false;
+    { bool has_uos = false; if (!yaml_get_int_v2(doc, "experimental.unit_order_seed", yaml_cfg.unit_order_seed, &has_uos)) return false; }
     if (!yaml_expect_string_v2(doc, "experimental.successor_prefix_table", yaml_cfg.successor_prefix_table, false)) return false;
     if (!yaml_expect_string_v2(doc, "experimental.target_sidecar", yaml_cfg.target_sidecar, false)) return false;
     if (!yaml_get_float_v2(doc, "experimental.target_sidecar_mix", cfg.target_sidecar_mix)) return false;

@@ -3,6 +3,7 @@
 #include <cstring>
 #include <cmath>
 #include <algorithm>
+#include <random>
 #include <chrono>
 #include <cerrno>
 #include <climits>
@@ -62,6 +63,127 @@ static DiagFireProbeV2 read_diag_fire_probe_v2() {
     cfg.exit_after = read_env_flag_v2("AGPT_DIAG_FIRE_EXIT_AFTER");
     cfg.enabled = true;
     return cfg;
+}
+
+// Gradient-population dump (rnd/gradient-population). When AGPT_GRAD_DUMP_DIR
+// is set in train-epoch mode, every training unit's fired (event-mean)
+// gradient is appended as one float32 row to <dir>/grads.f32 with a metadata
+// line in <dir>/units.tsv, and the optimizer step is SKIPPED so every unit
+// answers against the same frozen weights. AGPT_GRAD_DUMP_APPLY=1 keeps the
+// step (dump the sequential trajectory instead of the frozen fan-out).
+struct GradDumpProbeV2 {
+    const char* dir = nullptr;
+    bool apply_step = false;
+    bool enabled = false;
+    FILE* grads = nullptr;
+    FILE* units = nullptr;
+    std::vector<float> host;
+};
+
+static GradDumpProbeV2 read_grad_dump_probe_v2() {
+    GradDumpProbeV2 cfg{};
+    cfg.dir = std::getenv("AGPT_GRAD_DUMP_DIR");
+    if (!cfg.dir || !cfg.dir[0]) return cfg;
+    cfg.apply_step = read_env_flag_v2("AGPT_GRAD_DUMP_APPLY");
+    cfg.enabled = true;
+    return cfg;
+}
+
+static void grad_dump_write_layout_v2(const GradDumpProbeV2& probe,
+                                      const agpt_v2::ModelLayout& model,
+                                      const agpt_v2::TrainerConfig& cfg,
+                                      int unit_count) {
+    std::string path = std::string(probe.dir) + "/layout.json";
+    FILE* f = std::fopen(path.c_str(), "w");
+    if (!f) { std::perror("grad-dump: layout.json"); std::exit(1); }
+    const agpt_v2::RuntimeShape& s = model.shape;
+    std::fprintf(f, "{\n  \"total_floats\": %d,\n  \"unit_count\": %d,\n  \"partition_depth\": %d,\n",
+                 model.total_floats, unit_count, cfg.partition_depth);
+    std::fprintf(f, "  \"apply_step\": %s,\n  \"anc_grad\": %s,\n",
+                 probe.apply_step ? "true" : "false", cfg.anc_grad ? "true" : "false");
+    std::fprintf(f, "  \"shape\": {\"d_model\": %d, \"n_heads\": %d, \"n_layers\": %d, \"d_ff\": %d, \"vocab\": %d, \"seq_len\": %d},\n",
+                 s.d_model, s.n_heads, s.n_layers, s.d_ff, s.vocab_size, s.seq_len);
+    std::fprintf(f, "  \"sections\": [\n");
+    int D = s.d_model, F = s.d_ff, V = s.vocab_size;
+    std::fprintf(f, "    [\"token_emb\", %d, %d]", model.token_emb, V * D);
+    for (int l = 0; l < s.n_layers; l++) {
+        std::fprintf(f, ",\n    [\"l%d.wq_w\", %d, %d],\n    [\"l%d.wq_b\", %d, %d]", l, model.wq_w[l], D * D, l, model.wq_b[l], D);
+        std::fprintf(f, ",\n    [\"l%d.wk_w\", %d, %d],\n    [\"l%d.wk_b\", %d, %d]", l, model.wk_w[l], D * D, l, model.wk_b[l], D);
+        std::fprintf(f, ",\n    [\"l%d.wv_w\", %d, %d],\n    [\"l%d.wv_b\", %d, %d]", l, model.wv_w[l], D * D, l, model.wv_b[l], D);
+        std::fprintf(f, ",\n    [\"l%d.wo_w\", %d, %d],\n    [\"l%d.wo_b\", %d, %d]", l, model.wo_w[l], D * D, l, model.wo_b[l], D);
+        std::fprintf(f, ",\n    [\"l%d.ln1_gamma\", %d, %d],\n    [\"l%d.ln1_beta\", %d, %d]", l, model.ln1_gamma[l], D, l, model.ln1_beta[l], D);
+        std::fprintf(f, ",\n    [\"l%d.l1_w\", %d, %d],\n    [\"l%d.l1_b\", %d, %d]", l, model.l1_w[l], D * F, l, model.l1_b[l], F);
+        std::fprintf(f, ",\n    [\"l%d.l2_w\", %d, %d],\n    [\"l%d.l2_b\", %d, %d]", l, model.l2_w[l], F * D, l, model.l2_b[l], D);
+        std::fprintf(f, ",\n    [\"l%d.ln2_gamma\", %d, %d],\n    [\"l%d.ln2_beta\", %d, %d]", l, model.ln2_gamma[l], D, l, model.ln2_beta[l], D);
+    }
+    std::fprintf(f, ",\n    [\"final_gamma\", %d, %d],\n    [\"final_beta\", %d, %d]", model.final_gamma, D, model.final_beta, D);
+    std::fprintf(f, ",\n    [\"out_w\", %d, %d],\n    [\"out_b\", %d, %d]\n  ]\n}\n", model.out_w, D * V, model.out_b, V);
+    std::fclose(f);
+}
+
+static void grad_dump_open_v2(GradDumpProbeV2& probe, int total_floats) {
+    std::string gpath = std::string(probe.dir) + "/grads.f32";
+    std::string upath = std::string(probe.dir) + "/units.tsv";
+    probe.grads = std::fopen(gpath.c_str(), "wb");
+    probe.units = std::fopen(upath.c_str(), "w");
+    if (!probe.grads || !probe.units) { std::perror("grad-dump: open"); std::exit(1); }
+    std::fprintf(probe.units,
+                 "row\tepoch\tunit_index\tanchor_id\troot_child_id\tanchor_depth\tanchor_endpoint_depth\t"
+                 "context_tokens\tnode_count\tquery_count\ttrained_queries\ttrained_events\tmean_loss\tgrad_l2\n");
+    probe.host.assign((size_t)total_floats, 0.0f);
+}
+
+// Token path root -> anchor, truncated to `depth` chars (the partition
+// prefix), as comma-separated token ids. Decoded offline via the vocab.
+static std::string grad_dump_context_tokens_v2(const agpt_v2::RadixTrieStructure& trie,
+                                               int anchor, int depth) {
+    std::string out;
+    if (anchor <= 0 || anchor >= trie.radix_count) return out;
+    std::vector<int> toks;
+    int a0 = trie.ancestor_char_offsets[anchor];
+    int a1 = trie.ancestor_char_offsets[anchor + 1];
+    for (int i = a0; i < a1; i++) toks.push_back(trie.edge_tokens_flat[trie.ancestor_char_ids[i]]);
+    for (int e = 0; e < trie.edge_lens[anchor]; e++) toks.push_back(trie.edge_tokens_flat[trie.edge_starts[anchor] + e]);
+    if (depth > 0 && (int)toks.size() > depth) toks.resize((size_t)depth);
+    char buf[16];
+    for (size_t i = 0; i < toks.size(); i++) {
+        std::snprintf(buf, sizeof(buf), "%s%d", i ? "," : "", toks[i]);
+        out += buf;
+    }
+    return out;
+}
+
+static void grad_dump_row_v2(GradDumpProbeV2& probe, long long row, int epoch,
+                             const agpt_v2::TrainingUnit& unit,
+                             const agpt_v2::RadixTrieStructure& trie,
+                             int partition_depth,
+                             const float* d_grads, int total_floats,
+                             long long trained_queries, double trained_events, double mean_loss) {
+    AGPT_V2_CUDA_CHECK(cudaMemcpy(probe.host.data(), d_grads,
+                                  (size_t)total_floats * sizeof(float), cudaMemcpyDeviceToHost));
+    double l2 = 0.0;
+    for (int i = 0; i < total_floats; i++) l2 += (double)probe.host[i] * (double)probe.host[i];
+    l2 = std::sqrt(l2);
+    if (std::fwrite(probe.host.data(), sizeof(float), (size_t)total_floats, probe.grads) != (size_t)total_floats) {
+        std::perror("grad-dump: write grads.f32"); std::exit(1);
+    }
+    int anchor = unit.anchor_id;
+    int anchor_depth = 0, anchor_endpoint = 0;
+    if (anchor > 0 && anchor < trie.radix_count) {
+        anchor_depth = trie.edge_first_char_depths[anchor];
+        anchor_endpoint = anchor_depth + trie.edge_lens[anchor] - 1;
+    }
+    std::string ctx = grad_dump_context_tokens_v2(trie, anchor, partition_depth);
+    std::fprintf(probe.units, "%lld\t%d\t%d\t%d\t%d\t%d\t%d\t%s\t%d\t%lld\t%lld\t%.0f\t%.6f\t%.8g\n",
+                 row, epoch, unit.unit_index, anchor, unit.root_child_id, anchor_depth, anchor_endpoint,
+                 ctx.c_str(), unit.node_count, unit.query_count, trained_queries, trained_events, mean_loss, l2);
+}
+
+static void grad_dump_close_v2(GradDumpProbeV2& probe) {
+    if (probe.grads) std::fclose(probe.grads);
+    if (probe.units) std::fclose(probe.units);
+    probe.grads = nullptr;
+    probe.units = nullptr;
 }
 
 enum class V2Mode {
@@ -1039,6 +1161,7 @@ int main(int argc, char** argv) {
                      "WARN: model.save_file not set; trained model not persisted.\n");
     }
     DiagFireProbeV2 diag_probe = read_diag_fire_probe_v2();
+    GradDumpProbeV2 grad_dump = read_grad_dump_probe_v2();
 
     agpt_v2::ModelHeader header = agpt_v2::load_model_header(model_path);
     agpt_v2::RuntimeShape shape = header.shape;
@@ -1375,6 +1498,30 @@ int main(int argc, char** argv) {
         training_plan.unit_count = 1;
         training_plan.units = (agpt_v2::TrainingUnit*)std::calloc(1, sizeof(agpt_v2::TrainingUnit));
         training_plan.units[0] = agpt_v2::build_lightning_sample_unit_v2(trie, lightning_child_index, cfg, 0);
+    } else if (!yaml_cfg.partition_depth_map.empty()) {
+        // experimental.partition_depth_map: text file, one "<token_id> <depth>" per line
+        // ('#' comments allowed); roots not listed use train.partition_depth.
+        std::vector<int> depth_by_token((size_t)shape.vocab_size, -1);
+        FILE* mf = std::fopen(yaml_cfg.partition_depth_map.c_str(), "r");
+        if (!mf) {
+            std::fprintf(stderr, "agpt_train_v2: cannot open experimental.partition_depth_map %s\n",
+                         yaml_cfg.partition_depth_map.c_str());
+            return 1;
+        }
+        char line[256];
+        int mapped = 0;
+        while (std::fgets(line, sizeof(line), mf)) {
+            if (line[0] == '#' || line[0] == '\n') continue;
+            int tok = -1, d = -1;
+            if (std::sscanf(line, "%d %d", &tok, &d) == 2 && tok >= 0 && tok < shape.vocab_size && d >= 1) {
+                depth_by_token[(size_t)tok] = d;
+                mapped++;
+            }
+        }
+        std::fclose(mf);
+        training_plan = agpt_v2::build_mixed_partition_plan_v2(trie, cfg.partition_depth, depth_by_token);
+        std::printf("  partition_depth_map: %s (%d roots mapped, default pd=%d) -> %d training units\n",
+                    yaml_cfg.partition_depth_map.c_str(), mapped, cfg.partition_depth, training_plan.unit_count);
     } else {
         training_plan = agpt_v2::build_training_plan_for_partition_depth(trie, cfg.partition_depth);
     }
@@ -1646,6 +1793,13 @@ int main(int argc, char** argv) {
                 std::printf("  train-epoch: epochs=%d units=%d repeats_per_sample=%d accumulate=%s optimizer=%s\n",
                             epochs, units_to_run, repeats_per_sample,
                             cfg.accumulate ? "true" : "false", v2_optimizer_name(cfg.optimizer));
+                long long grad_dump_rows = 0;
+                if (grad_dump.enabled) {
+                    grad_dump_write_layout_v2(grad_dump, model, cfg, units_to_run);
+                    grad_dump_open_v2(grad_dump, model.total_floats);
+                    std::printf("  grad-dump: dir=%s apply_step=%s floats_per_row=%d\n",
+                                grad_dump.dir, grad_dump.apply_step ? "true" : "false", model.total_floats);
+                }
                 long long total_unit_steps = (long long)epochs * (long long)units_to_run * (long long)repeats_per_sample;
                 long long warmup_unit_steps = (long long)cfg.warmup_epochs * (long long)units_to_run * (long long)repeats_per_sample;
                 if (total_unit_steps < 1) total_unit_steps = 1;
@@ -1680,7 +1834,20 @@ int main(int argc, char** argv) {
                     double phase_target_local_entropy_mass = 0.0;
                     agpt_v2::zero_cache_runtime_v2(runtime.cache);
                     std::printf("  train-epoch: epoch %d/%d\n", epoch + 1, epochs);
-                    for (int u = 0; u < units_to_run; u++) {
+                    // experimental.unit_order_seed: seeded per-epoch shuffle of the unit
+                    // order (rnd/gradient-population pool experiments: each pool member
+                    // is a chain with its own random node order).
+                    std::vector<int> unit_order((size_t)units_to_run);
+                    for (int u = 0; u < units_to_run; u++) unit_order[(size_t)u] = u;
+                    if (yaml_cfg.unit_order_seed >= 0) {
+                        std::mt19937 rng((unsigned)yaml_cfg.unit_order_seed * 1000003u + (unsigned)epoch);
+                        std::shuffle(unit_order.begin(), unit_order.end(), rng);
+                        std::printf("  unit-order: seed=%d epoch=%d shuffled (first units: %d %d %d)\n",
+                                    yaml_cfg.unit_order_seed, epoch + 1,
+                                    unit_order[0], units_to_run > 1 ? unit_order[1] : -1, units_to_run > 2 ? unit_order[2] : -1);
+                    }
+                    for (int uo = 0; uo < units_to_run; uo++) {
+                        int u = unit_order[(size_t)uo];
                         agpt_v2::TrainingUnit streamed_unit{};
                         agpt_v2::ChunkPlanList streamed_chunks{};
                         const agpt_v2::TrainingUnit* unit_ptr = nullptr;
@@ -1812,11 +1979,20 @@ int main(int argc, char** argv) {
                                                              unit_trained, unit_events);
                             }
                             scale_gradients_for_fire(runtime.cublas, runtime.d_grads, model.total_floats, unit_events);
-                            agpt_v2::OptimizerStepResult step =
-                                agpt_v2::run_optimizer_step_stateful(cfg, current_lr, runtime.d_weights, runtime.d_grads,
-                                                                     runtime.d_opt_m, runtime.d_opt_v,
-                                                                     model.total_floats, ++optimizer_step_index);
                             double unit_mean = unit_events > 0.0 ? (unit_loss_sum / unit_events) : 0.0;
+                            if (grad_dump.enabled) {
+                                grad_dump_row_v2(grad_dump, grad_dump_rows++, epoch + 1, unit, trie,
+                                                 cfg.partition_depth, runtime.d_grads, model.total_floats,
+                                                 unit_trained, unit_events, unit_mean);
+                            }
+                            agpt_v2::OptimizerStepResult step{};
+                            if (!grad_dump.enabled || grad_dump.apply_step) {
+                                step = agpt_v2::run_optimizer_step_stateful(cfg, current_lr, runtime.d_weights, runtime.d_grads,
+                                                                            runtime.d_opt_m, runtime.d_opt_v,
+                                                                            model.total_floats, ++optimizer_step_index);
+                            } else {
+                                step.message = "grad dumped, step skipped (frozen weights)";
+                            }
                             std::printf("    unit %d/%d repeat %d/%d rc=%d chunks=%d trained_queries=%lld trained_events=%.0f mean_loss=%.6f lr=%.6g step=%s\n",
                                         u + 1, units_to_run, repeat + 1, repeats_per_sample,
                                         unit.root_child_id, unit_chunks.chunk_count,
@@ -1873,6 +2049,10 @@ int main(int argc, char** argv) {
                         save_device_weights_checkpoint_v2("train-epoch", epoch + 1,
                                                           checkpoint_path, model, runtime.d_weights);
                     }
+                }
+                if (grad_dump.enabled) {
+                    grad_dump_close_v2(grad_dump);
+                    std::printf("  grad-dump: wrote %lld rows to %s/grads.f32\n", grad_dump_rows, grad_dump.dir);
                 }
                 if (save_path) {
                     std::printf("  train-epoch: saving final weights to %s\n", save_path);

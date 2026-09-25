@@ -83,6 +83,10 @@ static inline ForwardPassResult run_forward_prefix_v2(const TrainerConfig& cfg,
     AGPT_V2_CUDA_CHECK(cudaDeviceSynchronize());
     float* h_loss = (float*)std::malloc((size_t)T_q * sizeof(float));
     AGPT_V2_CUDA_CHECK(cudaMemcpy(h_loss, buf.output.loss, (size_t)T_q * sizeof(float), cudaMemcpyDeviceToHost));
+    if (diag && diag->active) {
+        agpt_diag::emit_tensor_bin(diag->tensor_dir, diag->epoch, diag->root_id, diag->chunk_idx, 99,
+                                   "fwd_loss", buf.output.loss, T_q);
+    }
     double loss_sum = 0.0;
     double event_sum = 0.0;
     int trained = 0;

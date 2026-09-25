@@ -24,6 +24,9 @@ struct TrainingUnit {
     TrainingUnitKind kind = TrainingUnitKind::RootChildSubtree;
     int unit_index = -1;
     int root_child_id = -1;
+    // Partition anchor: the radix node whose subtree this unit trains
+    // (== root_child_id at pd=1; the pd-depth node at pd>1; -1 if n/a).
+    int anchor_id = -1;
     int node_count = 0;
     long long query_count = 0;
     long long compact_char_count = 0;
@@ -122,6 +125,7 @@ static inline TrainingPlan build_pd1_training_plan(const RadixTrieStructure& tri
         unit.kind = TrainingUnitKind::RootChildSubtree;
         unit.unit_index = unit_fill;
         unit.root_child_id = rc;
+        unit.anchor_id = rc;
         unit.node_count = counts[rc];
         unit.radix_ids = (int*)std::malloc(unit.node_count * sizeof(int));
         rc_to_unit[rc] = unit_fill;
@@ -385,6 +389,7 @@ static inline TrainingUnit build_descendant_partition_unit_v2(const RadixTrieStr
     unit.kind = TrainingUnitKind::PartitionGroup;
     unit.unit_index = unit_index;
     unit.root_child_id = find_root_child(trie, anchor);
+    unit.anchor_id = anchor;
 
     std::vector<int> nodes;
     std::vector<unsigned char> context_flags;
@@ -447,6 +452,39 @@ static inline TrainingPlan build_pdn_descendant_training_plan_v2(const RadixTrie
         }
     }
 
+    plan.unit_count = (int)anchors.size();
+    plan.units = (TrainingUnit*)std::calloc((size_t)(plan.unit_count > 0 ? plan.unit_count : 1),
+                                            sizeof(TrainingUnit));
+    for (int i = 0; i < plan.unit_count; i++) {
+        plan.units[i] = build_descendant_partition_unit_v2(trie, child_index, anchors[(size_t)i], i);
+    }
+    return plan;
+}
+
+// Mixed-depth partition plan (rnd/gradient-population, coherence-driven
+// cadence). `depth_by_token[t]` is the partition depth for the root child
+// whose first edge token is t (-1 = use `default_depth`). Depth 1 makes the
+// whole root-child subtree one unit (no context-only ancestors); depth d>1
+// anchors units at depth-d nodes exactly as the pd=d descendant plan does.
+static inline TrainingPlan build_mixed_partition_plan_v2(const RadixTrieStructure& trie,
+                                                         int default_depth,
+                                                         const std::vector<int>& depth_by_token) {
+    TrainingPlan plan;
+    LightningChildIndexV2 child_index = build_lightning_child_index_v2(trie);
+    std::vector<int> anchors;
+    anchors.reserve((size_t)trie.radix_count / 4);
+    for (int r = 1; r < trie.radix_count; r++) {
+        int rc = find_root_child(trie, r);
+        int tok = trie.edge_lens[rc] > 0 ? trie.edge_tokens_flat[trie.edge_starts[rc]] : -1;
+        int d = default_depth;
+        if (tok >= 0 && tok < (int)depth_by_token.size() && depth_by_token[(size_t)tok] > 0) {
+            d = depth_by_token[(size_t)tok];
+        }
+        if (d < 1) d = 1;
+        int first_depth = trie.edge_first_char_depths[r];
+        int endpoint_depth = first_depth + trie.edge_lens[r] - 1;
+        if (first_depth <= d && endpoint_depth >= d) anchors.push_back(r);
+    }
     plan.unit_count = (int)anchors.size();
     plan.units = (TrainingUnit*)std::calloc((size_t)(plan.unit_count > 0 ? plan.unit_count : 1),
                                             sizeof(TrainingUnit));

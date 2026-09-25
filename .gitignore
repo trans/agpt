@@ -53,6 +53,7 @@ rnd/_smoke/runs.json
 # own patterns above.
 rnd/**/checkpoint.model
 rnd/**/*.model
+rnd/**/*.recur
 rnd/**/hf_checkpoint/
 rnd/**/hf_checkpoint_epoch_*/
 rnd/**/hf_ep*/
@@ -82,3 +83,8 @@ data/.tries/
 
 # Ad hoc radix cache dumps under rnd/; regenerable binary materialization.
 rnd/radix-depth*/**/*.bin
+
+# gradient-population dumps: ~600MB per pd=2 dump, regenerable (see rnd/gradient-population/README.md)
+rnd/gradient-population/**/grads.f32
+rnd/gradient-population/**/train.log
+rnd/gradient-population/**/*.pt
