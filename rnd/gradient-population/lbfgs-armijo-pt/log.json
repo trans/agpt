@@ -1,0 +1,74 @@
+{
+ "args": {
+  "init": "rnd/gradient-population/20260924T205951-cadence-pd1-100ep/checkpoint.epoch_000025.model",
+  "out": "rnd/gradient-population/lbfgs-armijo-pt",
+  "train": "data/.splits/4fa9aec1db6b3aea/train_corpus.txt",
+  "heldout": "data/.splits/4fa9aec1db6b3aea/heldout_corpus.txt",
+  "vocab": "data/input.txt",
+  "windows": 65536,
+  "batch": 8192,
+  "max_passes": 600,
+  "history": 20,
+  "eval_every": 100,
+  "positions": 8192,
+  "seed": 3,
+  "optimizer": "lbfgs-armijo",
+  "lr": 1.0
+ },
+ "records": [
+  {
+   "passes": 0,
+   "train_loss": null,
+   "heldout_nll": 1.8337219004898504,
+   "wall_s": 0.0
+  },
+  {
+   "passes": 1,
+   "train_loss": 1.8732058107852936,
+   "heldout_nll": 1.8337219004898504,
+   "wall_s": 1.2423875331878662
+  },
+  {
+   "passes": 100,
+   "train_loss": 1.7160304486751556,
+   "heldout_nll": 1.6735567728102416,
+   "wall_s": 72.79848957061768
+  },
+  {
+   "passes": 200,
+   "train_loss": 1.6584855914115906,
+   "heldout_nll": 1.613155940765215,
+   "wall_s": 145.09456515312195
+  },
+  {
+   "passes": 300,
+   "train_loss": 1.6224571913480759,
+   "heldout_nll": 1.5744036483146417,
+   "wall_s": 217.42357659339905
+  },
+  {
+   "passes": 400,
+   "train_loss": 1.597914308309555,
+   "heldout_nll": 1.5533306392614212,
+   "wall_s": 289.75153398513794
+  },
+  {
+   "passes": 500,
+   "train_loss": 1.578972652554512,
+   "heldout_nll": 1.5389124853421265,
+   "wall_s": 362.07797288894653
+  },
+  {
+   "passes": 600,
+   "train_loss": 1.5637898594141006,
+   "heldout_nll": 1.5287392470931185,
+   "wall_s": 434.4389877319336
+  },
+  {
+   "passes": 600,
+   "train_loss": 1.5637898594141006,
+   "heldout_nll": 1.5287392470931185,
+   "wall_s": 434.46128129959106
+  }
+ ]
+}

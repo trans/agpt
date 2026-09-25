@@ -100,6 +100,10 @@ module AgptExperiment
     property eps : Float64?
     property weight_decay : Float64?
     property grad_clip_norm : Float64?
+    # L-BFGS (optimizer name lbfgs)
+    property history : Int32?
+    property c1 : Float64?
+    property max_backtracks : Int32?
   end
 
   struct LrScheduleBlock

@@ -224,6 +224,9 @@ static bool yaml_is_consumed_field_v2(const std::string& path) {
         "train.optimizer.eps",
         "train.optimizer.weight_decay",
         "train.optimizer.grad_clip_norm",
+        "train.optimizer.history",
+        "train.optimizer.c1",
+        "train.optimizer.max_backtracks",
         "train.lr_schedule.name",
         "train.lr_schedule.warmup_epochs",
         "train.lr_schedule.min_lr_ratio",
@@ -738,6 +741,10 @@ static bool apply_yaml_config_v2(const char* config_path,
     if (!yaml_get_float_v2(doc, "train.optimizer.eps", cfg.optimizer_eps)) return false;
     if (!yaml_get_float_v2(doc, "train.optimizer.weight_decay", cfg.weight_decay)) return false;
     if (!yaml_get_float_v2(doc, "train.optimizer.grad_clip_norm", cfg.grad_clip_norm)) return false;
+    { bool hp = false;
+      if (!yaml_get_int_v2(doc, "train.optimizer.history", cfg.lbfgs_history, &hp)) return false;
+      if (!yaml_get_float_v2(doc, "train.optimizer.c1", cfg.lbfgs_c1)) return false;
+      if (!yaml_get_int_v2(doc, "train.optimizer.max_backtracks", cfg.lbfgs_max_backtracks, &hp)) return false; }
     if (!yaml_reject_non_default_float_v2(doc, "train.optimizer.grad_clip_norm", 0.0f,
                                           "gradient clipping is not wired in CUDAX yet")) return false;
 

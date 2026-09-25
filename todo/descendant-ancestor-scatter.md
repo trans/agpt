@@ -281,3 +281,21 @@ Resolved. No outstanding work on the descendant-ancestor flow itself.
 The "trust/depth weighting" follow-up (explicit `w(d)` applied per
 event, with clean per-event normalization) is a separate research
 direction informed by what we learned here, tracked elsewhere.
+
+## Addendum 2026-09-25 — the scatter is truncated, and that now blocks second-order training
+
+The resolved anc-grad scatters ancestor-slot K/V gradients into Wk/Wv
+only; it does not propagate through the ancestor's LN1, the earlier
+layer's residual stream, or the embeddings, and ancestor K/V come from
+a bf16 cache. The parity test (#4) was never done; it has now been done
+and fails by a few percent:
+
+`rnd/gradient-population` Experiment 7: L-BFGS on the v2 aggregated
+gradient stalls (44% of evaluations are line-search backtracks) while the
+identical algorithm on an exact PyTorch gradient converges cleanly
+(99% accepted, held-out 1.529 vs the trie run's 1.587). Finite
+differences of the trie loss (`src/tools/agpt_grad_check.py`) show the
+trie gradient off by 2–6% along its own direction; disabling anc_grad
+worsens it to 6–10%. Acceptance test for a fix: FD ratio 1.000 ± 0.005
+at both the ep25 and L-BFGS-600 checkpoints, then an L-BFGS run
+(`optimizer: lbfgs`) with backtrack rate near 1%.

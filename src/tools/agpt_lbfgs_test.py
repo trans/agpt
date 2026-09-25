@@ -46,7 +46,7 @@ def main():
     ap.add_argument("--eval-every", type=int, default=20)
     ap.add_argument("--positions", type=int, default=8192)
     ap.add_argument("--seed", type=int, default=3)
-    ap.add_argument("--optimizer", choices=["lbfgs", "gd"], default="lbfgs")
+    ap.add_argument("--optimizer", choices=["lbfgs", "gd", "lbfgs-armijo"], default="lbfgs")
     ap.add_argument("--lr", type=float, default=1.0, help="lbfgs: initial step (line search scales it); gd: step size")
     args = ap.parse_args()
 
@@ -115,6 +115,53 @@ def main():
                                 history_size=args.history, tolerance_grad=1e-9, tolerance_change=1e-12,
                                 line_search_fn="strong_wolfe")
         opt.step(closure)
+    elif args.optimizer == "lbfgs-armijo":
+        # exact mirror of the CUDA trainer's L-BFGS (agpt_train_v2.cu lbfgs_update_v2):
+        # Armijo c1=1e-4 with halving, max 12 backtracks -> reset, gamma scaling,
+        # curvature-pair acceptance sy > 1e-10|s||y|, first step min(1, 1/|g|).
+        def getv():
+            return torch.cat([p.detach().reshape(-1) for p in params])
+        def setv(v):
+            off = 0
+            with torch.no_grad():
+                for p in params:
+                    k = p.numel(); p.copy_(v[off:off + k].view_as(p)); off += k
+        def evalfg(v):
+            setv(v); f = float(closure()); return f, torch.cat([p.grad.reshape(-1) for p in params]).clone()
+        m = args.history; S, Y, RHO = [], [], []
+        def direction(g):
+            q = g.clone(); al = []
+            for s_, y_, r_ in reversed(list(zip(S, Y, RHO))):
+                a = r_ * float(s_ @ q); al.append(a); q -= a * y_
+            if S:
+                q *= float(S[-1] @ Y[-1]) / max(float(Y[-1] @ Y[-1]), 1e-30)
+            for (s_, y_, r_), a in zip(zip(S, Y, RHO), reversed(al)):
+                b = r_ * float(y_ @ q); q += (a - b) * s_
+            d = -q
+            if not float(d @ g) < 0:
+                S.clear(); Y.clear(); RHO.clear(); d = -g.clone()
+            return d
+        th = getv(); f_acc, g = evalfg(th); d = direction(g)
+        alpha = min(1.0, 1.0 / max(float(g.norm()), 1e-12)); bt = 0; acc = 0; backs = 0; resets = 0
+        while passes < args.max_passes:
+            trial = th + alpha * d
+            f, gt = evalfg(trial)
+            if math.isfinite(f) and f <= f_acc + 1e-4 * alpha * float(d @ g):
+                s_ = alpha * d; y_ = gt - g; sy = float(s_ @ y_)
+                if sy > 1e-10 * float(s_.norm()) * float(y_.norm()):
+                    S.append(s_); Y.append(y_); RHO.append(1.0 / sy)
+                    if len(S) > m: S.pop(0); Y.pop(0); RHO.pop(0)
+                th, g, f_acc = trial, gt, f; acc += 1
+                d = direction(g); alpha = 1.0; bt = 0
+            else:
+                bt += 1; backs += 1
+                if bt > 12:
+                    S.clear(); Y.clear(); RHO.clear(); resets += 1
+                    d = -g.clone(); alpha = min(1.0, 1.0 / max(float(g.norm()), 1e-12)); bt = 0
+                else:
+                    alpha *= 0.5
+        setv(th)
+        print(f"lbfgs-armijo: accepted {acc}, backtracks {backs}, resets {resets}")
     else:
         while passes < args.max_passes:
             closure()

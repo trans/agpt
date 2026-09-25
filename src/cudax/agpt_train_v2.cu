@@ -186,6 +186,182 @@ static void grad_dump_close_v2(GradDumpProbeV2& probe) {
     probe.units = nullptr;
 }
 
+// ---------------------------------------------------------------------------
+// L-BFGS on the exact aggregated gradient (rnd/gradient-population, Exp 7).
+// In train-epoch mode with optimizer=lbfgs, every "epoch" is one function
+// evaluation: a full pass over all units with d_grads accumulated (no
+// per-unit scaling, no per-unit step). All vectors live on the device; the
+// two-loop recursion and line search use cuBLAS and only move scalars.
+// ---------------------------------------------------------------------------
+struct LbfgsStateV2 {
+    int P = 0;
+    int m = 0;
+    float* d_theta = nullptr;   // accepted iterate
+    float* d_g = nullptr;       // gradient at accepted iterate
+    float* d_dir = nullptr;     // search direction
+    float* d_q = nullptr;       // two-loop scratch
+    float* d_acc = nullptr;     // gradient accumulated across units within one pass
+    float* d_S = nullptr;       // m x P ring buffer of s_i
+    float* d_Y = nullptr;       // m x P ring buffer of y_i
+    std::vector<double> rho, alpha_i;
+    int count = 0, head = 0;    // ring buffer fill and next slot
+    bool have_accepted = false;
+    double f_acc = 0.0;
+    double alpha = 1.0;
+    int backtracks = 0;
+    int iterations = 0;         // accepted steps
+    int evaluations = 0;        // passes
+    int resets = 0;
+};
+
+static void lbfgs_init_v2(LbfgsStateV2& st, int P, int m) {
+    st.P = P; st.m = m < 1 ? 1 : m;
+    size_t vb = (size_t)P * sizeof(float);
+    AGPT_V2_CUDA_CHECK(cudaMalloc(&st.d_theta, vb));
+    AGPT_V2_CUDA_CHECK(cudaMalloc(&st.d_g, vb));
+    AGPT_V2_CUDA_CHECK(cudaMalloc(&st.d_dir, vb));
+    AGPT_V2_CUDA_CHECK(cudaMalloc(&st.d_q, vb));
+    AGPT_V2_CUDA_CHECK(cudaMalloc(&st.d_acc, vb));
+    AGPT_V2_CUDA_CHECK(cudaMalloc(&st.d_S, vb * (size_t)st.m));
+    AGPT_V2_CUDA_CHECK(cudaMalloc(&st.d_Y, vb * (size_t)st.m));
+    st.rho.assign((size_t)st.m, 0.0);
+    st.alpha_i.assign((size_t)st.m, 0.0);
+}
+
+static void lbfgs_free_v2(LbfgsStateV2& st) {
+    cudaFree(st.d_theta); cudaFree(st.d_g); cudaFree(st.d_dir); cudaFree(st.d_q); cudaFree(st.d_acc);
+    cudaFree(st.d_S); cudaFree(st.d_Y);
+    st = LbfgsStateV2{};
+}
+
+static double lbfgs_dot_v2(cublasHandle_t h, const float* a, const float* b, int n) {
+    float r = 0.0f;
+    AGPT_V2_CUBLAS_CHECK(cublasSdot(h, n, a, 1, b, 1, &r));
+    return (double)r;
+}
+static double lbfgs_nrm2_v2(cublasHandle_t h, const float* a, int n) {
+    float r = 0.0f;
+    AGPT_V2_CUBLAS_CHECK(cublasSnrm2(h, n, a, 1, &r));
+    return (double)r;
+}
+static void lbfgs_axpy_v2(cublasHandle_t h, float a, const float* x, float* y, int n) {
+    AGPT_V2_CUBLAS_CHECK(cublasSaxpy(h, n, &a, x, 1, y, 1));
+}
+static void lbfgs_scal_v2(cublasHandle_t h, float a, float* x, int n) {
+    AGPT_V2_CUBLAS_CHECK(cublasSscal(h, n, &a, x, 1));
+}
+static void lbfgs_copy_v2(cublasHandle_t h, const float* x, float* y, int n) {
+    AGPT_V2_CUBLAS_CHECK(cublasScopy(h, n, x, 1, y, 1));
+}
+
+// d_dir <- -H_k g using the two-loop recursion over the ring buffer.
+static void lbfgs_direction_v2(cublasHandle_t h, LbfgsStateV2& st) {
+    int P = st.P;
+    lbfgs_copy_v2(h, st.d_g, st.d_q, P);
+    // newest -> oldest
+    for (int k = 0; k < st.count; k++) {
+        int i = (st.head - 1 - k + st.m * 2) % st.m;
+        const float* Si = st.d_S + (size_t)i * P;
+        const float* Yi = st.d_Y + (size_t)i * P;
+        st.alpha_i[(size_t)i] = st.rho[(size_t)i] * lbfgs_dot_v2(h, Si, st.d_q, P);
+        lbfgs_axpy_v2(h, (float)(-st.alpha_i[(size_t)i]), Yi, st.d_q, P);
+    }
+    if (st.count > 0) {
+        int newest = (st.head - 1 + st.m) % st.m;
+        const float* Sn = st.d_S + (size_t)newest * P;
+        const float* Yn = st.d_Y + (size_t)newest * P;
+        double gamma = lbfgs_dot_v2(h, Sn, Yn, P) / std::max(lbfgs_dot_v2(h, Yn, Yn, P), 1e-30);
+        lbfgs_scal_v2(h, (float)gamma, st.d_q, P);
+    }
+    // oldest -> newest
+    for (int k = st.count - 1; k >= 0; k--) {
+        int i = (st.head - 1 - k + st.m * 2) % st.m;
+        const float* Si = st.d_S + (size_t)i * P;
+        const float* Yi = st.d_Y + (size_t)i * P;
+        double beta = st.rho[(size_t)i] * lbfgs_dot_v2(h, Yi, st.d_q, P);
+        lbfgs_axpy_v2(h, (float)(st.alpha_i[(size_t)i] - beta), Si, st.d_q, P);
+    }
+    lbfgs_copy_v2(h, st.d_q, st.d_dir, P);
+    lbfgs_scal_v2(h, -1.0f, st.d_dir, P);
+    double dg = lbfgs_dot_v2(h, st.d_dir, st.d_g, P);
+    if (!(dg < 0.0)) {  // not a descent direction (or NaN): reset to steepest descent
+        st.count = 0; st.head = 0; st.resets++;
+        lbfgs_copy_v2(h, st.d_g, st.d_dir, P);
+        lbfgs_scal_v2(h, -1.0f, st.d_dir, P);
+    }
+}
+
+// d_weights <- theta_acc + alpha * dir  (the next trial point)
+static void lbfgs_set_trial_v2(cublasHandle_t h, LbfgsStateV2& st, float* d_weights) {
+    lbfgs_copy_v2(h, st.d_theta, d_weights, st.P);
+    lbfgs_axpy_v2(h, (float)st.alpha, st.d_dir, d_weights, st.P);
+}
+
+// One evaluation just finished at d_weights with mean gradient in d_grads and
+// mean loss f. Decide accept / backtrack, update history, and set the next
+// trial point into d_weights. Returns a status string for the log line.
+static const char* lbfgs_update_v2(cublasHandle_t h, const agpt_v2::TrainerConfig& cfg,
+                                   LbfgsStateV2& st, float* d_weights, float* d_grads, double f) {
+    int P = st.P;
+    st.evaluations++;
+    if (!st.have_accepted) {
+        lbfgs_copy_v2(h, d_weights, st.d_theta, P);
+        lbfgs_copy_v2(h, d_grads, st.d_g, P);
+        st.f_acc = f;
+        st.have_accepted = true;
+        lbfgs_direction_v2(h, st);
+        double gn = lbfgs_nrm2_v2(h, st.d_g, P);
+        st.alpha = std::min(1.0, 1.0 / std::max(gn, 1e-12));
+        st.backtracks = 0;
+        lbfgs_set_trial_v2(h, st, d_weights);
+        return "init";
+    }
+    double dg = lbfgs_dot_v2(h, st.d_dir, st.d_g, P);
+    bool armijo = std::isfinite(f) && (f <= st.f_acc + (double)cfg.lbfgs_c1 * st.alpha * dg);
+    if (armijo) {
+        // s = alpha*dir ; y = g_trial - g_acc
+        int slot = st.head;
+        float* Ss = st.d_S + (size_t)slot * P;
+        float* Ys = st.d_Y + (size_t)slot * P;
+        lbfgs_copy_v2(h, st.d_dir, Ss, P);
+        lbfgs_scal_v2(h, (float)st.alpha, Ss, P);
+        lbfgs_copy_v2(h, d_grads, Ys, P);
+        lbfgs_axpy_v2(h, -1.0f, st.d_g, Ys, P);
+        double sy = lbfgs_dot_v2(h, Ss, Ys, P);
+        double sn = lbfgs_nrm2_v2(h, Ss, P), yn = lbfgs_nrm2_v2(h, Ys, P);
+        bool curv_ok = sy > 1e-10 * sn * yn;
+        if (curv_ok) {
+            st.rho[(size_t)slot] = 1.0 / sy;
+            st.head = (st.head + 1) % st.m;
+            if (st.count < st.m) st.count++;
+        }
+        lbfgs_copy_v2(h, d_weights, st.d_theta, P);   // accept trial
+        lbfgs_copy_v2(h, d_grads, st.d_g, P);
+        st.f_acc = f;
+        st.iterations++;
+        lbfgs_direction_v2(h, st);
+        st.alpha = 1.0;
+        st.backtracks = 0;
+        lbfgs_set_trial_v2(h, st, d_weights);
+        return curv_ok ? "accept" : "accept(no-curv-pair)";
+    }
+    st.backtracks++;
+    if (st.backtracks > cfg.lbfgs_max_backtracks) {
+        // give up on this direction: reset history, steepest descent, small step
+        st.count = 0; st.head = 0; st.resets++;
+        lbfgs_copy_v2(h, st.d_g, st.d_dir, P);
+        lbfgs_scal_v2(h, -1.0f, st.d_dir, P);
+        double gn = lbfgs_nrm2_v2(h, st.d_g, P);
+        st.alpha = std::min(1.0, 1.0 / std::max(gn, 1e-12));
+        st.backtracks = 0;
+        lbfgs_set_trial_v2(h, st, d_weights);
+        return "reset";
+    }
+    st.alpha *= 0.5;
+    lbfgs_set_trial_v2(h, st, d_weights);
+    return "backtrack";
+}
+
 enum class V2Mode {
     Plan,
     InstantiateRuntime,
@@ -436,6 +612,7 @@ static const char* v2_optimizer_name(agpt_v2::OptimizerKind optimizer) {
         case agpt_v2::OptimizerKind::SGD: return "sgd";
         case agpt_v2::OptimizerKind::Momentum: return "momentum";
         case agpt_v2::OptimizerKind::RMSProp: return "rmsprop";
+        case agpt_v2::OptimizerKind::LBFGS: return "lbfgs";
     }
     return "unknown";
 }
@@ -471,6 +648,10 @@ static bool parse_optimizer_kind(const char* text, agpt_v2::OptimizerKind& out) 
     }
     if (std::strcmp(text, "momentum") == 0) {
         out = agpt_v2::OptimizerKind::Momentum;
+        return true;
+    }
+    if (std::strcmp(text, "lbfgs") == 0 || std::strcmp(text, "l-bfgs") == 0) {
+        out = agpt_v2::OptimizerKind::LBFGS;
         return true;
     }
     if (std::strcmp(text, "rmsprop") == 0) {
@@ -1803,6 +1984,13 @@ int main(int argc, char** argv) {
                 long long total_unit_steps = (long long)epochs * (long long)units_to_run * (long long)repeats_per_sample;
                 long long warmup_unit_steps = (long long)cfg.warmup_epochs * (long long)units_to_run * (long long)repeats_per_sample;
                 if (total_unit_steps < 1) total_unit_steps = 1;
+                const bool lbfgs_mode = (cfg.optimizer == agpt_v2::OptimizerKind::LBFGS);
+                LbfgsStateV2 lbfgs{};
+                if (lbfgs_mode) {
+                    lbfgs_init_v2(lbfgs, model.total_floats, cfg.lbfgs_history);
+                    std::printf("  lbfgs: history=%d c1=%g max_backtracks=%d; each epoch = one full-pass evaluation (units accumulated, no per-unit step)\n",
+                                cfg.lbfgs_history, cfg.lbfgs_c1, cfg.lbfgs_max_backtracks);
+                }
                 double train_loop_start = wall_seconds_v2();
                 for (int epoch = 0; epoch < epochs; epoch++) {
                     agpt_v2::LossTablesV2 epoch_loss_tables = loss_tables;
@@ -1833,6 +2021,9 @@ int main(int argc, char** argv) {
                     double phase_target_global_entropy_mass = 0.0;
                     double phase_target_local_entropy_mass = 0.0;
                     agpt_v2::zero_cache_runtime_v2(runtime.cache);
+                    if (lbfgs_mode) {
+                        AGPT_V2_CUDA_CHECK(cudaMemset(lbfgs.d_acc, 0, (size_t)model.total_floats * sizeof(float)));
+                    }
                     std::printf("  train-epoch: epoch %d/%d\n", epoch + 1, epochs);
                     // experimental.unit_order_seed: seeded per-epoch shuffle of the unit
                     // order (rnd/gradient-population pool experiments: each pool member
@@ -1978,25 +2169,33 @@ int main(int argc, char** argv) {
                                                              unit.root_child_id, unit_chunks.chunk_count,
                                                              unit_trained, unit_events);
                             }
-                            scale_gradients_for_fire(runtime.cublas, runtime.d_grads, model.total_floats, unit_events);
+                            if (lbfgs_mode) {
+                                lbfgs_axpy_v2(runtime.cublas, 1.0f, runtime.d_grads, lbfgs.d_acc, model.total_floats);
+                            } else {
+                                scale_gradients_for_fire(runtime.cublas, runtime.d_grads, model.total_floats, unit_events);
+                            }
                             double unit_mean = unit_events > 0.0 ? (unit_loss_sum / unit_events) : 0.0;
-                            if (grad_dump.enabled) {
+                            if (grad_dump.enabled && !lbfgs_mode) {
                                 grad_dump_row_v2(grad_dump, grad_dump_rows++, epoch + 1, unit, trie,
                                                  cfg.partition_depth, runtime.d_grads, model.total_floats,
                                                  unit_trained, unit_events, unit_mean);
                             }
                             agpt_v2::OptimizerStepResult step{};
-                            if (!grad_dump.enabled || grad_dump.apply_step) {
+                            if (lbfgs_mode) {
+                                step.message = "accumulated (lbfgs)";
+                            } else if (!grad_dump.enabled || grad_dump.apply_step) {
                                 step = agpt_v2::run_optimizer_step_stateful(cfg, current_lr, runtime.d_weights, runtime.d_grads,
                                                                             runtime.d_opt_m, runtime.d_opt_v,
                                                                             model.total_floats, ++optimizer_step_index);
                             } else {
                                 step.message = "grad dumped, step skipped (frozen weights)";
                             }
-                            std::printf("    unit %d/%d repeat %d/%d rc=%d chunks=%d trained_queries=%lld trained_events=%.0f mean_loss=%.6f lr=%.6g step=%s\n",
-                                        u + 1, units_to_run, repeat + 1, repeats_per_sample,
-                                        unit.root_child_id, unit_chunks.chunk_count,
-                                        unit_trained, unit_events, unit_mean, current_lr, step.message);
+                            if (!(lbfgs_mode && cfg.quiet)) {
+                                std::printf("    unit %d/%d repeat %d/%d rc=%d chunks=%d trained_queries=%lld trained_events=%.0f mean_loss=%.6f lr=%.6g step=%s\n",
+                                            u + 1, units_to_run, repeat + 1, repeats_per_sample,
+                                            unit.root_child_id, unit_chunks.chunk_count,
+                                            unit_trained, unit_events, unit_mean, current_lr, step.message);
+                            }
                             agpt_v2::free_unit_anc_grad_runtime_v2(unit_anc, runtime.contract);
                         }
                         if (cfg.lightning_enabled) {
@@ -2041,14 +2240,34 @@ int main(int argc, char** argv) {
                                     local_h, global_h);
                     }
                     std::printf("\n");
+                    if (lbfgs_mode) {
+                        lbfgs_copy_v2(runtime.cublas, lbfgs.d_acc, runtime.d_grads, model.total_floats);
+                        if (epoch_events > 0.0) {
+                            scale_gradients_for_fire(runtime.cublas, runtime.d_grads, model.total_floats, epoch_events);
+                        }
+                        double gnorm = lbfgs_nrm2_v2(runtime.cublas, runtime.d_grads, model.total_floats);
+                        double alpha_used = lbfgs.alpha;
+                        const char* status = lbfgs_update_v2(runtime.cublas, cfg, lbfgs, runtime.d_weights, runtime.d_grads, epoch_mean);
+                        std::printf("  lbfgs: pass=%d f=%.6f |g|=%.5g status=%s alpha_used=%.4g next_alpha=%.4g f_acc=%.6f iters=%d hist=%d/%d resets=%d wall=%.1fs\n",
+                                    lbfgs.evaluations, epoch_mean, gnorm, status, alpha_used, lbfgs.alpha, lbfgs.f_acc,
+                                    lbfgs.iterations, lbfgs.count, lbfgs.m, lbfgs.resets, wall_seconds_v2() - train_loop_start);
+                    }
                     if (save_path && checkpoint_epoch_requested_v2(yaml_cfg.checkpoint_epochs, epoch + 1)) {
                         std::string checkpoint_path = epoch_checkpoint_path_v2(save_path, epoch + 1);
                         double checkpoint_train_wall = wall_seconds_v2() - train_loop_start;
                         std::printf("  train-epoch-checkpoint: epoch=%d train_wall_seconds=%.6f path=%s\n",
                                     epoch + 1, checkpoint_train_wall, checkpoint_path.c_str());
                         save_device_weights_checkpoint_v2("train-epoch", epoch + 1,
-                                                          checkpoint_path, model, runtime.d_weights);
+                                                          checkpoint_path, model,
+                                                          lbfgs_mode ? lbfgs.d_theta : runtime.d_weights);
                     }
+                }
+                if (lbfgs_mode) {
+                    // leave the accepted iterate (not the pending trial point) in d_weights for the final save
+                    if (lbfgs.have_accepted) lbfgs_copy_v2(runtime.cublas, lbfgs.d_theta, runtime.d_weights, model.total_floats);
+                    std::printf("  lbfgs: done evaluations=%d accepted_iterations=%d f_acc=%.6f resets=%d\n",
+                                lbfgs.evaluations, lbfgs.iterations, lbfgs.f_acc, lbfgs.resets);
+                    lbfgs_free_v2(lbfgs);
                 }
                 if (grad_dump.enabled) {
                     grad_dump_close_v2(grad_dump);

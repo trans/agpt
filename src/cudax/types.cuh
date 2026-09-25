@@ -13,6 +13,7 @@ enum class OptimizerKind {
     SGD = 1,
     Momentum = 2,
     RMSProp = 3,
+    LBFGS = 4,
 };
 
 enum class RopePositionModeV2 {
@@ -55,6 +56,10 @@ struct TrainerConfig {
     float momentum_beta = 0.9f;
     float rmsprop_beta = 0.999f;
     float optimizer_eps = 1e-8f;
+    // L-BFGS (train-epoch mode with optimizer=lbfgs: one full aggregated pass per evaluation)
+    int lbfgs_history = 20;
+    float lbfgs_c1 = 1e-4f;
+    int lbfgs_max_backtracks = 12;
     float weight_decay = 0.0f;
     LrSchedule lr_schedule = LrSchedule::Constant;
     OptimizerKind optimizer = OptimizerKind::RMSProp;

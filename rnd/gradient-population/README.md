@@ -736,6 +736,78 @@ result from the seed (1.571).
   is host-side vector algebra over 108k floats; the trainer only needs
   an "evaluate loss+gradient at θ" mode.
 
+
+## Experiment 7 — L-BFGS on the trie's own aggregated gradient (2026-09-25)
+
+`bin/agpt_train_v2` gained `optimizer: lbfgs` (train-epoch mode): every
+epoch is one function evaluation — all pd=1 units run with their raw
+gradient sums accumulated in a dedicated device buffer (the backward
+zeroes `d_grads` at each unit's first chunk), scaled once by total event
+mass. Two-loop recursion, ring-buffer history, Armijo backtracking, all
+on device via cuBLAS; only scalars reach the host. Config fields
+`train.optimizer.history|c1|max_backtracks` (also added to the
+orchestrator schema). Run `20260925T220537-lbfgs-trie-pd1-ep25-600`:
+600 passes from the pd1 Adam epoch-25 checkpoint, history 20, 55 min.
+
+| checkpoint | fixed-token PPL | rolling byte PPL |
+|---:|---:|---:|
+| 100 | 5.270 | 5.787 |
+| 200 | 5.088 | 5.605 |
+| 300 | 4.989 | 5.512 |
+| 400 | 4.975 | 5.499 |
+| 600 | 4.888 (NLL 1.587) | 5.407 |
+| *ref: Adam pd1 100 ep from seed* | *4.810* | *5.348* |
+
+Worse than Adam, and much worse than the PyTorch L-BFGS curve on the same
+start and near-identical objective (first-pass train loss 1.8757 trie vs
+1.8732 PyTorch; at pass 600 1.674 vs 1.555). After ~pass 150 the line
+search failed constantly: 264 of 600 evaluations were backtracks (steps
+down to 0.002), 332 accepted, 3 history resets.
+
+### Diagnosis: the trie gradient, not the line search
+
+1. **Discriminator.** `agpt_lbfgs_test.py --optimizer lbfgs-armijo` is a
+   line-for-line mirror of the CUDA algorithm. On the exact PyTorch
+   gradient it accepted **593 of 600** steps, 6 backtracks, 0 resets, and
+   reached held-out **1.5287** (torch strong-Wolfe L-BFGS: 1.5228). Same
+   algorithm, same start; only the gradient source differs.
+2. **Directional-derivative check** (`src/tools/agpt_grad_check.py`):
+   trie loss at θ ± ε·ĝ versus ‖g‖.
+
+| point | ‖g_anc‖ | FD / g_anc·d (ε .01 / .003) | FD / g_noanc·d | cos(g_anc, g_noanc) |
+|---|---:|---|---|---:|
+| ep25 start | 0.648 | 1.045 / 1.058 | 1.109 / 1.123 | 0.991 |
+| L-BFGS pass 600 | 0.076 | 0.995 / 1.020 | 1.079 / 1.106 | 0.929 |
+
+   The gradient is right to a few percent along its own direction —
+   invisible to Adam — but it is not the exact gradient of the loss the
+   trainer reports, and L-BFGS amplifies exactly the low-curvature
+   directions where a few-percent error dominates. The ancestor-scatter
+   path matters (turning it off makes the mismatch 6–10% and rotates the
+   gradient 7%) but is truncated: the trainer's anc-grad (resolved
+   2026-05-20, `todo/descendant-ancestor-scatter.md`) scatters the
+   ancestor-slot K/V gradient into **Wk/Wv only**; it does not continue
+   back through the ancestor's LN1, the earlier layer's residual stream,
+   or the token embeddings, and ancestor K/V are read from a **bf16**
+   cache the backward treats as exact. That note also records that the
+   formal parity test against a numerical reference was never done —
+   this check is that test. Truncation is also the likely cause of the
+   3% pd=1 vs Σpd=2 non-additivity in Experiment 1. (Likely causes, not
+   yet isolated: truncation vs bf16 can be separated by rerunning the
+   check with an fp32 cache.)
+
+### Consequence
+
+AGPT's premise is an *exact* aggregated gradient. The CUDA trainer
+delivers an approximate one, and Experiments 6/7 show that the
+approximation is precisely what separates "curvature buys ~40×" from
+"curvature loses to Adam". Completing the ancestor K/V backward (full
+chain through ancestor positions, fp32 cache) is now the single
+highest-value item: it is the prerequisite for any second-order
+method on the trie, and the L-BFGS mode plus `agpt_grad_check.py` are
+ready as its acceptance test (target: FD ratio 1.000 ± 0.005 and
+L-BFGS backtrack rate ≈ 1%).
+
 ## Next steps (Experiment 1)
 
 - **Coherence-driven cadence.** Replace fixed `partition_depth` with a
