@@ -1,0 +1,74 @@
+{
+ "args": {
+  "init": "rnd/gradient-population/20260924T205951-cadence-pd1-100ep/checkpoint.epoch_000025.model",
+  "out": "rnd/gradient-population/gd-subset",
+  "train": "data/.splits/4fa9aec1db6b3aea/train_corpus.txt",
+  "heldout": "data/.splits/4fa9aec1db6b3aea/heldout_corpus.txt",
+  "vocab": "data/input.txt",
+  "windows": 65536,
+  "batch": 8192,
+  "max_passes": 600,
+  "history": 50,
+  "eval_every": 100,
+  "positions": 8192,
+  "seed": 3,
+  "optimizer": "gd",
+  "lr": 0.1
+ },
+ "records": [
+  {
+   "passes": 0,
+   "train_loss": null,
+   "heldout_nll": 1.8337219004898504,
+   "wall_s": 0.0
+  },
+  {
+   "passes": 1,
+   "train_loss": 1.8732058107852936,
+   "heldout_nll": 1.8337219004898504,
+   "wall_s": 0.8899312019348145
+  },
+  {
+   "passes": 100,
+   "train_loss": 1.8163391053676605,
+   "heldout_nll": 1.7830898078236501,
+   "wall_s": 72.34226775169373
+  },
+  {
+   "passes": 200,
+   "train_loss": 1.8093279153108597,
+   "heldout_nll": 1.7754474319175522,
+   "wall_s": 144.500342130661
+  },
+  {
+   "passes": 300,
+   "train_loss": 1.8030148446559906,
+   "heldout_nll": 1.768580221853361,
+   "wall_s": 216.58970046043396
+  },
+  {
+   "passes": 400,
+   "train_loss": 1.7972986996173859,
+   "heldout_nll": 1.7633796809992601,
+   "wall_s": 288.6208565235138
+  },
+  {
+   "passes": 500,
+   "train_loss": 1.7922445833683014,
+   "heldout_nll": 1.756774043009885,
+   "wall_s": 360.6932599544525
+  },
+  {
+   "passes": 600,
+   "train_loss": 1.7912143766880035,
+   "heldout_nll": 1.756204395804367,
+   "wall_s": 432.77888655662537
+  },
+  {
+   "passes": 600,
+   "train_loss": 1.7912143766880035,
+   "heldout_nll": 1.7563561765034,
+   "wall_s": 432.79946064949036
+  }
+ ]
+}

@@ -659,6 +659,83 @@ What survives from the population idea:
   not as a training improvement at this scale;
 - HVP aggregation through the trie as the route to a curvature step.
 
+
+## Experiment 6 — curvature: L-BFGS passes-to-parity (2026-09-25)
+
+The one lever left after Experiment 5b: can a curvature method make one
+exact aggregated pass worth many cheap SGD steps? `src/tools/agpt_lbfgs_test.py`:
+same model, same θ₀ (pd=1 Adam epoch-25 checkpoint, held-out 1.8337), a
+FIXED random subset of 65,536 windows (≈1.05M positions, about one
+corpus' worth) as a deterministic objective, torch L-BFGS with strong-
+Wolfe line search, history 50. Every closure evaluation (line-search
+trials included) counts as one gradient pass. 600-pass budget, 7.3 min.
+
+| held-out NLL target | plain full-batch GD (Exp 5b A) | **L-BFGS** | ratio |
+|---:|---:|---:|---:|
+| 1.698 | 2,500 passes | **80** | 31× |
+| 1.639 | 5,000 passes | **140** | 36× |
+| 1.588 | 10,000 passes | **240** | 42× |
+
+L-BFGS curve (passes → held-out): 100 → 1.664, 200 → 1.600, 300 → 1.566,
+400 → 1.546, 500 → 1.532, **600 → 1.5228**, still descending at budget.
+1.5228 is the best held-out number of the entire strand: below the
+single chain + iterate averaging (1.572, 400k steps), below plain GD at
+10k passes (1.588), and below the pd=1 Adam run's 100-epoch fixed-window
+result from the seed (1.571).
+
+### Reading
+
+1. **Curvature buys ~40× in passes, and it is enough.** The wall-clock
+   break-even against the batch-1 chain needed ~50× fewer passes than
+   GD at the trie's ~6 s/pass (240 passes ≈ 24 min vs the chain's 20
+   min). L-BFGS lands there, and its asymptote is better than anything
+   the sequential methods reached. In PyTorch on the subset it is 0.73
+   s/pass: 240 passes = 3 min to the chain's 20-minute result.
+2. **Exact gradients finally pay.** This is the regime the
+   optimizer-mismatch note predicted: a quasi-Newton method that is
+   unusable on noisy gradients is very usable on the trie's exact ones.
+   No noise, no averaging, no partition depth — one deterministic
+   objective, ~600 passes.
+3. **"One epoch and done" is closer than it looked.** The objective
+   here is one corpus' worth of positions, and L-BFGS solved it (to
+   1.52) in 600 passes over it. What it still is not: a single pass.
+   The pass count is where the trie's sharing has to do its work.
+
+
+### Experiment 6b — from the seed, and the same-objective control (2026-09-25)
+
+| run | 100 | 200 | 300 | 400 | 500 | 600 passes |
+|---|---:|---:|---:|---:|---:|---:|
+| L-BFGS from the random seed (held-out 4.639 at start) | 2.037 | 1.831 | 1.739 | 1.678 | 1.643 | **1.611** |
+| plain GD lr 0.1 on the *same* fixed subset, from ep25 | 1.783 | — | 1.769 | — | — | 1.756 |
+| L-BFGS from ep25 (Exp 6) | 1.664 | 1.600 | 1.566 | 1.546 | 1.532 | **1.523** |
+
+- **Curvature works from scratch**, at ~0.035 nats per 100 passes late
+  in the run and still descending at 600. It has not yet reached the
+  pd=1 Adam run's 100-epoch mark (1.571); extrapolating, ~800 passes.
+  On the trie at ~6 s/pass that is ~80 min against Adam pd=1's 9.5 min:
+  from scratch, partitioned Adam still wins wall-clock at this scale by
+  ~8×, with L-BFGS reaching a better asymptote.
+- **The same-objective control** removes any doubt about the subset:
+  GD on the identical fixed 65k windows gets 1.756 in 600 passes where
+  L-BFGS gets 1.523.
+- **The hybrid is the interesting recipe**: 25 epochs of partitioned
+  Adam (2.4 min on the trie) followed by L-BFGS on the exact gradient
+  reached 1.523, below anything else measured, including 100 epochs of
+  Adam (1.571). Cheap noisy steps to get near the basin, exact
+  curvature steps to finish. That is a concrete proposal for the CUDA
+  trainer: pd=1 Adam warm start, then pd=0 L-BFGS.
+
+### Next
+- Same test from the seed (random init) — passes to reach the Adam
+  pd=1 100-epoch result (1.571); does curvature work from scratch?
+- GD on the same fixed subset for 600 passes (same-objective control).
+- Full-corpus objective (the trie's true gradient) rather than a subset.
+- Then the real thing: L-BFGS driven by the CUDA trainer's aggregated
+  gradient (pd=0, one exact pass per evaluation). The two-loop recursion
+  is host-side vector algebra over 108k floats; the trainer only needs
+  an "evaluate loss+gradient at θ" mode.
+
 ## Next steps (Experiment 1)
 
 - **Coherence-driven cadence.** Replace fixed `partition_depth` with a
