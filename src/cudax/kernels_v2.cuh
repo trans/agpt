@@ -406,6 +406,7 @@ __global__ static void agpt_loss_per_query_kernel_v2(
         __syncthreads();
     }
     float max_val = sdata[0];
+    __syncthreads();  // phase barrier: every thread must read sdata[0] before the sum phase overwrites it (race fixed 2026-09-24)
 
     float local_sum = 0.0f;
     for (int j = tid; j < V; j += nthreads) {

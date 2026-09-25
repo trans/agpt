@@ -29,6 +29,7 @@ __global__ void softmax_rows_kernel(const float* input, float* output, int rows,
         __syncthreads();
     }
     float max_val = sdata[0];
+    __syncthreads();  // phase barrier: sdata[0] must be read by every thread before the next phase overwrites it (race fixed 2026-09-24)
 
     // Exp and local sum
     float local_sum = 0.0f;
@@ -244,6 +245,7 @@ __global__ void layer_norm_forward_kernel(const float* input, float* output,
         __syncthreads();
     }
     float mean = sdata[0] / cols;
+    __syncthreads();  // phase barrier: sdata[0] must be read by every thread before the next phase overwrites it (race fixed 2026-09-24)
 
     // Compute variance
     float local_var = 0.0f;
@@ -488,6 +490,7 @@ __global__ void fused_attn_softmax_kernel(const float* scores, float* output,
         __syncthreads();
     }
     float max_val = sdata[0];
+    __syncthreads();  // phase barrier: sdata[0] must be read by every thread before the next phase overwrites it (race fixed 2026-09-24)
 
     // Phase 2: Exp and local sum
     float local_sum = 0.0f;
@@ -652,6 +655,7 @@ __global__ void fused_softmax_ce_grad_kernel(const float* logits, const int* tar
         __syncthreads();
     }
     float max_val = sdata[0];
+    __syncthreads();  // phase barrier: sdata[0] must be read by every thread before the next phase overwrites it (race fixed 2026-09-24)
 
     // 2. Compute exp and sum
     float local_sum = 0.0f;
@@ -947,6 +951,7 @@ __global__ void batched_varlen_attn_kernel(
         __syncthreads();
     }
     float max_val = reduce_buf[0];
+    __syncthreads();  // phase barrier: reduce_buf[0] must be read by every thread before the next phase overwrites it (race fixed 2026-09-24)
 
     // Exp and sum
     float local_sum = 0.0f;
@@ -1269,6 +1274,7 @@ __global__ void batched_varlen_attn_L_queries_kernel(
         __syncthreads();
     }
     float max_val = reduce_buf[0];
+    __syncthreads();  // phase barrier: reduce_buf[0] must be read by every thread before the next phase overwrites it (race fixed 2026-09-24)
 
     // Exp + sum
     float local_sum = 0.0f;

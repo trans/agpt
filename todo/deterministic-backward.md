@@ -88,3 +88,18 @@ want to keep the same API.
   cross-trainer audit is needed)
 - A subtle gradient bug surfaces that we want to bit-trace
 - Future code changes need before/after bit-comparison
+
+## Addendum 2026-09-24 — forward races found and fixed
+
+Forward was NOT deterministic either, independent of atomics: every
+two-phase shared-memory reduction (`float max_val = sdata[0];` then
+`sdata[tid] = local_sum;`) lacked a `__syncthreads()` between the read
+of slot 0 and its overwrite. Fixed in `src/cuda/kernels.cu` (6 kernels)
+and `src/cudax/kernels_v2.cuh` (`agpt_loss_per_query_kernel_v2`, the
+worst: 4 warps over vocab 65, ~0.3% of per-query losses wrong by up to
+20×). Diagnosed via `AGPT_DIAG_TENSOR_DIR` stage diffs and confirmed by
+`compute-sanitizer --tool racecheck`. After the fix, frozen-weight
+forward loss is bit-identical run-to-run and gradient rows agree to
+~1e-5, which is the remaining atomicAdd floor this note is about. See
+`rnd/gradient-population/README.md`. Pre-fix CUDA training results were
+trained with occasionally corrupted losses.
