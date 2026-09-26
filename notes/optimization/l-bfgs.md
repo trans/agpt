@@ -1,4 +1,4 @@
-# TODO — L-BFGS Optimizer (implemented but broken)
+# TODO — L-BFGS Optimizer (May per-fire version broken; full-pass version works — see 2026-09-26 addendum)
 
 **Status:** Implemented 2026-05-03. After bug-fix pass (curvature-condition,
 pushed_count tracking, gamma fallback, cleanup), **no longer NaNs** but
@@ -365,3 +365,30 @@ hits a wall." Not the next experiment. Suffix-token-grouped training
 would essentially abandon AGPT for an L-BFGS-friendly alternative,
 which only makes sense if the resulting PPL is substantially better
 than the current pd=6 + Adam recipe (3.30 at 120 SE on Shakespeare).
+
+## Addendum 2026-09-26 — full-pass L-BFGS works; the remaining gap is gradient exactness
+
+The May diagnosis (per-partition fires make consecutive gradients
+near-orthogonal, so s/y pairs are inconsistent) was correct, and the
+"structural restructure" it called for has now been built and tested in
+`rnd/gradient-population` (Experiments 6, 7, 7b):
+
+- `optimizer: lbfgs` in the v2 trainer treats one epoch as one function
+  evaluation: every unit's gradient is accumulated into a single
+  full-objective gradient before the L-BFGS update (device-resident,
+  cuBLAS, Armijo backtracking). Consecutive gradients are of the same
+  objective, so the curvature pairs are consistent.
+- On an exact gradient (PyTorch, same model, same start) this reaches
+  plain full-batch GD's 10k-pass result in 240 passes (42×) and held-out
+  NLL 1.523-1.529 in 600 passes, better than 100 epochs of Adam pd=1
+  (1.571).
+- On the trie it reaches 1.587 in 600 passes (not 158): it learns, but
+  44% of evaluations are line-search backtracks, because the v2 gradient
+  is ~4% short of the true slope (finite-difference check,
+  `src/tools/agpt_grad_check.py`). bf16 cache ruled out; the cause is
+  the anc-grad scatter stopping at Wk/Wv instead of continuing back
+  through ancestor LN1, the earlier layer and the embeddings
+  (`todo/descendant-ancestor-scatter.md`, 2026-09-25/26 addenda).
+
+Status: no longer a dead end. Blocked on completing the ancestor
+backward. Acceptance: FD ratio 1.000 ± 0.005, L-BFGS backtrack rate ~1%.
