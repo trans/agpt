@@ -411,5 +411,120 @@
       }
     ],
     "experimental_used": null
+  },
+  {
+    "run_id": "20260925T220537-lbfgs-trie-pd1-ep25-600",
+    "experiment": "gradient-population",
+    "wall_seconds": 3440.107114491,
+    "train_wall_seconds": 3325.404477202,
+    "convert_wall_seconds": 3.6965558659999997,
+    "eval_wall_seconds": 16.693744763,
+    "started_utc": "2026-09-25T22:05:37Z",
+    "ended_utc": "2026-09-25T23:02:57Z",
+    "trainer": "v2",
+    "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+    "eval": {
+      "split": "multi-chunk-heldout",
+      "source_path": null,
+      "source_sha256": null,
+      "chunks_dir": "data/.splits/4fa9aec1db6b3aea/heldout_chunks",
+      "benchmark": null,
+      "task_name": "lbfgs-trie-pd1-ep25-600_holdout"
+    },
+    "metrics": {
+      "lm_eval_rolling_word_perplexity": 10162.937193019212,
+      "lm_eval_rolling_byte_perplexity": 5.407435211416973,
+      "lm_eval_rolling_bits_per_byte": 2.4349444748007745,
+      "agpt_fixed_token_perplexity": 4.887921505726478
+    },
+    "checkpoint_sha": "f2bd1749aceb6fe408ab5274f7de56437ad4f09381c11af98a89c2c23316ee65",
+    "checkpoint_results": [
+      {
+        "epoch": 100,
+        "checkpoint_path": "rnd/gradient-population/20260925T220537-lbfgs-trie-pd1-ep25-600/checkpoint.epoch_000100.model",
+        "checkpoint_sha": "e8338b9604fdda0a4fffc97710b26d255cd6f226000248caa1ab60ee1cd82d4b",
+        "hf_dir": "rnd/gradient-population/20260925T220537-lbfgs-trie-pd1-ep25-600/hf_checkpoint_epoch_000100",
+        "eval_raw_json": "rnd/gradient-population/20260925T220537-lbfgs-trie-pd1-ep25-600/eval_raw_epoch_000100.json",
+        "task_name": "lbfgs-trie-pd1-ep25-600_epoch_000100_holdout",
+        "train_wall_seconds": 555.852622,
+        "convert_wall_seconds": 3.251866082,
+        "eval_wall_seconds": 14.661565116,
+        "metrics": {
+          "lm_eval_rolling_word_perplexity": 14719.960077535055,
+          "lm_eval_rolling_byte_perplexity": 5.7865797767134035,
+          "lm_eval_rolling_bits_per_byte": 2.5327108789337665,
+          "agpt_fixed_token_perplexity": 5.269749313974455
+        }
+      },
+      {
+        "epoch": 200,
+        "checkpoint_path": "rnd/gradient-population/20260925T220537-lbfgs-trie-pd1-ep25-600/checkpoint.epoch_000200.model",
+        "checkpoint_sha": "ab324cd4c8e501030cc15c5f46a1e19407869e0e72fdf8f411df9f22ea54c75f",
+        "hf_dir": "rnd/gradient-population/20260925T220537-lbfgs-trie-pd1-ep25-600/hf_checkpoint_epoch_000200",
+        "eval_raw_json": "rnd/gradient-population/20260925T220537-lbfgs-trie-pd1-ep25-600/eval_raw_epoch_000200.json",
+        "task_name": "lbfgs-trie-pd1-ep25-600_epoch_000200_holdout",
+        "train_wall_seconds": 1109.635214,
+        "convert_wall_seconds": 3.2098720099999998,
+        "eval_wall_seconds": 14.465596554,
+        "metrics": {
+          "lm_eval_rolling_word_perplexity": 12369.210161024555,
+          "lm_eval_rolling_byte_perplexity": 5.605303604256375,
+          "lm_eval_rolling_bits_per_byte": 2.4867925169187957,
+          "agpt_fixed_token_perplexity": 5.087727577628271
+        }
+      },
+      {
+        "epoch": 300,
+        "checkpoint_path": "rnd/gradient-population/20260925T220537-lbfgs-trie-pd1-ep25-600/checkpoint.epoch_000300.model",
+        "checkpoint_sha": "799cd3c02b0c816ee66b0425fd5d51a6e51498323dc76dcfe54f0daaec160be9",
+        "hf_dir": "rnd/gradient-population/20260925T220537-lbfgs-trie-pd1-ep25-600/hf_checkpoint_epoch_000300",
+        "eval_raw_json": "rnd/gradient-population/20260925T220537-lbfgs-trie-pd1-ep25-600/eval_raw_epoch_000300.json",
+        "task_name": "lbfgs-trie-pd1-ep25-600_epoch_000300_holdout",
+        "train_wall_seconds": 1663.397448,
+        "convert_wall_seconds": 3.180833405,
+        "eval_wall_seconds": 14.465833246,
+        "metrics": {
+          "lm_eval_rolling_word_perplexity": 11282.732795439522,
+          "lm_eval_rolling_byte_perplexity": 5.511823464746606,
+          "lm_eval_rolling_bits_per_byte": 2.4625296814723243,
+          "agpt_fixed_token_perplexity": 4.988650188259387
+        }
+      },
+      {
+        "epoch": 400,
+        "checkpoint_path": "rnd/gradient-population/20260925T220537-lbfgs-trie-pd1-ep25-600/checkpoint.epoch_000400.model",
+        "checkpoint_sha": "2ce28ace47f19e12d70a1b3c5ec2f0df8a719889b4386e2b2c1c0bd3ef12ed9c",
+        "hf_dir": "rnd/gradient-population/20260925T220537-lbfgs-trie-pd1-ep25-600/hf_checkpoint_epoch_000400",
+        "eval_raw_json": "rnd/gradient-population/20260925T220537-lbfgs-trie-pd1-ep25-600/eval_raw_epoch_000400.json",
+        "task_name": "lbfgs-trie-pd1-ep25-600_epoch_000400_holdout",
+        "train_wall_seconds": 2217.175548,
+        "convert_wall_seconds": 3.191800702,
+        "eval_wall_seconds": 14.587228863,
+        "metrics": {
+          "lm_eval_rolling_word_perplexity": 11141.807295460849,
+          "lm_eval_rolling_byte_perplexity": 5.499165167590965,
+          "lm_eval_rolling_bits_per_byte": 2.459212618638579,
+          "agpt_fixed_token_perplexity": 4.974765126731636
+        }
+      },
+      {
+        "epoch": 600,
+        "checkpoint_path": "rnd/gradient-population/20260925T220537-lbfgs-trie-pd1-ep25-600/checkpoint.epoch_000600.model",
+        "checkpoint_sha": "f2bd1749aceb6fe408ab5274f7de56437ad4f09381c11af98a89c2c23316ee65",
+        "hf_dir": "rnd/gradient-population/20260925T220537-lbfgs-trie-pd1-ep25-600/hf_checkpoint_epoch_000600",
+        "eval_raw_json": "rnd/gradient-population/20260925T220537-lbfgs-trie-pd1-ep25-600/eval_raw_epoch_000600.json",
+        "task_name": "lbfgs-trie-pd1-ep25-600_epoch_000600_holdout",
+        "train_wall_seconds": 3324.373834,
+        "convert_wall_seconds": 3.246140352,
+        "eval_wall_seconds": 14.499347597,
+        "metrics": {
+          "lm_eval_rolling_word_perplexity": 10162.937193019212,
+          "lm_eval_rolling_byte_perplexity": 5.407435211416973,
+          "lm_eval_rolling_bits_per_byte": 2.4349444748007745,
+          "agpt_fixed_token_perplexity": 4.887921505726478
+        }
+      }
+    ],
+    "experimental_used": null
   }
 ]

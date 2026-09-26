@@ -57,7 +57,7 @@ def write_perturbed(src, dst, delta, n_params):
     open(dst, "wb").write(bytes(buf))
 
 
-def run_dump(cfg_text, init, anc, dump_dir, work):
+def run_dump(cfg_text, init, anc, dump_dir, work, trainer="bin/agpt_train_v2"):
     os.makedirs(dump_dir, exist_ok=True)
     y = re.sub(r"init_file: .*", f"init_file: {init}", cfg_text)
     y = re.sub(r"anc_grad: .*", f"anc_grad: {'true' if anc else 'false'}", y)
@@ -69,7 +69,7 @@ def run_dump(cfg_text, init, anc, dump_dir, work):
     cfgp = os.path.join(work, "cfg.yml")
     open(cfgp, "w").write(y)
     env = dict(os.environ, AGPT_GRAD_DUMP_DIR=dump_dir)
-    r = subprocess.run(["bin/agpt_train_v2", "--config", cfgp], env=env, capture_output=True, text=True)
+    r = subprocess.run([trainer, "--config", cfgp], env=env, capture_output=True, text=True)
     if r.returncode != 0:
         sys.exit(r.stdout[-2000:] + r.stderr[-2000:])
     lay = json.load(open(os.path.join(dump_dir, "layout.json")))
@@ -88,16 +88,17 @@ def main():
     ap.add_argument("--base-config", required=True)
     ap.add_argument("--out", required=True)
     ap.add_argument("--eps", type=float, nargs="+", default=[1e-2, 3e-3])
+    ap.add_argument("--trainer", default="bin/agpt_train_v2")
     args = ap.parse_args()
     os.makedirs(args.out, exist_ok=True)
     cfg_text = open(args.base_config).read()
 
-    f0, g_anc, lay = run_dump(cfg_text, args.ckpt, True, os.path.join(args.out, "d0_anc"), args.out)
-    _, g_no, _ = run_dump(cfg_text, args.ckpt, False, os.path.join(args.out, "d0_noanc"), args.out)
+    f0, g_anc, lay = run_dump(cfg_text, args.ckpt, True, os.path.join(args.out, "d0_anc"), args.out, args.trainer)
+    _, g_no, _ = run_dump(cfg_text, args.ckpt, False, os.path.join(args.out, "d0_noanc"), args.out, args.trainer)
     P = lay["total_floats"]
     na, nn = np.linalg.norm(g_anc), np.linalg.norm(g_no)
     cos = float(g_anc @ g_no / (na * nn))
-    print(f"ckpt {args.ckpt}")
+    print(f"ckpt {args.ckpt}  trainer {args.trainer}")
     print(f"  f(theta) = {f0:.7f}   |g_anc| = {na:.5f}   |g_noanc| = {nn:.5f}   cos(g_anc, g_noanc) = {cos:.4f}")
     res = {"ckpt": args.ckpt, "f0": f0, "g_anc_norm": na, "g_noanc_norm": nn, "cos_anc_noanc": cos, "checks": []}
     for which, g in (("anc", g_anc), ("noanc", g_no)):
@@ -107,7 +108,7 @@ def main():
             for sign in (+1, -1):
                 mp = os.path.join(args.out, f"theta_{which}_{eps:g}_{'p' if sign > 0 else 'm'}.model")
                 write_perturbed(args.ckpt, mp, sign * eps * d, P)
-                f, _, _ = run_dump(cfg_text, mp, True, os.path.join(args.out, f"d_{which}_{eps:g}_{sign}"), args.out)
+                f, _, _ = run_dump(cfg_text, mp, True, os.path.join(args.out, f"d_{which}_{eps:g}_{sign}"), args.out, args.trainer)
                 fs[sign] = f
                 os.remove(mp)
             fd = (fs[+1] - fs[-1]) / (2 * eps)

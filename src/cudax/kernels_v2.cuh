@@ -113,7 +113,7 @@ static inline void launch_rope_batched_inverse_v2(float* x, const int* positions
 
 __global__ static void kv_scatter_compact_bf16_v2(const float* src, const int* char_pos,
                                                    const int* compact_slot,
-                                                   __nv_bfloat16* dst, int N, int d_model) {
+                                                   agpt_kv_t* dst, int N, int d_model) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     int total = N * d_model;
     if (idx >= total) return;
@@ -123,19 +123,19 @@ __global__ static void kv_scatter_compact_bf16_v2(const float* src, const int* c
     if (cp < 0) return;
     int slot = compact_slot[cp];
     if (slot < 0) return;
-    dst[(long long)slot * d_model + col] = __float2bfloat16(src[row * d_model + col]);
+    dst[(long long)slot * d_model + col] = agpt_kv_from_float(src[row * d_model + col]);
 }
 
 static inline void launch_kv_scatter_compact_bf16_v2(const float* src, const int* char_pos,
                                                      const int* compact_slot,
-                                                     __nv_bfloat16* dst, int N, int d_model) {
+                                                     agpt_kv_t* dst, int N, int d_model) {
     int total = N * d_model;
     int threads = 256;
     int blocks = (total + threads - 1) / threads;
     kv_scatter_compact_bf16_v2<<<blocks, threads>>>(src, char_pos, compact_slot, dst, N, d_model);
 }
 
-__global__ static void kv_gather_anc_compact_bf16_v2(const __nv_bfloat16* global_kv,
+__global__ static void kv_gather_anc_compact_bf16_v2(const agpt_kv_t* global_kv,
                                                      const int* ancestor_ids,
                                                      const int* ancestor_offsets,
                                                      const int* kv_offsets,
@@ -158,12 +158,12 @@ __global__ static void kv_gather_anc_compact_bf16_v2(const __nv_bfloat16* global
     for (int p = 0; p < len; p++) {
         int char_pos = ancestor_ids[anc_off + p];
         int slot = compact_slot[char_pos];
-        float val = (slot >= 0) ? __bfloat162float(global_kv[(long long)slot * d_model + col]) : 0.0f;
+        float val = (slot >= 0) ? agpt_kv_to_float(global_kv[(long long)slot * d_model + col]) : 0.0f;
         packed_kv[((kv_off + p) * n_heads + head) * head_dim + hcol] = val;
     }
 }
 
-static inline void launch_kv_gather_anc_compact_bf16_v2(const __nv_bfloat16* global_kv,
+static inline void launch_kv_gather_anc_compact_bf16_v2(const agpt_kv_t* global_kv,
                                                         const int* ancestor_ids,
                                                         const int* ancestor_offsets,
                                                         const int* kv_offsets,

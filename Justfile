@@ -89,6 +89,17 @@ build-agpt-train-v2: build-cuda-kernels
         -gencode=arch=compute_90,code=sm_90 \
         src/cudax/agpt_train_v2.cu build/kernels_gpu.o -lcublas $(pkg-config --cflags --libs yam) -o bin/agpt_train_v2
 
+# v2 trainer with an fp32 ancestor K/V cache instead of bf16 (gradient-parity
+# diagnostics; see rnd/gradient-population Exp 7). Same flags otherwise.
+build-agpt-train-v2-kvfp32: build-cuda-kernels
+    mkdir -p bin
+    /opt/cuda/bin/nvcc --allow-unsupported-compiler -std=c++17 -O3 \
+        -gencode=arch=compute_80,code=sm_80 \
+        -gencode=arch=compute_89,code=sm_89 \
+        -gencode=arch=compute_90,code=sm_90 \
+        -DAGPT_KV_CACHE_FP32 \
+        src/cudax/agpt_train_v2.cu build/kernels_gpu.o -lcublas $(pkg-config --cflags --libs yam) -o bin/agpt_train_v2_kvfp32
+
 # Build standalone cudax seed-model generator.
 build-agpt-seed:
     mkdir -p bin

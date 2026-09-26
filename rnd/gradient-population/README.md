@@ -796,6 +796,31 @@ down to 0.002), 332 accepted, 3 history resets.
    yet isolated: truncation vs bf16 can be separated by rerunning the
    check with an fp32 cache.)
 
+### Experiment 7b — bf16 cache ruled out (2026-09-26)
+
+The ancestor K/V cache element type is now a compile-time switch
+(`agpt_kv_t` in `src/cudax/cuda_support.cuh`; bf16 default, unchanged —
+the default binary reproduces f(θ) = 1.8757458 bit-for-bit).
+`just build-agpt-train-v2-kvfp32` builds `bin/agpt_train_v2_kvfp32`;
+`agpt_grad_check.py --trainer` selects the binary.
+
+Finite-difference ratio FD / (g_anc·d), direction ĝ_anc:
+
+| point | bf16 cache (ε .01 / .003) | **fp32 cache** (ε .01 / .003) | fp32, anc_grad off |
+|---|---|---|---|
+| ep25 start | 1.045 / 1.058 | **1.044 / 1.049** | 1.108 / 1.113 |
+| L-BFGS 600 | 0.995 / 1.020 | **1.010 / 1.033** | 1.087 / 1.111 |
+
+An fp32 cache changes the loss in the 6th decimal and leaves the
+mismatch where it was. **The error is in the backward, not in bf16
+rounding.** Its sign fits truncation: the true slope is *larger* than
+the reported gradient (a dropped contribution), removing the ancestor
+path entirely roughly doubles the shortfall (4.4% → 10.8% at the start),
+so the Wk/Wv-only scatter recovers about half of the ancestor
+contribution and the rest — the path back through ancestor LN1, the
+earlier layer's residual stream and the embeddings — is what is missing.
+Step 2 (complete the ancestor backward) is the fix.
+
 ### Consequence
 
 AGPT's premise is an *exact* aggregated gradient. The CUDA trainer

@@ -26,8 +26,8 @@ static inline cublasMath_t read_cublas_math_mode_v2() {
 struct CacheRuntimeV2 {
     CacheRuntimeContract contract;
     int* d_compact_slot = nullptr;
-    __nv_bfloat16** d_k_layers = nullptr;
-    __nv_bfloat16** d_v_layers = nullptr;
+    agpt_kv_t** d_k_layers = nullptr;
+    agpt_kv_t** d_v_layers = nullptr;
 };
 
 struct ChunkRuntimeV2 {
@@ -202,8 +202,8 @@ static inline void init_cache_runtime_v2(CacheRuntimeV2& runtime,
     AGPT_V2_CUDA_CHECK(cudaMalloc(&runtime.d_compact_slot, (size_t)trie.total_edge_chars * sizeof(int)));
     AGPT_V2_CUDA_CHECK(cudaMemcpy(runtime.d_compact_slot, trie.compact_slot,
                                   (size_t)trie.total_edge_chars * sizeof(int), cudaMemcpyHostToDevice));
-    runtime.d_k_layers = (__nv_bfloat16**)std::calloc(contract.layer_count, sizeof(__nv_bfloat16*));
-    runtime.d_v_layers = (__nv_bfloat16**)std::calloc(contract.layer_count, sizeof(__nv_bfloat16*));
+    runtime.d_k_layers = (agpt_kv_t**)std::calloc(contract.layer_count, sizeof(agpt_kv_t*));
+    runtime.d_v_layers = (agpt_kv_t**)std::calloc(contract.layer_count, sizeof(agpt_kv_t*));
     for (int l = 0; l < contract.layer_count; l++) {
         if (contract.uses_managed_memory) {
             AGPT_V2_CUDA_CHECK(cudaMallocManaged(&runtime.d_k_layers[l], contract.per_layer_k_bytes));
