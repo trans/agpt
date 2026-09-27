@@ -182,9 +182,9 @@
             <article class="evidence-card">
               <div class="card-top"><span class="card-index">03</span><span class="card-tag">OPEN IMPLEMENTATION ISSUE</span></div>
               <h3>Exact backward comes first.</h3>
-              <p>A controlled PyTorch curvature test was promising. The CUDA trie trainer’s ancestor backward path is still approximate, and its L-BFGS run did not reproduce that gain.</p>
-              <div class="open-status"><span class="open-status-dot" aria-hidden="true"></span> Active investigation</div>
-              <p class="card-foot">Finite-difference checks expose a gradient mismatch</p>
+              <p>In a controlled PyTorch test, L-BFGS with exact gradients reached a target loss in 42× fewer passes than gradient descent. At one checkpoint, a finite-difference check found the CUDA trie gradient about 4% short along a tested direction. We suspect that error disrupts L-BFGS; completing the ancestor backward pass and rerunning the test will check it.</p>
+              <div class="open-status"><span class="open-status-dot" aria-hidden="true"></span> Fix and rerun pending</div>
+              <p class="card-foot">Passes to a loss target · end-to-end speed unmeasured</p>
               <a class="card-link" href="https://github.com/trans/agpt/blob/main/rnd/gradient-population/README.md">Read the diagnosis <span aria-hidden="true">↗</span></a>
             </article>
           </div>
