@@ -22,6 +22,10 @@ counts](../notes/trie-structure/shakespeare-h0-depth-profile.md), [radix node
 counts](../rnd/sparsity-profile/README.md), and [depth-124
 profile](../notes/seq-len-extension/d124-radix-feasibility.md). These describe
 character-level structure in Tiny Shakespeare. Radix node records nearly
-plateau after depth 16, while edge-character storage still grows sharply. The
-50-token question for all recorded writing is an unmeasured working estimate,
-not a storage bound or a measured end-to-end speedup.
+plateau after depth 16. The current exact representation still stores token
+labels for unary edges; [tail-pruning](../rnd/unary-pruning/README.md) and
+[root-wrap](../rnd/wrap-around/README.md) synthesis experiments point toward
+ways to avoid retaining all long tails, but do not demonstrate memory savings
+in the AGPT trainer. The 50-token question for all recorded writing is an
+unmeasured working estimate, not a storage bound or a measured end-to-end
+speedup.

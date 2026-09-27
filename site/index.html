@@ -138,7 +138,7 @@
               <span class="micro-label">01 / COMPUTE</span>
               <h3>Pay for a prefix once.</h3>
               <p>Separate examples may calculate the same prefix state many times. AGPT can share that state across branches and, ideally, compute it once per corpus pass. A node may cost more to process, but fewer repeated evaluations could reduce total work.</p>
-              <div class="advantage-trade"><span><strong>Potential gain</strong>Fewer repeated calculations</span><span><strong>Tradeoff</strong>Memory for the tree and cached states</span></div>
+              <div class="advantage-trade"><span><strong>Potential gain</strong>Fewer repeated calculations</span><span><strong>Tradeoff</strong>Tree data and cached states</span></div>
             </article>
             <article class="advantage-card">
               <span class="micro-label">02 / STRUCTURE</span>
@@ -151,8 +151,8 @@
             <div><span class="micro-label">THE BRANCHING STRUCTURE PLATEAUS</span><p>On the same 1.1M-character corpus, going from depth 16 to 124 adds just 3.7% more radix node records:</p></div>
             <div class="profile-values"><span><strong>1.608M</strong>depth 16</span><span><strong>1.666M</strong>depth 32</span><span><strong>1.668M</strong>depth 124</span></div>
           </div>
-          <p class="advantage-hypothesis"><strong>Open scale question:</strong> Could branching across all recorded human writing end within roughly 50 tokens? This is a working estimate, still unmeasured. A depth cap would limit the longest shared path; unique tails could still make total storage grow.</p>
-          <p class="advantage-note">By depth 124, Tiny Shakespeare has no repeated character contexts left. But edge-character storage rises from 9.3M positions at depth 16 to 129.6M at depth 124: a plateau in node records is not constant memory. A speed advantage over conventional training remains to be measured. <a href="https://github.com/trans/agpt/blob/main/notes/trie-structure/shakespeare-h0-depth-profile.md">Per-depth branching counts ↗</a> · <a href="https://github.com/trans/agpt/blob/main/rnd/sparsity-profile/README.md">Radix counts ↗</a> · <a href="https://github.com/trans/agpt/blob/main/notes/seq-len-extension/d124-radix-feasibility.md">Depth-124 profile ↗</a></p>
+          <p class="advantage-hypothesis"><strong>Open scale question:</strong> Could branching across all recorded human writing end within roughly 50 tokens? This is a working estimate, still unmeasured. Storage at that scale would depend on how the tails are represented.</p>
+          <p class="advantage-note">By depth 124, Tiny Shakespeare has no repeated character contexts left. Radix edges already compress the long one-child paths; pruning tails or looping back through the root may reduce storage further. Those ideas and any end-to-end speed advantage still need testing. <a href="https://github.com/trans/agpt/blob/main/notes/trie-structure/shakespeare-h0-depth-profile.md">Branching profile ↗</a> · <a href="https://github.com/trans/agpt/blob/main/notes/seq-len-extension/d124-radix-feasibility.md">Depth-124 profile ↗</a> · <a href="https://github.com/trans/agpt/blob/main/rnd/unary-pruning/README.md">Tail pruning ↗</a> · <a href="https://github.com/trans/agpt/blob/main/rnd/wrap-around/README.md">Root wrap ↗</a></p>
         </div>
       </section>
 
