@@ -121,6 +121,28 @@ h1 em, .next-section h2 em { color: var(--lime); font-weight: 400; }
 .idea-aside .aside-note { margin: 22px 0 30px; color: #57675a; font-size: 13px; line-height: 1.65; }
 .idea-aside .text-link { align-self: flex-start; margin-top: auto; }
 
+.advantage-section { color: #f5f8ee; background: var(--dark); }
+.advantage-section .section-number { color: var(--lime); }
+.advantage-heading p { color: #b8c9c0; }
+.advantage-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+.advantage-card { display: flex; flex-direction: column; min-height: 440px; padding: 34px 36px; border: 1px solid #42534a; background: #182929; }
+.advantage-card .micro-label, .advantage-profile .micro-label { color: var(--lime); }
+.advantage-card h3 { margin: 55px 0 18px; font: 400 clamp(35px, 3.5vw, 52px)/1.03 var(--serif); letter-spacing: -.05em; }
+.advantage-card > p { max-width: 520px; margin-bottom: 30px; color: #b7c8bf; font-size: 15px; line-height: 1.7; }
+.advantage-trade { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-top: auto; padding-top: 22px; border-top: 1px solid #405151; }
+.advantage-trade span { color: #bbcac0; font-size: 12px; line-height: 1.5; }
+.advantage-trade strong { display: block; margin-bottom: 7px; color: var(--lime); font: 700 10px var(--mono); letter-spacing: .06em; text-transform: uppercase; }
+.advantage-stat { display: flex; align-items: center; gap: 20px; margin-top: auto; padding-top: 22px; border-top: 1px solid #405151; }
+.advantage-stat strong { color: var(--lime); font: 400 55px/.9 var(--serif); letter-spacing: -.055em; white-space: nowrap; }
+.advantage-stat span { max-width: 270px; color: #bbcac0; font-size: 12px; line-height: 1.5; }
+.advantage-profile { display: grid; grid-template-columns: minmax(210px, .7fr) minmax(0, 1.3fr); gap: 36px; align-items: center; margin-top: 18px; padding: 28px 36px; background: #253935; }
+.advantage-profile p { margin: 9px 0 0; color: #cbd9d0; font-size: 14px; line-height: 1.55; }
+.profile-values { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.profile-values span { color: #b9c9c0; font: 10px/1.4 var(--mono); }
+.profile-values strong { display: block; margin-bottom: 8px; color: #f5f8ee; font: 400 39px/1 var(--serif); letter-spacing: -.05em; }
+.advantage-note { max-width: 1050px; margin: 22px 0 0; color: #a9bbb0; font-size: 12px; line-height: 1.65; }
+.advantage-note a { color: var(--lime); text-underline-offset: 3px; }
+
 .evidence-section { background: #e9ede6; }
 .evidence-heading { margin-bottom: 53px; }
 .evidence-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
@@ -224,6 +246,9 @@ h1 em, .next-section h2 em { color: var(--lime); font-weight: 400; }
   .idea-layout { gap: 16px; }
   .idea-aside { min-height: 320px; }
   .idea-aside > p:first-of-type { margin-top: 23px; }
+  .advantage-grid, .advantage-profile { grid-template-columns: 1fr; }
+  .advantage-card { min-height: 0; }
+  .advantage-profile { gap: 22px; }
   .evidence-grid { grid-template-columns: 1fr; }
   .evidence-card { min-height: 370px; padding: 29px; }
   .card-top { margin-bottom: 30px; }
@@ -254,6 +279,11 @@ h1 em, .next-section h2 em { color: var(--lime); font-weight: 400; }
   .diagram-stage svg { max-height: 240px; }
   .diagram-explanation { font-size: 13px; }
   .idea-aside { padding: 27px; }
+  .advantage-card { padding: 28px; }
+  .advantage-card h3 { margin-top: 38px; }
+  .advantage-profile { padding: 26px; }
+  .profile-values { gap: 12px; }
+  .profile-values strong { font-size: 32px; }
   .evidence-card { padding: 24px; }
   .track-grid { grid-template-columns: 1fr; }
   .track-card { min-height: 310px; }

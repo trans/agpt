@@ -24,6 +24,7 @@
         </a>
         <div class="nav-links">
           <a href="#idea">The idea</a>
+          <a href="#advantage">Advantage</a>
           <a href="#evidence">Evidence</a>
           <a href="#next">What’s next</a>
           <a class="nav-source" href="https://github.com/trans/agpt">Source <span aria-hidden="true">↗</span></a>
@@ -129,9 +130,34 @@
         </div>
       </section>
 
+      <section id="advantage" class="section advantage-section" aria-labelledby="advantage-heading">
+        <div class="shell">
+          <div class="section-heading advantage-heading"><span class="section-number">02 / THE ADVANTAGE</span><h2 id="advantage-heading">Reuse the work.<br />Keep the pattern.</h2><p>When text repeats, a tree can turn that repetition into shared computation and a reusable map of the corpus.</p></div>
+          <div class="advantage-grid">
+            <article class="advantage-card">
+              <span class="micro-label">01 / COMPUTE</span>
+              <h3>Pay for a prefix once.</h3>
+              <p>Separate examples may calculate the same prefix state many times. AGPT can share that state across branches and, ideally, compute it once per corpus pass. A node may cost more to process, but fewer repeated evaluations could reduce total work.</p>
+              <div class="advantage-trade"><span><strong>Potential gain</strong>Fewer repeated calculations</span><span><strong>Tradeoff</strong>Memory for the tree and cached states</span></div>
+            </article>
+            <article class="advantage-card">
+              <span class="micro-label">02 / STRUCTURE</span>
+              <h3>Let repetition shape the tree.</h3>
+              <p>Common contexts converge on shared branches. The radix trie used here also folds stretches with no branching into single edges; other tree representations may compress them further. Its useful shared structure can stay shallow as the corpus grows.</p>
+              <div class="advantage-stat"><strong>16.2×</strong><span>node-count compression versus an uncompressed trie at depth 32 on the 1.1M-character Shakespeare corpus</span></div>
+            </article>
+          </div>
+          <div class="advantage-profile">
+            <div><span class="micro-label">A MEASURED HINT AT SCALE</span><p>Mean characters until a prefix first becomes unique:</p></div>
+            <div class="profile-values" aria-label="Shakespeare 100 thousand characters: 7.94; Shakespeare 1 million characters: 9.71; Gutenberg 5 million characters: 11.23"><span><strong>7.94</strong>Shakespeare · 100K</span><span><strong>9.71</strong>Shakespeare · 1M</span><span><strong>11.23</strong>Gutenberg · 5M</span></div>
+          </div>
+          <p class="advantage-note">The profile shows slowly growing <em>branching depth</em> in these character corpora, not a bound on total tree size. Unique tails still use space, and a speed advantage over conventional training remains to be measured. <a href="https://github.com/trans/agpt/blob/main/rnd/trie-attention-framing/findings.md">Branching-depth measurements ↗</a> · <a href="https://github.com/trans/agpt/blob/main/rnd/sparsity-profile/README.md">Radix node counts ↗</a></p>
+        </div>
+      </section>
+
       <section id="evidence" class="section evidence-section">
         <div class="shell">
-          <div class="section-heading evidence-heading"><span class="section-number">02 / WHAT WE KNOW</span><h2>Progress is measured<br />against the goal.</h2><p>The useful results include constraints and failed approaches. Every number below links to its experiment record.</p></div>
+          <div class="section-heading evidence-heading"><span class="section-number">03 / WHAT WE KNOW</span><h2>Progress is measured<br />against the goal.</h2><p>The useful results include constraints and failed approaches. Every number below links to its experiment record.</p></div>
           <div class="evidence-grid">
             <article class="evidence-card">
               <div class="card-top"><span class="card-index">01</span><span class="card-tag">MATCHED INTERNAL CONTROL</span></div>
@@ -166,7 +192,7 @@
       </section>
 
       <section class="section tracks-section shell" aria-labelledby="tracks-heading">
-        <div class="section-heading"><span class="section-number">03 / THE WORK</span><h2 id="tracks-heading">It began with GPT.<br />The idea grew.</h2><p>AGPT started as a way to rethink GPT training. Later, the same structure turned out to apply to other models with reusable prefix states.</p></div>
+        <div class="section-heading"><span class="section-number">04 / THE WORK</span><h2 id="tracks-heading">It began with GPT.<br />The idea grew.</h2><p>AGPT started as a way to rethink GPT training. Later, the same structure turned out to apply to other models with reusable prefix states.</p></div>
         <div class="track-grid">
           <a class="track-card" href="https://github.com/trans/agpt/tree/main/src/cudax"><div class="track-top"><span>01 / ORIGINAL DIRECTION</span><span aria-hidden="true">↗</span></div><h3>AGPT</h3><p>The original track applies the idea to GPT-style transformers: share repeated token prefixes, combine their gradients, and test whether a corpus pass can carry more useful training signal.</p><span class="track-tail">Transformer · Crystal/CUDA · experiment runner</span></a>
           <a class="track-card" href="https://github.com/trans/agpt/tree/main/research/ultra"><div class="track-top"><span>02 / LATER REALIZATION</span><span aria-hidden="true">↗</span></div><h3>AGPT Ultra</h3><p>The tree also works with models that carry a complete state from one token to the next. The PyTorch track explores this with tanh RNNs and GRUs, along with ways to combine their training evidence.</p><span class="track-tail">Recurrent models · Python/PyTorch · research notebook</span></a>
@@ -177,7 +203,7 @@
 
       <section id="next" class="section next-section">
         <div class="shell next-layout">
-          <div><span class="section-number">04 / THE NEXT TESTS</span><h2>Move the ball<br /><em>forward.</em></h2><p>“One epoch and done” is the measuring stick. The next steps test whether better gradients and better updates can close the gap.</p></div>
+          <div><span class="section-number">05 / THE NEXT TESTS</span><h2>Move the ball<br /><em>forward.</em></h2><p>“One epoch and done” is the measuring stick. The next steps test whether better gradients and better updates can close the gap.</p></div>
           <ol class="next-list"><li><span>01</span><div><h3>Complete the CUDA backward pass</h3><p>Make the aggregated gradient match finite differences through ancestor attention.</p></div></li><li><span>02</span><div><h3>Run matched evaluations</h3><p>Keep corpus splits, context, evaluator, model size, and wall time explicit.</p></div></li><li><span>03</span><div><h3>Test curvature on the exact trie gradient</h3><p>Find out whether one expensive, information-rich pass can replace many noisy updates.</p></div></li><li><span>04</span><div><h3>Measure the one-pass gap</h3><p>Report how close one corpus pass gets in quality and time, even when it falls short.</p></div></li></ol>
         </div>
       </section>

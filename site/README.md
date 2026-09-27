@@ -17,3 +17,7 @@ The page intentionally treats “one epoch and done” as the goal. The numerica
 cards cite the [stochastic AGPT](../rnd/stochastic-agpt/README.md) and
 [gradient population](../rnd/gradient-population/README.md) records. The paper
 is labeled as a draft because its empirical section is under revision.
+The advantage section also cites the [branching-depth
+profile](../rnd/trie-attention-framing/findings.md) and [radix node
+counts](../rnd/sparsity-profile/README.md); these describe corpus structure,
+not a measured end-to-end speedup or a sublinear bound on total trie storage.
