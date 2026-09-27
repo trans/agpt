@@ -1,4 +1,4 @@
-# AGPT — Aggregated-Gradient Pretraining
+# AGPT
 
 > **One epoch and done.**
 
@@ -10,8 +10,9 @@ prefixes and using more informative updates can move us toward that goal.
 
 This is an active research repository by Thomas Sawyer. It contains a
 Crystal/CUDA trainer, a smaller PyTorch research track, experiment records,
-and a [paper draft](docs/paper.md). The experiments include negative results
-and corrections to earlier evaluation methods.
+and a [paper draft](docs/paper.md). A [static project page](site/README.md) is
+also in progress. The experiments include negative results and corrections to
+earlier evaluation methods.
 
 ## The idea
 
