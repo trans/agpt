@@ -156,6 +156,12 @@ h1 em, .next-section h2 em { color: var(--lime); font-weight: 400; }
 .track-card h3 { margin: 58px 0 14px; font: 400 clamp(37px, 3.5vw, 52px)/1 var(--serif); letter-spacing: -.05em; }
 .track-card p { max-width: 470px; color: #566560; font-size: 14px; line-height: 1.7; }
 .track-tail { margin-top: auto; padding-top: 30px; color: #839187; font-size: 10px; }
+.tracks-principle { display: grid; grid-template-columns: minmax(150px, .35fr) minmax(0, 1fr); gap: 25px; align-items: start; margin-top: 19px; padding: 26px 30px; background: #e9ede6; }
+.tracks-principle .micro-label { color: #698321; }
+.tracks-principle-body { display: flex; align-items: center; justify-content: space-between; gap: 32px; }
+.tracks-principle p { max-width: 620px; margin: 0; color: #4e6055; font-size: 14px; line-height: 1.65; }
+.tracks-equation { flex: none; color: #26372d; font: 400 25px/1.25 var(--serif); white-space: nowrap; }
+.tracks-equation sub { font-size: .58em; }
 .tracks-note { max-width: 700px; margin: 24px 0 0; color: #65736a; font-size: 13px; line-height: 1.6; }
 .tracks-note a { text-underline-offset: 3px; }
 
@@ -252,6 +258,8 @@ h1 em, .next-section h2 em { color: var(--lime); font-weight: 400; }
   .track-grid { grid-template-columns: 1fr; }
   .track-card { min-height: 310px; }
   .track-card h3 { margin-top: 45px; }
+  .tracks-principle { grid-template-columns: 1fr; gap: 14px; padding: 24px; }
+  .tracks-principle-body { align-items: flex-start; flex-direction: column; gap: 18px; }
   .closing { padding-block: 90px; }
   .closing-actions { align-items: center; flex-direction: column; gap: 22px; }
   .footer-layout { grid-template-columns: 1fr; gap: 36px; }
