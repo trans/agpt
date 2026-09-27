@@ -102,14 +102,13 @@ h1 em, .next-section h2 em { color: var(--lime); font-weight: 400; }
 .diagram-edge { fill: none; stroke: #a8b5aa; stroke-width: 2; stroke-linecap: round; }
 .diagram-node circle { fill: #ecf2e2; stroke: #68844d; stroke-width: 2; }
 .diagram-node circle:nth-child(n + 5) { fill: var(--lime); stroke: #8cae38; }
-.diagram-letter text { fill: #243433; text-anchor: middle; font: 17px var(--mono); }
+.diagram-letter text, .sequence-token { fill: #243433; text-anchor: middle; font: 17px var(--mono); }
 .diagram-caption { fill: #68766a; font: 10px var(--mono); letter-spacing: .06em; }
 .sequence-lane { fill: #f5f7f1; stroke: #dce4d8; stroke-width: 1; }
 .sequence-index { fill: #7f8e83; font: 10px var(--mono); }
 .sequence-connector { fill: none; stroke: #a6b3a9; stroke-width: 2; stroke-linecap: round; }
-.prefix-tile { fill: #ebf2e3; stroke: #b5c7a5; stroke-width: 1.5; }
-.ending-tile { fill: var(--lime); stroke: #9dbc41; stroke-width: 1.5; }
-.sequence-token { fill: #243433; text-anchor: middle; font: 22px var(--mono); }
+.prefix-node { fill: #ebf2e3; stroke: #b5c7a5; stroke-width: 1.5; }
+.ending-node { fill: var(--lime); stroke: #9dbc41; stroke-width: 1.5; }
 .diagram-explanation { margin: 4px 0 0; padding-top: 20px; border-top: 1px solid var(--line); color: #4c5a54; font-size: 14px; line-height: 1.6; }
 .diagram-explanation strong { color: var(--ink); }
 .idea-aside { display: flex; flex-direction: column; padding: 33px; background: #e8ede3; }
