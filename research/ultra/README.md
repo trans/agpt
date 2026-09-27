@@ -1,4 +1,14 @@
-# agpt-ultra
+# AGPT Ultra — Python research track
+
+This directory contains the former `agpt-ultra` repository, imported with its
+Git history into [AGPT](../..). It explores exact prefix reuse with small
+recurrent models, Fisher-based updates, and count-prior residual models. Run its
+scripts from this directory so their relative data and output paths resolve.
+
+The [research notebook](notebook/README.md) records the investigation. See
+[Experiment records](EXPERIMENTS.md) before comparing any numbers with the CUDA
+AGPT track. The former repository's paper was identical to the [AGPT paper
+draft](../../docs/paper.md), so this tree points to the shared copy.
 
 Prefix-structured language model experiments.
 
@@ -18,7 +28,11 @@ prefix is the complete parent state needed by all children.
 
 ## Installation
 
-TODO: Write installation instructions here
+Use Python 3.11 or newer with PyTorch installed. Run the commands from
+`research/ultra/`; the scripts import the local `agpt_ultra` package directly.
+
+The included `data/input.txt` and `data/smoke.txt` are sufficient for the
+commands below. GPU access is optional for the small tests and examples.
 
 ## Usage
 
@@ -207,16 +221,9 @@ python3 scripts/train_baseline.py \
 
 ## Development
 
-TODO: Write development instructions here
+```sh
+python3 -m unittest discover -s tests -v
+```
 
-## Contributing
-
-1. Fork it (<https://github.com/your-github-user/agpt-ultra/fork>)
-2. Create your feature branch (`git checkout -b my-new-feature`)
-3. Commit your changes (`git commit -am 'Add some feature'`)
-4. Push to the branch (`git push origin my-new-feature`)
-5. Create a new Pull Request
-
-## Contributors
-
-- [Thomas Sawyer](https://github.com/your-github-user) - creator and maintainer
+The imported code is licensed under the repository's [PolyForm Noncommercial
+License 1.0.0](../../LICENSE). Thomas Sawyer is the author of this track.

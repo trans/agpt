@@ -1,9 +1,8 @@
 # Data
 
-Put Tiny Shakespeare at `data/input.txt` before running the training script.
+`input.txt` is the Tiny Shakespeare corpus used by the original Python
+experiments; `smoke.txt` supports quick examples and tests. Run scripts from
+`research/ultra/` so their default `data/` paths use these files.
 
-One common source is Karpathy's tiny Shakespeare text:
-
-```sh
-curl -L https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt -o data/input.txt
-```
+Generated splits and `runs/` outputs from the former standalone checkout were
+not imported. The [experiment record](../EXPERIMENTS.md) explains the boundary.

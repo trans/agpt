@@ -3,6 +3,7 @@ name = "agpt-ultra"
 version = "0.1.0"
 description = "Prefix-structured character language model experiments."
 requires-python = ">=3.11"
+license = "PolyForm-Noncommercial-1.0.0"
 dependencies = [
   "torch",
 ]

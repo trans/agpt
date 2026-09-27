@@ -2,7 +2,7 @@
 
 **Author:** Thomas Sawyer &nbsp; `transfire@gmail.com`
 **Status:** v1.0 preprint &nbsp; · &nbsp; **Date:** 2026-04-19
-**Code:** https://github.com/trans/microgpt
+**Code:** https://github.com/trans/agpt
 
 
 
@@ -693,8 +693,8 @@ approximately 2 orders of magnitude larger than the present experiment.
    min_depth) threshold gates out the mass=1 long tail at large d.
    Provably safe (monotonicity).
 
-Full code is published at the referenced repository under an MIT
-license.
+Full code is published at the referenced repository under the
+[PolyForm Noncommercial License 1.0.0](../LICENSE).
 
 *Empirical results from the previous revision (§11) have been retracted
 pending re-measurement under standard rolling-PPL evaluation; see §11

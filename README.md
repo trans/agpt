@@ -1,103 +1,87 @@
 # AGPT — Aggregated-Gradient Pretraining
 
-Research project on aggregated-gradient pretraining for autoregressive
-language models. Trains a transformer on a prefix-trie representation of
-the corpus, factoring the gradient over branching subtrees rather than
-sliding context windows. Built on top of the
-[µGPT](https://github.com/trans/microgpt) Crystal/CUDA components kit.
+> **One epoch and done.**
 
-## What's here
+That is the research goal: could a language model learn enough from one pass
+over a corpus to match a conventional training run, while using substantially
+less time? AGPT investigates whether sharing computation across repeated text
+prefixes and using more informative updates can move us toward that goal.
+**One-epoch parity and a 10× speedup have not been demonstrated.**
 
-- **[Paper](notes/paper.md)** — the gradient-factorization theorem,
-  memory-scalable implementation, and empirical results on Shakespeare.
-- **CUDA training engine** (`src/cuda/agpt_train.cu`, `bin/agpt_train`) —
-  the GPU trainer. Radix-compressed trie input, per-subtree KV-cache
-  scoping, bigram partitioning, auto-LR scaling, frequency-based
-  pruning, and several sampler modes (L1 uniform, L2 root-child uniform,
-  L3 mass-weighted, L4 path).
-- **Trie builders** — `bin/agpt_build_index` produces a leveled
-  per-depth trie from a corpus; `bin/agpt_build_radix` compresses unary
-  chains into multi-character edges.
-- **Wrap-around corpus synthesis** (`bin/synth_wrap_corpus`) — sample
-  arbitrary-length token sequences from a depth-D trie via leaf→root
-  wrapping with bridge-token sampling.
-- **Diagnostic tools** — `bin/radix-verify`, `bin/trie-profile`,
-  `bin/bayesian-posterior`, `bin/convergence`, `bin/check_weights`.
+This is an active research repository by Thomas Sawyer. It contains a
+Crystal/CUDA trainer, a smaller PyTorch research track, experiment records,
+and a [paper draft](docs/paper.md). The experiments include negative results
+and corrections to earlier evaluation methods.
 
-## Building
+## The idea
+
+Many corpus windows share a beginning. For example, `cast`, `case`, and `cash`
+all reuse `cas` before branching. A prefix trie stores that common path once.
+At each node, next-token counts determine a count-weighted prediction loss;
+descendant gradients can be summed before passing through shared prefix
+computation. The [paper draft](docs/paper.md) develops the factorization and
+the proposed training regimes.
+
+```text
+separate paths                  shared prefix
+cas → t                         cas ┬→ t
+cas → e                             ├→ e
+cas → h                             └→ h
+```
+
+The mathematical reorganization does not by itself make a trainer fast or
+accurate. Optimizer update frequency, sparse deep contexts, memory use, and
+correct gradient propagation all matter in practice.
+
+## Where the research stands
+
+| Finding | Evidence | What it means |
+| --- | --- | --- |
+| Partitioning the trie changes learning markedly. | In a matched depth-16 Shakespeare control, 100 epochs of one update per root child reached **5.34 rolling byte PPL**; one update per full trie reached **12.05**, with about the same training time. [Run record and setup](rnd/stochastic-agpt/README.md) | Sharing work also reduces optimizer updates. This is an internal AGPT control, not a comparison with a conventional trainer. |
+| Gradient directions increasingly cancel when large subtrees are aggregated. | Event-weighted coherence fell from **0.719 at initialization** to **0.130 after 100 epochs** in a frozen-gradient diagnostic. [Method and results](rnd/gradient-population/README.md) | The one-step-per-epoch optimizer needs a better update rule. This diagnostic is not a perplexity benchmark. |
+| Exact gradients make curvature methods promising in a controlled PyTorch test, but the CUDA implementation has a backward mismatch. | [Experiments 6–7b and finite-difference check](rnd/gradient-population/README.md) | Completing the ancestor backward path is a prerequisite for testing that promise in the trie trainer. No end-to-end speed claim follows yet. |
+
+The paper's original empirical section was retracted after evaluation and
+training-objective corrections. Its current version is a **theory and systems
+draft**, with empirical claims still being rebuilt under the standard rolling
+evaluation protocol. The [experiment index](rnd/README.md) and
+[methodology triage](rnd/TRIAGE.md) preserve the history behind these changes.
+
+## Research tracks
+
+- **[CUDA AGPT](src/cudax/README.md):** radix-trie training with a transformer,
+  partitioned optimizer steps, and a provenance-aware experiment runner.
+- **[AGPT Ultra](research/ultra/README.md):** a Python/PyTorch track imported
+  from a separate repository with its Git history. It explores exact prefix
+  reuse in small recurrent models, Fisher-based updates, and count-prior
+  residuals. Its [experiment record](research/ultra/EXPERIMENTS.md) explains
+  why historical Ultra and CUDA perplexity numbers are not directly comparable.
+- **[Research notes](notes/README.md) and [experiments](rnd/README.md):** design
+  decisions, tests, failures, and follow-up questions.
+
+## Build and verify
+
+The Crystal tools require Crystal 1.19.1 or newer and `shards`. The CUDA
+trainer additionally requires `nvcc`, cuBLAS, and a supported NVIDIA GPU.
+The Python research track requires Python 3.11 or newer with PyTorch.
 
 ```sh
-shards install              # resolves the µGPT shard dependency
-just build-all              # AGPT-native binaries
-just build-microgpt-tools   # reference binaries from the µGPT shard
+shards install
+just build-agpt-train-v2 build-agpt-experiment
+just test-crystal
+(cd research/ultra && python3 -m unittest discover -s tests -q)
 ```
 
-CUDA kernels are sourced from the µGPT shard at `lib/microgpt/`. `nvcc`
-on `PATH` (or at `/opt/cuda/bin/nvcc`) is required for the GPU trainer.
-
-### Dependency boundary
-
-AGPT is its own repo, but it intentionally depends on the µGPT shard for:
-
-- model/runtime primitives (`Mat`, `MiniGPT`, backends, RoPE)
-- shared CUDA kernels / stubs
-- reference comparison tools (`bin/microgpt`, `bin/perplexity`)
-
-AGPT owns the trie/radix code, AGPT trainers, AGPT research tools, notes,
-and `rnd/` experiment history.
-
-## Quick start (Shakespeare, depth 32)
-
-```sh
-# 1. Build a depth-32 leveled trie from the corpus.
-bin/agpt_build_index --corpus data/input.txt --max-depth 32
-
-# 2. Compress it to a radix trie.
-bin/agpt_build_radix --leveled /tmp/agpt_input_d32
-
-# 3. Train.
-cp data/input.random.model /tmp/run.model
-bin/agpt_train \
-  --model /tmp/run.model --trie-dir /tmp/agpt_input_d32_radix \
-  --save /tmp/run.model --epochs 3 --lr 3e-3 \
-  --optimizer rmsprop --rmsprop-beta 0.999 \
-  --lr-schedule warmup-cosine --warmup-epochs 1 \
-  --entropy-lambda 1.0 --mass-weight linear --no-accumulate
-
-# 4. Evaluate held-out perplexity.
-bin/perplexity --model /tmp/run.model --file data/input.txt \
-  --max-positions 4096 --backend openblas
-```
-
-## Tests
-
-```sh
-just test          # AGPT-native specs + AGPT foundational parity tests
-just test-crystal  # AGPT-native Crystal specs
-just test-agpt     # AGPT foundational parity tests
-```
-
-Foundational tests require `bin/microgpt` and `bin/perplexity` from the
-µGPT shard — `just build-microgpt-tools` builds them.
-
-## Layout
-
-```
-src/agpt/        Crystal: trie, radix, samplers, KV store, walkers
-src/cuda/        agpt_train.cu (GPU trainer; kernels.cu lives in µGPT)
-src/tools/       Crystal CLIs (builders, synthesis, diagnostics)
-spec/            Crystal specs for AGPT-only modules
-tests/           Foundational shell tests
-notes/      Design notes, paper drafts, status
-notes/grants/    Grant pitch
-rnd/             Research logs (per-experiment subdirectories)
-```
+`just test` also runs the foundational parity tests, which require the
+reference `microgpt` and `perplexity` binaries from the
+[µGPT](https://github.com/trans/microgpt) project. For reportable CUDA runs,
+use `bin/agpt_experiment` with a YAML configuration; see the
+[schema and runner workflow](docs/yaml-schema.md) and a
+[documented run](rnd/stochastic-agpt/README.md).
+The runner saves configuration, provenance, and evaluator results together.
 
 ## License
 
-Released under the [PolyForm Noncommercial License
-1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0/) — see
-[`LICENSE`](LICENSE). Academic and research use is permitted and
-encouraged. Commercial licensing available — see
-[`COMMERCIAL_LICENSE.md`](COMMERCIAL_LICENSE.md) or contact
-**`transfire@gmail.com`**.
+Code in this repository, including the imported AGPT Ultra track, is released
+under the [PolyForm Noncommercial License 1.0.0](LICENSE). See
+[commercial licensing](COMMERCIAL_LICENSE.md) for other uses.
