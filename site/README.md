@@ -19,5 +19,8 @@ cards cite the [stochastic AGPT](../rnd/stochastic-agpt/README.md) and
 is labeled as a draft because its empirical section is under revision.
 The advantage section also cites the [branching-depth
 profile](../rnd/trie-attention-framing/findings.md) and [radix node
-counts](../rnd/sparsity-profile/README.md); these describe corpus structure,
-not a measured end-to-end speedup or a sublinear bound on total trie storage.
+counts](../rnd/sparsity-profile/README.md), plus the
+[depth-124 limit](../notes/seq-len-extension/d124-radix-feasibility.md). These
+describe character-level structure in Tiny Shakespeare; the 50-token question
+for all recorded writing is an unmeasured working estimate, not a storage bound
+or a measured end-to-end speedup.
