@@ -17,10 +17,11 @@ The page intentionally treats “one epoch and done” as the goal. The numerica
 cards cite the [stochastic AGPT](../rnd/stochastic-agpt/README.md) and
 [gradient population](../rnd/gradient-population/README.md) records. The paper
 is labeled as a draft because its empirical section is under revision.
-The advantage section also cites the [branching-depth
-profile](../rnd/trie-attention-framing/findings.md) and [radix node
-counts](../rnd/sparsity-profile/README.md), plus the
-[depth-124 limit](../notes/seq-len-extension/d124-radix-feasibility.md). These
-describe character-level structure in Tiny Shakespeare; the 50-token question
-for all recorded writing is an unmeasured working estimate, not a storage bound
-or a measured end-to-end speedup.
+The advantage section cites the [per-depth branching
+counts](../notes/trie-structure/shakespeare-h0-depth-profile.md), [radix node
+counts](../rnd/sparsity-profile/README.md), and [depth-124
+profile](../notes/seq-len-extension/d124-radix-feasibility.md). These describe
+character-level structure in Tiny Shakespeare. Radix node records nearly
+plateau after depth 16, while edge-character storage still grows sharply. The
+50-token question for all recorded writing is an unmeasured working estimate,
+not a storage bound or a measured end-to-end speedup.

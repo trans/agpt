@@ -143,16 +143,16 @@
             <article class="advantage-card">
               <span class="micro-label">02 / STRUCTURE</span>
               <h3>Let repetition shape the tree.</h3>
-              <p>Repeated contexts share one path. As prefixes grow longer, their observed continuations usually stop branching. A radix trie folds those one-child stretches into single edges, keeping the branching structure compact. Other tree representations may do better.</p>
+              <p>Repeated contexts share one path. In Tiny Shakespeare, branching nodes peak at 78,836 at character depth 7, then fall to 6,119 by depth 16. At that cap, 99.43% of nodes have one observed continuation: zero empirical next-token entropy. A radix trie folds one-child stretches into edges; other tree structures might compress them further.</p>
               <div class="advantage-stat"><strong>16.2×</strong><span>node-count compression versus an uncompressed trie at depth 32 on the 1.1M-character Shakespeare corpus</span></div>
             </article>
           </div>
           <div class="advantage-profile">
-            <div><span class="micro-label">WHERE BRANCHING FADES</span><p>Character-depth landmarks from the 1.1M-character Tiny Shakespeare corpus:</p></div>
-            <div class="profile-values"><span><strong>9.71</strong>mean depth to a unique prefix</span><span><strong>16</strong>99.43% of cap nodes have one continuation</span><span><strong>124</strong>all contexts unique by this depth</span></div>
+            <div><span class="micro-label">THE BRANCHING STRUCTURE PLATEAUS</span><p>On the same 1.1M-character corpus, going from depth 16 to 124 adds just 3.7% more radix node records:</p></div>
+            <div class="profile-values"><span><strong>1.608M</strong>depth 16</span><span><strong>1.666M</strong>depth 32</span><span><strong>1.668M</strong>depth 124</span></div>
           </div>
           <p class="advantage-hypothesis"><strong>Open scale question:</strong> Could branching across all recorded human writing end within roughly 50 tokens? This is a working estimate, still unmeasured. A depth cap would limit the longest shared path; unique tails could still make total storage grow.</p>
-          <p class="advantage-note">These landmarks measure character-level structure in one corpus. A speed advantage over conventional training remains to be measured. <a href="https://github.com/trans/agpt/blob/main/rnd/trie-attention-framing/findings.md">Mean depth ↗</a> · <a href="https://github.com/trans/agpt/blob/main/rnd/sparsity-profile/README.md">Depth-16 profile and radix counts ↗</a> · <a href="https://github.com/trans/agpt/blob/main/notes/seq-len-extension/d124-radix-feasibility.md">Depth-124 limit ↗</a></p>
+          <p class="advantage-note">By depth 124, Tiny Shakespeare has no repeated character contexts left. But edge-character storage rises from 9.3M positions at depth 16 to 129.6M at depth 124: a plateau in node records is not constant memory. A speed advantage over conventional training remains to be measured. <a href="https://github.com/trans/agpt/blob/main/notes/trie-structure/shakespeare-h0-depth-profile.md">Per-depth branching counts ↗</a> · <a href="https://github.com/trans/agpt/blob/main/rnd/sparsity-profile/README.md">Radix counts ↗</a> · <a href="https://github.com/trans/agpt/blob/main/notes/seq-len-extension/d124-radix-feasibility.md">Depth-124 profile ↗</a></p>
         </div>
       </section>
 
