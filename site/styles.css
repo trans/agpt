@@ -162,7 +162,7 @@ h1 em, .next-section h2 em { color: var(--lime); font-weight: 400; }
 .tracks-principle p { max-width: 620px; margin: 0; color: #4e6055; font-size: 14px; line-height: 1.65; }
 .tracks-equation { flex: none; color: #26372d; font: 400 25px/1.25 var(--serif); white-space: nowrap; }
 .tracks-equation sub { font-size: .58em; }
-.tracks-note { max-width: 700px; margin: 24px 0 0; color: #65736a; font-size: 13px; line-height: 1.6; }
+.tracks-note { margin: 24px 0 0; color: #65736a; font-size: 13px; line-height: 1.6; }
 .tracks-note a { text-underline-offset: 3px; }
 
 .next-section { color: #f5f8ee; background: var(--dark); }
