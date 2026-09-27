@@ -69,16 +69,22 @@
         <div class="idea-layout">
           <div class="diagram-card">
             <div class="diagram-head">
-              <span class="micro-label">THREE TOKENS, TWO VIEWS</span>
-              <div class="view-switch" role="group" aria-label="Choose diagram view">
-                <button class="view-button" type="button" data-view="separate" aria-pressed="false">Separate paths</button>
-                <button class="view-button is-active" type="button" data-view="shared" aria-pressed="true">Shared prefix</button>
+              <div>
+                <span class="micro-label">THREE TOKENS, TWO VIEWS</span>
+                <p class="diagram-subtitle">The same next-token examples, trained two ways.</p>
+              </div>
+              <div class="diagram-controls">
+                <div class="view-switch" role="group" aria-label="Compare SGD and AGPT training views">
+                  <button class="view-button" type="button" data-view="separate" aria-pressed="false">SGD · Separate paths</button>
+                  <button class="view-button is-active" type="button" data-view="shared" aria-pressed="true">AGPT · Shared trie</button>
+                </div>
+                <span id="diagram-playback" class="playback-note" hidden></span>
               </div>
             </div>
             <div class="diagram-stage">
               <svg id="prefix-diagram" viewBox="0 0 660 290" role="img" aria-labelledby="diagram-title diagram-description">
-                <title id="diagram-title">Three next-token choices after a shared prefix</title>
-                <desc id="diagram-description">A comparison between three separate token sequences ending in t, e, and h and a trie that stores their shared cas prefix once.</desc>
+                <title id="diagram-title">SGD and AGPT views of three next-token examples</title>
+                <desc id="diagram-description">AGPT stores the cas prefix once in a trie before branching to the next tokens t, e, and h.</desc>
                 <g class="diagram-view" data-diagram="shared">
                   <path class="diagram-edge" d="M74 144 H193 H307 H424 M424 144 L551 54 M424 144 H551 M424 144 L551 234"/>
                   <g class="diagram-node"><circle cx="74" cy="144" r="19"/><circle cx="193" cy="144" r="19"/><circle cx="307" cy="144" r="19"/><circle cx="424" cy="144" r="19"/><circle cx="551" cy="54" r="19"/><circle cx="551" cy="144" r="19"/><circle cx="551" cy="234" r="19"/></g>
@@ -111,7 +117,7 @@
                 </g>
               </svg>
             </div>
-            <p id="diagram-explanation" class="diagram-explanation">The shared <strong>cas</strong> path is represented once. Each branch contributes evidence back through that shared computation.</p>
+            <p id="diagram-explanation" class="diagram-explanation">AGPT represents the shared <strong>cas</strong> path once. Each branch contributes evidence back through that shared computation.</p>
           </div>
           <div class="idea-aside">
             <span class="micro-label">THE MATHEMATICAL MOVE</span>

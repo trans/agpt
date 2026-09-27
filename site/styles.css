@@ -91,12 +91,15 @@ h1 em, .next-section h2 em { color: var(--lime); font-weight: 400; }
 .section-heading p { max-width: 370px; margin: 0 0 6px; color: var(--muted); font-size: 16px; line-height: 1.65; }
 .idea-layout { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(280px, .55fr); gap: 26px; }
 .diagram-card { display: flex; flex-direction: column; min-width: 0; padding: 26px 32px 22px; border: 1px solid var(--line); background: var(--white); }
-.diagram-head { display: flex; justify-content: space-between; align-items: center; gap: 15px; }
+.diagram-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 15px; }
 .micro-label { color: #6b7771; }
+.diagram-subtitle { margin: 7px 0 0; color: #78847b; font-size: 11px; line-height: 1.45; }
+.diagram-controls { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
 .view-switch { display: flex; gap: 3px; padding: 4px; border: 1px solid #dfe3db; background: #eff1ea; }
-.view-button { padding: 7px 10px; border: 0; background: transparent; color: #586563; cursor: pointer; font: 700 10px var(--mono); letter-spacing: .01em; }
+.view-button { padding: 7px 10px; border: 0; background: transparent; color: #586563; cursor: pointer; font: 700 10px var(--mono); letter-spacing: .01em; white-space: nowrap; }
 .view-button:hover { color: var(--ink); }
 .view-button.is-active { background: var(--ink); color: white; }
+.playback-note { color: #839087; font: 10px/1.4 var(--mono); }
 .diagram-stage { display: grid; flex: 1; place-items: center; min-height: 333px; }
 .diagram-stage svg { display: block; width: 100%; max-height: 310px; overflow: visible; }
 .diagram-edge { fill: none; stroke: #a8b5aa; stroke-width: 2; stroke-linecap: round; }
@@ -239,6 +242,7 @@ h1 em, .next-section h2 em { color: var(--lime); font-weight: 400; }
   .hero-art svg { min-height: 300px; height: 300px; }
   .section-heading h2, .next-section h2, .closing h2 { font-size: clamp(45px, 11vw, 63px); }
   .diagram-head { align-items: flex-start; flex-direction: column; }
+  .diagram-controls { align-items: flex-start; }
   .diagram-card { padding: 21px 18px; }
   .diagram-stage { min-height: 240px; }
   .diagram-stage svg { max-height: 240px; }
