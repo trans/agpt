@@ -80,7 +80,7 @@ h1 em, .next-section h2 em { color: var(--lime); font-weight: 400; }
 .art-node.bright-node circle { stroke: var(--lime); fill: #263c30; }
 .hero-art-foot { position: absolute; bottom: 22px; left: 27px; right: 27px; display: flex; justify-content: space-between; color: #8fa397; }
 .hero-bottom { position: relative; display: grid; grid-template-columns: 1fr 2fr 1fr; align-items: center; min-height: 63px; gap: 16px; border-top: 1px solid rgba(255,255,255,.16); color: #9db0a7; }
-.hero-bottom span:nth-child(2) { font: 500 12px/1.45 var(--sans); letter-spacing: 0; text-transform: none; color: #c1d0c7; }
+.hero-bottom span:nth-child(2) { font: 500 16px/1.45 var(--sans); letter-spacing: 0; text-transform: none; color: #c1d0c7; }
 .hero-bottom span:last-child { justify-self: end; font-size: 20px; color: var(--lime); }
 
 .section { padding-block: 124px; }
