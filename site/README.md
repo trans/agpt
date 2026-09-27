@@ -9,9 +9,10 @@ Preview it from the repository root:
 python3 -m http.server 8000
 ```
 
-Open `http://localhost:8000/site/`. The entire `site/` directory can be
-published by a static host. Source links point to `github.com/trans/agpt` and
-will resolve for visitors once the corresponding commits are pushed.
+Open `http://localhost:8000/site/`. GitHub Pages publishes the contents of
+`site/` at `https://trans.github.io/agpt/` through
+[`pages.yml`](../.github/workflows/pages.yml) whenever the site changes on
+`main`. Source links point to `github.com/trans/agpt`.
 
 The page intentionally treats “one epoch and done” as the goal. The numerical
 cards cite the [stochastic AGPT](../rnd/stochastic-agpt/README.md) and
