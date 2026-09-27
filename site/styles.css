@@ -90,23 +90,26 @@ h1 em, .next-section h2 em { color: var(--lime); font-weight: 400; }
 .section-heading h2, .next-section h2, .closing h2 { margin-bottom: 0; font: 400 clamp(48px, 5.2vw, 78px)/.99 var(--serif); }
 .section-heading p { max-width: 370px; margin: 0 0 6px; color: var(--muted); font-size: 16px; line-height: 1.65; }
 .idea-layout { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(280px, .55fr); gap: 26px; }
-.diagram-card { min-width: 0; padding: 26px 32px 22px; border: 1px solid var(--line); background: var(--white); }
+.diagram-card { display: flex; flex-direction: column; min-width: 0; padding: 26px 32px 22px; border: 1px solid var(--line); background: var(--white); }
 .diagram-head { display: flex; justify-content: space-between; align-items: center; gap: 15px; }
 .micro-label { color: #6b7771; }
 .view-switch { display: flex; gap: 3px; padding: 4px; border: 1px solid #dfe3db; background: #eff1ea; }
 .view-button { padding: 7px 10px; border: 0; background: transparent; color: #586563; cursor: pointer; font: 700 10px var(--mono); letter-spacing: .01em; }
 .view-button:hover { color: var(--ink); }
 .view-button.is-active { background: var(--ink); color: white; }
-.diagram-stage { display: grid; place-items: center; min-height: 333px; }
+.diagram-stage { display: grid; flex: 1; place-items: center; min-height: 333px; }
 .diagram-stage svg { display: block; width: 100%; max-height: 310px; overflow: visible; }
 .diagram-edge { fill: none; stroke: #a8b5aa; stroke-width: 2; stroke-linecap: round; }
 .diagram-node circle { fill: #ecf2e2; stroke: #68844d; stroke-width: 2; }
 .diagram-node circle:nth-child(n + 5) { fill: var(--lime); stroke: #8cae38; }
 .diagram-letter text { fill: #243433; text-anchor: middle; font: 17px var(--mono); }
 .diagram-caption { fill: #68766a; font: 10px var(--mono); letter-spacing: .06em; }
-.diagram-word { fill: #223334; font: 42px var(--serif); }
-.diagram-word.accent { fill: #709318; }
-.separate-edge { stroke-dasharray: 4 6; stroke: #a8b5aa; }
+.sequence-lane { fill: #f5f7f1; stroke: #dce4d8; stroke-width: 1; }
+.sequence-index { fill: #7f8e83; font: 10px var(--mono); }
+.sequence-connector { fill: none; stroke: #a6b3a9; stroke-width: 2; stroke-linecap: round; }
+.prefix-tile { fill: #ebf2e3; stroke: #b5c7a5; stroke-width: 1.5; }
+.ending-tile { fill: var(--lime); stroke: #9dbc41; stroke-width: 1.5; }
+.sequence-token { fill: #243433; text-anchor: middle; font: 22px var(--mono); }
 .diagram-explanation { margin: 4px 0 0; padding-top: 20px; border-top: 1px solid var(--line); color: #4c5a54; font-size: 14px; line-height: 1.6; }
 .diagram-explanation strong { color: var(--ink); }
 .idea-aside { display: flex; flex-direction: column; padding: 33px; background: #e8ede3; }

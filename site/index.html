@@ -69,7 +69,7 @@
         <div class="idea-layout">
           <div class="diagram-card">
             <div class="diagram-head">
-              <span class="micro-label">THREE WORDS, TWO VIEWS</span>
+              <span class="micro-label">THREE TOKENS, TWO VIEWS</span>
               <div class="view-switch" role="group" aria-label="Choose diagram view">
                 <button class="view-button" type="button" data-view="separate" aria-pressed="false">Separate paths</button>
                 <button class="view-button is-active" type="button" data-view="shared" aria-pressed="true">Shared prefix</button>
@@ -77,8 +77,8 @@
             </div>
             <div class="diagram-stage">
               <svg id="prefix-diagram" viewBox="0 0 660 290" role="img" aria-labelledby="diagram-title diagram-description">
-                <title id="diagram-title">Three words sharing a prefix</title>
-                <desc id="diagram-description">A comparison between separate paths for cast, case, and cash and a trie that stores their shared cas prefix once.</desc>
+                <title id="diagram-title">Three next-token choices after a shared prefix</title>
+                <desc id="diagram-description">A comparison between three separate token sequences ending in t, e, and h and a trie that stores their shared cas prefix once.</desc>
                 <g class="diagram-view" data-diagram="shared">
                   <path class="diagram-edge" d="M74 144 H193 H307 H424 M424 144 L551 54 M424 144 H551 M424 144 L551 234"/>
                   <g class="diagram-node"><circle cx="74" cy="144" r="19"/><circle cx="193" cy="144" r="19"/><circle cx="307" cy="144" r="19"/><circle cx="424" cy="144" r="19"/><circle cx="551" cy="54" r="19"/><circle cx="551" cy="144" r="19"/><circle cx="551" cy="234" r="19"/></g>
@@ -86,11 +86,28 @@
                   <text class="diagram-caption" x="61" y="208">ONE SHARED PATH</text><text class="diagram-caption" x="495" y="275">THREE BRANCHES</text>
                 </g>
                 <g class="diagram-view" data-diagram="separate" hidden>
-                  <text class="diagram-word" x="45" y="68">c</text><text class="diagram-word" x="185" y="68">a</text><text class="diagram-word" x="325" y="68">s</text><text class="diagram-word accent" x="465" y="68">t</text>
-                  <text class="diagram-word" x="45" y="155">c</text><text class="diagram-word" x="185" y="155">a</text><text class="diagram-word" x="325" y="155">s</text><text class="diagram-word accent" x="465" y="155">e</text>
-                  <text class="diagram-word" x="45" y="242">c</text><text class="diagram-word" x="185" y="242">a</text><text class="diagram-word" x="325" y="242">s</text><text class="diagram-word accent" x="465" y="242">h</text>
-                  <path class="diagram-edge separate-edge" d="M80 58 H180 M220 58 H320 M360 58 H460 M80 145 H180 M220 145 H320 M360 145 H460 M80 232 H180 M220 232 H320 M360 232 H460"/>
-                  <text class="diagram-caption" x="45" y="281">THE PREFIX “CAS” IS PROCESSED THREE TIMES</text>
+                  <g class="sequence-row" transform="translate(0 8)">
+                    <rect class="sequence-lane" x="20" y="0" width="620" height="68" rx="4"/>
+                    <text class="sequence-index" x="42" y="40">01</text>
+                    <path class="sequence-connector" d="M138 34 H179 M257 34 H298 M376 34 H480"/>
+                    <rect class="prefix-tile" x="82" y="10" width="56" height="48" rx="4"/><rect class="prefix-tile" x="201" y="10" width="56" height="48" rx="4"/><rect class="prefix-tile" x="320" y="10" width="56" height="48" rx="4"/><rect class="ending-tile" x="480" y="10" width="56" height="48" rx="4"/>
+                    <text class="sequence-token" x="110" y="41">c</text><text class="sequence-token" x="229" y="41">a</text><text class="sequence-token" x="348" y="41">s</text><text class="sequence-token" x="508" y="41">t</text>
+                  </g>
+                  <g class="sequence-row" transform="translate(0 89)">
+                    <rect class="sequence-lane" x="20" y="0" width="620" height="68" rx="4"/>
+                    <text class="sequence-index" x="42" y="40">02</text>
+                    <path class="sequence-connector" d="M138 34 H179 M257 34 H298 M376 34 H480"/>
+                    <rect class="prefix-tile" x="82" y="10" width="56" height="48" rx="4"/><rect class="prefix-tile" x="201" y="10" width="56" height="48" rx="4"/><rect class="prefix-tile" x="320" y="10" width="56" height="48" rx="4"/><rect class="ending-tile" x="480" y="10" width="56" height="48" rx="4"/>
+                    <text class="sequence-token" x="110" y="41">c</text><text class="sequence-token" x="229" y="41">a</text><text class="sequence-token" x="348" y="41">s</text><text class="sequence-token" x="508" y="41">e</text>
+                  </g>
+                  <g class="sequence-row" transform="translate(0 170)">
+                    <rect class="sequence-lane" x="20" y="0" width="620" height="68" rx="4"/>
+                    <text class="sequence-index" x="42" y="40">03</text>
+                    <path class="sequence-connector" d="M138 34 H179 M257 34 H298 M376 34 H480"/>
+                    <rect class="prefix-tile" x="82" y="10" width="56" height="48" rx="4"/><rect class="prefix-tile" x="201" y="10" width="56" height="48" rx="4"/><rect class="prefix-tile" x="320" y="10" width="56" height="48" rx="4"/><rect class="ending-tile" x="480" y="10" width="56" height="48" rx="4"/>
+                    <text class="sequence-token" x="110" y="41">c</text><text class="sequence-token" x="229" y="41">a</text><text class="sequence-token" x="348" y="41">s</text><text class="sequence-token" x="508" y="41">h</text>
+                  </g>
+                  <text class="diagram-caption" x="21" y="272">SAME PREFIX PROCESSED THREE TIMES</text>
                 </g>
               </svg>
             </div>
