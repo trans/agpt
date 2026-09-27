@@ -23,6 +23,8 @@ targets:
     main: src/tools/bayesian_posterior.cr
   convergence:
     main: src/tools/convergence.cr
+  agpt_train_recur_level:
+    main: src/tools/agpt_train_recur_level.cr
 
 dependencies:
   microgpt:

@@ -69,6 +69,33 @@ E_1(y | p) = P_out(y | p)
 E_h(y | p) = P(x_{e+h} = y | p)
 ```
 
+Each horizon also has its own backoff ladder. For a fixed target `x_t`,
+horizon `h` sets the context endpoint:
+
+```text
+endpoint = t - h
+```
+
+Depth/backoff then decides how much context before that endpoint is used:
+
+```text
+depth d:      x[t-h-d : t-h]       -> x_t
+backoff d-1:  x[t-h-(d-1) : t-h]   -> x_t
+backoff d-2:  x[t-h-(d-2) : t-h]   -> x_t
+...
+root:         unigram/root context -> x_t
+```
+
+So the more precise expert index is `(h, b)`, where `h` is the target horizon
+and `b` is the context/backoff depth:
+
+```text
+E_{h,b}(y | p_b) = P(x_t = y | context p_b ending at t - h)
+```
+
+This matters because a deep context at a horizon can be sparse and noisy while
+a shallower backoff at the same horizon can be better calibrated.
+
 The same target token can therefore receive evidence from several shifted
 contexts. Operationally, for a fixed target `x_t`, the model can consult:
 
@@ -85,13 +112,13 @@ P(x_t | context ending t - 8)
 Each node owns a bank of empirical experts:
 
 ```text
-E_next(p)       = E_1(. | p)
-E_backoff_i(p)  = suffix/backoff distributions
-E_skip_h(p)     = E_h(. | p), h > 1
-E_suffix(p)     = optional reverse/suffix-side evidence
+E_{1,b}(p_b)      = ordinary next-token expert and its backoffs
+E_{h,b}(p_b)      = skip-horizon expert h with backoff depth b
+E_suffix_{h,b}(.) = optional reverse/suffix-side evidence for that source
 ```
 
-Most skip experts are expected to be noisy:
+Most skip experts, especially deep `(h, b)` sources at larger `h`, are expected
+to be noisy:
 
 ```text
 high entropy
@@ -115,19 +142,20 @@ target even while being blind to the intervening tokens.
 
 ## AGPT Objective
 
-The simplest auxiliary objective keeps horizons separate:
+The simplest auxiliary objective keeps horizon/backoff sources separate:
 
 ```text
-L = - sum_p sum_h lambda_h(p) N_h(p)
-        sum_y E_h(y | p) log pi_theta(y | h_p, h)
+L = - sum_p sum_h sum_b lambda_{h,b}(p_b) N_{h,b}(p_b)
+        sum_y E_{h,b}(y | p_b) log pi_theta(y | h_p, h, b)
 ```
 
 where:
 
 ```text
-h_p              model state at prefix node p
-pi_theta(.|h_p,h) horizon-conditioned prediction head
-lambda_h(p)      trust/weight for this node and horizon
+h_p                    model state at prefix node p
+p_b                    suffix/backoff context of p at depth b
+pi_theta(.|h_p,h,b)    horizon/backoff-conditioned prediction head
+lambda_{h,b}(p_b)      trust/weight for this source
 ```
 
 This is a direct extension of the standard AGPT objective:
@@ -136,11 +164,11 @@ This is a direct extension of the standard AGPT objective:
 L_standard = - sum_p N_1(p) sum_y E_1(y | p) log pi_theta(y | h_p)
 ```
 
-The model can implement `pi_theta(. | h_p, h)` in several ways:
+The model can implement `pi_theta(. | h_p, h, b)` in several ways:
 
 ```text
-shared head + horizon embedding
-horizon-specific output adapters
+shared head + horizon/depth embeddings
+horizon-specific or source-specific output adapters
 low-rank horizon adapter
 separate auxiliary heads for diagnostics
 ```
@@ -153,6 +181,8 @@ P_cal(. | p) = sum_s w_s(p) E_s(. | p)
 L = - sum_p N_p sum_y P_cal(y | p) log pi_theta(y | h_p)
 ```
 
+where a source `s` may be a particular `(horizon, backoff depth)` pair.
+
 The separate-head form is cleaner for diagnosing whether each horizon contains
 usable information. The calibrated-prior form is closer to the IMM prior
 mixture work.
@@ -162,17 +192,19 @@ mixture work.
 Skip-horizon targets do not break the aggregated-gradient identity. They only
 change the local loss attached to a node.
 
-For each `(p, h)`, define the local prediction error:
+For each `(p, h, b)`, define the local prediction error:
 
 ```text
-e_{p,h,y} = lambda_h(p) * (N_h(p) * pi_theta(y | h_p, h) - n_h(p, y))
+e_{p,h,b,y} = lambda_{h,b}(p_b)
+              * (N_{h,b}(p_b) * pi_theta(y | h_p, h, b)
+                 - n_{h,b}(p_b, y))
 ```
 
 The local hidden-state gradient becomes:
 
 ```text
-g_p_local = sum_h sum_y e_{p,h,y}
-              * d logit_{p,h,y} / d h_p
+g_p_local = sum_h sum_b sum_y e_{p,h,b,y}
+              * d logit_{p,h,b,y} / d h_p
 ```
 
 The recursive AGPT backward pass is unchanged:
@@ -188,7 +220,8 @@ shared prefix Jacobian applied once to aggregated descendant signal
 ```
 
 The only difference is that the node's local empirical target is now a family
-of horizon-indexed empirical targets rather than a single next-token table.
+of horizon/backoff-indexed empirical targets rather than a single next-token
+table.
 
 ## Relationship To Backoff Priors
 
@@ -204,8 +237,9 @@ Skip-horizon AGPT generalizes the same idea to shifted evidence sources:
 ```text
 P(. | p) = mixture over:
   local next-token expert
-  suffix/backoff experts
+  local suffix/backoff experts
   skip horizon experts
+  skip horizon backoff experts
 ```
 
 The calibrator should see per-source features, not just a collapsed aggregate:
@@ -213,6 +247,7 @@ The calibrator should see per-source features, not just a collapsed aggregate:
 ```text
 source type
 horizon h / H
+backoff depth b / D
 mass
 branch count
 entropy / sharpness
@@ -223,8 +258,8 @@ agreement with other horizons
 ```
 
 The IMM experiments suggest that collapsing horizons too early loses signal.
-AGPT should preserve the horizon channel until the calibrator or model can
-decide whether it is useful.
+AGPT should preserve the `(horizon, backoff depth)` channel until the calibrator
+or model can decide whether it is useful.
 
 ## Evidence From IMM
 
@@ -286,7 +321,7 @@ Start diagnostic, not architectural:
    h in {1, 2, 4, 8, 16, 32, 64}
    ```
 
-2. For each `(p, h)`, compute:
+2. For each full-depth `(p, h)` source, compute:
 
    ```text
    mass
@@ -307,21 +342,39 @@ Start diagnostic, not architectural:
    bucketed gain by entropy/reliability/KL
    ```
 
-4. Only after direct evidence survives full heldout eval, add the auxiliary
+4. Extend each horizon with its own suffix/backoff ladder and repeat the same
+   feature extraction and direct eval by `(h, b)` source:
+
+   ```text
+   mass_{h,b}
+   branch_count_{h,b}
+   entropy_{h,b}
+   reliability_{h,b}
+   KL(E_{h,b} || local/backoff prior)
+   horizon-only PPL by h
+   best-backoff PPL by h
+   calibrated mixture PPL over (h, b)
+   bucketed gain by entropy/reliability/KL
+   ```
+
+5. Only after direct evidence survives full heldout eval, add the auxiliary
    AGPT loss:
 
    ```text
    L = L_next + beta * L_skip
    ```
 
-5. Compare whether adding `L_skip` improves ordinary `h=1` heldout rolling PPL.
+6. Compare whether adding `L_skip` improves ordinary `h=1` heldout rolling PPL.
 
 ## Open Questions
 
-- Should `lambda_h(p)` be learned offline as a count/stat calibrator, learned
-  jointly with AGPT, or fixed from diagnostics?
+- Should `lambda_{h,b}(p_b)` be learned offline as a count/stat calibrator,
+  learned jointly with AGPT, or fixed from diagnostics?
 - Should skip horizons train the same output head, horizon adapters, or only an
   auxiliary representation head?
+- Should the model predict from the deepest node state `h_p` while supervising
+  with shallower backoff sources, or should the backoff source use its own
+  ancestor state `h_{p_b}`?
 - How far can useful horizons extend before count sparsity dominates?
 - Should horizons be dense `1..W`, powers of two, or selected by entropy/change
   events along corpus paths?

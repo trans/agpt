@@ -1,0 +1,13 @@
+{
+  "runs": [
+    {
+      "name": "base_only",
+      "extra_features": [],
+      "heldout_fixed_ppl": 3.8106775080713184,
+      "heldout_rolling_ppl": 3.8106943223080756,
+      "valid_rolling_ppl": 4.793260356541959,
+      "train_fit_last_ppl": 4.779816799037963,
+      "wall_seconds": 219.11455917358398
+    }
+  ]
+}

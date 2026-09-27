@@ -20,6 +20,58 @@ enum Variant
   TanhPhaseRMSPre
 end
 
+record TargetSidecarEntry,
+  token : Int32,
+  count : Int32
+
+class TargetSidecar
+  getter scale : Int32
+  getter substring_count : Int32
+  getter total_entries : UInt64
+
+  @offsets : Array(Int32)
+  @entries : Array(TargetSidecarEntry)
+
+  def initialize(path : String)
+    @scale = 0
+    @substring_count = 0
+    @total_entries = 0_u64
+    @offsets = [] of Int32
+    @entries = [] of TargetSidecarEntry
+    File.open(path, "rb") do |io|
+      magic = Bytes.new(4)
+      io.read_fully(magic)
+      raise "bad target sidecar magic in #{path}: #{String.new(magic)}" unless String.new(magic) == "AGTS"
+      version = io.read_bytes(UInt16, IO::ByteFormat::LittleEndian)
+      raise "unsupported target sidecar version #{version}" unless version == 1
+      @scale = io.read_bytes(UInt32, IO::ByteFormat::LittleEndian).to_i32
+      @substring_count = io.read_bytes(UInt32, IO::ByteFormat::LittleEndian).to_i32
+      @total_entries = io.read_bytes(UInt64, IO::ByteFormat::LittleEndian)
+      @offsets = Array(Int32).new(@substring_count + 1, 0)
+      (@substring_count + 1).times do |i|
+        @offsets[i] = io.read_bytes(Int32, IO::ByteFormat::LittleEndian)
+      end
+      @entries = Array(TargetSidecarEntry).new(@total_entries.to_i)
+      @total_entries.times do
+        tok = io.read_bytes(UInt16, IO::ByteFormat::LittleEndian).to_i32
+        cnt = io.read_bytes(UInt32, IO::ByteFormat::LittleEndian).to_i32
+        @entries << TargetSidecarEntry.new(tok, cnt)
+      end
+    end
+  end
+
+  def each_entry(substring_id : Int32, &block : TargetSidecarEntry ->)
+    return if substring_id < 0 || substring_id >= @substring_count
+    start = @offsets[substring_id]
+    finish = @offsets[substring_id + 1]
+    i = start
+    while i < finish
+      yield @entries[i]
+      i += 1
+    end
+  end
+end
+
 class RecurEvalParams
   getter vocab_size : Int32
   getter d_model : Int32
@@ -133,23 +185,63 @@ def step!(variant : Variant, params : RecurEvalParams, h : Array(Float64), tok :
   end
 end
 
-def neg_log_prob(params : RecurEvalParams, h : Array(Float64), target : Int32) : Float64
+def neg_log_prob(
+  params : RecurEvalParams,
+  h : Array(Float64),
+  target : Int32,
+  prior_sidecar : TargetSidecar?,
+  substring_id : Int32?,
+  prior_scale : Float64,
+  prior_floor : Float64,
+  residual_scale : Float64
+) : Float64
   d = params.d_model
   v = params.vocab_size
   logits = Array(Float64).new(v, 0.0)
   max_logit = -Float64::INFINITY
+  floor = prior_floor > 0.0 ? prior_floor : 1.0e-12
+  floor_logit = prior_scale * Math.log(floor)
 
   v.times do |tok|
     z = params.c_o[tok]
     base = tok * d
     d.times { |j| z += params.w_o[base + j] * h[j] }
+    z *= residual_scale
+    z += floor_logit if prior_sidecar
     logits[tok] = z
+  end
+
+  if sidecar = prior_sidecar
+    if sid = substring_id
+      inv_scale = 1.0 / sidecar.scale.to_f64
+      sidecar.each_entry(sid) do |entry|
+        next if entry.token < 0 || entry.token >= v
+        p = entry.count.to_f64 * inv_scale
+        p = floor if p < floor
+        logits[entry.token] += prior_scale * (Math.log(p) - Math.log(floor))
+      end
+    end
+  end
+
+  v.times do |tok|
+    z = logits[tok]
     max_logit = z if z > max_logit
   end
 
   sum_exp = 0.0
   v.times { |tok| sum_exp += Math.exp(logits[tok] - max_logit) }
   max_logit + Math.log(sum_exp) - logits[target]
+end
+
+def lookup_longest_suffix(catalog : SubstringCatalog, context : Array(Int32)) : {Int32?, Int32}
+  len = context.size
+  0.upto(len - 1) do |start|
+    suffix = context[start, len - start]
+    if sid = catalog.lookup(suffix)
+      return {sid, len - start}
+    end
+  end
+  {nil, 0}
 end
 
 checkpoint_path = ""
@@ -161,6 +253,11 @@ stride_step = 1
 phase = 0
 target_offset = 0
 quiet = false
+position_data_dir = ""
+prior_sidecar_path = ""
+prior_scale = 1.0
+prior_floor = 1.0e-12
+residual_scale = 1.0
 
 OptionParser.parse do |p|
   p.banner = "Usage: bin/agpt_recur_perplexity --checkpoint PATH --file HELDOUT --vocab-file PATH [options]"
@@ -172,6 +269,11 @@ OptionParser.parse do |p|
   p.on("--phase N", "Only score target positions where p mod stride == phase (default 0)") { |v| phase = v.to_i }
   p.on("--target-offset N", "Predict endpoint+N instead of endpoint+stride for strided contexts (default 0)") { |v| target_offset = v.to_i }
   p.on("--max-positions N", "Limit positions scored (default 8192; 0 = all)") { |v| max_positions = v.to_i }
+  p.on("--position-data DIR", "Position-data directory containing substrings.bin for prior lookup") { |v| position_data_dir = v }
+  p.on("--prior-sidecar PATH", "Frozen AGTS target/prior sidecar keyed by substring id") { |v| prior_sidecar_path = v }
+  p.on("--prior-scale F", "Scale for log prior added to residual logits (default 1.0)") { |v| prior_scale = v.to_f }
+  p.on("--prior-floor F", "Probability floor for missing prior entries (default 1e-12)") { |v| prior_floor = v.to_f }
+  p.on("--residual-scale F", "Scale checkpoint residual logits before adding prior (default 1.0)") { |v| residual_scale = v.to_f }
   p.on("--quiet", "Suppress progress output") { quiet = true }
   p.on("-h", "--help", "Help") { puts p; exit 0 }
 end
@@ -183,6 +285,10 @@ abort "--seq-len must be > 0" if seq_len <= 0
 abort "--stride must be > 0" if stride_step <= 0
 abort "--phase must satisfy 0 <= phase < stride" if phase < 0 || phase >= stride_step
 abort "--target-offset must be >= 0" if target_offset < 0
+abort "--prior-sidecar requires --position-data" if !prior_sidecar_path.empty? && position_data_dir.empty?
+abort "--prior-scale must be finite" unless prior_scale.finite?
+abort "--prior-floor must be > 0" unless prior_floor > 0.0
+abort "--residual-scale must be finite" unless residual_scale.finite?
 
 variant, params = load_checkpoint(checkpoint_path)
 v = params.vocab_size
@@ -203,6 +309,18 @@ File.read(corpus_path).each_char do |c|
   tokens << (char_to_id[c]? || 0)
 end
 
+prior_sidecar = nil.as(TargetSidecar?)
+substring_catalog = nil.as(SubstringCatalog?)
+if !prior_sidecar_path.empty?
+  prior_sidecar = TargetSidecar.new(prior_sidecar_path)
+  catalog_path = File.join(position_data_dir, "substrings.bin")
+  substring_catalog = File.open(catalog_path, "rb") { |io| SubstringCatalog.read_from(io) }
+  raise "prior sidecar/catalog mismatch: #{prior_sidecar.not_nil!.substring_count} != #{substring_catalog.not_nil!.size}" unless prior_sidecar.not_nil!.substring_count == substring_catalog.not_nil!.size
+  unless quiet
+    STDERR.puts "Prior: #{prior_sidecar_path} (substrings=#{prior_sidecar.not_nil!.substring_count}, entries=#{prior_sidecar.not_nil!.total_entries}, scale=#{prior_sidecar.not_nil!.scale}, logit_scale=#{prior_scale}, floor=#{prior_floor})"
+  end
+end
+
 effective_offset = target_offset > 0 ? target_offset : stride_step
 start_pos = effective_offset + ((seq_len - 1) * stride_step)
 end_pos = tokens.size - 1
@@ -218,8 +336,12 @@ STDERR.puts "Vocab: #{v}, seq-len: #{seq_len}, eval-stride: #{stride_step}, phas
 
 total_nll = 0.0
 n_scored = 0
+prior_exact_hits = 0
+prior_backoff_hits = 0
+prior_misses = 0
 t0 = Time.instant
 h = Array(Float64).new(d, 0.0)
+context = Array(Int32).new(seq_len, 0)
 
 n_score.times do |i|
   ordinal = (i.to_f64 * stride).to_i
@@ -239,12 +361,27 @@ n_score.times do |i|
   h.fill(0.0)
   endpoint = p - effective_offset
   q = endpoint - ((seq_len - 1) * stride_step)
-  seq_len.times do
-    step!(variant, params, h, tokens[q], q)
+  seq_len.times do |ctx_i|
+    tok = tokens[q]
+    context[ctx_i] = tok
+    step!(variant, params, h, tok, q)
     q += stride_step
   end
 
-  total_nll += neg_log_prob(params, h, target)
+  substring_id = nil.as(Int32?)
+  if catalog = substring_catalog
+    substring_id, matched_len = lookup_longest_suffix(catalog, context)
+    if substring_id
+      if matched_len == seq_len
+        prior_exact_hits += 1
+      else
+        prior_backoff_hits += 1
+      end
+    else
+      prior_misses += 1
+    end
+  end
+  total_nll += neg_log_prob(params, h, target, prior_sidecar, substring_id, prior_scale, prior_floor, residual_scale)
   n_scored += 1
 end
 
@@ -258,4 +395,9 @@ puts "Positions scored:   #{n_scored}"
 puts "Mean per-token NLL: #{mean_nll.round(6)} nats"
 puts "Perplexity:         #{ppl.round(4)}"
 puts "Bits per character: #{bpc.round(4)} bpc"
+if prior_sidecar
+  puts "Prior exact hits:   #{prior_exact_hits}"
+  puts "Prior backoff hits: #{prior_backoff_hits}"
+  puts "Prior misses:       #{prior_misses}"
+end
 puts "Elapsed:            #{elapsed.round(2)}s (#{(n_scored / elapsed).round(0)} pos/sec)"

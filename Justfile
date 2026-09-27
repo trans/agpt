@@ -273,6 +273,11 @@ build-agpt-train-recur:
     mkdir -p bin
     timeout 10m crystal build src/tools/agpt_train_recur.cr -o bin/agpt_train_recur --release --link-flags="-lopenblas_64"
 
+# Build the depth-batched recurrent trainer used by the RNN AGPT experiments.
+build-agpt-train-recur-level:
+    mkdir -p bin
+    timeout 10m crystal build src/tools/agpt_train_recur_level.cr -o bin/agpt_train_recur_level --release --link-flags="-lopenblas_64"
+
 # Build CPU recurrent AGPT held-out evaluator.
 build-agpt-recur-perplexity:
     mkdir -p bin

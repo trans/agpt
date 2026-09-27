@@ -1,0 +1,480 @@
+{
+  "features": [
+    "reliability",
+    "kl_gain",
+    "entropy_norm",
+    "depth_norm",
+    "mass_norm",
+    "branch_norm",
+    "entropy_delta",
+    "suffix_mass_norm",
+    "suffix_branch_norm",
+    "suffix_reliability",
+    "suffix_entropy_norm",
+    "suffix_kl_gain",
+    "suffix_entropy_delta"
+  ],
+  "runs": [
+    {
+      "name": "bias_only",
+      "extra_features": [],
+      "heldout_fixed_ppl": 4.6888791739501015,
+      "heldout_rolling_ppl": 4.688969474016393,
+      "valid_rolling_ppl": 5.823484065326285,
+      "train_fit_last_ppl": 5.808721826862632,
+      "wall_seconds": 166.47632908821106
+    },
+    {
+      "name": "only_reliability",
+      "extra_features": [
+        "reliability"
+      ],
+      "heldout_fixed_ppl": 3.8392048604934366,
+      "heldout_rolling_ppl": 3.83925050415696,
+      "valid_rolling_ppl": 4.8248877041081695,
+      "train_fit_last_ppl": 4.811799929540976,
+      "wall_seconds": 178.1782033443451
+    },
+    {
+      "name": "only_kl_gain",
+      "extra_features": [
+        "kl_gain"
+      ],
+      "heldout_fixed_ppl": 4.645007033388178,
+      "heldout_rolling_ppl": 4.6450741585195905,
+      "valid_rolling_ppl": 5.802793294505554,
+      "train_fit_last_ppl": 5.787202853914375,
+      "wall_seconds": 174.6645758152008
+    },
+    {
+      "name": "only_entropy_norm",
+      "extra_features": [
+        "entropy_norm"
+      ],
+      "heldout_fixed_ppl": 4.647080449506552,
+      "heldout_rolling_ppl": 4.64707940169977,
+      "valid_rolling_ppl": 5.6996149144238375,
+      "train_fit_last_ppl": 5.686037609013468,
+      "wall_seconds": 179.6553018093109
+    },
+    {
+      "name": "only_depth_norm",
+      "extra_features": [
+        "depth_norm"
+      ],
+      "heldout_fixed_ppl": 4.0265408594420204,
+      "heldout_rolling_ppl": 4.026520538326814,
+      "valid_rolling_ppl": 5.022256187297953,
+      "train_fit_last_ppl": 5.008054999827228,
+      "wall_seconds": 184.95717644691467
+    },
+    {
+      "name": "only_mass_norm",
+      "extra_features": [
+        "mass_norm"
+      ],
+      "heldout_fixed_ppl": 4.025545246790942,
+      "heldout_rolling_ppl": 4.025512412154675,
+      "valid_rolling_ppl": 4.955258960709139,
+      "train_fit_last_ppl": 4.943000992760897,
+      "wall_seconds": 182.42140364646912
+    },
+    {
+      "name": "only_branch_norm",
+      "extra_features": [
+        "branch_norm"
+      ],
+      "heldout_fixed_ppl": 4.5286885132843695,
+      "heldout_rolling_ppl": 4.5286151909125625,
+      "valid_rolling_ppl": 5.520256706249174,
+      "train_fit_last_ppl": 5.507410326374139,
+      "wall_seconds": 196.7445034980774
+    },
+    {
+      "name": "only_entropy_delta",
+      "extra_features": [
+        "entropy_delta"
+      ],
+      "heldout_fixed_ppl": 4.685026126845991,
+      "heldout_rolling_ppl": 4.685111937697823,
+      "valid_rolling_ppl": 5.821301498807585,
+      "train_fit_last_ppl": 5.806309925984162,
+      "wall_seconds": 197.43671298027039
+    },
+    {
+      "name": "only_suffix_mass_norm",
+      "extra_features": [
+        "suffix_mass_norm"
+      ],
+      "heldout_fixed_ppl": 4.025545024848619,
+      "heldout_rolling_ppl": 4.02551219026079,
+      "valid_rolling_ppl": 4.955258647304753,
+      "train_fit_last_ppl": 4.94300067458719,
+      "wall_seconds": 197.35520887374878
+    },
+    {
+      "name": "only_suffix_branch_norm",
+      "extra_features": [
+        "suffix_branch_norm"
+      ],
+      "heldout_fixed_ppl": 4.018173723158283,
+      "heldout_rolling_ppl": 4.018140308331175,
+      "valid_rolling_ppl": 4.950760738199838,
+      "train_fit_last_ppl": 4.939350134349678,
+      "wall_seconds": 201.23678731918335
+    },
+    {
+      "name": "only_suffix_reliability",
+      "extra_features": [
+        "suffix_reliability"
+      ],
+      "heldout_fixed_ppl": 4.117661820230509,
+      "heldout_rolling_ppl": 4.117652764683939,
+      "valid_rolling_ppl": 5.091586731923731,
+      "train_fit_last_ppl": 5.0790268855773695,
+      "wall_seconds": 195.74434566497803
+    },
+    {
+      "name": "only_suffix_entropy_norm",
+      "extra_features": [
+        "suffix_entropy_norm"
+      ],
+      "heldout_fixed_ppl": 4.059538880356244,
+      "heldout_rolling_ppl": 4.059516193502365,
+      "valid_rolling_ppl": 5.008527807542708,
+      "train_fit_last_ppl": 4.995796383340458,
+      "wall_seconds": 199.03684973716736
+    },
+    {
+      "name": "only_suffix_kl_gain",
+      "extra_features": [
+        "suffix_kl_gain"
+      ],
+      "heldout_fixed_ppl": 4.67522425368629,
+      "heldout_rolling_ppl": 4.675314821681635,
+      "valid_rolling_ppl": 5.796146294163476,
+      "train_fit_last_ppl": 5.781519536250819,
+      "wall_seconds": 196.60579180717468
+    },
+    {
+      "name": "only_suffix_entropy_delta",
+      "extra_features": [
+        "suffix_entropy_delta"
+      ],
+      "heldout_fixed_ppl": 4.658665942406519,
+      "heldout_rolling_ppl": 4.658733369215809,
+      "valid_rolling_ppl": 5.790862999122383,
+      "train_fit_last_ppl": 5.7764423890735435,
+      "wall_seconds": 189.04905152320862
+    },
+    {
+      "name": "all_features",
+      "extra_features": [
+        "reliability",
+        "kl_gain",
+        "entropy_norm",
+        "depth_norm",
+        "mass_norm",
+        "branch_norm",
+        "entropy_delta",
+        "suffix_mass_norm",
+        "suffix_branch_norm",
+        "suffix_reliability",
+        "suffix_entropy_norm",
+        "suffix_kl_gain",
+        "suffix_entropy_delta"
+      ],
+      "heldout_fixed_ppl": 3.7913508092045602,
+      "heldout_rolling_ppl": 3.791373499020436,
+      "valid_rolling_ppl": 4.737196221089569,
+      "train_fit_last_ppl": 4.724966242003682,
+      "wall_seconds": 332.8993413448334
+    },
+    {
+      "name": "without_reliability",
+      "extra_features": [
+        "kl_gain",
+        "entropy_norm",
+        "depth_norm",
+        "mass_norm",
+        "branch_norm",
+        "entropy_delta",
+        "suffix_mass_norm",
+        "suffix_branch_norm",
+        "suffix_reliability",
+        "suffix_entropy_norm",
+        "suffix_kl_gain",
+        "suffix_entropy_delta"
+      ],
+      "heldout_fixed_ppl": 3.8042914954404288,
+      "heldout_rolling_ppl": 3.804302191892883,
+      "valid_rolling_ppl": 4.750604898185852,
+      "train_fit_last_ppl": 4.7382328028994705,
+      "wall_seconds": 322.1441869735718
+    },
+    {
+      "name": "without_kl_gain",
+      "extra_features": [
+        "reliability",
+        "entropy_norm",
+        "depth_norm",
+        "mass_norm",
+        "branch_norm",
+        "entropy_delta",
+        "suffix_mass_norm",
+        "suffix_branch_norm",
+        "suffix_reliability",
+        "suffix_entropy_norm",
+        "suffix_kl_gain",
+        "suffix_entropy_delta"
+      ],
+      "heldout_fixed_ppl": 3.7945701695249694,
+      "heldout_rolling_ppl": 3.794588279269789,
+      "valid_rolling_ppl": 4.741208790996766,
+      "train_fit_last_ppl": 4.728814580014317,
+      "wall_seconds": 325.30976247787476
+    },
+    {
+      "name": "without_entropy_norm",
+      "extra_features": [
+        "reliability",
+        "kl_gain",
+        "depth_norm",
+        "mass_norm",
+        "branch_norm",
+        "entropy_delta",
+        "suffix_mass_norm",
+        "suffix_branch_norm",
+        "suffix_reliability",
+        "suffix_entropy_norm",
+        "suffix_kl_gain",
+        "suffix_entropy_delta"
+      ],
+      "heldout_fixed_ppl": 3.79242062966244,
+      "heldout_rolling_ppl": 3.792447474880355,
+      "valid_rolling_ppl": 4.737799344628773,
+      "train_fit_last_ppl": 4.72559574281227,
+      "wall_seconds": 287.124018907547
+    },
+    {
+      "name": "without_depth_norm",
+      "extra_features": [
+        "reliability",
+        "kl_gain",
+        "entropy_norm",
+        "mass_norm",
+        "branch_norm",
+        "entropy_delta",
+        "suffix_mass_norm",
+        "suffix_branch_norm",
+        "suffix_reliability",
+        "suffix_entropy_norm",
+        "suffix_kl_gain",
+        "suffix_entropy_delta"
+      ],
+      "heldout_fixed_ppl": 3.8054585455240875,
+      "heldout_rolling_ppl": 3.8054883660697802,
+      "valid_rolling_ppl": 4.747946226765253,
+      "train_fit_last_ppl": 4.736090689719261,
+      "wall_seconds": 277.8059756755829
+    },
+    {
+      "name": "without_mass_norm",
+      "extra_features": [
+        "reliability",
+        "kl_gain",
+        "entropy_norm",
+        "depth_norm",
+        "branch_norm",
+        "entropy_delta",
+        "suffix_mass_norm",
+        "suffix_branch_norm",
+        "suffix_reliability",
+        "suffix_entropy_norm",
+        "suffix_kl_gain",
+        "suffix_entropy_delta"
+      ],
+      "heldout_fixed_ppl": 3.7919021424735435,
+      "heldout_rolling_ppl": 3.791925667680835,
+      "valid_rolling_ppl": 4.737687986889382,
+      "train_fit_last_ppl": 4.725496408548266,
+      "wall_seconds": 252.11840653419495
+    },
+    {
+      "name": "without_branch_norm",
+      "extra_features": [
+        "reliability",
+        "kl_gain",
+        "entropy_norm",
+        "depth_norm",
+        "mass_norm",
+        "entropy_delta",
+        "suffix_mass_norm",
+        "suffix_branch_norm",
+        "suffix_reliability",
+        "suffix_entropy_norm",
+        "suffix_kl_gain",
+        "suffix_entropy_delta"
+      ],
+      "heldout_fixed_ppl": 3.7933395304231197,
+      "heldout_rolling_ppl": 3.7933580663675723,
+      "valid_rolling_ppl": 4.738122191128555,
+      "train_fit_last_ppl": 4.725915490771166,
+      "wall_seconds": 231.54172658920288
+    },
+    {
+      "name": "without_entropy_delta",
+      "extra_features": [
+        "reliability",
+        "kl_gain",
+        "entropy_norm",
+        "depth_norm",
+        "mass_norm",
+        "branch_norm",
+        "suffix_mass_norm",
+        "suffix_branch_norm",
+        "suffix_reliability",
+        "suffix_entropy_norm",
+        "suffix_kl_gain",
+        "suffix_entropy_delta"
+      ],
+      "heldout_fixed_ppl": 3.79983426369978,
+      "heldout_rolling_ppl": 3.7998538405752966,
+      "valid_rolling_ppl": 4.750178400699776,
+      "train_fit_last_ppl": 4.737705927930281,
+      "wall_seconds": 228.52692484855652
+    },
+    {
+      "name": "without_suffix_mass_norm",
+      "extra_features": [
+        "reliability",
+        "kl_gain",
+        "entropy_norm",
+        "depth_norm",
+        "mass_norm",
+        "branch_norm",
+        "entropy_delta",
+        "suffix_branch_norm",
+        "suffix_reliability",
+        "suffix_entropy_norm",
+        "suffix_kl_gain",
+        "suffix_entropy_delta"
+      ],
+      "heldout_fixed_ppl": 3.7919021421119603,
+      "heldout_rolling_ppl": 3.791925667338093,
+      "valid_rolling_ppl": 4.737688010699162,
+      "train_fit_last_ppl": 4.725496431480154,
+      "wall_seconds": 230.75202059745789
+    },
+    {
+      "name": "without_suffix_branch_norm",
+      "extra_features": [
+        "reliability",
+        "kl_gain",
+        "entropy_norm",
+        "depth_norm",
+        "mass_norm",
+        "branch_norm",
+        "entropy_delta",
+        "suffix_mass_norm",
+        "suffix_reliability",
+        "suffix_entropy_norm",
+        "suffix_kl_gain",
+        "suffix_entropy_delta"
+      ],
+      "heldout_fixed_ppl": 3.7917816646866367,
+      "heldout_rolling_ppl": 3.791801298364769,
+      "valid_rolling_ppl": 4.738490165396642,
+      "train_fit_last_ppl": 4.725986912144658,
+      "wall_seconds": 243.45630025863647
+    },
+    {
+      "name": "without_suffix_reliability",
+      "extra_features": [
+        "reliability",
+        "kl_gain",
+        "entropy_norm",
+        "depth_norm",
+        "mass_norm",
+        "branch_norm",
+        "entropy_delta",
+        "suffix_mass_norm",
+        "suffix_branch_norm",
+        "suffix_entropy_norm",
+        "suffix_kl_gain",
+        "suffix_entropy_delta"
+      ],
+      "heldout_fixed_ppl": 3.790991962006141,
+      "heldout_rolling_ppl": 3.791013468553851,
+      "valid_rolling_ppl": 4.737318608586896,
+      "train_fit_last_ppl": 4.725059928436803,
+      "wall_seconds": 252.5453281402588
+    },
+    {
+      "name": "without_suffix_entropy_norm",
+      "extra_features": [
+        "reliability",
+        "kl_gain",
+        "entropy_norm",
+        "depth_norm",
+        "mass_norm",
+        "branch_norm",
+        "entropy_delta",
+        "suffix_mass_norm",
+        "suffix_branch_norm",
+        "suffix_reliability",
+        "suffix_kl_gain",
+        "suffix_entropy_delta"
+      ],
+      "heldout_fixed_ppl": 3.7915929083691573,
+      "heldout_rolling_ppl": 3.7916131256827224,
+      "valid_rolling_ppl": 4.740200652070826,
+      "train_fit_last_ppl": 4.728060231471654,
+      "wall_seconds": 238.49220204353333
+    },
+    {
+      "name": "without_suffix_kl_gain",
+      "extra_features": [
+        "reliability",
+        "kl_gain",
+        "entropy_norm",
+        "depth_norm",
+        "mass_norm",
+        "branch_norm",
+        "entropy_delta",
+        "suffix_mass_norm",
+        "suffix_branch_norm",
+        "suffix_reliability",
+        "suffix_entropy_norm",
+        "suffix_entropy_delta"
+      ],
+      "heldout_fixed_ppl": 3.7906977901382404,
+      "heldout_rolling_ppl": 3.7907186160692117,
+      "valid_rolling_ppl": 4.737546206090747,
+      "train_fit_last_ppl": 4.725383437115993,
+      "wall_seconds": 243.86324548721313
+    },
+    {
+      "name": "without_suffix_entropy_delta",
+      "extra_features": [
+        "reliability",
+        "kl_gain",
+        "entropy_norm",
+        "depth_norm",
+        "mass_norm",
+        "branch_norm",
+        "entropy_delta",
+        "suffix_mass_norm",
+        "suffix_branch_norm",
+        "suffix_reliability",
+        "suffix_entropy_norm",
+        "suffix_kl_gain"
+      ],
+      "heldout_fixed_ppl": 3.791329906176512,
+      "heldout_rolling_ppl": 3.791350378797104,
+      "valid_rolling_ppl": 4.737261536573093,
+      "train_fit_last_ppl": 4.725071929729514,
+      "wall_seconds": 223.81103920936584
+    }
+  ]
+}

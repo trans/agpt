@@ -1,0 +1,134 @@
+{
+  "config": {
+    "train": "data/.splits/4fa9aec1db6b3aea/train_corpus.txt",
+    "heldout": "data/.splits/4fa9aec1db6b3aea/heldout_corpus.txt",
+    "vocab_file": "data/input.txt",
+    "position_data": "/tmp/agpt_rnn_prior_d16_position_data",
+    "prior_sidecar": "/tmp/agpt_rnn_prior_d16_dense.agts",
+    "out": "rnd/rnn-agpt/history_eval_all_prior_only_check.json",
+    "depth": 16,
+    "k_history": 64,
+    "d_model": 64,
+    "position_encoding": "rope",
+    "steps": 0,
+    "batch_size": 512,
+    "eval_positions": 8192,
+    "eval_all": true,
+    "mode": "ordered",
+    "lr": 0.001,
+    "residual_l2": 0.0,
+    "residual_scale": 0.0,
+    "residual_max_delta": 0.0,
+    "trust_kl": 0.0,
+    "learn_alpha": false,
+    "prior_mode": "full",
+    "prior_dropout": 0.0,
+    "prior_dropout_mode": "root",
+    "prior_floor": 1e-12,
+    "seed": 1
+  },
+  "vocab_size": 65,
+  "train_positions": 1058594,
+  "eval_positions": 54736,
+  "eval_chunks": 107,
+  "history": [],
+  "eval": {
+    "scale_1_0": {
+      "positions": 54736,
+      "prior_loss_nats": 1.3727160679321824,
+      "prior_ppl": 3.9460539040372926,
+      "loss_nats": 1.3727160679321824,
+      "ppl": 3.9460539040372926,
+      "prior_exact_hits": 2059,
+      "prior_backoff_hits": 52677,
+      "prior_misses": 0,
+      "avg_residual_norm": 0.05591935102300524,
+      "avg_applied_residual_norm": 0.0,
+      "avg_alpha": 0.0,
+      "avg_attention_entropy": 4.174060858330926,
+      "top_lags": [
+        [
+          368,
+          0.015515032886114086
+        ],
+        [
+          144,
+          0.015513989604242936
+        ],
+        [
+          160,
+          0.015498186747238064
+        ],
+        [
+          960,
+          0.015491450384424064
+        ],
+        [
+          928,
+          0.015483216297812352
+        ],
+        [
+          336,
+          0.015481125260723684
+        ],
+        [
+          352,
+          0.015478498684654807
+        ],
+        [
+          112,
+          0.015463556824650837
+        ]
+      ]
+    },
+    "scale_0_5": {
+      "positions": 54736,
+      "prior_loss_nats": 1.3727160679321824,
+      "prior_ppl": 3.9460539040372926,
+      "loss_nats": 1.372737153027358,
+      "ppl": 3.9461371078366043,
+      "prior_exact_hits": 2059,
+      "prior_backoff_hits": 52677,
+      "prior_misses": 0,
+      "avg_residual_norm": 0.05591935102300524,
+      "avg_applied_residual_norm": 0.02795967551150262,
+      "avg_alpha": 0.5,
+      "avg_attention_entropy": 4.174060858330926,
+      "top_lags": [
+        [
+          368,
+          0.015515032886114086
+        ],
+        [
+          144,
+          0.015513989604242936
+        ],
+        [
+          160,
+          0.015498186747238064
+        ],
+        [
+          960,
+          0.015491450384424064
+        ],
+        [
+          928,
+          0.015483216297812352
+        ],
+        [
+          336,
+          0.015481125260723684
+        ],
+        [
+          352,
+          0.015478498684654807
+        ],
+        [
+          112,
+          0.015463556824650837
+        ]
+      ]
+    }
+  },
+  "wall_seconds": 37.920724630355835
+}
