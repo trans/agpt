@@ -152,7 +152,7 @@ h1 em, .next-section h2 em { color: var(--lime); font-weight: 400; }
 .card-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 38px; }
 .card-index { color: #86a337; font: 400 32px/.9 var(--serif); }
 .card-tag { color: #6b786d; font-size: 9px; text-align: right; }
-.evidence-card h3 { max-width: 290px; margin-bottom: 20px; font: 400 clamp(27px, 2.5vw, 36px)/1.08 var(--serif); letter-spacing: -.04em; }
+.evidence-card h3 { margin-bottom: 20px; font: 400 clamp(27px, 2.5vw, 36px)/1.08 var(--serif); letter-spacing: -.04em; }
 .evidence-card > p:not(.card-foot) { color: #52605b; font-size: 14px; line-height: 1.7; }
 .bar-chart { display: grid; gap: 13px; margin-top: auto; padding: 28px 0 12px; }
 .bar-row { display: grid; grid-template-columns: 75px 1fr 47px; align-items: center; gap: 10px; font-size: 11px; }

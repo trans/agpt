@@ -1,4 +1,4 @@
-# AGPT
+# AGPT — Aggregated Gradient Pre-training
 
 > **One epoch and done.**
 
