@@ -15,6 +15,7 @@ opened: 2026-05-26
 updated: 2026-05-29
 code: main
 eval: canonical
+family: attention
 headline:
 - {label: 'seed 1, baseline', metric: fixed-window PPL, value: 5.2246, run: 20260526T064017-seed1-baseline}
 - {label: 'seed 1, harmonic bias', metric: fixed-window PPL, value: 5.2982, run: 20260526T064738-seed1-bias}

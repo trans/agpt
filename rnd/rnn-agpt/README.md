@@ -16,6 +16,7 @@ opened: 2026-06-12
 updated: 2026-06-14
 code: main
 eval: legacy
+family: recurrent
 headline:
 - {label: 'tanh recurrence d=64, depth 16, pd=1, 300 epochs', metric: 'held-out rolling PPL
     (bin/agpt_recur_perplexity, 8192 positions)', value: 6.5003}

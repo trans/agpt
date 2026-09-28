@@ -12,6 +12,7 @@ opened: 2026-09-24
 updated: 2026-09-28
 code: main
 eval: canonical
+family: attention
 headline:
 - {label: 'Adam pd=1, exact ancestor gradient, 625 epochs', metric: rolling byte PPL, value: 4.764,
   run: 20260928T172438-adam-pd1-exact-625ep}

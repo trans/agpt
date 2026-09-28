@@ -16,6 +16,7 @@ opened: 2026-05-04
 updated: 2026-05-05
 code: main
 eval: legacy
+family: attention
 headline:
 - {label: 'Baseline, RMSprop pd=6, fresh 6 SE', metric: 'legacy PPL@32 (bin/perplexity, 65536
     positions)', value: 4.998}

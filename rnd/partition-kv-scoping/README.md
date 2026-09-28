@@ -16,6 +16,7 @@ opened: 2026-04-22
 updated: 2026-04-22
 code: {branch: agpt-partition-kv-scoping, tag: exp/partition-kv-scoping}
 eval: none
+family: n/a
 headline:
 - {label: 'd=16 largest per-subtree file (rc=2), whole-file allocation', metric: peak KV cache
     MB (Phase 1 stats), value: 1295.7}

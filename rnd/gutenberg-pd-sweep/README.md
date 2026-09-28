@@ -15,6 +15,7 @@ opened: 2026-05-11
 updated: 2026-05-11
 code: main
 eval: none
+family: attention
 headline:
 - {label: 'pd=6, depth 16, 6 SE', metric: final training loss (nats/char), value: 1.475}
 - {label: 'pd=2, depth 16, 6 SE', metric: final training loss (nats/char), value: 1.851}

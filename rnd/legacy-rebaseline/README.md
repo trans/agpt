@@ -14,6 +14,7 @@ opened: 2026-05-21
 updated: 2026-05-21
 code: main
 eval: legacy
+family: attention
 headline:
 - {label: 'v1 trainer, 10 SE, anc-grad off, seed 1', metric: 'legacy sliding-window held-out
     PPL (d=16, 10k positions)', value: 9.5843}

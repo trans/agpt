@@ -15,6 +15,7 @@ opened: 2026-06-06
 updated: 2026-06-07
 code: {branch: worktree-linear-recurrence, tag: exp/linear-recurrence}
 eval: legacy
+family: recurrent
 headline:
 - {label: 'GRU, d=64 depth 8 pd=1, 500 ep', metric: 'legacy held-out PPL (agpt_recur_perplexity,
     seq=8 sliding window)', value: 5.4}

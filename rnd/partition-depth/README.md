@@ -14,6 +14,7 @@ opened: 2026-04-30
 updated: 2026-04-30
 code: main
 eval: legacy
+family: attention
 headline:
 - {label: 'pd=1, 40 SE', metric: 'legacy PPL@32 (bin/perplexity, data/input.txt, 8192 positions)',
   value: 5.39}

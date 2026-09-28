@@ -16,6 +16,7 @@ opened: 2026-05-22
 updated: 2026-05-22
 code: main
 eval: legacy
+family: attention
 headline:
 - {label: 'Shakespeare, RoPE on depth (control), 10 SE, 3 seeds', metric: 'legacy agpt_ppl.py
     fixed PPL (d=16, 10k held-out positions)', value: 8.584}

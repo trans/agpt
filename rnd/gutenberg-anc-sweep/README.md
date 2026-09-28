@@ -15,6 +15,7 @@ opened: 2026-05-23
 updated: 2026-05-23
 code: main
 eval: legacy
+family: attention
 headline:
 - label: baseline (anc-grad, mass-weight off), 10 SE, n=3
   metric: >-

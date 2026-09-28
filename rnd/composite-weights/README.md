@@ -15,6 +15,7 @@ opened: 2026-05-21
 updated: 2026-05-22
 code: main
 eval: legacy
+family: attention
 tags: [gradient, data]
 related: [depth-weight, per-fire-norm, gutenberg-anc-sweep, beta2-diagnostic]
 ---

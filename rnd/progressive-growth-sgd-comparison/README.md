@@ -16,6 +16,7 @@ opened: 2026-05-26
 updated: 2026-05-30
 code: main
 eval: canonical
+family: attention
 headline:
 - {label: CUDAX 16 divisions × 6 epochs, metric: 'rolling byte PPL (lm-eval, tail-heldout)',
   value: 8.2664, run: 20260526T133412-cudax-16x6}

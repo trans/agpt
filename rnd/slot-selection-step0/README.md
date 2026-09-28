@@ -15,6 +15,7 @@ opened: 2026-05-30
 updated: 2026-05-31
 code: {branch: slot-selection, tag: exp/slot-selection}
 eval: canonical
+family: attention
 headline:
 - {label: 'baseline B=0, L=2 pd=0 25 ep rmsprop', metric: 'rolling byte PPL (tail-heldout),
     3-seed mean', value: 17.1}

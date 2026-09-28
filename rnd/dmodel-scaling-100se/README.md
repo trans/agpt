@@ -15,6 +15,7 @@ opened: 2026-05-24
 updated: 2026-05-25
 code: main
 eval: legacy
+family: attention
 headline:
 - {label: 'L=8 d=128, 200 SE, 3 seeds', metric: 'legacy sliding-window held-out PPL (Gutenberg
     war_peace tail, d=16)', value: 3.6274}

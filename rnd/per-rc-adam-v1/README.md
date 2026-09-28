@@ -16,6 +16,7 @@ opened: 2026-05-18
 updated: 2026-05-18
 code: main
 eval: legacy
+family: attention
 headline:
 - {label: 'Global RMSprop state, 3-seed mean', metric: 'legacy PPL (bin/perplexity on training
     corpus, 4096 positions)', value: 5.46}

@@ -15,6 +15,7 @@ opened: 2026-04-23
 updated: 2026-04-24
 code: main
 eval: legacy
+family: attention
 headline:
 - {label: 'AGPT det d=16, wc lr 3e-3, 3 SE (195 steps), 3 seeds', metric: 'legacy bin/perplexity
     PPL (data/input.txt, 16k positions)', value: 14.38}

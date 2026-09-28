@@ -13,6 +13,7 @@ opened: 2026-05-30
 updated: 2026-05-30
 code: main
 eval: canonical
+family: attention
 headline:
 - {label: 'd64/L2 pd=1 Adam lr=0.0015, 128 epochs, tail split', metric: rolling byte PPL,
   value: 6.4617, run: 20260530T211622-d64l2-depth16-pd1-adam-lr0015-tail-128ep}

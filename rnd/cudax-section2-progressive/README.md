@@ -16,6 +16,7 @@ opened: 2026-05-26
 updated: 2026-05-27
 code: main
 eval: canonical
+family: attention
 headline:
 - {label: 'd128 L6, static full-prefix, 200 epochs', metric: 'rolling byte PPL (lm-eval, tail-heldout)',
   value: 6.1636, run: 20260527T225128-section2-d128l6-static200}

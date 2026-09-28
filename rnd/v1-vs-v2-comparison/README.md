@@ -15,6 +15,7 @@ opened: 2026-05-26
 updated: 2026-05-29
 code: main
 eval: canonical
+family: attention
 headline:
 - {label: 'v1, 100 SE, unweighted', metric: rolling byte PPL, value: 7.7672, run: 20260526T182401-v1-100se}
 - {label: 'v1, 100 SE, mass-weight linear', metric: rolling byte PPL, value: 8.3198, run: 20260526T220612-v1-100se-mwlinear}

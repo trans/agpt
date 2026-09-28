@@ -16,6 +16,7 @@ opened: 2026-05-16
 updated: 2026-05-20
 code: main
 eval: legacy
+family: attention
 headline:
 - {label: 'Shakespeare, streaming 100 x 5 SE (3 seeds)', metric: 'legacy PPL@16 (bin/perplexity
     on training text, 4096 positions)', value: 4.175}

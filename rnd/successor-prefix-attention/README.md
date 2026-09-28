@@ -16,6 +16,7 @@ opened: 2026-06-05
 updated: 2026-06-06
 code: main
 eval: canonical
+family: attention
 headline:
 - {label: 'successor-end, 32 ep (leaks future context)', metric: rolling byte PPL (multi-chunk-heldout),
   value: 5.2333, run: 20260606T001801-d128l6-depth16-pd1-adam-lr0010-32ep-cq50k-successor-end}

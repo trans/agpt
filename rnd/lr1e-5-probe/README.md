@@ -14,6 +14,7 @@ opened: 2026-05-20
 updated: 2026-05-20
 code: main
 eval: none
+family: attention
 headline:
 - {label: 'lr 1e-5, entropy icing on, 10 epochs', metric: 'train loss (nats, training trie)',
   value: 3.393104}

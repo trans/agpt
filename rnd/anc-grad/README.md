@@ -15,6 +15,7 @@ opened: 2026-05-20
 updated: 2026-05-20
 code: main
 eval: legacy
+family: attention
 headline:
 - {label: 'Shakespeare 1M, anc-grad off, 3-seed mean', metric: 'legacy sliding-window held-out
     PPL (d=16, 10k positions)', value: 8.65}

@@ -17,6 +17,7 @@ opened: 2026-05-30
 updated: 2026-06-05
 code: main
 eval: canonical
+family: attention
 headline:
 - {label: 'd128/L6 pd=1 Adam lr 0.001, epoch-128 checkpoint', metric: rolling byte PPL (sampled
     multi-chunk heldout), value: 4.7086, run: 20260601T064609-d128l6-depth16-pd1-adam-lr0010-512ep-wrap}

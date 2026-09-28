@@ -14,6 +14,7 @@ opened: 2026-05-28
 updated: 2026-05-29
 code: main
 eval: canonical
+family: attention
 headline:
 - {label: static 100 epochs, metric: rolling byte PPL (tail-heldout), value: 6.9773, run: 20260528T170108-d16-d64l2-static100}
 - {label: static 250 epochs, metric: rolling byte PPL (tail-heldout), value: 7.1471, run: 20260528T171523-d16-d64l2-static250}

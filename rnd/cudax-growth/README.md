@@ -17,6 +17,7 @@ opened: 2026-05-25
 updated: 2026-05-25
 code: main
 eval: legacy
+family: attention
 headline:
 - {label: 'static prefix-only, 10 epochs', metric: 'legacy fixed PPL (agpt_ppl.py, tail 5%,
     10k targets)', value: 8.5857}

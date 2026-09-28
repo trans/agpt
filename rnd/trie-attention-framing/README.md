@@ -17,6 +17,7 @@ opened: 2026-04-28
 updated: 2026-04-29
 code: main
 eval: legacy
+family: attention
 headline:
 - {label: 'AGPT depth 32, 3 SE (d-sweep)', metric: legacy PPL (Shakespeare 1M), value: 12.99}
 - {label: 'AGPT depth 32 baseline, depth-routing comparison', metric: legacy PPL (Shakespeare

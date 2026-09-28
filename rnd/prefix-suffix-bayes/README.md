@@ -14,6 +14,7 @@ opened: 2026-05-11
 updated: 2026-05-11
 code: main
 eval: none
+family: n/a
 tags: [trie-structure]
 related: [cap-folding, dual-model-fold]
 ---

@@ -15,6 +15,7 @@ opened: 2026-06-07
 updated: 2026-06-07
 code: main
 eval: legacy
+family: recurrent
 headline:
 - label: Plain tanh d8/d64 pd=1, epoch 500
   metric: >-

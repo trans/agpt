@@ -14,6 +14,7 @@ opened: 2026-05-21
 updated: 2026-05-22
 code: main
 eval: legacy
+family: attention
 headline:
 - {label: 'beta2=0.999, 100 SE (3-seed mean)', metric: 'legacy sliding-window PPL (d=16, 10k
     positions)', value: 6.25}

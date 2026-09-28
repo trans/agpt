@@ -15,6 +15,7 @@ opened: 2026-05-06
 updated: 2026-05-06
 code: main
 eval: legacy
+family: attention
 headline:
 - {label: synth_wrap walk-and-bridge (multi-seed mean), metric: 'legacy PPL (bin/perplexity
     on training text, 4096 positions)', value: 7.06}

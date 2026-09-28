@@ -16,6 +16,7 @@ opened: 2026-04-18
 updated: 2026-04-21
 code: main
 eval: none
+family: n/a
 headline:
 - {label: 'Shakespeare 1.1M, depth 16, count>=1, 20-block split', metric: 'Spearman rho, log
     path probability, half A vs half B', value: 0.89}

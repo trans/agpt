@@ -14,6 +14,7 @@ opened: 2026-04-21
 updated: 2026-04-21
 code: {branch: agpt-root-loop, tag: exp/root-loop}
 eval: legacy
+family: attention
 headline:
 - {label: d=16 baseline (n=6 mean), metric: 'legacy PPL (agpt_train_best.sh, 16384 positions)',
   value: 13.66}

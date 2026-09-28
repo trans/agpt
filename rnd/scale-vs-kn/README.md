@@ -14,6 +14,7 @@ opened: 2026-05-23
 updated: 2026-05-23
 code: main
 eval: legacy
+family: attention
 headline:
 - label: AGPT L=6, 200 SE, 3-seed mean
   metric: >-

@@ -16,6 +16,7 @@ opened: 2026-04-22
 updated: 2026-04-23
 code: main
 eval: legacy
+family: attention
 headline:
 - {label: 'd=8 deterministic per-root-child, 65×3 steps', metric: 'legacy PPL (bin/perplexity,
     data/input.txt)', value: 17.99}

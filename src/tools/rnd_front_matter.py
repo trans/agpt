@@ -21,7 +21,8 @@ KINDS = {"experiment", "diagnostic", "baseline", "design", "infrastructure"}
 STATUSES = {"planned", "active", "concluded"}
 OUTCOMES = {"positive", "negative", "mixed", "inconclusive", "n/a"}
 EVALS = {"canonical", "legacy", "none"}
-REQUIRED = ["title", "kind", "status", "outcome", "question", "answer", "opened", "updated", "code", "eval"]
+FAMILIES = {"attention", "recurrent", "count-prior", "hybrid", "n/a"}
+REQUIRED = ["title", "kind", "status", "outcome", "question", "answer", "opened", "updated", "code", "eval", "family"]
 OPTIONAL = ["headline", "tags", "related", "superseded_by"]
 
 FM_RE = re.compile(r"\A---[ \t]*\n(.*?\n)---[ \t]*\n", re.S)
@@ -103,6 +104,8 @@ def validate_entry(d, fm, check_numbers=True):
         errs.append(f"outcome {fm.get('outcome')!r} not in {sorted(OUTCOMES)}")
     if fm.get("eval") not in EVALS:
         errs.append(f"eval {fm.get('eval')!r} not in {sorted(EVALS)}")
+    if fm.get("family") not in FAMILIES:
+        errs.append(f"family {fm.get('family')!r} not in {sorted(FAMILIES)}")
     for k in ("opened", "updated"):
         if k in fm and fm[k] not in ("", None) and not _date_ok(fm[k]):
             errs.append(f"{k} {fm[k]!r} is not YYYY-MM-DD")

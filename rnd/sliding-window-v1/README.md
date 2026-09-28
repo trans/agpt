@@ -15,6 +15,7 @@ opened: 2026-05-11
 updated: 2026-05-11
 code: main
 eval: legacy
+family: attention
 headline:
 - {label: 'deep-only (no pooling), 2048 positions', metric: 'legacy PPL (agpt_sliding_window_perplexity,
     Gutenberg 5M)', value: 8.628}

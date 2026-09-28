@@ -15,6 +15,7 @@ opened: 2026-05-11
 updated: 2026-05-11
 code: main
 eval: legacy
+family: attention
 headline:
 - {label: d=16 pd=1 Gutenberg model evaluated at seq 16, metric: legacy PPL (data/gutenberg_5m.txt),
   value: 8.01}

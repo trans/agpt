@@ -16,6 +16,7 @@ opened: 2026-06-05
 updated: 2026-06-05
 code: main
 eval: canonical
+family: attention
 headline:
 - label: d128/L6 phase-conditioned direct, shuffled phase order, 512 epochs
   metric: rolling byte PPL

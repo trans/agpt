@@ -15,6 +15,7 @@ opened: 2026-05-25
 updated: 2026-05-25
 code: main
 eval: none
+family: n/a
 headline:
 - {label: 'ASYM DFT operator, HD=48 W=64, Shakespeare, key mass 2-9', metric: on/off-path
     separation (pooled-IQR units), value: 1.6}

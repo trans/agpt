@@ -15,6 +15,7 @@ opened: 2026-04-24
 updated: 2026-04-25
 code: main
 eval: legacy
+family: attention
 headline:
 - {label: 'real SGD window training, seq 32, constant lr 3e-4', metric: legacy PPL (Shakespeare),
   value: 14.72}

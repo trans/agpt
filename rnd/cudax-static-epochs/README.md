@@ -14,6 +14,7 @@ opened: 2026-05-26
 updated: 2026-05-29
 code: main
 eval: canonical
+family: attention
 headline:
 - {label: 'Static full-tree, RMSProp lr=0.003, 100 epochs', metric: rolling byte PPL, value: 7.8023,
   run: 20260526T180318-static-100ep}

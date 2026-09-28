@@ -16,6 +16,7 @@ opened: 2026-06-12
 updated: 2026-06-12
 code: main
 eval: canonical
+family: count-prior
 headline:
 - label: Raw trie targets (reference run)
   metric: rolling byte PPL

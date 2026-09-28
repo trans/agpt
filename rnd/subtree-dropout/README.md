@@ -15,6 +15,7 @@ opened: 2026-04-29
 updated: 2026-04-29
 code: main
 eval: legacy
+family: attention
 headline:
 - {label: 'p=0 (pure AGPT), 15 SE, 3 reps', metric: 'legacy bin/perplexity PPL@32 (data/input.txt,
     8192 positions)', value: 7.21}

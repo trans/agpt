@@ -14,6 +14,7 @@ opened: 2026-04-21
 updated: 2026-04-25
 code: main
 eval: legacy
+family: attention
 tags: [baseline, gradient]
 related: [sgd-ceiling, agpt-epoch-scaling, progressive-growth-sgd-comparison]
 ---

@@ -15,6 +15,7 @@ opened: 2026-05-26
 updated: 2026-05-26
 code: main
 eval: canonical
+family: attention
 headline:
 - {label: 'Static full-prefix, Section 2 weighting, 100 epochs', metric: rolling byte PPL,
   value: 7.0634, run: 20260526T192559-static-100ep-section2}

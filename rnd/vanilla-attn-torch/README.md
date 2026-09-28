@@ -16,6 +16,7 @@ opened: 2026-06-08
 updated: 2026-06-10
 code: main
 eval: canonical
+family: attention
 tags: [baseline, attention, optimizer]
 related: [kenlm-baseline, partition-depth]
 ---

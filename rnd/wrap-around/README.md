@@ -17,6 +17,7 @@ opened: 2026-04-25
 updated: 2026-04-25
 code: main
 eval: legacy
+family: attention
 headline:
 - {label: 'depth-32 synth, 10M chars, seq 128, 10k steps, mean of 4 seeds', metric: 'legacy
     PPL (bin/perplexity, 4096 positions, real Shakespeare)', value: 7.04}

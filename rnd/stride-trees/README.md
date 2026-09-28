@@ -15,6 +15,7 @@ opened: 2026-06-11
 updated: 2026-06-11
 code: main
 eval: legacy
+family: recurrent
 headline:
 - {label: 'Adjacent recurrent d8/d64 pd=1, epoch 500', metric: legacy held-out next-char PPL
     (agpt_recur_perplexity), value: 6.3104}

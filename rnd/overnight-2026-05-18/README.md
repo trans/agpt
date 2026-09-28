@@ -13,6 +13,7 @@ opened: 2026-05-18
 updated: 2026-05-18
 code: main
 eval: legacy
+family: attention
 headline:
 - {label: 'streaming 100 x 5 SE, mean of 3 seeds', metric: 'legacy PPL (bin/perplexity, 4096
     positions, seq 16, Gutenberg 5M)', value: 4.0831}

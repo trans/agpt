@@ -14,6 +14,7 @@ opened: 2026-05-28
 updated: 2026-05-28
 code: main
 eval: canonical
+family: attention
 headline:
 - {label: 'window Adam d128 L6 seq16, 180k steps', metric: rolling byte PPL (tail-heldout),
   value: 6.9604, run: 20260528T014059-window-adam-d128l6-s16-180k}

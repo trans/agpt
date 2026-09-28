@@ -16,6 +16,7 @@ opened: 2026-06-12
 updated: 2026-09-27
 code: main
 eval: canonical
+family: attention
 headline:
 - {label: 'd64/L2 depth 16 pd=1 Adam, 100 epochs', metric: rolling byte PPL (sampled multi-chunk
     heldout), value: 5.3359, run: 20260611T160456-d64l2-depth16-pd1-100ep}

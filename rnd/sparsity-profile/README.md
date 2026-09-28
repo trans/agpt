@@ -15,6 +15,7 @@ opened: 2026-04-21
 updated: 2026-04-21
 code: main
 eval: none
+family: n/a
 headline:
 - {label: 'd=16 trie, cap depth', metric: singleton endpoints (%), value: 99.43}
 - {label: d=32 trie, metric: radix compression (leveled nodes / radix endpoints), value: 16.23}

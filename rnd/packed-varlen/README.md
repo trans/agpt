@@ -16,6 +16,7 @@ opened: 2026-04-15
 updated: 2026-04-15
 code: {branch: agpt-packed-varlen, tag: exp/packed-varlen}
 eval: none
+family: attention
 headline:
 - {label: 'baseline trainer, seq_len=32, 20k starts', metric: wall-clock seconds (commit 9019fe8),
   value: 3252}

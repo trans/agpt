@@ -15,6 +15,7 @@ opened: 2026-04-25
 updated: 2026-04-25
 code: main
 eval: legacy
+family: attention
 headline:
 - {label: baseline synth_wrap (4 seeds), metric: 'legacy PPL (bin/perplexity on training text,
     4096 positions)', value: 7.04}

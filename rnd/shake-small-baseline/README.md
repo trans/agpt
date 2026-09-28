@@ -13,6 +13,7 @@ opened: 2026-05-25
 updated: 2026-05-26
 code: main
 eval: canonical
+family: attention
 headline:
 - {label: 'd64 L2, depth 16, 10 static epochs', metric: rolling byte PPL, value: 10.4353,
   run: 20260526T033625-d64l2-d16-10ep}

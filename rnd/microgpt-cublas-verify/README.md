@@ -15,6 +15,7 @@ opened: 2026-05-10
 updated: 2026-05-11
 code: main
 eval: legacy
+family: attention
 headline:
 - {label: 'cuBLAS vs openBLAS, d=256 L=4 seq=128, 1000 steps', metric: wall-clock speedup
     (x), value: 5.5}

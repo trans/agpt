@@ -15,6 +15,7 @@ opened: 2026-05-01
 updated: 2026-05-01
 code: main
 eval: legacy
+family: attention
 headline:
 - {label: 'pd=3 flat, Adam, 3 SE', metric: legacy PPL@32, value: 4.7}
 - {label: 'pd=3 + progressive curriculum, Adam, 3 SE', metric: legacy PPL@32, value: 6.33}

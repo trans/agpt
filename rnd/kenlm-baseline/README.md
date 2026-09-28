@@ -15,6 +15,7 @@ opened: 2026-05-24
 updated: 2026-05-24
 code: main
 eval: legacy
+family: count-prior
 headline:
 - {label: 'KenLM KN order 8, Gutenberg 5M', metric: 'KenLM per-char PPL, --discount_fallback
     (gut_holdout_proper)', value: 4.089}

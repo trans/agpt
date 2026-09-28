@@ -15,6 +15,7 @@ opened: 2026-06-12
 updated: 2026-06-12
 code: main
 eval: canonical
+family: attention
 headline:
 - label: pd1-100 + traversal-stop refine, lr 3e-5
   metric: rolling byte PPL (multi-chunk-heldout)

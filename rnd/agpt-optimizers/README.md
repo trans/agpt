@@ -14,6 +14,7 @@ opened: 2026-04-25
 updated: 2026-04-25
 code: main
 eval: legacy
+family: attention
 headline:
 - {label: RMSProp (beta=0.999) reference, metric: legacy PPL (protocol not recorded), value: 12.79}
 - {label: 'Momentum lr=3e-2, clip=1', metric: legacy PPL (protocol not recorded), value: 18.5}

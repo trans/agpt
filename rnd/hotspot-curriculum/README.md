@@ -15,6 +15,7 @@ opened: 2026-04-24
 updated: 2026-04-25
 code: main
 eval: legacy
+family: attention
 headline:
 - {label: 'd=16 baseline, 3 SE (mean of 3)', metric: legacy PPL (eval protocol not recorded),
   value: 14.44}

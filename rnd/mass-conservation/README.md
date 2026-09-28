@@ -15,6 +15,7 @@ opened: 2026-04-21
 updated: 2026-04-21
 code: main
 eval: none
+family: n/a
 headline:
 - {label: 'max-depth paths (d=16), mass ≥ 2', metric: Spearman ρ of log path probability between
     paired tries, value: 0.9095}

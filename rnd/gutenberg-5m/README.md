@@ -15,6 +15,7 @@ opened: 2026-04-26
 updated: 2026-04-26
 code: main
 eval: legacy
+family: attention
 headline:
 - {label: 'd=32 synth wrap-around, 10k SGD steps seq=128', metric: 'legacy PPL (bin/perplexity
     on training corpus, 4096 positions)', value: 6.7807}

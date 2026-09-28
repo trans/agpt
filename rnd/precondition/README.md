@@ -15,6 +15,7 @@ opened: 2026-06-01
 updated: 2026-06-02
 code: {branch: precondition, tag: exp/precondition}
 eval: canonical
+family: attention
 headline:
 - {label: baseline d128 L6 pd=1 128 ep, metric: rolling byte PPL (tail-heldout), value: 6.366,
   run: 20260602T050004-baseline-d128l6-seed1}

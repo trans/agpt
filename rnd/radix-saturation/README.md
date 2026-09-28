@@ -15,6 +15,7 @@ opened: 2026-04-22
 updated: 2026-04-22
 code: main
 eval: legacy
+family: attention
 headline:
 - {label: 'AGPT d=8, mw=linear, 3 SE (3-run mean)', metric: 'legacy PPL (bin/perplexity on
     training text, 16384 positions)', value: 17.99}

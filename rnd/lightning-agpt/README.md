@@ -17,6 +17,7 @@ opened: 2026-06-12
 updated: 2026-06-12
 code: main
 eval: canonical
+family: attention
 headline:
 - label: traversal-stop, context-only ancestors, u40k r4
   metric: rolling byte PPL (multi-chunk-heldout)

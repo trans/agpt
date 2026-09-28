@@ -15,6 +15,7 @@ opened: 2026-05-05
 updated: 2026-05-05
 code: main
 eval: none
+family: attention
 headline:
 - {label: 'beta 1.0, aligned suffix, 10k positions', metric: 'F-vs-B symmetric KL gap (nats,
     training)', value: 0.17}

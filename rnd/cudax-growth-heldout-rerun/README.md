@@ -13,6 +13,7 @@ opened: 2026-05-29
 updated: 2026-05-29
 code: main
 eval: canonical
+family: attention
 headline:
 - {label: progressive 16 x 3 epochs, metric: rolling byte PPL (tail-heldout), value: 8.5556,
   run: 20260526T041333-progressive-16x3}

@@ -14,6 +14,7 @@ opened: 2026-05-25
 updated: 2026-05-25
 code: main
 eval: none
+family: attention
 headline:
 - {label: 'Default RoPE, 100 SE', metric: 'training loss (nats), epoch 100', value: 1.489}
 - {label: 'dist-rope, 100 SE', metric: 'training loss (nats), epoch 100', value: 1.753}

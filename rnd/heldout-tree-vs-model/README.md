@@ -14,6 +14,7 @@ opened: 2026-05-18
 updated: 2026-05-18
 code: main
 eval: legacy
+family: attention
 headline:
 - {label: 'trained model, 100 SE, pd=1', metric: 'legacy held-out PPL (4096 positions, seq
     16, Gutenberg 10% tail)', value: 5.03}

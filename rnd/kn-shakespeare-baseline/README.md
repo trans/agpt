@@ -14,6 +14,7 @@ opened: 2026-05-28
 updated: 2026-05-28
 code: main
 eval: legacy
+family: count-prior
 headline:
 - {label: KenLM KN order 7, metric: 'KenLM per-token PPL (multi-chunk held-out, seed 42)',
   value: 4.1143}

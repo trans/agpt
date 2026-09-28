@@ -15,6 +15,7 @@ opened: 2026-04-29
 updated: 2026-04-29
 code: main
 eval: legacy
+family: attention
 headline:
 - {label: 'pd=1, 3 SE (mean of 3)', metric: 'legacy PPL@32 (bin/perplexity, data/input.txt,
     8192 positions)', value: 10.82}

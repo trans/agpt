@@ -14,6 +14,7 @@ opened: 2026-05-20
 updated: 2026-05-20
 code: main
 eval: none
+family: attention
 tags: [trainer]
 related: [v1-vs-v2-comparison]
 ---

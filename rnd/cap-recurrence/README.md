@@ -17,6 +17,7 @@ opened: 2026-05-27
 updated: 2026-05-30
 code: {branch: agpt-cap-recurrence, tag: exp/cap-recurrence}
 eval: canonical
+family: attention
 headline:
 - {label: 'baseline, 25 ep lr=1e-2', metric: 'lm-eval rolling byte PPL (agpt_lm_eval.py, tail
     heldout), 3-pair mean', value: 8.29}

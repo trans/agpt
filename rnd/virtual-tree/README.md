@@ -14,6 +14,7 @@ opened: 2026-05-06
 updated: 2026-05-07
 code: main
 eval: legacy
+family: attention
 headline:
 - {label: 'AGPT baseline d=32, 6 SE', metric: 'legacy bin/perplexity PPL@32 (data/input.txt,
     8192 positions)', value: 4.8}

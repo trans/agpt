@@ -15,6 +15,7 @@ opened: 2026-04-27
 updated: 2026-04-27
 code: main
 eval: legacy
+family: attention
 headline:
 - {label: 'Direct transformer, ctx=128', metric: 'legacy corpus-walk PPL (p2s_eval_corpus.py,
     Gutenberg 5M)', value: 6.5}

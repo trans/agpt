@@ -15,6 +15,7 @@ opened: 2026-04-27
 updated: 2026-04-27
 code: main
 eval: legacy
+family: attention
 headline:
 - {label: 'L3 cap=10, 1 epoch, 10K Adam fires', metric: 'legacy PPL (bin/perplexity, 4096
     positions, Gutenberg 5M)', value: 30.83}

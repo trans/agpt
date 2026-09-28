@@ -15,6 +15,7 @@ opened: 2026-04-21
 updated: 2026-04-21
 code: {branch: agpt-root-loop, tag: exp/root-loop}
 eval: legacy
+family: attention
 headline:
 - {label: 'K=1 baseline, d=16, 3 SE (mean of 3)', metric: legacy PPL (eval protocol not recorded),
   value: 13.66}

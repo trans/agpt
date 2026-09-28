@@ -13,6 +13,7 @@ opened: 2026-05-30
 updated: 2026-05-30
 code: main
 eval: canonical
+family: attention
 headline:
 - {label: 'microgpt window d64/L2 seq 16, 10k steps', metric: rolling byte PPL (tail-heldout
     5%), value: 10.2344, run: 20260528T181839-d64l2-s16-10k}
