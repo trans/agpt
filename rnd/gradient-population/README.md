@@ -951,13 +951,22 @@ fix optimised a slightly wrong gradient.
 | *Adam pd=1 100 ep, truncated* | *5.348* | *4.810* | | *1.6626* |
 | *L-BFGS 600, truncated (Exp 7)* | *5.407* | *4.888* | *264* | *1.6740* |
 
-−4% vs exact-gradient Adam, −6 to −7% vs the old recipe; no backtracks
-after the three initial calibration steps, no history resets, still
-descending at 600. Wall-clock caveat: this is 25 Adam epochs (~2.4 min)
-plus ~65 min of L-BFGS, against ~11 min for 100 Adam epochs; L-BFGS
-crosses Adam's 4.684 around pass ~330 (~36 min). The case here is the
-better endpoint, not speed, and Adam run longer than 100 epochs has not
-been measured.
+No backtracks after the three initial calibration steps, no history
+resets, still descending at 600.
+
+**Not a compute-matched comparison** (correction, Thomas's catch). A pass
+and an epoch cost the same: one full traversal. This run is 25 Adam epochs
++ 600 passes = 625 traversals against 100 for the Adam baseline, so the
+−4% endpoint gap is bought with 6× the compute. At equal traversals Adam
+leads clearly: after 100 traversals Adam is at fixed PPL 4.684, while
+L-BFGS at 125 traversals (warm start + 100 passes) is at 5.159. Whether
+L-BFGS beats Adam at *equal* compute needs Adam run for ~625 epochs; Adam
+was still improving at epoch 100 (5.040 → 4.684 from epoch 50), so that is
+open. The fair claim today: the exact gradient improves Adam at equal cost
+(above), and L-BFGS on it reaches a better endpoint than 100 Adam epochs.
+L-BFGS takes one update per full-trie gradient — the pd=0, full-sharing
+setting that was worst with plain steps (card 01's 12.05) — so the result
+also shows full aggregation stops being a handicap with curvature steps.
 
 **Default (2026-09-28).** `anc_grad_exact` is now ON by default whenever
 `train.anc_grad` is on. `experimental.anc_grad_exact: false` restores the
