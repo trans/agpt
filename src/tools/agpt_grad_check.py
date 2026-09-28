@@ -61,9 +61,16 @@ def run_dump(cfg_text, init, anc, dump_dir, work, trainer="bin/agpt_train_v2", e
     os.makedirs(dump_dir, exist_ok=True)
     y = re.sub(r"init_file: .*", f"init_file: {init}", cfg_text)
     y = re.sub(r"anc_grad: .*", f"anc_grad: {'true' if anc else 'false'}", y)
-    if not anc or not exact:
-        y = re.sub(r"\n *anc_grad_exact: .*", "", y)  # exact pass requires anc_grad
-        y = re.sub(r"\nexperimental:[ \t]*(?=\n[^ \t\n]|\n?$)", "", y)  # drop an emptied block
+    # The exact pass is on by default when anc_grad is on; request the truncated
+    # (or ancestor-off) gradient explicitly.
+    want_exact = anc and exact and re.search(r"anc_grad_exact: *false", cfg_text) is None
+    y = re.sub(r"\n *anc_grad_exact: .*", "", y)
+    y = re.sub(r"\nexperimental:[ \t]*(?=\n[^ \t\n]|\n?$)", "", y)  # drop an emptied block
+    if not want_exact:
+        if re.search(r"^experimental:", y, re.M):
+            y = re.sub(r"^experimental:[ \t]*\n", "experimental:\n  anc_grad_exact: false\n", y, flags=re.M)
+        else:
+            y = y.rstrip("\n") + "\nexperimental:\n  anc_grad_exact: false\n"
     y = re.sub(r"value: \d+", "value: 1", y)
     y = re.sub(r"partition_depth: \d+", "partition_depth: 1", y)
     y = re.sub(r"\n  save_file: .*", "", y)
@@ -98,7 +105,7 @@ def main():
     args = ap.parse_args()
     os.makedirs(args.out, exist_ok=True)
     cfg_text = open(args.base_config).read()
-    has_exact = re.search(r"anc_grad_exact: *true", cfg_text) is not None
+    has_exact = re.search(r"anc_grad_exact: *false", cfg_text) is None  # default on
 
     f0, g_anc, lay = run_dump(cfg_text, args.ckpt, True, os.path.join(args.out, "d0_anc"), args.out, args.trainer)
     _, g_no, _ = run_dump(cfg_text, args.ckpt, False, os.path.join(args.out, "d0_noanc"), args.out, args.trainer)

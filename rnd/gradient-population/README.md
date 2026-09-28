@@ -937,6 +937,35 @@ between epochs 80 and 100). One seed each; the gap is ~10× the run-to-run
 differences seen so far. Every AGPT-attention number trained before this
 fix optimised a slightly wrong gradient.
 
+**600 passes: L-BFGS on the exact trie gradient beats Adam.** Run
+`20260928T155740-lbfgs-trie-exact-pd1-ep25-600` (3929 s, 6.5 s/pass), otherwise identical to Experiment 7:
+
+| pass | rolling byte PPL | fixed PPL | backtracks (cumulative) | train loss |
+|---:|---:|---:|---:|---:|
+| 100 | 5.668 | 5.159 | 3 | 1.7239 |
+| 200 | 5.396 | 4.878 | 3 | 1.6710 |
+| 300 | 5.239 | 4.710 | 3 | 1.6398 |
+| 400 | 5.149 | 4.614 | 3 | 1.6182 |
+| **600** | **5.019** | **4.481** | **3** | **1.5906** |
+| *Adam pd=1 100 ep, exact* | *5.225* | *4.684* | | *1.6374* |
+| *Adam pd=1 100 ep, truncated* | *5.348* | *4.810* | | *1.6626* |
+| *L-BFGS 600, truncated (Exp 7)* | *5.407* | *4.888* | *264* | *1.6740* |
+
+−4% vs exact-gradient Adam, −6 to −7% vs the old recipe; no backtracks
+after the three initial calibration steps, no history resets, still
+descending at 600. Wall-clock caveat: this is 25 Adam epochs (~2.4 min)
+plus ~65 min of L-BFGS, against ~11 min for 100 Adam epochs; L-BFGS
+crosses Adam's 4.684 around pass ~330 (~36 min). The case here is the
+better endpoint, not speed, and Adam run longer than 100 epochs has not
+been measured.
+
+**Default (2026-09-28).** `anc_grad_exact` is now ON by default whenever
+`train.anc_grad` is on. `experimental.anc_grad_exact: false` restores the
+truncated gradient (needed only to reproduce older runs). In unsupported
+configurations (non-train-epoch modes, non-depth RoPE, successor table,
+target sidecar, lightning, node dropout) the default switches itself off
+with a printed notice; an explicit `true` there is an error.
+
 Measurement note: with TF32 matmuls (the cuBLAS default here) the loss
 carries ~3e-5 of rounding noise, which makes small-ε checks wobble (the
 curvature estimates disagree by up to 2×). `NVIDIA_TF32_OVERRIDE=0` plus

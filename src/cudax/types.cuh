@@ -69,8 +69,11 @@ struct TrainerConfig {
     bool anc_grad = false;
     // Exact ancestor backward: a second pass over internal nodes in descending
     // endpoint depth carries descendant->ancestor K/V gradient through the full
-    // ancestor computation instead of stopping at Wk/Wv.
-    bool anc_grad_exact = false;
+    // ancestor computation instead of stopping at Wk/Wv. Default ON (2026-09-28,
+    // rnd/gradient-population Exp 8) whenever anc_grad is on; switched off with a
+    // notice in modes it does not support unless explicitly requested.
+    bool anc_grad_exact = true;
+    bool anc_grad_exact_explicit = false;
     bool accumulate = false;
     bool quiet = false;
     RopePositionModeV2 rope_position_mode = RopePositionModeV2::Depth;

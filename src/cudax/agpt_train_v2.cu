@@ -1924,19 +1924,32 @@ int main(int argc, char** argv) {
             std::printf("  checkpoint_epochs: ignored because model.save_file is not set\n");
         }
     }
-    if (cfg.anc_grad_exact) {
-        if (cfg.rope_position_mode != agpt_v2::RopePositionModeV2::Depth || successor_table_ptr ||
-            target_sidecar_ptr || cfg.lightning_enabled || cfg.dropout_node_keep_prob < 1.0f) {
-            std::fprintf(stderr, "agpt_train_v2: experimental.anc_grad_exact currently supports only depth RoPE, "
-                                 "no successor table, no target sidecar, no lightning, no node dropout\n");
-            return 1;
+    if (!cfg.anc_grad) {
+        cfg.anc_grad_exact = false;  // nothing to make exact
+    } else if (cfg.anc_grad_exact) {
+        const char* unsupported = nullptr;
+        if (mode != V2Mode::TrainEpoch) unsupported = "non-train-epoch mode";
+        else if (cfg.rope_position_mode != agpt_v2::RopePositionModeV2::Depth) unsupported = "non-depth RoPE mode";
+        else if (successor_table_ptr) unsupported = "successor prefix table";
+        else if (target_sidecar_ptr) unsupported = "target sidecar";
+        else if (cfg.lightning_enabled) unsupported = "lightning sampling";
+        else if (cfg.dropout_node_keep_prob < 1.0f) unsupported = "node dropout";
+        if (unsupported) {
+            if (cfg.anc_grad_exact_explicit) {
+                std::fprintf(stderr, "agpt_train_v2: experimental.anc_grad_exact: true is not supported with %s\n",
+                             unsupported);
+                return 1;
+            }
+            cfg.anc_grad_exact = false;
+            std::printf("  anc-grad-exact: OFF (default-on, but not supported with %s; gradient through ancestor "
+                        "K/V stops at Wk/Wv)\n", unsupported);
+        } else {
+            std::printf("  anc-grad-exact: enabled%s (second pass over internal nodes, deepest endpoint depth first; "
+                        "ancestor K/V gradient carried through the full ancestor computation)\n",
+                        cfg.anc_grad_exact_explicit ? "" : " (default)");
         }
-        if (mode != V2Mode::TrainEpoch) {
-            std::fprintf(stderr, "agpt_train_v2: experimental.anc_grad_exact is implemented for train-epoch mode only\n");
-            return 1;
-        }
-        std::printf("  anc-grad-exact: enabled (second pass over internal nodes, deepest endpoint depth first; "
-                    "ancestor K/V gradient carried through the full ancestor computation)\n");
+    } else {
+        std::printf("  anc-grad-exact: OFF (explicit experimental.anc_grad_exact: false; truncated ancestor gradient)\n");
     }
     if (cfg.anc_grad) {
         std::printf("  anc-grad: enabled (descendant->ancestor scatter into Wk/Wv)\n");

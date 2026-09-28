@@ -768,8 +768,9 @@ static bool apply_yaml_config_v2(const char* config_path,
     if (!yaml_get_int_v2(doc, "train.chunk_queries", cfg.chunk_queries)) return false;
     if (!yaml_get_int_sequence_v2(doc, "train.checkpoint_epochs", yaml_cfg.checkpoint_epochs)) return false;
     if (!yaml_get_bool_v2(doc, "train.anc_grad", cfg.anc_grad)) return false;
-    if (!yaml_get_bool_v2(doc, "experimental.anc_grad_exact", cfg.anc_grad_exact)) return false;
-    if (cfg.anc_grad_exact && !cfg.anc_grad) {
+    if (!yaml_get_bool_v2(doc, "experimental.anc_grad_exact", cfg.anc_grad_exact,
+                          &cfg.anc_grad_exact_explicit)) return false;
+    if (cfg.anc_grad_exact_explicit && cfg.anc_grad_exact && !cfg.anc_grad) {
         std::fprintf(stderr, "agpt_train_v2: experimental.anc_grad_exact requires train.anc_grad: true\n");
         return false;
     }
