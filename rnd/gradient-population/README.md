@@ -994,6 +994,30 @@ subtree Adam is still the better use of a traversal. Open: L-BFGS on
 partitioned units (one history per unit is what failed in May), larger
 models, or a curvature-preconditioned partitioned optimizer.
 
+**pd=0 with Adam is unchanged by the fix.** Run `20260928T185255-adam-pd0-exact-100ep`: Adam pd=0 (one
+update per full trie) 100 epochs with the exact gradient, otherwise matched
+to `20260928T004439-cadence-pd0-100ep`: rolling byte 12.084 vs 12.054,
+fixed 12.105 vs 12.110, train loss 2.492 vs 2.489 — identical within
+noise. pd=0's poor Adam results were never the gradient bug: 100 updates
+in 100 epochs is too few for Adam at this learning rate. The bug is what
+kept *L-BFGS* from rescuing pd=0; with the exact gradient L-BFGS takes the
+same one-update-per-traversal setting to 5.02.
+
+Endpoint trends: over the last 200 traversals Adam-625 moved 4.790 → 4.764
+(its cosine schedule reaches zero LR at 625, so it is designed to stop);
+L-BFGS moved 5.149 → 5.019 with no schedule and an unshrinking gradient
+norm (~0.096), so its limit is not yet measured.
+
+Why L-BFGS cannot simply use pd=1: its curvature pairs (step s, gradient
+change y) need both gradients from the same loss; consecutive pd=1 steps
+use different subtrees' losses, so y mostly measures the change of subtree
+(the May failure). Routes that keep partitioned cadence: per-subtree
+curvature histories (65 at pd=1, ~1 GB — feasible; the May note ruled
+this out only at pd=6), or partitioned steps preconditioned by curvature
+learned from the full-trie gradient once per epoch (stochastic
+quasi-Newton; the full gradient is the free sum of the epoch's unit
+gradients).
+
 The 625-epoch Adam run (rolling byte 4.764, fixed 4.208) is also the best
 AGPT d64 L2 result on record, from the gradient fix plus a longer run.
 
