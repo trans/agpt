@@ -24,7 +24,7 @@ related: [cudax-d124-probe, radix-depth124, shake-sgd-baseline]
 
 # window-d124-baseline
 
-**Status:** active
+**Status:** concluded, n/a (reviewed 2026-09-28; this line previously read "active"). The answer is in the front matter above.
 
 ## Hypothesis
 

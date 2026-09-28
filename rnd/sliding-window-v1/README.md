@@ -28,7 +28,7 @@ related: [seq-len-decouple]
 
 # Sliding-Window AGPT v1 — inference prototype
 
-**Status:** in progress, started 2026-05-11
+**Status:** concluded, negative (reviewed 2026-09-28; this line previously read "in progress, started 2026-05-11"). The answer is in the front matter above.
 **Design doc:** `notes/seq-len-extension/sliding_window_agpt.md`
 **Phase 0 dependency:** `rnd/seq-len-decouple/` (position→node map; not
 strictly required for v1 inference but useful for verification)

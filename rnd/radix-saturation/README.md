@@ -28,7 +28,7 @@ related: [sparsity-profile, unary-pruning]
 
 # Radix Saturation vs. PPL
 
-**Status**: in progress (branch: `main`).
+**Status:** concluded, inconclusive (reviewed 2026-09-28; this line previously read "in progress (branch: `main`)."). The answer is in the front matter above.
 
 **Trainer note**: pre-fix, needs reassessment.
 

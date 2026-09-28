@@ -28,7 +28,7 @@ related: [cudax-static-epochs, cudax-section2-progressive, v1-vs-v2-comparison]
 
 # cudax-exposure-fix
 
-**Status:** active
+**Status:** concluded, n/a (reviewed 2026-09-28; this line previously read "active"). The answer is in the front matter above.
 
 ## Hypothesis
 

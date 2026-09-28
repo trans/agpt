@@ -24,7 +24,7 @@ related: [v1-vs-v2-comparison, cudax-d124-probe, cudax-growth-heldout-rerun]
 
 # cudax-d16-linear-mass-rerun
 
-**Status:** active
+**Status:** concluded, n/a (reviewed 2026-09-28; this line previously read "active"). The answer is in the front matter above.
 
 ## Hypothesis
 

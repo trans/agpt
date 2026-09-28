@@ -38,7 +38,7 @@ related: [baseline-calibration-v2-static-sampled, kenlm-baseline, rope-position-
 
 # sampled-node-phase-rope
 
-Status: active
+**Status:** concluded, positive (reviewed 2026-09-28; this line previously read "active"). The answer is in the front matter above.
 
 Trainer note: post-fix
 

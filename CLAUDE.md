@@ -67,6 +67,17 @@ Every config must declare `eval.split` explicitly. Values:
   via `eval.benchmark`. Comparable to published numbers, less aligned
   with our training distribution.
 
+`result.json` can also record a fifth value the config never declares:
+
+- `multi-chunk-heldout` — recorded automatically when the held-out file
+  given by `corpus.heldout` has a `heldout_chunks/` directory beside it,
+  as produced by `bin/agpt_carve` in `sample` mode. The orchestrator then
+  scores each chunk separately and pools the NLL, so no rolling window
+  crosses a chunk boundary. The canonical Shakespeare split
+  `data/.splits/4fa9aec1db6b3aea/` is such a carve (10 chunks of 5,576
+  chars sampled from the whole corpus, 5%, seed 42), so runs on it record
+  `multi-chunk-heldout` even when the config says `tail-heldout`.
+
 Numbers from different splits are NOT comparable. `result.json` records
 the split + source SHA so this can't be confused later.
 
@@ -98,12 +109,15 @@ never `nvcc` directly). See `Justfile`.
 
 ## Memory + research history
 
-**Claude-specific:** per-project memory lives at
-`~/.claude/projects/-home-trans-Projects-microgpt/memory/`. Index in
-`MEMORY.md`. Other agents have their own persistence mechanisms; this
-section is what Claude reads at session start.
+**Claude-specific:** per-project memory for sessions started in this
+repository lives at `~/.claude/projects/-home-trans-Projects-agpt/memory/`
+(index in `MEMORY.md`, loaded at session start). Older memory from when
+the project was named microgpt lives at
+`~/.claude/projects/-home-trans-Projects-microgpt/memory/` and is not
+loaded automatically; read it when you need project history. Other agents
+have their own persistence mechanisms.
 
-Notable entries for orientation:
+Notable entries in the older (microgpt) memory:
 - `feedback_evaluator_consistency.md` — full canonical-PPL story
 - `project_experiment_runner.md` — discipline commitment + design doc ref
 - `feedback_persist_results.md` — runs must persist to disk before

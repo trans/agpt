@@ -26,7 +26,7 @@ related: [harmonic-filter-diagnostic]
 
 # harmonic-bias-prototype
 
-**Status:** active (variance check in progress)
+**Status:** concluded, negative (reviewed 2026-09-28; this line previously read "active (variance check in progress)"). The answer is in the front matter above.
 
 ## Hypothesis
 

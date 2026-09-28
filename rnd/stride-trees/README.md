@@ -28,7 +28,7 @@ related: [tanh-recurrence, rnn-agpt]
 
 # Stride Trees
 
-Status: active.
+**Status:** concluded, inconclusive (reviewed 2026-09-28; this line previously read "active."). The answer is in the front matter above.
 
 This line tests whether AGPT can expose longer-range structure by building
 prefix trees over strided corpus positions:

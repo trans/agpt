@@ -29,7 +29,7 @@ related: [lightning-agpt, gradient-population, hybrid-agpt]
 
 # Stochastic AGPT
 
-Status: active.
+**Status:** concluded, negative (reviewed 2026-09-28; this line previously read "active."). The answer is in the front matter above.
 
 **Historical result note (updated 2026-09-28):** The June training runs below
 predate a [fixed CUDA kernel race](../gradient-population/README.md#trainer-bug-found-on-the-way-fixed-2026-09-24).

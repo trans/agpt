@@ -25,7 +25,7 @@ related: [radix-depth124, window-d124-baseline, shake-small-baseline]
 
 # cudax-d124-probe
 
-**Status:** active
+**Status:** concluded, inconclusive (reviewed 2026-09-28; this line previously read "active"). The answer is in the front matter above.
 
 ## Hypothesis
 

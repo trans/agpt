@@ -29,7 +29,7 @@ related: [runpod, overnight-2026-05-18]
 
 # Streaming AGPT v1 — 5-checkpoint linear cadence
 
-**Status:** planning (started 2026-05-16)
+**Status:** concluded, positive (reviewed 2026-09-28; this line previously read "planning (started 2026-05-16)"). The answer is in the front matter above.
 **Design doc:** `notes/trainer/streaming_agpt.md`
 
 ## Goal

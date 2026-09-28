@@ -20,7 +20,7 @@ related: [cap-folding, dual-model-fold]
 
 # Prefix–Suffix Bayesian Consistency
 
-**Status:** investigation in progress (2026-05-02).
+**Status:** concluded, n/a (reviewed 2026-09-28; this line previously read "investigation in progress (2026-05-02)."). The answer is in the front matter above.
 
 ## Hypothesis
 

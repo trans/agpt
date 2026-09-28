@@ -20,7 +20,7 @@ related: [sgd-ceiling, agpt-epoch-scaling, progressive-growth-sgd-comparison]
 
 # SGD vs AGPT Sanity Check
 
-**Status**: incomplete — redo required.
+**Status:** concluded, inconclusive (reviewed 2026-09-28; this line previously read "incomplete — redo required."). The answer is in the front matter above.
 
 **Trainer note**: pre-fix, needs reassessment.
 

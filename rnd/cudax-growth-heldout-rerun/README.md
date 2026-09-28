@@ -26,7 +26,7 @@ related: [cudax-growth, progressive-growth-sgd-comparison, cudax-d16-linear-mass
 
 # cudax-growth-heldout-rerun
 
-**Status:** active
+**Status:** concluded, mixed (reviewed 2026-09-28; this line previously read "active"). The answer is in the front matter above.
 
 ## Hypothesis
 

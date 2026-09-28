@@ -28,7 +28,7 @@ related: [granularity-redundancy, lightning-training, agpt-epoch-scaling]
 
 # Hotspot Curriculum
 
-**Status**: incomplete
+**Status:** concluded, mixed (reviewed 2026-09-28; this line previously read "incomplete"). The answer is in the front matter above.
 
 **Trainer note**: likely post-fix, but needs writeup to confirm scope.
 
