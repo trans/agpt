@@ -1,0 +1,33 @@
+{
+  "schema": "agpt_eval.v1",
+  "metrics": {
+    "lm_eval_rolling_word_perplexity": 13467704.307186363,
+    "lm_eval_rolling_byte_perplexity": 18.84366935594103,
+    "lm_eval_rolling_bits_per_byte": 4.23600801770265,
+    "agpt_fixed_token_perplexity": 18.938734862047156
+  },
+  "lm_eval": {
+    "backoff-b4-sentinel-seed3_holdout": {
+      "name": "backoff-b4-sentinel-seed3_holdout",
+      "alias": "backoff-b4-sentinel-seed3_holdout",
+      "sample_len": 1,
+      "word_perplexity,none": 13467704.307186363,
+      "word_perplexity_stderr,none": "N/A",
+      "byte_perplexity,none": 18.84366935594103,
+      "byte_perplexity_stderr,none": "N/A",
+      "bits_per_byte,none": 4.23600801770265,
+      "bits_per_byte_stderr,none": "N/A"
+    }
+  },
+  "agpt_fixed": {
+    "protocol": "agpt_fixed_token",
+    "perplexity": 18.938734862047156,
+    "tokens_evaluated": 55753,
+    "target_start": 16,
+    "target_stop": 55769,
+    "context_tokens": 16,
+    "vocab_size": 65,
+    "model_seq_len": 16,
+    "per_chunk": null
+  }
+}

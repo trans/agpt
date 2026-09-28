@@ -1,0 +1,34 @@
+{
+  "run_id": "20260531T175933-backoff-b4-samek-seed3",
+  "experiment": "slot-selection-step0",
+  "wall_seconds": 217.277282265,
+  "train_wall_seconds": 188.628128966,
+  "convert_wall_seconds": 4.659573652,
+  "eval_wall_seconds": 18.921534936,
+  "started_utc": "2026-05-31T17:59:33Z",
+  "ended_utc": "2026-05-31T18:03:10Z",
+  "trainer": "v1",
+  "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+  "eval": {
+    "split": "tail-heldout",
+    "source_path": "data/.splits/2b7ded401e96b610/heldout_corpus.txt",
+    "source_sha256": "9be7061b07c454cbc4d25a5152958caf6a4817e70a7a1c841c616733535eb285",
+    "chunks_dir": null,
+    "benchmark": null,
+    "task_name": "backoff-b4-samek-seed3_holdout"
+  },
+  "metrics": {
+    "lm_eval_rolling_word_perplexity": 15461724.081907922,
+    "lm_eval_rolling_byte_perplexity": 19.31482895881448,
+    "lm_eval_rolling_bits_per_byte": 4.27163699682362,
+    "agpt_fixed_token_perplexity": 19.4778954911111
+  },
+  "checkpoint_sha": "692f1ce989f0729b6a9e9b78ac35e01de2c3e32e87b4bb0c69356fa0486507a2",
+  "checkpoint_results": null,
+  "experimental_used": {
+    "v1": [
+      "backoff_position",
+      "backoff_slots"
+    ]
+  }
+}

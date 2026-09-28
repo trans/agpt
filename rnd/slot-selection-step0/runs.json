@@ -1,0 +1,776 @@
+[
+  {
+    "run_id": "20260531T165703-baseline-b0",
+    "experiment": "slot-selection-step0",
+    "wall_seconds": 292.868932441,
+    "train_wall_seconds": 260.557346012,
+    "convert_wall_seconds": 5.813685887,
+    "eval_wall_seconds": 20.577753796,
+    "started_utc": "2026-05-31T16:57:03Z",
+    "ended_utc": "2026-05-31T17:01:56Z",
+    "trainer": "v1",
+    "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+    "eval": {
+      "split": "tail-heldout",
+      "source_path": "data/.splits/2b7ded401e96b610/heldout_corpus.txt",
+      "source_sha256": "9be7061b07c454cbc4d25a5152958caf6a4817e70a7a1c841c616733535eb285",
+      "chunks_dir": null,
+      "benchmark": null,
+      "task_name": "baseline-b0_holdout"
+    },
+    "metrics": {
+      "lm_eval_rolling_word_perplexity": 7629531.257173092,
+      "lm_eval_rolling_byte_perplexity": 17.02248264887642,
+      "lm_eval_rolling_bits_per_byte": 4.089369557529461,
+      "agpt_fixed_token_perplexity": 16.8947418890723
+    },
+    "checkpoint_sha": "19e1bcff8f0d4dba94796e03633c2264149ba7080040967c412c9deaf46cbdd7",
+    "checkpoint_results": null,
+    "experimental_used": {
+      "v1": [
+        "backoff_slots"
+      ]
+    }
+  },
+  {
+    "run_id": "20260531T170524-baseline-b0-seed1",
+    "experiment": "slot-selection-step0",
+    "wall_seconds": 299.948240582,
+    "train_wall_seconds": 268.159988748,
+    "convert_wall_seconds": 6.228005685,
+    "eval_wall_seconds": 20.15826983,
+    "started_utc": "2026-05-31T17:05:24Z",
+    "ended_utc": "2026-05-31T17:10:24Z",
+    "trainer": "v1",
+    "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+    "eval": {
+      "split": "tail-heldout",
+      "source_path": "data/.splits/2b7ded401e96b610/heldout_corpus.txt",
+      "source_sha256": "9be7061b07c454cbc4d25a5152958caf6a4817e70a7a1c841c616733535eb285",
+      "chunks_dir": null,
+      "benchmark": null,
+      "task_name": "baseline-b0-seed1_holdout"
+    },
+    "metrics": {
+      "lm_eval_rolling_word_perplexity": 7833044.389563758,
+      "lm_eval_rolling_byte_perplexity": 17.102822582814753,
+      "lm_eval_rolling_bits_per_byte": 4.096162536383739,
+      "agpt_fixed_token_perplexity": 16.94035100213136
+    },
+    "checkpoint_sha": "d241a87f09877089ca9bd60f8e276a02abf2938153eb239b3cbbaad1d431970e",
+    "checkpoint_results": null,
+    "experimental_used": {
+      "v1": [
+        "backoff_slots"
+      ]
+    }
+  },
+  {
+    "run_id": "20260531T171024-baseline-b0-seed2",
+    "experiment": "slot-selection-step0",
+    "wall_seconds": 295.841965538,
+    "train_wall_seconds": 266.604796462,
+    "convert_wall_seconds": 5.044557663,
+    "eval_wall_seconds": 19.688226790999998,
+    "started_utc": "2026-05-31T17:10:24Z",
+    "ended_utc": "2026-05-31T17:15:19Z",
+    "trainer": "v1",
+    "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+    "eval": {
+      "split": "tail-heldout",
+      "source_path": "data/.splits/2b7ded401e96b610/heldout_corpus.txt",
+      "source_sha256": "9be7061b07c454cbc4d25a5152958caf6a4817e70a7a1c841c616733535eb285",
+      "chunks_dir": null,
+      "benchmark": null,
+      "task_name": "baseline-b0-seed2_holdout"
+    },
+    "metrics": {
+      "lm_eval_rolling_word_perplexity": 7696990.392348785,
+      "lm_eval_rolling_byte_perplexity": 17.049306112910433,
+      "lm_eval_rolling_bits_per_byte": 4.091641119307841,
+      "agpt_fixed_token_perplexity": 17.003696613987394
+    },
+    "checkpoint_sha": "b9d6d042021cbabe02324860b6e391c6b67f48600ae91eff0eaebb3578c0583d",
+    "checkpoint_results": null,
+    "experimental_used": {
+      "v1": [
+        "backoff_slots"
+      ]
+    }
+  },
+  {
+    "run_id": "20260531T171519-baseline-b0-seed3",
+    "experiment": "slot-selection-step0",
+    "wall_seconds": 295.149856415,
+    "train_wall_seconds": 264.093631853,
+    "convert_wall_seconds": 6.225979355,
+    "eval_wall_seconds": 20.016010622,
+    "started_utc": "2026-05-31T17:15:19Z",
+    "ended_utc": "2026-05-31T17:20:15Z",
+    "trainer": "v1",
+    "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+    "eval": {
+      "split": "tail-heldout",
+      "source_path": "data/.splits/2b7ded401e96b610/heldout_corpus.txt",
+      "source_sha256": "9be7061b07c454cbc4d25a5152958caf6a4817e70a7a1c841c616733535eb285",
+      "chunks_dir": null,
+      "benchmark": null,
+      "task_name": "baseline-b0-seed3_holdout"
+    },
+    "metrics": {
+      "lm_eval_rolling_word_perplexity": 7924738.783978902,
+      "lm_eval_rolling_byte_perplexity": 17.138461335782107,
+      "lm_eval_rolling_bits_per_byte": 4.0991656872502675,
+      "agpt_fixed_token_perplexity": 17.059166558942366
+    },
+    "checkpoint_sha": "c8520bd1e66efb1be8aa2a17c0bb6250c729ac2c208e9e598b8edec50fbcbe4b",
+    "checkpoint_results": null,
+    "experimental_used": {
+      "v1": [
+        "backoff_slots"
+      ]
+    }
+  },
+  {
+    "run_id": "20260531T172015-backoff-b4-samek-seed1",
+    "experiment": "slot-selection-step0",
+    "wall_seconds": 371.416492676,
+    "train_wall_seconds": 339.93727589,
+    "convert_wall_seconds": 5.877764512,
+    "eval_wall_seconds": 21.048218583,
+    "started_utc": "2026-05-31T17:20:15Z",
+    "ended_utc": "2026-05-31T17:26:26Z",
+    "trainer": "v1",
+    "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+    "eval": {
+      "split": "tail-heldout",
+      "source_path": "data/.splits/2b7ded401e96b610/heldout_corpus.txt",
+      "source_sha256": "9be7061b07c454cbc4d25a5152958caf6a4817e70a7a1c841c616733535eb285",
+      "chunks_dir": null,
+      "benchmark": null,
+      "task_name": "backoff-b4-samek-seed1_holdout"
+    },
+    "metrics": {
+      "lm_eval_rolling_word_perplexity": 14207759.60825164,
+      "lm_eval_rolling_byte_perplexity": 19.024831586168478,
+      "lm_eval_rolling_bits_per_byte": 4.249811777479522,
+      "agpt_fixed_token_perplexity": 19.170445859675745
+    },
+    "checkpoint_sha": "c7ca6fac5466a97c1691a3a2eefc3a9f5e7d7538459a2a92c066ad112f288822",
+    "checkpoint_results": null,
+    "experimental_used": {
+      "v1": [
+        "backoff_position",
+        "backoff_slots"
+      ]
+    }
+  },
+  {
+    "run_id": "20260531T172626-backoff-b4-samek-seed2",
+    "experiment": "slot-selection-step0",
+    "wall_seconds": 383.583109327,
+    "train_wall_seconds": 350.290082589,
+    "convert_wall_seconds": 6.482665903,
+    "eval_wall_seconds": 21.824659857,
+    "started_utc": "2026-05-31T17:26:26Z",
+    "ended_utc": "2026-05-31T17:32:50Z",
+    "trainer": "v1",
+    "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+    "eval": {
+      "split": "tail-heldout",
+      "source_path": "data/.splits/2b7ded401e96b610/heldout_corpus.txt",
+      "source_sha256": "9be7061b07c454cbc4d25a5152958caf6a4817e70a7a1c841c616733535eb285",
+      "chunks_dir": null,
+      "benchmark": null,
+      "task_name": "backoff-b4-samek-seed2_holdout"
+    },
+    "metrics": {
+      "lm_eval_rolling_word_perplexity": 15835533.258322235,
+      "lm_eval_rolling_byte_perplexity": 19.39753427012333,
+      "lm_eval_rolling_bits_per_byte": 4.277801369859062,
+      "agpt_fixed_token_perplexity": 19.597709685048127
+    },
+    "checkpoint_sha": "7200a924c9175c5aff102b02a5ae643612e167d9e6445d2dd946b6d2aa3e5fe8",
+    "checkpoint_results": null,
+    "experimental_used": {
+      "v1": [
+        "backoff_position",
+        "backoff_slots"
+      ]
+    }
+  },
+  {
+    "run_id": "20260531T175933-backoff-b4-samek-seed3",
+    "experiment": "slot-selection-step0",
+    "wall_seconds": 217.277282265,
+    "train_wall_seconds": 188.628128966,
+    "convert_wall_seconds": 4.659573652,
+    "eval_wall_seconds": 18.921534936,
+    "started_utc": "2026-05-31T17:59:33Z",
+    "ended_utc": "2026-05-31T18:03:10Z",
+    "trainer": "v1",
+    "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+    "eval": {
+      "split": "tail-heldout",
+      "source_path": "data/.splits/2b7ded401e96b610/heldout_corpus.txt",
+      "source_sha256": "9be7061b07c454cbc4d25a5152958caf6a4817e70a7a1c841c616733535eb285",
+      "chunks_dir": null,
+      "benchmark": null,
+      "task_name": "backoff-b4-samek-seed3_holdout"
+    },
+    "metrics": {
+      "lm_eval_rolling_word_perplexity": 15461724.081907922,
+      "lm_eval_rolling_byte_perplexity": 19.31482895881448,
+      "lm_eval_rolling_bits_per_byte": 4.27163699682362,
+      "agpt_fixed_token_perplexity": 19.4778954911111
+    },
+    "checkpoint_sha": "692f1ce989f0729b6a9e9b78ac35e01de2c3e32e87b4bb0c69356fa0486507a2",
+    "checkpoint_results": null,
+    "experimental_used": {
+      "v1": [
+        "backoff_position",
+        "backoff_slots"
+      ]
+    }
+  },
+  {
+    "run_id": "20260531T180310-backoff-b4-sentinel-seed1",
+    "experiment": "slot-selection-step0",
+    "wall_seconds": 218.307108185,
+    "train_wall_seconds": 189.652514216,
+    "convert_wall_seconds": 5.065146141,
+    "eval_wall_seconds": 18.495426462,
+    "started_utc": "2026-05-31T18:03:10Z",
+    "ended_utc": "2026-05-31T18:06:49Z",
+    "trainer": "v1",
+    "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+    "eval": {
+      "split": "tail-heldout",
+      "source_path": "data/.splits/2b7ded401e96b610/heldout_corpus.txt",
+      "source_sha256": "9be7061b07c454cbc4d25a5152958caf6a4817e70a7a1c841c616733535eb285",
+      "chunks_dir": null,
+      "benchmark": null,
+      "task_name": "backoff-b4-sentinel-seed1_holdout"
+    },
+    "metrics": {
+      "lm_eval_rolling_word_perplexity": 12971987.458762413,
+      "lm_eval_rolling_byte_perplexity": 18.717693317674012,
+      "lm_eval_rolling_bits_per_byte": 4.226330749669899,
+      "agpt_fixed_token_perplexity": 18.80920122922783
+    },
+    "checkpoint_sha": "81e02859a3e6eada06d9af3e4bb66cd1f7852f6e7f329dead4e79c90420e8030",
+    "checkpoint_results": null,
+    "experimental_used": {
+      "v1": [
+        "backoff_position",
+        "backoff_slots"
+      ]
+    }
+  },
+  {
+    "run_id": "20260531T180649-backoff-b4-sentinel-seed2",
+    "experiment": "slot-selection-step0",
+    "wall_seconds": 211.047466816,
+    "train_wall_seconds": 188.538207357,
+    "convert_wall_seconds": 3.368012487,
+    "eval_wall_seconds": 15.316519722,
+    "started_utc": "2026-05-31T18:06:49Z",
+    "ended_utc": "2026-05-31T18:10:20Z",
+    "trainer": "v1",
+    "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+    "eval": {
+      "split": "tail-heldout",
+      "source_path": "data/.splits/2b7ded401e96b610/heldout_corpus.txt",
+      "source_sha256": "9be7061b07c454cbc4d25a5152958caf6a4817e70a7a1c841c616733535eb285",
+      "chunks_dir": null,
+      "benchmark": null,
+      "task_name": "backoff-b4-sentinel-seed2_holdout"
+    },
+    "metrics": {
+      "lm_eval_rolling_word_perplexity": 12421159.107767941,
+      "lm_eval_rolling_byte_perplexity": 18.572987471507115,
+      "lm_eval_rolling_bits_per_byte": 4.215133986826081,
+      "agpt_fixed_token_perplexity": 18.67438262823708
+    },
+    "checkpoint_sha": "c80a0c72843b14dc76b942d954558186c8cceb3d0fabd716aaa517be7c938e2d",
+    "checkpoint_results": null,
+    "experimental_used": {
+      "v1": [
+        "backoff_position",
+        "backoff_slots"
+      ]
+    }
+  },
+  {
+    "run_id": "20260531T181020-backoff-b4-sentinel-seed3",
+    "experiment": "slot-selection-step0",
+    "wall_seconds": 213.667028036,
+    "train_wall_seconds": 187.973440334,
+    "convert_wall_seconds": 3.86522311,
+    "eval_wall_seconds": 18.289822196,
+    "started_utc": "2026-05-31T18:10:20Z",
+    "ended_utc": "2026-05-31T18:13:53Z",
+    "trainer": "v1",
+    "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+    "eval": {
+      "split": "tail-heldout",
+      "source_path": "data/.splits/2b7ded401e96b610/heldout_corpus.txt",
+      "source_sha256": "9be7061b07c454cbc4d25a5152958caf6a4817e70a7a1c841c616733535eb285",
+      "chunks_dir": null,
+      "benchmark": null,
+      "task_name": "backoff-b4-sentinel-seed3_holdout"
+    },
+    "metrics": {
+      "lm_eval_rolling_word_perplexity": 13467704.307186363,
+      "lm_eval_rolling_byte_perplexity": 18.84366935594103,
+      "lm_eval_rolling_bits_per_byte": 4.23600801770265,
+      "agpt_fixed_token_perplexity": 18.938734862047156
+    },
+    "checkpoint_sha": "8ec611511747ae82f1583474a5d1ec256c948ab6ce6b9dc29e8469e472eb65fb",
+    "checkpoint_results": null,
+    "experimental_used": {
+      "v1": [
+        "backoff_position",
+        "backoff_slots"
+      ]
+    }
+  },
+  {
+    "run_id": "20260531T183047-diag-skip-kv-matmul-samek-seed1",
+    "experiment": "slot-selection-step0",
+    "wall_seconds": 339.231251081,
+    "train_wall_seconds": 307.411760533,
+    "convert_wall_seconds": 4.768542889,
+    "eval_wall_seconds": 21.974730572,
+    "started_utc": "2026-05-31T18:30:47Z",
+    "ended_utc": "2026-05-31T18:36:26Z",
+    "trainer": "v1",
+    "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+    "eval": {
+      "split": "tail-heldout",
+      "source_path": "data/.splits/2b7ded401e96b610/heldout_corpus.txt",
+      "source_sha256": "9be7061b07c454cbc4d25a5152958caf6a4817e70a7a1c841c616733535eb285",
+      "chunks_dir": null,
+      "benchmark": null,
+      "task_name": "diag-skip-kv-matmul-samek-seed1_holdout"
+    },
+    "metrics": {
+      "lm_eval_rolling_word_perplexity": 18891924.89886585,
+      "lm_eval_rolling_byte_perplexity": 20.019591096600376,
+      "lm_eval_rolling_bits_per_byte": 4.323340602081677,
+      "agpt_fixed_token_perplexity": 20.088028922584503
+    },
+    "checkpoint_sha": "e2636c8deae85dda323248123acc926d720ae4097f6717f6d558b092d45d888d",
+    "checkpoint_results": null,
+    "experimental_used": {
+      "v1": [
+        "backoff_position",
+        "backoff_slots"
+      ]
+    }
+  },
+  {
+    "run_id": "20260531T183843-diag-retest-samek-seed1",
+    "experiment": "slot-selection-step0",
+    "wall_seconds": 352.974587247,
+    "train_wall_seconds": 322.650906534,
+    "convert_wall_seconds": 6.027097898,
+    "eval_wall_seconds": 19.929848828,
+    "started_utc": "2026-05-31T18:38:43Z",
+    "ended_utc": "2026-05-31T18:44:36Z",
+    "trainer": "v1",
+    "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+    "eval": {
+      "split": "tail-heldout",
+      "source_path": "data/.splits/2b7ded401e96b610/heldout_corpus.txt",
+      "source_sha256": "9be7061b07c454cbc4d25a5152958caf6a4817e70a7a1c841c616733535eb285",
+      "chunks_dir": null,
+      "benchmark": null,
+      "task_name": "diag-retest-samek-seed1_holdout"
+    },
+    "metrics": {
+      "lm_eval_rolling_word_perplexity": 14586509.105576284,
+      "lm_eval_rolling_byte_perplexity": 19.114567057359757,
+      "lm_eval_rolling_bits_per_byte": 4.2566006185611736,
+      "agpt_fixed_token_perplexity": 19.246298628603462
+    },
+    "checkpoint_sha": "72ae13220056474a3437833db09e7550c9ae4d94ec9701d9268ed2f64ba9ebd5",
+    "checkpoint_results": null,
+    "experimental_used": {
+      "v1": [
+        "backoff_position",
+        "backoff_slots"
+      ]
+    }
+  },
+  {
+    "run_id": "20260531T190344-l4-baseline-b0-seed1",
+    "experiment": "slot-selection-step0",
+    "wall_seconds": 302.608405803,
+    "train_wall_seconds": 271.3585662,
+    "convert_wall_seconds": 3.9975780739999998,
+    "eval_wall_seconds": 23.015865872,
+    "started_utc": "2026-05-31T19:03:44Z",
+    "ended_utc": "2026-05-31T19:08:47Z",
+    "trainer": "v1",
+    "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+    "eval": {
+      "split": "tail-heldout",
+      "source_path": "data/.splits/2b7ded401e96b610/heldout_corpus.txt",
+      "source_sha256": "9be7061b07c454cbc4d25a5152958caf6a4817e70a7a1c841c616733535eb285",
+      "chunks_dir": null,
+      "benchmark": null,
+      "task_name": "l4-baseline-b0-seed1_holdout"
+    },
+    "metrics": {
+      "lm_eval_rolling_word_perplexity": 43694262.77982085,
+      "lm_eval_rolling_byte_perplexity": 23.25882514180356,
+      "lm_eval_rolling_bits_per_byte": 4.539706319604715,
+      "agpt_fixed_token_perplexity": 23.21160527622623
+    },
+    "checkpoint_sha": "00a913aa78be732fdba96f5beffa160dca8e4d93f62bf4962a325f862dad2fc3",
+    "checkpoint_results": null,
+    "experimental_used": {
+      "v1": [
+        "backoff_slots"
+      ]
+    }
+  },
+  {
+    "run_id": "20260531T190914-l4-baseline-b0-seed2",
+    "experiment": "slot-selection-step0",
+    "wall_seconds": 301.405547838,
+    "train_wall_seconds": 274.039177425,
+    "convert_wall_seconds": 3.4965096239999998,
+    "eval_wall_seconds": 19.708764164,
+    "started_utc": "2026-05-31T19:09:14Z",
+    "ended_utc": "2026-05-31T19:14:15Z",
+    "trainer": "v1",
+    "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+    "eval": {
+      "split": "tail-heldout",
+      "source_path": "data/.splits/2b7ded401e96b610/heldout_corpus.txt",
+      "source_sha256": "9be7061b07c454cbc4d25a5152958caf6a4817e70a7a1c841c616733535eb285",
+      "chunks_dir": null,
+      "benchmark": null,
+      "task_name": "l4-baseline-b0-seed2_holdout"
+    },
+    "metrics": {
+      "lm_eval_rolling_word_perplexity": 43291641.242392965,
+      "lm_eval_rolling_byte_perplexity": 23.220345630993496,
+      "lm_eval_rolling_bits_per_byte": 4.537317541527068,
+      "agpt_fixed_token_perplexity": 23.216761684272807
+    },
+    "checkpoint_sha": "496823319803339473932ef8a0de3989f724957fce8e962ba8253452066b60d7",
+    "checkpoint_results": null,
+    "experimental_used": {
+      "v1": [
+        "backoff_slots"
+      ]
+    }
+  },
+  {
+    "run_id": "20260531T191415-l4-baseline-b0-seed3",
+    "experiment": "slot-selection-step0",
+    "wall_seconds": 296.268782781,
+    "train_wall_seconds": 270.111727906,
+    "convert_wall_seconds": 3.357877652,
+    "eval_wall_seconds": 19.229355326,
+    "started_utc": "2026-05-31T19:14:15Z",
+    "ended_utc": "2026-05-31T19:19:12Z",
+    "trainer": "v1",
+    "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+    "eval": {
+      "split": "tail-heldout",
+      "source_path": "data/.splits/2b7ded401e96b610/heldout_corpus.txt",
+      "source_sha256": "9be7061b07c454cbc4d25a5152958caf6a4817e70a7a1c841c616733535eb285",
+      "chunks_dir": null,
+      "benchmark": null,
+      "task_name": "l4-baseline-b0-seed3_holdout"
+    },
+    "metrics": {
+      "lm_eval_rolling_word_perplexity": 43345541.86068439,
+      "lm_eval_rolling_byte_perplexity": 23.225514035907594,
+      "lm_eval_rolling_bits_per_byte": 4.537638622123838,
+      "agpt_fixed_token_perplexity": 23.213392811433394
+    },
+    "checkpoint_sha": "40484f852d441ebc032358912bf84249068df95a36cede9ec6edcfb4dbb9e5cb",
+    "checkpoint_results": null,
+    "experimental_used": {
+      "v1": [
+        "backoff_slots"
+      ]
+    }
+  },
+  {
+    "run_id": "20260531T191912-l4-backoff-b4-samek-seed1",
+    "experiment": "slot-selection-step0",
+    "wall_seconds": 537.516905324,
+    "train_wall_seconds": 505.297375555,
+    "convert_wall_seconds": 3.998272776,
+    "eval_wall_seconds": 24.883759968,
+    "started_utc": "2026-05-31T19:19:12Z",
+    "ended_utc": "2026-05-31T19:28:09Z",
+    "trainer": "v1",
+    "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+    "eval": {
+      "split": "tail-heldout",
+      "source_path": "data/.splits/2b7ded401e96b610/heldout_corpus.txt",
+      "source_sha256": "9be7061b07c454cbc4d25a5152958caf6a4817e70a7a1c841c616733535eb285",
+      "chunks_dir": null,
+      "benchmark": null,
+      "task_name": "l4-backoff-b4-samek-seed1_holdout"
+    },
+    "metrics": {
+      "lm_eval_rolling_word_perplexity": 44572658.78515032,
+      "lm_eval_rolling_byte_perplexity": 23.341775413188557,
+      "lm_eval_rolling_bits_per_byte": 4.544842393824177,
+      "agpt_fixed_token_perplexity": 23.319315592208337
+    },
+    "checkpoint_sha": "f41210bd70eb31c607d47fb39414fd543bc23981867ee2d59059d9b787c997d3",
+    "checkpoint_results": null,
+    "experimental_used": {
+      "v1": [
+        "backoff_position",
+        "backoff_slots"
+      ]
+    }
+  },
+  {
+    "run_id": "20260531T192809-l4-backoff-b4-samek-seed2",
+    "experiment": "slot-selection-step0",
+    "wall_seconds": 535.354943715,
+    "train_wall_seconds": 505.070750659,
+    "convert_wall_seconds": 3.807650431,
+    "eval_wall_seconds": 22.376134695,
+    "started_utc": "2026-05-31T19:28:09Z",
+    "ended_utc": "2026-05-31T19:37:04Z",
+    "trainer": "v1",
+    "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+    "eval": {
+      "split": "tail-heldout",
+      "source_path": "data/.splits/2b7ded401e96b610/heldout_corpus.txt",
+      "source_sha256": "9be7061b07c454cbc4d25a5152958caf6a4817e70a7a1c841c616733535eb285",
+      "chunks_dir": null,
+      "benchmark": null,
+      "task_name": "l4-backoff-b4-samek-seed2_holdout"
+    },
+    "metrics": {
+      "lm_eval_rolling_word_perplexity": 43517213.10914699,
+      "lm_eval_rolling_byte_perplexity": 23.24194009721802,
+      "lm_eval_rolling_bits_per_byte": 4.538658596151814,
+      "agpt_fixed_token_perplexity": 23.174686309996527
+    },
+    "checkpoint_sha": "97f151dbdbc522011f5a71a8c1a177c27963e710cebe3de045ab88cd236c4d23",
+    "checkpoint_results": null,
+    "experimental_used": {
+      "v1": [
+        "backoff_position",
+        "backoff_slots"
+      ]
+    }
+  },
+  {
+    "run_id": "20260531T193705-l4-backoff-b4-samek-seed3",
+    "experiment": "slot-selection-step0",
+    "wall_seconds": 537.98014729,
+    "train_wall_seconds": 506.721402181,
+    "convert_wall_seconds": 4.050618805,
+    "eval_wall_seconds": 23.715995336,
+    "started_utc": "2026-05-31T19:37:05Z",
+    "ended_utc": "2026-05-31T19:46:03Z",
+    "trainer": "v1",
+    "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+    "eval": {
+      "split": "tail-heldout",
+      "source_path": "data/.splits/2b7ded401e96b610/heldout_corpus.txt",
+      "source_sha256": "9be7061b07c454cbc4d25a5152958caf6a4817e70a7a1c841c616733535eb285",
+      "chunks_dir": null,
+      "benchmark": null,
+      "task_name": "l4-backoff-b4-samek-seed3_holdout"
+    },
+    "metrics": {
+      "lm_eval_rolling_word_perplexity": 42088001.1666197,
+      "lm_eval_rolling_byte_perplexity": 23.103531573526077,
+      "lm_eval_rolling_bits_per_byte": 4.530041491731584,
+      "agpt_fixed_token_perplexity": 23.11590487110012
+    },
+    "checkpoint_sha": "191c6c19cf015c2e42c72ed9b3339219b554d99f1affb1d428ed42343faeeae5",
+    "checkpoint_results": null,
+    "experimental_used": {
+      "v1": [
+        "backoff_position",
+        "backoff_slots"
+      ]
+    }
+  },
+  {
+    "run_id": "20260531T194603-l4-backoff-b4-sentinel-seed1",
+    "experiment": "slot-selection-step0",
+    "wall_seconds": 547.487141458,
+    "train_wall_seconds": 517.253878722,
+    "convert_wall_seconds": 5.05093295,
+    "eval_wall_seconds": 21.565503151,
+    "started_utc": "2026-05-31T19:46:03Z",
+    "ended_utc": "2026-05-31T19:55:10Z",
+    "trainer": "v1",
+    "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+    "eval": {
+      "split": "tail-heldout",
+      "source_path": "data/.splits/2b7ded401e96b610/heldout_corpus.txt",
+      "source_sha256": "9be7061b07c454cbc4d25a5152958caf6a4817e70a7a1c841c616733535eb285",
+      "chunks_dir": null,
+      "benchmark": null,
+      "task_name": "l4-backoff-b4-sentinel-seed1_holdout"
+    },
+    "metrics": {
+      "lm_eval_rolling_word_perplexity": 52210813.26072699,
+      "lm_eval_rolling_byte_perplexity": 24.01155661995201,
+      "lm_eval_rolling_bits_per_byte": 4.5856570284469775,
+      "agpt_fixed_token_perplexity": 23.877166207417837
+    },
+    "checkpoint_sha": "ea63e8fbeae08fc562a6a901f703e1a8067b54d57d3eebb44d4461a3e3c84691",
+    "checkpoint_results": null,
+    "experimental_used": {
+      "v1": [
+        "backoff_position",
+        "backoff_slots"
+      ]
+    }
+  },
+  {
+    "run_id": "20260531T195510-l4-backoff-b4-sentinel-seed2",
+    "experiment": "slot-selection-step0",
+    "wall_seconds": 536.551092669,
+    "train_wall_seconds": 505.802532504,
+    "convert_wall_seconds": 4.636070439,
+    "eval_wall_seconds": 22.593352507,
+    "started_utc": "2026-05-31T19:55:10Z",
+    "ended_utc": "2026-05-31T20:04:07Z",
+    "trainer": "v1",
+    "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+    "eval": {
+      "split": "tail-heldout",
+      "source_path": "data/.splits/2b7ded401e96b610/heldout_corpus.txt",
+      "source_sha256": "9be7061b07c454cbc4d25a5152958caf6a4817e70a7a1c841c616733535eb285",
+      "chunks_dir": null,
+      "benchmark": null,
+      "task_name": "l4-backoff-b4-sentinel-seed2_holdout"
+    },
+    "metrics": {
+      "lm_eval_rolling_word_perplexity": 59066743.90884313,
+      "lm_eval_rolling_byte_perplexity": 24.547329085254944,
+      "lm_eval_rolling_bits_per_byte": 4.617494153028836,
+      "agpt_fixed_token_perplexity": 24.452041293388774
+    },
+    "checkpoint_sha": "864160534fef7d9de54b666dab891aeffaea606b9d8c47c0a5e89c1d0ddc0ef8",
+    "checkpoint_results": null,
+    "experimental_used": {
+      "v1": [
+        "backoff_position",
+        "backoff_slots"
+      ]
+    }
+  },
+  {
+    "run_id": "20260531T200407-l4-backoff-b4-sentinel-seed3",
+    "experiment": "slot-selection-step0",
+    "wall_seconds": 539.94898316,
+    "train_wall_seconds": 506.518038655,
+    "convert_wall_seconds": 5.429624254,
+    "eval_wall_seconds": 23.92256244,
+    "started_utc": "2026-05-31T20:04:07Z",
+    "ended_utc": "2026-05-31T20:13:07Z",
+    "trainer": "v1",
+    "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+    "eval": {
+      "split": "tail-heldout",
+      "source_path": "data/.splits/2b7ded401e96b610/heldout_corpus.txt",
+      "source_sha256": "9be7061b07c454cbc4d25a5152958caf6a4817e70a7a1c841c616733535eb285",
+      "chunks_dir": null,
+      "benchmark": null,
+      "task_name": "l4-backoff-b4-sentinel-seed3_holdout"
+    },
+    "metrics": {
+      "lm_eval_rolling_word_perplexity": 52815636.233644955,
+      "lm_eval_rolling_byte_perplexity": 24.061073374426865,
+      "lm_eval_rolling_bits_per_byte": 4.588629098058932,
+      "agpt_fixed_token_perplexity": 23.938588771439473
+    },
+    "checkpoint_sha": "9951461d28465f242368146b0d44a7167c246dbf08a7d910882305d69db12877",
+    "checkpoint_results": null,
+    "experimental_used": {
+      "v1": [
+        "backoff_position",
+        "backoff_slots"
+      ]
+    }
+  },
+  {
+    "run_id": "20260531T205335-longrun-b0-adam-sample",
+    "experiment": "slot-selection-step0",
+    "wall_seconds": 587.792090023,
+    "train_wall_seconds": 560.500068785,
+    "convert_wall_seconds": 4.675004903,
+    "eval_wall_seconds": 17.898035425,
+    "started_utc": "2026-05-31T20:53:35Z",
+    "ended_utc": "2026-05-31T21:03:23Z",
+    "trainer": "v1",
+    "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+    "eval": {
+      "split": "multi-chunk-heldout",
+      "source_path": null,
+      "source_sha256": null,
+      "chunks_dir": "data/.splits/4fa9aec1db6b3aea/heldout_chunks",
+      "benchmark": null,
+      "task_name": "longrun-b0-adam-sample_holdout"
+    },
+    "metrics": {
+      "lm_eval_rolling_word_perplexity": 647114.2882841844,
+      "lm_eval_rolling_byte_perplexity": 11.560705214403114,
+      "lm_eval_rolling_bits_per_byte": 3.531157501228551,
+      "agpt_fixed_token_perplexity": 11.553071119715208
+    },
+    "checkpoint_sha": "21a7e3b36c21bf388ffebb31f2be919b4db0fbbbfa6ccba0959ba8c325625733",
+    "checkpoint_results": null,
+    "experimental_used": {
+      "v1": [
+        "backoff_slots"
+      ]
+    }
+  },
+  {
+    "run_id": "20260531T210323-longrun-b4-samek-adam-sample",
+    "experiment": "slot-selection-step0",
+    "wall_seconds": 760.410678966,
+    "train_wall_seconds": 738.124702599,
+    "convert_wall_seconds": 3.224239869,
+    "eval_wall_seconds": 15.669825352,
+    "started_utc": "2026-05-31T21:03:23Z",
+    "ended_utc": "2026-05-31T21:16:04Z",
+    "trainer": "v1",
+    "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+    "eval": {
+      "split": "multi-chunk-heldout",
+      "source_path": null,
+      "source_sha256": null,
+      "chunks_dir": "data/.splits/4fa9aec1db6b3aea/heldout_chunks",
+      "benchmark": null,
+      "task_name": "longrun-b4-samek-adam-sample_holdout"
+    },
+    "metrics": {
+      "lm_eval_rolling_word_perplexity": 682446.9652476412,
+      "lm_eval_rolling_byte_perplexity": 11.673678458375413,
+      "lm_eval_rolling_bits_per_byte": 3.545187330949649,
+      "agpt_fixed_token_perplexity": 11.677256152918057
+    },
+    "checkpoint_sha": "6d8e3791d52fcc97805079033beaa870b1a1a33e22091650810708c445162e76",
+    "checkpoint_results": null,
+    "experimental_used": {
+      "v1": [
+        "backoff_position",
+        "backoff_slots"
+      ]
+    }
+  }
+]

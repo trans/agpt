@@ -1,0 +1,54 @@
+{
+  "config_sha256": "a8309d1dff04f20036a4f8127f1ea9ab787867fd53e91fbe92e31c69a11bb05f",
+  "started_utc": "2026-05-31T19:55:10Z",
+  "trainer": "v1",
+  "trainer_bin": "bin/agpt_train",
+  "git_sha": "63c4ea780163b9e0efb945a953a3e1beb938a3b2",
+  "git_branch": "slot-selection",
+  "git_dirty": true,
+  "host": "neo14",
+  "command": "bin/agpt_experiment",
+  "corpus": {
+    "path": "data/.splits/2b7ded401e96b610/train_corpus.txt",
+    "sha256": "222a61d84123a1cbc3c2822229f90b2371887baf8da2db19563679a5bc2675ac",
+    "byte_count": 1059625,
+    "carve": {
+      "source": "data/input.txt",
+      "mode": "tail",
+      "ratio": 0.05
+    }
+  },
+  "model_init": {
+    "path": "data/input-d64-L4.model",
+    "sha256": "e4928b991edab92a6779ea46f3d39eb3a1e68aa92d907cd412e2b93cc7ea1736",
+    "header": {
+      "magic": 1296519252,
+      "d_model": 64,
+      "n_heads": 4,
+      "n_layers": 4,
+      "d_ff": 256,
+      "vocab": 65,
+      "seq_len": 16
+    }
+  },
+  "trie_path": "/tmp/shake_d16_train_radix",
+  "environment": {
+    "cuda": "Cuda compilation tools, release 13.2, V13.2.78",
+    "gpu": "unknown",
+    "crystal": "Crystal 1.20.1 [fb55e8c] (2026-05-03)",
+    "python": "Python 3.14.4",
+    "python_packages": {
+      "torch": "2.11.0",
+      "transformers": "5.5.0",
+      "lm_eval": "0.4.12",
+      "accelerate": "1.13.0",
+      "datasets": "4.8.5"
+    },
+    "env_vars": {}
+  },
+  "ended_utc": "2026-05-31T20:04:07Z",
+  "wall_seconds": 536.551092669,
+  "train_wall_seconds": 505.802532504,
+  "convert_wall_seconds": 4.636070439,
+  "eval_wall_seconds": 22.593352507
+}

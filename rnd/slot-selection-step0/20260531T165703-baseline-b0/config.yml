@@ -1,0 +1,54 @@
+# Slot-selection Step 0 — paired-run control (B=0).
+# See notes/seq-len-extension/slot-selection.md.
+#
+# Same recipe as backoff-b4-samek.yml and backoff-b4-sentinel.yml except
+# experimental.backoff_slots: 0. partition_depth=0 (one full-trie fire per
+# epoch) is required by the backoff conditions and used here too for an
+# apples-to-apples comparison.
+#
+# Run as: bin/agpt_experiment --config <this> --trainer v1 --seed N
+# for N in {1, 2, 3}.
+
+description: "Slot-selection Step 0 control: B=0, pd=0, 25ep, Shakespeare d=16"
+experiment: slot-selection-step0
+run_slug: baseline-b0
+
+corpus:
+  path: data/.splits/2b7ded401e96b610/train_corpus.txt
+  heldout: data/.splits/2b7ded401e96b610/heldout_corpus.txt
+  vocab_source: data/input.txt
+  carve:
+    source: data/input.txt
+    mode: tail
+    ratio: 0.05
+
+trie:
+  path: /tmp/shake_d16_train_radix
+  max_depth: 16
+
+model:
+  init_file: data/input.model
+
+train:
+  budget:
+    unit: epochs
+    value: 25
+  quiet: true
+  optimizer:
+    name: rmsprop
+    lr: 0.003
+    beta: 0.999
+  lr_schedule:
+    name: warmup-cosine
+    warmup_epochs: 0
+  max_depth: 16
+  partition_depth: 0
+  chunk_queries: 50000
+  anc_grad: true
+
+experimental:
+  backoff_slots: 0
+
+eval:
+  batch_size: 1
+  device: cpu

@@ -1,0 +1,33 @@
+{
+  "run_id": "20260531T171519-baseline-b0-seed3",
+  "experiment": "slot-selection-step0",
+  "wall_seconds": 295.149856415,
+  "train_wall_seconds": 264.093631853,
+  "convert_wall_seconds": 6.225979355,
+  "eval_wall_seconds": 20.016010622,
+  "started_utc": "2026-05-31T17:15:19Z",
+  "ended_utc": "2026-05-31T17:20:15Z",
+  "trainer": "v1",
+  "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+  "eval": {
+    "split": "tail-heldout",
+    "source_path": "data/.splits/2b7ded401e96b610/heldout_corpus.txt",
+    "source_sha256": "9be7061b07c454cbc4d25a5152958caf6a4817e70a7a1c841c616733535eb285",
+    "chunks_dir": null,
+    "benchmark": null,
+    "task_name": "baseline-b0-seed3_holdout"
+  },
+  "metrics": {
+    "lm_eval_rolling_word_perplexity": 7924738.783978902,
+    "lm_eval_rolling_byte_perplexity": 17.138461335782107,
+    "lm_eval_rolling_bits_per_byte": 4.0991656872502675,
+    "agpt_fixed_token_perplexity": 17.059166558942366
+  },
+  "checkpoint_sha": "c8520bd1e66efb1be8aa2a17c0bb6250c729ac2c208e9e598b8edec50fbcbe4b",
+  "checkpoint_results": null,
+  "experimental_used": {
+    "v1": [
+      "backoff_slots"
+    ]
+  }
+}

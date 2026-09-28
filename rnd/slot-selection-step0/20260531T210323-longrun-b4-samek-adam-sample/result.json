@@ -1,0 +1,34 @@
+{
+  "run_id": "20260531T210323-longrun-b4-samek-adam-sample",
+  "experiment": "slot-selection-step0",
+  "wall_seconds": 760.410678966,
+  "train_wall_seconds": 738.124702599,
+  "convert_wall_seconds": 3.224239869,
+  "eval_wall_seconds": 15.669825352,
+  "started_utc": "2026-05-31T21:03:23Z",
+  "ended_utc": "2026-05-31T21:16:04Z",
+  "trainer": "v1",
+  "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+  "eval": {
+    "split": "multi-chunk-heldout",
+    "source_path": null,
+    "source_sha256": null,
+    "chunks_dir": "data/.splits/4fa9aec1db6b3aea/heldout_chunks",
+    "benchmark": null,
+    "task_name": "longrun-b4-samek-adam-sample_holdout"
+  },
+  "metrics": {
+    "lm_eval_rolling_word_perplexity": 682446.9652476412,
+    "lm_eval_rolling_byte_perplexity": 11.673678458375413,
+    "lm_eval_rolling_bits_per_byte": 3.545187330949649,
+    "agpt_fixed_token_perplexity": 11.677256152918057
+  },
+  "checkpoint_sha": "6d8e3791d52fcc97805079033beaa870b1a1a33e22091650810708c445162e76",
+  "checkpoint_results": null,
+  "experimental_used": {
+    "v1": [
+      "backoff_position",
+      "backoff_slots"
+    ]
+  }
+}

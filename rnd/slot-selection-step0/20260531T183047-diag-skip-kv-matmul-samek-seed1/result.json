@@ -1,0 +1,34 @@
+{
+  "run_id": "20260531T183047-diag-skip-kv-matmul-samek-seed1",
+  "experiment": "slot-selection-step0",
+  "wall_seconds": 339.231251081,
+  "train_wall_seconds": 307.411760533,
+  "convert_wall_seconds": 4.768542889,
+  "eval_wall_seconds": 21.974730572,
+  "started_utc": "2026-05-31T18:30:47Z",
+  "ended_utc": "2026-05-31T18:36:26Z",
+  "trainer": "v1",
+  "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+  "eval": {
+    "split": "tail-heldout",
+    "source_path": "data/.splits/2b7ded401e96b610/heldout_corpus.txt",
+    "source_sha256": "9be7061b07c454cbc4d25a5152958caf6a4817e70a7a1c841c616733535eb285",
+    "chunks_dir": null,
+    "benchmark": null,
+    "task_name": "diag-skip-kv-matmul-samek-seed1_holdout"
+  },
+  "metrics": {
+    "lm_eval_rolling_word_perplexity": 18891924.89886585,
+    "lm_eval_rolling_byte_perplexity": 20.019591096600376,
+    "lm_eval_rolling_bits_per_byte": 4.323340602081677,
+    "agpt_fixed_token_perplexity": 20.088028922584503
+  },
+  "checkpoint_sha": "e2636c8deae85dda323248123acc926d720ae4097f6717f6d558b092d45d888d",
+  "checkpoint_results": null,
+  "experimental_used": {
+    "v1": [
+      "backoff_position",
+      "backoff_slots"
+    ]
+  }
+}
