@@ -1,7 +1,8 @@
 # AGPT project page
 
-This is a self-contained static draft for the public AGPT showcase. It has no
-build step, third-party assets, analytics, or runtime dependencies.
+This is the public AGPT showcase. The published HTML, CSS and JavaScript have
+no runtime dependencies or analytics. The experiment pages are generated from
+the front matter and Markdown in `rnd/*/README.md`.
 
 Preview it from the repository root:
 
@@ -14,13 +15,29 @@ Open `http://localhost:8000/site/`. GitHub Pages publishes the contents of
 [`pages.yml`](../.github/workflows/pages.yml) whenever the site changes on
 `main`. Source links point to `github.com/trans/agpt`.
 
+To rebuild the experiment index and detail pages from the repository root:
+
+```sh
+python3 -m pip install -r site/requirements-build.txt
+python3 src/tools/rnd_front_matter.py validate
+python3 src/tools/build_experiment_pages.py
+```
+
+The generator checks front-matter schema, uses only nonignored README records,
+and writes `site/experiments/index.html` plus one page per record. It omits
+the local scratch directories `rnd/_smoke` and `rnd/pd6-canonical-eval`.
+For valid orchestrator runs, caveat badges use the dates in `result.json`
+and `meta.json`; otherwise they use the front-matter `updated` date.
+The Markdown renderer is a build dependency only. Commit regenerated pages
+along with any changed README summaries so GitHub Pages publishes them.
+
 The social preview is `og-image.png`, generated from the editable
 `og-image.svg` with `rsvg-convert -w 1200 -h 630 -o site/og-image.png site/og-image.svg`
 from the repository root.
 
-The page intentionally treats “one epoch and done” as the goal. The numerical
-cards cite the [gradient population](../rnd/gradient-population/README.md)
-record, including the matched post-fix cadence runs. The paper
+The page intentionally treats “one epoch and done” as the goal. Section 03
+summarizes the structural context limit, update-cadence tradeoff and speed
+question; detailed runs live in the experiment pages. The paper
 is labeled as a draft because its empirical section is under revision.
 The advantage section cites the [per-depth branching
 counts](../notes/trie-structure/shakespeare-h0-depth-profile.md), [radix node
