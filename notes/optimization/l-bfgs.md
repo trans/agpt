@@ -392,3 +392,11 @@ near-orthogonal, so s/y pairs are inconsistent) was correct, and the
 
 Status: no longer a dead end. Blocked on completing the ancestor
 backward. Acceptance: FD ratio 1.000 ± 0.005, L-BFGS backtrack rate ~1%.
+
+## Addendum 2026-09-28 — unblocked
+
+With the exact ancestor backward (`experimental.anc_grad_exact`, see
+rnd/gradient-population Experiment 8) L-BFGS on the trie accepts 98% of
+its steps (3 backtracks in 200 passes, all at start) and reaches in 200
+passes the loss the truncated-gradient run needed 600 passes for
+(held-out fixed PPL 4.889).

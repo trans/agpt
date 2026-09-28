@@ -849,6 +849,85 @@ method on the trie, and the L-BFGS mode plus `agpt_grad_check.py` are
 ready as its acceptance test (target: FD ratio 1.000 ± 0.005 and
 L-BFGS backtrack rate ≈ 1%).
 
+## Experiment 8 — exact ancestor backward (2026-09-28)
+
+Branch `ancestor-backward`. `experimental.anc_grad_exact: true` (requires
+`train.anc_grad: true`; train-epoch mode, depth RoPE, no successor table,
+sidecar, lightning or node dropout).
+
+**What was wrong.** A node's attention reads its ancestors' K/V from the
+cache. The descendant→ancestor K/V gradient was accumulated per unit and
+finalised only as `dWk += dKᵀ·h`, `dWv += dVᵀ·h`: no K/V bias gradient,
+nothing through the ancestor's LN1, its residual stream, the lower layer
+(whose attention reads *its* ancestors) or the embeddings. It could not be
+done in the normal pass because each chunk's backward runs right after its
+forward in ascending depth order, before its descendants exist.
+
+**The fix.** After a unit's normal chunks, a second pass revisits the
+unit's internal nodes (`edge_mass > 1` — leaves are never attended to;
+~11% of query positions), grouped by endpoint depth, deepest group first.
+Nodes with equal endpoint depth are never ancestor and descendant, so a
+group is batched safely; each group is chunked against the runtime's fixed
+node/query/kv capacities. Per chunk the forward is recomputed (same
+weights, same cache) and `run_backward_ancestor_path_v2` starts from zero
+output gradient and injects the accumulated ancestor K/V gradient into the
+query-row K/V gradient at every layer, before the K/V projection backward
+(`inject_anc_dkv_kernel_v2`, post-RoPE space, same rows as the
+accumulator). The ordinary layer backward then carries it through Wk/Wv
+and biases, LN1, the residual stream, lower layers — scattering new
+ancestor gradient further up, which the depth order guarantees is complete
+before those ancestors are processed — and the embeddings. By linearity,
+pass 1 + pass 2 is the exact gradient. The Wk/Wv-only finalize is skipped.
+
+**Cost.** The second pass covers exactly the 983,047 internal-node
+positions in 984 chunks and takes ~1.0 s per epoch on top of ~5.6 s at
+pd=1 (d64 L2, depth-16 Shakespeare): about +18%.
+
+**Verification** (`src/tools/agpt_grad_check.py`, extended with `--dirs
+trunc diff`: `trunc` is the old truncated gradient, `diff` the direction
+exact − truncated, where the two disagree most). Ratio = finite-difference
+slope / predicted slope; exact = 1.
+
+| point | cache / TF32 | direction | ε 0.01 | ε 0.003 | ε 0.001 |
+|---|---|---|---:|---:|---:|
+| ep25 start | bf16 / on | ĝ_exact | 1.0001 | 1.0140 | — |
+| ep25 start | fp32 / on | ĝ_exact | 1.0007 | 1.0090 | — |
+| L-BFGS 600 | fp32 / **off** | ĝ_exact | 0.9939 | 0.9997 | **1.0003** |
+| L-BFGS 600 | fp32 / **off** | exact − trunc | 1.0187 | 1.0045 | **1.0000** |
+
+Along the difference direction the finite difference is 0.060058; the exact
+gradient predicts 0.060060 and the truncated one 0.0046 (13× too small).
+At that checkpoint the truncated gradient was 35° off the true gradient
+(cos 0.82) and 21% too short (0.0761 vs 0.0968) — enough to explain the
+44% backtrack rate in Experiment 7. At the ep25 start the gap is smaller
+(norm 0.648 → 0.687).
+
+**Acceptance: L-BFGS on the exact trie gradient.** Run
+`20260928T151354-lbfgs-trie-exact-pd1-ep25-200`, identical to Experiment 7
+except `anc_grad_exact: true`; 200 passes, 1432 s (7.2 s/pass).
+
+| L-BFGS on the trie | passes | accepted | backtracks | train loss | held-out fixed PPL | rolling byte PPL |
+|---|---:|---:|---:|---:|---:|---:|
+| truncated gradient (Exp 7) | 100 | 89 | 10 (10%) | 1.7440 | 5.270 | 5.787 |
+| truncated gradient (Exp 7) | 200 | 149 | 50 (25%) | 1.7127 | 5.088 | 5.605 |
+| truncated gradient (Exp 7) | 600 | 332 | 264 (44%) | 1.6740 | 4.888 | 5.407 |
+| **exact gradient** | 100 | 96 | 3 (3%) | 1.7264 | 5.175 | 5.684 |
+| **exact gradient** | 200 | 196 | **3 (2%)** | **1.6738** | **4.889** | **5.406** |
+
+All three backtracks are the initial step calibration. The exact run
+reaches in 200 passes what the truncated run needed 600 for, and is still
+descending steeply (fixed PPL 5.17 → 4.89 from pass 100 to 200). Reference:
+Adam pd=1, 100 epochs from the seed, fixed 4.810 / rolling 5.348. The
+PyTorch exact-gradient curve gained another ~0.08 nats between pass 200
+and 600, so a 600-pass trie run should pass Adam.
+
+Measurement note: with TF32 matmuls (the cuBLAS default here) the loss
+carries ~3e-5 of rounding noise, which makes small-ε checks wobble (the
+curvature estimates disagree by up to 2×). `NVIDIA_TF32_OVERRIDE=0` plus
+the fp32 cache (`bin/agpt_train_v2_kvfp32`) removes it: curvature
+estimates agree to 1% and the ratios converge as ε shrinks. The same noise
+floor may matter for L-BFGS line searches late in training.
+
 ## Next steps (Experiment 1)
 
 - **Coherence-driven cadence.** Replace fixed `partition_depth` with a

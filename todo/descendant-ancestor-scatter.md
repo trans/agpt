@@ -299,3 +299,14 @@ trie gradient off by 2–6% along its own direction; disabling anc_grad
 worsens it to 6–10%. Acceptance test for a fix: FD ratio 1.000 ± 0.005
 at both the ep25 and L-BFGS-600 checkpoints, then an L-BFGS run
 (`optimizer: lbfgs`) with backtrack rate near 1%.
+
+## Resolution of the truncation (2026-09-28)
+
+Fixed on branch `ancestor-backward` (commit aa1b6ac):
+`experimental.anc_grad_exact: true` adds a second pass per unit over
+internal nodes in descending endpoint depth that recomputes the forward and
+injects the accumulated ancestor K/V gradient at every layer, so it flows
+through Wk/Wv and biases, LN1, the residual stream, the lower layer and the
+embeddings. Finite-difference ratio 1.0003 / 1.0000 (fp32 cache, TF32 off,
+eps 1e-3); L-BFGS backtrack rate 44% -> 2%; cost ~+18% per epoch. Details:
+rnd/gradient-population/README.md, Experiment 8.
