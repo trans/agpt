@@ -968,6 +968,35 @@ L-BFGS takes one update per full-trie gradient — the pd=0, full-sharing
 setting that was worst with plain steps (card 01's 12.05) — so the result
 also shows full aggregation stops being a handicap with curvature steps.
 
+**Compute-matched control: Adam wins.** Run `20260928T172438-adam-pd1-exact-625ep`: Adam pd=1 with the
+exact gradient for 625 epochs from the seed (cosine over the whole run),
+checkpoints aligned to the L-BFGS run's traversal counts (25 warm-start
+epochs + passes). Train wall 4087 s vs 3929 s + ~160 s warm start —
+equal compute, equal wall.
+
+| traversals | Adam rolling / fixed | L-BFGS rolling / fixed | train loss Adam / L-BFGS |
+|---:|---|---|---|
+| 125 | **5.201 / 4.584** | 5.668 / 5.159 | 1.619 / 1.724 |
+| 225 | **4.943 / 4.344** | 5.396 / 4.878 | 1.564 / 1.671 |
+| 325 | **4.853 / 4.262** | 5.239 / 4.710 | 1.536 / 1.640 |
+| 425 | **4.790 / 4.217** | 5.149 / 4.614 | 1.515 / 1.618 |
+| 625 | **4.764 / 4.208** | 5.019 / 4.481 | 1.499 / 1.591 |
+
+At equal compute partitioned Adam (65 updates per traversal) beats
+full-trie L-BFGS (one update per traversal) by ~5–6% at every point, on
+training loss as well as held-out. Curvature recovers most of what full
+sharing loses to plain steps (pd=0 plain: 12.05; pd=0 L-BFGS: 5.02), but
+not all of it. The same flaw applies to the Experiment 6 claim "L-BFGS
+1.523 vs Adam epoch-100 1.571": that compared 600 L-BFGS passes with 75
+further Adam epochs. What stands: exact gradients help (Adam −2.3% at
+equal cost), L-BFGS needs them to work at all, and at this scale per-
+subtree Adam is still the better use of a traversal. Open: L-BFGS on
+partitioned units (one history per unit is what failed in May), larger
+models, or a curvature-preconditioned partitioned optimizer.
+
+The 625-epoch Adam run (rolling byte 4.764, fixed 4.208) is also the best
+AGPT d64 L2 result on record, from the gradient fix plus a longer run.
+
 **Default (2026-09-28).** `anc_grad_exact` is now ON by default whenever
 `train.anc_grad` is on. `experimental.anc_grad_exact: false` restores the
 truncated gradient (needed only to reproduce older runs). In unsupported
