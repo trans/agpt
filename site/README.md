@@ -19,8 +19,8 @@ The social preview is `og-image.png`, generated from the editable
 from the repository root.
 
 The page intentionally treats “one epoch and done” as the goal. The numerical
-cards cite the [stochastic AGPT](../rnd/stochastic-agpt/README.md) and
-[gradient population](../rnd/gradient-population/README.md) records. The paper
+cards cite the [gradient population](../rnd/gradient-population/README.md)
+record, including the matched post-fix cadence runs. The paper
 is labeled as a draft because its empirical section is under revision.
 The advantage section cites the [per-depth branching
 counts](../notes/trie-structure/shakespeare-h0-depth-profile.md), [radix node

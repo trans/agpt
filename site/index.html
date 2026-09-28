@@ -169,13 +169,13 @@
             <article class="evidence-card">
               <div class="card-top"><span class="card-index">01</span><span class="card-tag">MATCHED INTERNAL CONTROL</span></div>
               <h3>Update cadence matters.</h3>
-              <p>In a June depth-16 Shakespeare control, root-child updates reached 5.34 rolling byte perplexity after 100 epochs versus 12.05 for whole-trie updates at similar training time. Both runs predate a fixed CUDA kernel race. A <a href="https://github.com/trans/agpt/blob/main/rnd/gradient-population/20260924T205951-cadence-pd1-100ep/result.json">post-fix root-child run</a> reached 5.348; the whole-trie arm still needs a rerun.</p>
-              <div class="bar-chart" role="img" aria-label="Historical pre-fix rolling byte perplexity: one full-trie update per epoch 12.05; partitioned by root child 5.34. Lower is better.">
+              <p>At 100 epochs on a matched, post-fix depth-16 Shakespeare setup, one update per root-child subtree reached 5.35 rolling byte perplexity versus 12.05 for one update per whole trie, at nearly equal training time.</p>
+              <div class="bar-chart" role="img" aria-label="Post-fix rolling byte perplexity: one full-trie update per epoch 12.05; partitioned by root child 5.35. Lower is better.">
                 <div class="bar-row"><span>Full trie</span><div class="bar-track"><div class="bar bar-muted" style="width:100%"></div></div><strong>12.05</strong></div>
-                <div class="bar-row"><span>Root child</span><div class="bar-track"><div class="bar bar-accent" style="width:44.3%"></div></div><strong>5.34</strong></div>
+                <div class="bar-row"><span>Root child</span><div class="bar-track"><div class="bar bar-accent" style="width:44.4%"></div></div><strong>5.35</strong></div>
               </div>
-              <p class="card-foot">Historical pre-fix comparison · lower is better</p>
-              <a class="card-link" href="https://github.com/trans/agpt/blob/main/rnd/stochastic-agpt/README.md">Examine the original runs <span aria-hidden="true">↗</span></a>
+              <p class="card-foot">Held-out rolling byte perplexity · lower is better</p>
+              <a class="card-link" href="https://github.com/trans/agpt/blob/main/rnd/gradient-population/README.md#full-trie-control-added-2026-09-28">See the matched runs <span aria-hidden="true">↗</span></a>
             </article>
             <article class="evidence-card">
               <div class="card-top"><span class="card-index">02</span><span class="card-tag">GRADIENT DIAGNOSTIC</span></div>
@@ -194,7 +194,7 @@
               <a class="card-link" href="https://github.com/trans/agpt/blob/main/rnd/gradient-population/README.md">Read the diagnosis <span aria-hidden="true">↗</span></a>
             </article>
           </div>
-          <p class="evidence-note"><strong>Comparison boundary:</strong> AGPT has not shown a quality-and-time win over conventional mini-batch Adam at this scale. Earlier comparisons predate the <a href="https://github.com/trans/agpt/blob/main/rnd/gradient-population/README.md#trainer-bug-found-on-the-way-fixed-2026-09-24">CUDA kernel race fix</a>, so a corrected matched test is still needed. One-epoch parity remains unproven.</p>
+          <p class="evidence-note"><strong>Comparison boundary:</strong> AGPT has not shown a quality-and-time win over conventional mini-batch Adam at this scale. The available comparisons against that baseline predate the <a href="https://github.com/trans/agpt/blob/main/rnd/gradient-population/README.md#trainer-bug-found-on-the-way-fixed-2026-09-24">CUDA kernel race fix</a>, so a corrected matched test is still needed. One-epoch parity remains unproven.</p>
         </div>
       </section>
 

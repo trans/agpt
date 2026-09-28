@@ -232,6 +232,22 @@ pd2, bottom pd3 (split). `reversed`: the same tertiers flipped. Roots with
 (each 16-token window scores its first tokens with 0…15 chars of
 context).
 
+### Full-trie control added 2026-09-28
+
+A post-fix pd=0 run completes the matched cadence comparison. Its resolved
+config differs from the pd=1 run only in `train.partition_depth` and run
+identifiers. Both use the same corpus, model seed, optimizer, 100-epoch budget,
+and multi-chunk held-out evaluator.
+
+| arm | rolling byte PPL at epoch 100 | fixed-token PPL | train wall |
+|---|---:|---:|---:|
+| [pd=0, one whole-trie update per epoch](20260928T004439-cadence-pd0-100ep/result.json) | **12.054** | 12.110 | 564 s |
+| [pd=1, one update per root child](20260924T205951-cadence-pd1-100ep/result.json) | **5.348** | 4.810 | 570 s |
+
+The June pre-fix control showed the same difference to two decimal places.
+The matched post-fix runs now support the cadence result used on the project
+page; they remain an internal AGPT comparison, not a conventional baseline.
+
 ### Reading
 
 1. **The two metrics disagree, and the disagreement is a training-plan
