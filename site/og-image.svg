@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <defs>
+    <pattern id="grid" width="62" height="62" patternUnits="userSpaceOnUse">
+      <path d="M62 0H0V62" fill="none" stroke="#567064" stroke-opacity=".12"/>
+    </pattern>
+    <linearGradient id="line" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#d9f77a"/>
+      <stop offset="1" stop-color="#91bdac"/>
+    </linearGradient>
+    <radialGradient id="glow">
+      <stop stop-color="#63896f" stop-opacity=".28"/>
+      <stop offset="1" stop-color="#63896f" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="1200" height="630" fill="#101c1d"/>
+  <rect width="1200" height="630" fill="url(#grid)"/>
+  <circle cx="935" cy="302" r="250" fill="url(#glow)"/>
+
+  <circle cx="87" cy="74" r="25" fill="none" stroke="#d9f77a"/>
+  <text x="76" y="84" fill="#d9f77a" font-family="Georgia, serif" font-size="32">∑</text>
+  <text x="126" y="83" fill="#f7faf3" font-family="Arial, sans-serif" font-size="28" font-weight="700" letter-spacing="-1">AGPT</text>
+  <text x="1095" y="79" fill="#a8bdb0" text-anchor="end" font-family="monospace" font-size="15" letter-spacing="2">INDEPENDENT RESEARCH · 2026</text>
+
+  <text x="76" y="281" fill="#f7faf3" font-family="Georgia, serif" font-size="92" letter-spacing="-4">One epoch</text>
+  <text x="76" y="386" fill="#d9f77a" font-family="Georgia, serif" font-size="96" font-style="italic" letter-spacing="-4">and done.</text>
+  <text x="80" y="451" fill="#c2d2c8" font-family="Arial, sans-serif" font-size="22">Can a better training structure make each</text>
+  <text x="80" y="481" fill="#c2d2c8" font-family="Arial, sans-serif" font-size="22">corpus pass count more?</text>
+
+  <rect x="755" y="128" width="364" height="388" fill="#152425" stroke="#526b57"/>
+  <text x="781" y="162" fill="#a5b7ab" font-family="monospace" font-size="12" letter-spacing="1.5">SHARED PREFIX / AGGREGATED SIGNAL</text>
+  <g fill="none" stroke="#6b8c77" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M785 323H834 M834 323L899 225 M834 323H899 M834 323L899 421 M899 225L1002 185 M899 225L1002 265 M899 323L1002 293 M899 323L1002 370 M899 421L1002 394 M899 421L1002 464"/>
+  </g>
+  <path d="M785 323H834H899L1002 293" fill="none" stroke="url(#line)" stroke-width="3.5" stroke-linecap="round"/>
+  <g fill="#1a3030" stroke="#8cae9c" stroke-width="2.2">
+    <circle cx="899" cy="225" r="7"/><circle cx="899" cy="421" r="7"/>
+    <circle cx="1002" cy="185" r="7"/><circle cx="1002" cy="265" r="7"/>
+    <circle cx="1002" cy="370" r="7"/><circle cx="1002" cy="394" r="7"/><circle cx="1002" cy="464" r="7"/>
+  </g>
+  <g fill="#253d31" stroke="#d9f77a" stroke-width="2.4">
+    <circle cx="785" cy="323" r="9"/><circle cx="834" cy="323" r="9"/>
+    <circle cx="899" cy="323" r="9"/><circle cx="1002" cy="293" r="9"/>
+  </g>
+  <text x="783" y="489" fill="#91aa98" font-family="monospace" font-size="11" letter-spacing="1.5">ONE SHARED PATH. MANY BRANCHES.</text>
+
+  <path d="M76 550H1120" stroke="#5d756a" stroke-opacity=".55"/>
+  <text x="78" y="588" fill="#b4c9ba" font-family="monospace" font-size="16" letter-spacing="1">AGGREGATED GRADIENT PRE-TRAINING</text>
+  <text x="1119" y="588" fill="#d9f77a" text-anchor="end" font-family="monospace" font-size="16">trans.github.io/agpt</text>
+</svg>

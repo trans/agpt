@@ -14,6 +14,10 @@ Open `http://localhost:8000/site/`. GitHub Pages publishes the contents of
 [`pages.yml`](../.github/workflows/pages.yml) whenever the site changes on
 `main`. Source links point to `github.com/trans/agpt`.
 
+The social preview is `og-image.png`, generated from the editable
+`og-image.svg` with `rsvg-convert -w 1200 -h 630 -o site/og-image.png site/og-image.svg`
+from the repository root.
+
 The page intentionally treats “one epoch and done” as the goal. The numerical
 cards cite the [stochastic AGPT](../rnd/stochastic-agpt/README.md) and
 [gradient population](../rnd/gradient-population/README.md) records. The paper

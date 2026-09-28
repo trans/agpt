@@ -2,6 +2,12 @@
 
 Status: active.
 
+**Historical result note (2026-09-24):** The June training runs below predate
+a [fixed CUDA kernel race](../gradient-population/README.md#trainer-bug-found-on-the-way-fixed-2026-09-24).
+A [post-fix root-child run](../gradient-population/20260924T205951-cadence-pd1-100ep/result.json)
+reached 5.348 rolling byte PPL after 100 epochs; the whole-trie control has
+not been rerun. Treat the pd0 versus pd1 comparison below as provisional.
+
 Purpose: verify the CUDA v2 attention-based AGPT path before running a larger
 attention experiment.
 
