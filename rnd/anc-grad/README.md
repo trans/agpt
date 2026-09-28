@@ -1,3 +1,29 @@
+---
+title: Ancestor gradient (anc-grad)
+kind: experiment
+status: concluded
+outcome: positive
+question: >-
+  Does restoring descendant-to-ancestor gradient flow into Wk/Wv (--anc-grad, with the per-event
+  normalizer fix) improve held-out PPL?
+answer: >-
+  Yes. After fixing the normalizer, anc-grad won 3/3 seeds on Shakespeare 1M: held-out mean
+  8.65 -> 8.20 (-5.2%, legacy sliding-window PPL, d=16, 10k positions). On Gutenberg 5M it
+  went 9.71 -> 9.50 (-2.2%; 2 wins and a tie). The earlier 'corpus dependence' came from the
+  broken normalizer.
+opened: 2026-05-20
+updated: 2026-05-20
+code: main
+eval: legacy
+headline:
+- {label: 'Shakespeare 1M, anc-grad off, 3-seed mean', metric: 'legacy sliding-window held-out
+    PPL (d=16, 10k positions)', value: 8.65}
+- {label: 'Shakespeare 1M, anc-grad on, 3-seed mean', metric: 'legacy sliding-window held-out
+    PPL (d=16, 10k positions)', value: 8.2}
+tags: [gradient, attention, trainer]
+related: [per-fire-norm, cudax-anc-grad-parity, gutenberg-anc-sweep, legacy-rebaseline]
+---
+
 # anc-grad — descendant→ancestor gradient flow for Wk/Wv
 
 Results layout:

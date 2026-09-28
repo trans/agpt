@@ -1,3 +1,32 @@
+---
+title: Successor prefix attention
+kind: experiment
+status: concluded
+outcome: inconclusive
+question: >-
+  Can a depth-16 AGPT path see further by appending the real observed successor cap path as
+  extra attention context?
+answer: >-
+  Undecided. The successor-end run reached rolling byte PPL 5.23, but its objective lets current-cap
+  queries attend to future successor rows, so the number is a leakage diagnostic, not a valid
+  PPL. A clean version needs causal masking. A side test with cap-only loss (depth-16 rows
+  only) was clearly worse: 9.58 rolling, still degrading from epoch 16 to 32. The line moved
+  to recurrent f_theta.
+opened: 2026-06-05
+updated: 2026-06-06
+code: main
+eval: canonical
+headline:
+- {label: 'successor-end, 32 ep (leaks future context)', metric: rolling byte PPL (multi-chunk-heldout),
+  value: 5.2333, run: 20260606T001801-d128l6-depth16-pd1-adam-lr0010-32ep-cq50k-successor-end}
+- {label: 'cap-only loss (depth 16), 32 ep', metric: rolling byte PPL (multi-chunk-heldout),
+  value: 9.5786, run: 20260606T043410-d128l6-depth16-pd1-adam-lr0010-32ep-cq50k-cap-only}
+- {label: 'cap-only loss (depth 16), 32 ep', metric: fixed-window PPL (multi-chunk-heldout),
+  value: 5.772, run: 20260606T043410-d128l6-depth16-pd1-adam-lr0010-32ep-cq50k-cap-only}
+tags: [context-length, attention, trie-structure]
+related: [tanh-recurrence, rnn-agpt]
+---
+
 # Successor Prefix Attention
 
 This line tests whether a depth-16 AGPT path can expose a real observed

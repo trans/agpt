@@ -1,3 +1,37 @@
+---
+title: Tanh recurrent AGPT
+kind: experiment
+status: concluded
+outcome: positive
+question: >-
+  Can AGPT's prefix-trie aggregation train a non-attention f_theta, specifically a simple
+  tanh recurrence over prefix transitions?
+answer: >-
+  Yes. Plain tanh at pd=1 trains cleanly to held-out PPL 6.31 (depth 8, d_model 64, epoch
+  500). That is not competitive with attention AGPT, but it shows attention is not structurally
+  required. Phase-weighted W=16 did not beat it (6.40 at epoch 512), and stop-gradient singleton
+  backoff was worse (7.83 vs 7.25 at epoch 100).
+opened: 2026-06-07
+updated: 2026-06-07
+code: main
+eval: legacy
+headline:
+- label: Plain tanh d8/d64 pd=1, epoch 500
+  metric: >-
+    legacy held-out rolling PPL (agpt_recur_perplexity, seq 8, clean 95/5 split)
+  value: 6.3099
+- label: Phase-weighted W=16, epoch 512
+  metric: >-
+    legacy held-out rolling PPL (agpt_recur_perplexity, seq 8, clean 95/5 split)
+  value: 6.4035
+- label: Singleton-backoff stopgrad, epoch 100
+  metric: >-
+    legacy held-out rolling PPL (agpt_recur_perplexity, seq 8, clean 95/5 split)
+  value: 7.8265
+tags: [recurrence]
+related: [stride-trees, rnn-agpt]
+---
+
 # Tanh Recurrent AGPT
 
 Status: closed branch `tanh-recurrence`.

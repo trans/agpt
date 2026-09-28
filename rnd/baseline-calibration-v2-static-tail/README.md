@@ -1,3 +1,27 @@
+---
+title: v2 static baseline, tail split
+kind: baseline
+status: concluded
+outcome: n/a
+question: >-
+  How does the static v2 d64/L2 calibration setup score on a contiguous 5% tail held-out split,
+  compared with the sampled multi-chunk split?
+answer: >-
+  The tail split scores worse. At 128 epochs: rolling byte PPL 6.46 and fixed-window PPL 5.94,
+  against 5.22 and 4.67 for the matching sampled multi-chunk run.
+opened: 2026-05-30
+updated: 2026-05-30
+code: main
+eval: canonical
+headline:
+- {label: 'd64/L2 pd=1 Adam lr=0.0015, 128 epochs, tail split', metric: rolling byte PPL,
+  value: 6.4617, run: 20260530T211622-d64l2-depth16-pd1-adam-lr0015-tail-128ep}
+- {label: 'd64/L2 pd=1 Adam lr=0.0015, 128 epochs, tail split', metric: fixed-window PPL,
+  value: 5.9387, run: 20260530T211622-d64l2-depth16-pd1-adam-lr0015-tail-128ep}
+tags: [baseline, evaluation]
+related: [baseline-calibration-v2-static-sampled]
+---
+
 # baseline-calibration-v2-static-tail
 
 Status: tail comparison run complete

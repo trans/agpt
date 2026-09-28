@@ -1,3 +1,37 @@
+---
+title: Gutenberg weighting sweep with anc-grad
+kind: experiment
+status: concluded
+outcome: negative
+question: >-
+  With anc-grad on, does any per-event weighting flag (mass, entropy, branching or depth weight,
+  five modes each) improve Gutenberg 5M PPL, and does Shakespeare's branching=log win transfer?
+answer: >-
+  No recipe-level win. The best cell, depth-weight=linear, lowers legacy held-out fixed-window
+  PPL from 7.629 to 7.422 (-0.21, n=3), about the size of seed noise. branching=log, worth
+  -0.58 on Shakespeare, is +0.03 on Gutenberg, and the inv-log/inv-linear modes hurt. The
+  weighting flags look like corpus-specific tuning.
+opened: 2026-05-23
+updated: 2026-05-23
+code: main
+eval: legacy
+headline:
+- label: baseline (anc-grad, mass-weight off), 10 SE, n=3
+  metric: >-
+    legacy held-out fixed-window PPL (agpt_sliding_window_perplexity deep_only, 10k positions)
+  value: 7.629
+- label: depth-weight linear, 10 SE, n=3
+  metric: >-
+    legacy held-out fixed-window PPL (agpt_sliding_window_perplexity deep_only, 10k positions)
+  value: 7.422
+- label: branching-weight log, 10 SE, n=3
+  metric: >-
+    legacy held-out fixed-window PPL (agpt_sliding_window_perplexity deep_only, 10k positions)
+  value: 7.655
+tags: [gradient, data]
+related: [anc-grad, depth-weight, gutenberg-5m]
+---
+
 # Gutenberg Weighting Sweep at the anc-grad Baseline
 
 **Date:** 2026-05-23

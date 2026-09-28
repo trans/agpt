@@ -1,3 +1,32 @@
+---
+title: Cap folding
+kind: experiment
+status: concluded
+outcome: mixed
+question: >-
+  Does replacing one-hot radix-cap targets with the corpus-wide suffix distribution P(c|W)
+  improve PPL on Shakespeare d=32?
+answer: >-
+  Only slightly, and only with RMSprop. At 6 SE, fold m=10 beat the baseline by 2.0-2.7% legacy
+  PPL@32 across two orderings (single seeds). Across the mass-floor sweep the median gain
+  was about 1%, and m=11 lost. With Adam, fold hurt by 1.3%. Fold did not collapse to short-W
+  context. The user later judged the gain to be within seed noise and not a real win, and
+  preferred KN-style backoff.
+opened: 2026-05-04
+updated: 2026-05-05
+code: main
+eval: legacy
+headline:
+- {label: 'Baseline, RMSprop pd=6, fresh 6 SE', metric: 'legacy PPL@32 (bin/perplexity, 65536
+    positions)', value: 4.998}
+- {label: 'Fold m=10, RMSprop pd=6, fresh 6 SE', metric: 'legacy PPL@32 (bin/perplexity, 65536
+    positions)', value: 4.864}
+- {label: 'Fold m=10, Adam pd=6, 6 SE', metric: 'legacy PPL@32 (bin/perplexity, 65536 positions)',
+  value: 5.063}
+tags: [targets, trie-structure]
+related: [prefix-suffix-bayes, dual-model-fold, virtual-tree, kenlm-baseline]
+---
+
 # Cap Folding via Composite Prefix-Trie Targets
 
 **Status**: positive result at 6SE (fold beats baseline by 2.3% PPL); 3SE

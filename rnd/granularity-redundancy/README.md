@@ -1,3 +1,28 @@
+---
+title: Granularity redundancy
+kind: experiment
+status: concluded
+outcome: negative
+question: >-
+  Do partition depth, progressive curriculum and hotspot coverage compose when stacked, since
+  each adds optimizer-fire density?
+answer: >-
+  No. At pd>=2, stacking curriculum or hotspot on partition depth hurts. For example, pd=3
+  flat scored 4.70 and pd=3 progressive 6.33 (legacy PPL@32, Shakespeare 1M d=32, 3 SE). Each
+  mechanism helps only when it is the only density-adder. pd=3 flat became the fast-iteration
+  default. Follow-on recipe work reached 3.30 (pd=6, 120 SE) and 2.93 with d96/L6.
+opened: 2026-05-01
+updated: 2026-05-01
+code: main
+eval: legacy
+headline:
+- {label: 'pd=3 flat, Adam, 3 SE', metric: legacy PPL@32, value: 4.7}
+- {label: 'pd=3 + progressive curriculum, Adam, 3 SE', metric: legacy PPL@32, value: 6.33}
+- {label: 'pd=6, 120 SE, mw=off, wd=0.01 (d64/L2)', metric: legacy PPL@32, value: 3.3}
+tags: [partitioning, cadence, optimizer]
+related: [partition-depth, hotspot-curriculum, agpt-epoch-scaling, subtree-dropout]
+---
+
 # Granularity Redundancy — pd, Curriculum, and Hotspot Are Not Composable
 
 **Date:** 2026-05-01

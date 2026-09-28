@@ -1,3 +1,32 @@
+---
+title: Per-event loss weighting
+kind: experiment
+status: concluded
+outcome: negative
+question: >-
+  Does weighting per-event loss by a single axis (mass, depth, entropy or branching), under
+  three fire-end normalization regimes, improve held-out PPL?
+answer: >-
+  Not in a way that generalizes. On Shakespeare some cells helped. Mass-linear with no divisor
+  reached 8.03 vs baseline 9.11, and branching-linear reached about 8.4 under either regime
+  (legacy sliding-window PPL, 3 seeds). Neither transferred to Gutenberg 5M. The 1/sum(w)
+  regime was worst for every variant, and most depth and entropy shapes were neutral or worse.
+  The weighting line was closed on 2026-05-23.
+opened: 2026-05-21
+updated: 2026-05-21
+code: main
+eval: legacy
+headline:
+- {label: 'off + events (baseline), Shakespeare, 3 seeds', metric: 'legacy sliding-window
+    PPL (d=16, 10k positions)', value: 9.11}
+- {label: 'mass-linear + none, Shakespeare, 3 seeds', metric: 'legacy sliding-window PPL (d=16,
+    10k positions)', value: 8.03}
+- {label: 'branching-linear + events, Shakespeare, 3 seeds', metric: 'legacy sliding-window
+    PPL (d=16, 10k positions)', value: 8.44}
+tags: [gradient]
+related: [per-fire-norm, composite-weights, gutenberg-anc-sweep, anc-grad, beta2-diagnostic]
+---
+
 # Single-axis per-event weighting × normalization regime
 
 Comprehensive single-axis sweep of per-event loss/gradient weighting on

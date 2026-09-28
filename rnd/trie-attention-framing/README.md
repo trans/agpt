@@ -1,3 +1,31 @@
+---
+title: Trie-as-attention framing
+kind: experiment
+status: concluded
+outcome: mixed
+question: >-
+  Does splitting the radix trie into a root-side decision zone and a leaf-side identity zone
+  (K = decision, V = identity) predict trie statistics and AGPT depth behaviour, and can it
+  be turned into a training improvement?
+answer: >-
+  Descriptively yes. Mean branching depth d* tracks log2(N)/2 across Shakespeare 100k/1M and
+  Gutenberg 5M (7.94/9.71/11.23 observed vs 8.31/10.04/11.15 predicted). d=32 is the sweet
+  spot on Shakespeare 1M, and decision events carry about 97% of learning. Prescriptively
+  no. Static and per-leaf depth routing, decision-only loss and joint-mass weighting were
+  neutral to slightly negative at 3 SE, a budget later found to be severely undertrained.
+opened: 2026-04-28
+updated: 2026-04-29
+code: main
+eval: legacy
+headline:
+- {label: 'AGPT depth 32, 3 SE (d-sweep)', metric: legacy PPL (Shakespeare 1M), value: 12.99}
+- {label: 'AGPT depth 32 baseline, depth-routing comparison', metric: legacy PPL (Shakespeare
+    1M), value: 13.57}
+- {label: 'static depth routing, k=11', metric: legacy PPL (Shakespeare 1M), value: 13.78}
+tags: [attention, trie-structure, gradient]
+related: [agpt-epoch-scaling, subtree-dropout]
+---
+
 # Trie-as-Attention Framing — Decision/Identity Decomposition
 
 > **Status (2026-04-28): closed.** Descriptive predictions confirmed across

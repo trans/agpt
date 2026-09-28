@@ -1,3 +1,31 @@
+---
+title: Radix saturation vs PPL
+kind: experiment
+status: concluded
+outcome: inconclusive
+question: >-
+  Does converged PPL track the radix-trie saturation curve, giving diminishing gains from
+  d=8 to 16 to 32 and none past 32?
+answer: >-
+  Unresolved. From random init at 3 SE, PPL fell from 17.99 (d=8) to 14.59 (d=16) to 13.40
+  (d=32), consistent with diminishing returns (legacy bin/perplexity on the training text,
+  16384 positions). The d=64 point was never run, the SGD comparison arm failed (stuck at
+  init PPL 166.48), and the numbers predate the gradient fix.
+opened: 2026-04-22
+updated: 2026-04-22
+code: main
+eval: legacy
+headline:
+- {label: 'AGPT d=8, mw=linear, 3 SE (3-run mean)', metric: 'legacy PPL (bin/perplexity on
+    training text, 16384 positions)', value: 17.99}
+- {label: 'AGPT d=16, mw=linear, 3 SE (3-run mean)', metric: 'legacy PPL (bin/perplexity on
+    training text, 16384 positions)', value: 14.59}
+- {label: 'AGPT d=32, mw=linear, 3 SE (3-run mean)', metric: 'legacy PPL (bin/perplexity on
+    training text, 16384 positions)', value: 13.4}
+tags: [trie-structure, context-length, scaling]
+related: [sparsity-profile, unary-pruning]
+---
+
 # Radix Saturation vs. PPL
 
 **Status**: in progress (branch: `main`).

@@ -1,3 +1,41 @@
+---
+title: Sampled-node phase RoPE
+kind: experiment
+status: concluded
+outcome: positive
+question: >-
+  Can presenting trie paths at RoPE positions/phases that match where their prefixes occur
+  in the corpus improve the depth-16 CUDAX AGPT recipe?
+answer: >-
+  Yes. Phase-weighted and phase-conditioned training with unwrapped RoPE positions beat the
+  static d128/L6 baseline (rolling byte PPL 4.71) and kept improving through 512 epochs. The
+  best run was d128/L6 phase-conditioned direct with shuffled phase order: rolling byte PPL
+  4.50, fixed-window PPL 3.92 at epoch 512 on the multi-chunk held-out split. The early wrapped
+  and sampled-unit-phase variants did not help.
+opened: 2026-06-05
+updated: 2026-06-05
+code: main
+eval: canonical
+headline:
+- label: d128/L6 phase-conditioned direct, shuffled phase order, 512 epochs
+  metric: rolling byte PPL
+  value: 4.4974
+  run: >-
+    20260605T132031-d128l6-depth16-pd1-adam-lr0010-512ep-cq50k-phase-conditioned
+- label: d128/L6 phase-weighted unwrapped, 512 epochs (cq25k)
+  metric: rolling byte PPL
+  value: 4.5201
+  run: >-
+    20260604T102205-d128l6-depth16-pd1-adam-lr0010-512ep-cq25k-phase-weighted-un
+- label: d64/L2 phase-weighted unwrapped, 512 epochs
+  metric: rolling byte PPL
+  value: 5.0428
+  run: >-
+    20260603T112551-d64l2-depth16-pd1-adam-lr0015-512ep-phase-weighted-unwrapped
+tags: [position, rope, targets]
+related: [baseline-calibration-v2-static-sampled, kenlm-baseline, rope-position-substitution]
+---
+
 # sampled-node-phase-rope
 
 Status: active

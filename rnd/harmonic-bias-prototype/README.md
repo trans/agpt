@@ -1,3 +1,29 @@
+---
+title: Harmonic-filter attention bias prototype
+kind: experiment
+status: concluded
+outcome: negative
+question: >-
+  Does adding the asymmetric-DFT harmonic-filter bias to attention scores improve held-out
+  perplexity of a small char-level LM on Shakespeare?
+answer: >-
+  No. Across 3 seeds of a PyTorch sliding-window prototype, the bias model's fixed-window
+  PPL is on average 0.76% worse than baseline (+1.41%, +0.94%, -0.07%). The model does use
+  the bias (removing it at eval costs about 14%) but gains no net capacity. CUDA kernel work
+  was not started.
+opened: 2026-05-26
+updated: 2026-05-29
+code: main
+eval: canonical
+headline:
+- {label: 'seed 1, baseline', metric: fixed-window PPL, value: 5.2246, run: 20260526T064017-seed1-baseline}
+- {label: 'seed 1, harmonic bias', metric: fixed-window PPL, value: 5.2982, run: 20260526T064738-seed1-bias}
+- {label: 'mean change, bias vs baseline, 3 seeds', metric: 'fixed-window PPL, relative change
+    (%)', value: 0.76}
+tags: [attention, position]
+related: [harmonic-filter-diagnostic]
+---
+
 # harmonic-bias-prototype
 
 **Status:** active (variance check in progress)

@@ -1,3 +1,31 @@
+---
+title: RoPE position substitution
+kind: experiment
+status: concluded
+outcome: positive
+question: >-
+  Does AGPT use RoPE as a literal sequence coordinate, or can trie depth be swapped for another
+  monotonic signal (edge mass, log mass) without hurting PPL?
+answer: >-
+  Monotonic substitutes are neutral: on Shakespeare, PPL is 8.58 with depth, 8.39 with mass
+  and 8.32 with log-mass (none significant). Disabling RoPE costs +4.85 PPL and randomly permuting
+  depths costs +3.09. Swaps near the leaf end hurt more than swaps near the root. RoPE therefore
+  works as a monotonic ordering signal weighted toward the leaf end. Legacy agpt_ppl.py fixed
+  PPL, 3 seeds.
+opened: 2026-05-22
+updated: 2026-05-22
+code: main
+eval: legacy
+headline:
+- {label: 'Shakespeare, RoPE on depth (control), 10 SE, 3 seeds', metric: 'legacy agpt_ppl.py
+    fixed PPL (d=16, 10k held-out positions)', value: 8.584}
+- {label: 'Shakespeare, RoPE on log-mass, 10 SE, 3 seeds', metric: 'legacy agpt_ppl.py fixed
+    PPL (d=16, 10k held-out positions)', value: 8.322}
+- {label: 'Shakespeare, RoPE off, 10 SE, 3 seeds', metric: 'legacy agpt_ppl.py fixed PPL (d=16,
+    10k held-out positions)', value: 13.432}
+tags: [rope, position]
+---
+
 # RoPE Position Substitution: depth vs mass vs log-mass vs off
 
 **Date:** 2026-05-22

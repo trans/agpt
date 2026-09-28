@@ -1,3 +1,27 @@
+---
+title: Trie sparsity profile
+kind: diagnostic
+status: concluded
+outcome: n/a
+question: >-
+  How do node count, branching and singleton fraction change with depth in the Shakespeare
+  radix tries (d=8, 16, 32)?
+answer: >-
+  Interior depths keep real branching out to depth 31 (mean count 2-3, branch factor about
+  2). Sparsity is concentrated at the cap, where 87.55% (d=8), 99.43% (d=16) and 99.99% (d=32)
+  of endpoints are singletons. Radix compression is 1.83×, 5.79× and 16.23×, and the cap absorbs
+  most of the compressed characters.
+opened: 2026-04-21
+updated: 2026-04-21
+code: main
+eval: none
+headline:
+- {label: 'd=16 trie, cap depth', metric: singleton endpoints (%), value: 99.43}
+- {label: d=32 trie, metric: radix compression (leveled nodes / radix endpoints), value: 16.23}
+tags: [trie-structure, data]
+related: [blending, unary-pruning, sgd-sanity-check]
+---
+
 # Trie Sparsity Profile
 
 **Status**: complete — depth-by-depth sparsity profile measured.

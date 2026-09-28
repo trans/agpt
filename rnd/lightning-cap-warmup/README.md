@@ -1,3 +1,31 @@
+---
+title: Lightning L3 mass cap and ancestor warmup
+kind: experiment
+status: concluded
+outcome: mixed
+question: >-
+  Can a mass cap plus ancestor K/V warmup make Lightning L3 sampling on Gutenberg 5M (depth
+  32) match L4 perplexity at much lower wall-clock cost?
+answer: >-
+  Partly. cap=10 brings L3 to legacy PPL 30.83 against L4's 29.15, in 8 s instead of 5+ h.
+  Ancestor warmup hurts at a loose cap (naive 65.2 and masked 59.4 vs 56.3 without warmup).
+  All AGPT-family methods plateau near PPL 29 at d64 L2, which the README reads as a model-capacity
+  ceiling.
+opened: 2026-04-27
+updated: 2026-04-27
+code: main
+eval: legacy
+headline:
+- {label: 'L3 cap=10, 1 epoch, 10K Adam fires', metric: 'legacy PPL (bin/perplexity, 4096
+    positions, Gutenberg 5M)', value: 30.83}
+- {label: 'L4 path-sampling, 10K steps', metric: 'legacy PPL (bin/perplexity, 4096 positions,
+    Gutenberg 5M)', value: 29.15}
+- {label: 'deterministic AGPT, 3 epochs', metric: 'legacy PPL (bin/perplexity, 4096 positions,
+    Gutenberg 5M)', value: 29.01}
+tags: [sampling, trainer]
+related: [p2s-attention, lightning-agpt, lightning-training]
+---
+
 # Lightning L3 — mass cap + ancestor warmup on Gutenberg 5M (d=32)
 
 > **Status (2026-04-26): closed.** Architecture validated, PPL ceiling at this

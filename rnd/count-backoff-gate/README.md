@@ -1,3 +1,37 @@
+---
+title: Count backoff gate
+kind: experiment
+status: concluded
+outcome: mixed
+question: >-
+  Can a count-only model learn from local prefix statistics when to trust a deeper context
+  instead of backing off, and do its smoothed distributions help as neural AGPT targets?
+answer: >-
+  As a count baseline, yes. The 5-parameter learned gate reaches heldout fixed-skip PPL 3.923
+  at depth 8, against 5.433 for Witten-Bell on the same counts, and 3.860 with entropy-delta
+  and suffix-side features. As neural targets, no. Replacing the targets of the d64 L2 depth-16
+  lightning run with the sidecar worsens rolling byte PPL to 6.698 (raw trie targets 5.304),
+  and a 20% mixture (5.367) does not beat raw targets.
+opened: 2026-06-12
+updated: 2026-06-12
+code: main
+eval: canonical
+headline:
+- label: Raw trie targets (reference run)
+  metric: rolling byte PPL
+  value: 5.3037
+  run: >-
+    rnd/lightning-agpt/20260612T024242-d64l2-depth16-lightning-stream-u20000-q10k-r6-cosfloor10
+- label: 100% count-gate sidecar targets
+  metric: rolling byte PPL
+  value: 6.6985
+  run: >-
+    20260612T162513-d64l2-depth16-lightning-u20k-q10k-r6-sidecar-top16-rerun1
+- {label: 20% sidecar / 80% raw target mixture, metric: rolling byte PPL, value: 5.3667, run: 20260612T165141-d64l2-depth16-lightning-u20k-q10k-r6-sidecar-mix020}
+tags: [priors, targets, baseline]
+related: [lightning-agpt, kenlm-baseline]
+---
+
 # Count Backoff Gate
 
 ## Question

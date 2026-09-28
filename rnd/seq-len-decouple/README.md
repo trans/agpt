@@ -1,3 +1,28 @@
+---
+title: Seq_len decoupling
+kind: experiment
+status: concluded
+outcome: negative
+question: >-
+  Can a d=16-trained AGPT model use context beyond its trie depth through naive RoPE extrapolation,
+  and can the per-position trie-node bookkeeping needed for shared-key RoPE be built?
+answer: >-
+  Naive extrapolation fails: PPL rises from 8.01 at seq 16 to 13.15 at 32 and 20.94 at 64.
+  The Phase 0 position-to-node map was built and checked (mean 9.24 radix nodes per position
+  at Gutenberg d=32, zero mass mismatches). The shared-key RoPE architecture (Phase 1B) was
+  never run here.
+opened: 2026-05-11
+updated: 2026-05-11
+code: main
+eval: legacy
+headline:
+- {label: d=16 pd=1 Gutenberg model evaluated at seq 16, metric: legacy PPL (data/gutenberg_5m.txt),
+  value: 8.01}
+- {label: same model evaluated at seq 32, metric: legacy PPL (data/gutenberg_5m.txt), value: 13.15}
+- {label: same model evaluated at seq 64, metric: legacy PPL (data/gutenberg_5m.txt), value: 20.94}
+tags: [context-length, rope, trie-structure]
+---
+
 # Seq_len decoupling — Phase 0: position → contributing-nodes map
 
 **Goal:** build the bookkeeping needed for the decoupled-attention work

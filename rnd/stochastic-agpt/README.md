@@ -1,3 +1,32 @@
+---
+title: Stochastic AGPT (v2 cadence and depth controls)
+kind: experiment
+status: concluded
+outcome: negative
+question: >-
+  With the CUDA v2 attention trainer, do alternatives to all-depth pd=1 training (whole-trie
+  pd=0 updates, single-depth loss, or a deterministic pd=6 descendant sweep) match or beat
+  the pd=1 baseline?
+answer: >-
+  No. At 100 epochs, pd=1 reaches rolling byte PPL 5.34 against 12.05 for pd=0 at the same
+  wall time; Adam gets one update per epoch at pd=0 versus about 65 at pd=1. The best single
+  loss depth (depth 12) reaches 7.64. The clean context-only pd=6 sweep reaches 6.34 after
+  one pass, which the README calls far behind pd=1. Training all depths at pd=1 stays best.
+opened: 2026-06-12
+updated: 2026-09-27
+code: main
+eval: canonical
+headline:
+- {label: 'd64/L2 depth 16 pd=1 Adam, 100 epochs', metric: rolling byte PPL (sampled multi-chunk
+    heldout), value: 5.3359, run: 20260611T160456-d64l2-depth16-pd1-100ep}
+- {label: 'd64/L2 depth 16 pd=0 Adam, 100 epochs', metric: rolling byte PPL (sampled multi-chunk
+    heldout), value: 12.054, run: 20260611T162130-d64l2-depth16-pd0-100ep}
+- {label: 'pd=1, loss on depth 12 only, 100 epochs', metric: rolling byte PPL (sampled multi-chunk
+    heldout), value: 7.6428, run: 20260611T205111-d64l2-depth16-pd1-100ep-lossdepth12-masked}
+tags: [partitioning, cadence, optimizer, targets]
+related: [lightning-agpt, gradient-population, hybrid-agpt]
+---
+
 # Stochastic AGPT
 
 Status: active.

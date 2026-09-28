@@ -1,3 +1,30 @@
+---
+title: AGPT epoch scaling
+kind: experiment
+status: concluded
+outcome: positive
+question: >-
+  Was AGPT undertrained at the standard 3 super-epoch budget, i.e. does PPL keep falling with
+  more super-epochs using the same recipe?
+answer: >-
+  Yes. On Shakespeare 1M at d=32 (pd=1 RMSprop recipe), legacy PPL@32 falls from 10.82 at
+  3 SE to 5.39 at 40 SE and had not plateaued. Over the same runs PPL@128 got worse (about
+  12.67 at 3 SE, 28.54 at 20 SE). The partition-depth follow-up found that the deeper cause
+  was too few optimizer steps per epoch.
+opened: 2026-04-29
+updated: 2026-04-29
+code: main
+eval: legacy
+headline:
+- {label: 'pd=1, 3 SE (mean of 3)', metric: 'legacy PPL@32 (bin/perplexity, data/input.txt,
+    8192 positions)', value: 10.82}
+- {label: 'pd=1, 40 SE (n=1)', metric: 'legacy PPL@32 (bin/perplexity, data/input.txt, 8192
+    positions)', value: 5.39}
+- {label: 'pd=1, 20 SE', metric: 'legacy PPL@128 (bin/perplexity, data/input.txt)', value: 28.54}
+tags: [cadence, context-length, scaling]
+related: [partition-depth, subtree-dropout, trie-attention-framing]
+---
+
 # AGPT Epoch Scaling — The Undertraining Discovery
 
 > **Status (2026-04-29): MAJOR FINDING.** AGPT was severely undertrained at the

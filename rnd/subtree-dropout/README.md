@@ -1,3 +1,31 @@
+---
+title: Subtree dropout
+kind: experiment
+status: concluded
+outcome: negative
+question: >-
+  Does randomly dropping root-child subtrees each super-epoch improve AGPT training through
+  trajectory variety or dropout-like regularization?
+answer: >-
+  No, once epochs are matched: pure AGPT wins at every budget (PPL@32 9.64 vs 10.13 at 5 SE,
+  7.21 vs 7.69 at 15 SE, with p=0.3). The apparent early gain came from comparing against
+  under-trained 3-SE runs, which revealed that AGPT was undertrained. Combining dropout with
+  joint-mass is worse still.
+opened: 2026-04-29
+updated: 2026-04-29
+code: main
+eval: legacy
+headline:
+- {label: 'p=0 (pure AGPT), 15 SE, 3 reps', metric: 'legacy bin/perplexity PPL@32 (data/input.txt,
+    8192 positions)', value: 7.21}
+- {label: 'p=0.3 dropout, 15 SE, 3 reps', metric: 'legacy bin/perplexity PPL@32 (data/input.txt,
+    8192 positions)', value: 7.69}
+- {label: 'p=0.3 dropout, 5 SE, 3 reps', metric: 'legacy bin/perplexity PPL@32 (data/input.txt,
+    8192 positions)', value: 10.13}
+tags: [partitioning, sampling]
+related: [agpt-epoch-scaling, trie-attention-framing]
+---
+
 # Subtree Dropout — Per-Epoch Random Root-Child Masking
 
 > **Status (2026-04-29): closed.** Modest improvement at mid-SE budgets,

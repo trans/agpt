@@ -1,3 +1,31 @@
+---
+title: Hotspot curriculum
+kind: experiment
+status: concluded
+outcome: mixed
+question: >-
+  Does splitting the root-child subtrees that carry the most excess loss between epochs improve
+  AGPT PPL over a uniform per-root-child sweep?
+answer: >-
+  Mildly, at moderate coverage. At 3 SE, hs=0.5 lowered mean legacy PPL from 14.44 to 14.20
+  at d=16 and from 13.83 to 13.42 at d=32. hs=0.8, extra epochs and per-subtree LR rules hurt
+  or diverged. The planned staged-curriculum follow-up was never written up here. granularity-redundancy
+  later found that hotspot helps at pd=1 with RMSprop but is redundant with pd≥2.
+opened: 2026-04-24
+updated: 2026-04-25
+code: main
+eval: legacy
+headline:
+- {label: 'd=16 baseline, 3 SE (mean of 3)', metric: legacy PPL (eval protocol not recorded),
+  value: 14.44}
+- {label: 'd=16 hotspot coverage 0.5, 3 SE (mean of 3)', metric: legacy PPL (eval protocol
+    not recorded), value: 14.2}
+- {label: 'd=32 hotspot coverage 0.5, 3 SE (mean of 3)', metric: legacy PPL (eval protocol
+    not recorded), value: 13.42}
+tags: [partitioning, cadence, sampling]
+related: [granularity-redundancy, lightning-training, agpt-epoch-scaling]
+---
+
 # Hotspot Curriculum
 
 **Status**: incomplete

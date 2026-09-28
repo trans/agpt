@@ -1,3 +1,30 @@
+---
+title: Root-loop virtual tree
+kind: experiment
+status: concluded
+outcome: negative
+question: >-
+  Does training over a virtual tree of depth K·D, built by stitching copies of the D-trie
+  at its leaves, improve PPL over K=1?
+answer: >-
+  No. At d=16 per-subtree, 3 SE, K=2 tied K=1 with the segment-relative target (13.51 vs 13.66
+  mean legacy PPL) and was worse with rolling-D targets (14.61). The segment-relative target
+  gives the stitched prior no gradient signal. The result is on the pre-fix trainer and was
+  never reassessed.
+opened: 2026-04-21
+updated: 2026-04-21
+code: {branch: agpt-root-loop, tag: exp/root-loop}
+eval: legacy
+headline:
+- {label: 'K=1 baseline, d=16, 3 SE (mean of 3)', metric: legacy PPL (eval protocol not recorded),
+  value: 13.66}
+- {label: 'K=2, Mj target (mean of 3)', metric: legacy PPL (eval protocol not recorded), value: 13.51}
+- {label: 'K=2, rolling-D + Mj fallback (mean of 3)', metric: legacy PPL (eval protocol not
+    recorded), value: 14.61}
+tags: [context-length, trie-structure]
+related: [blending, virtual-tree]
+---
+
 # Root-Loop / Virtual-Tree Training (K > 1)
 
 **Status**: complete — K=2 did not improve over K=1 baseline at d=16.

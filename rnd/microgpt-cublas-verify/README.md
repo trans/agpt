@@ -1,3 +1,28 @@
+---
+title: microgpt cuBLAS verification
+kind: diagnostic
+status: concluded
+outcome: n/a
+question: >-
+  Is microgpt's cuBLAS training path correct, and how much wall-clock speedup does it give
+  over openBLAS?
+answer: >-
+  It is correct: loss matches openBLAS bit-for-bit at steps 50 and 250, and diverges only
+  by fp roundoff later. The speedup depends on model size. cuBLAS is 1.35x slower at d=64
+  L=2 seq=32, 1.31x faster at seq=128, and 5.5x faster at d=256 L=4 seq=128. SGD at the historical
+  d=64 L=2 config therefore gains nothing from the GPU.
+opened: 2026-05-10
+updated: 2026-05-11
+code: main
+eval: legacy
+headline:
+- {label: 'cuBLAS vs openBLAS, d=256 L=4 seq=128, 1000 steps', metric: wall-clock speedup
+    (x), value: 5.5}
+- {label: 'microgpt SGD d=256 L=4 seq=128, 1000 steps (openblas)', metric: legacy PPL (bin/perplexity
+    on data/input.txt), value: 7.64}
+tags: [infrastructure, kernels, baseline]
+---
+
 # microgpt cuBLAS — verification and scaling
 
 **Date:** 2026-05-10

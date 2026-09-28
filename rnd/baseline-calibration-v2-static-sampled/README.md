@@ -1,3 +1,33 @@
+---
+title: v2 static calibration (sampled heldout)
+kind: baseline
+status: concluded
+outcome: n/a
+question: >-
+  Which partition depth, optimizer, learning rate and epoch budget give the best static full-trie
+  CUDAX v2 AGPT baseline at depth 16 on Shakespeare, scored on the sampled multi-chunk heldout?
+answer: >-
+  pd=1 with Adam is the viable mode: at 128 epochs pd=0 RMSProp reaches rolling byte PPL 10.09
+  against 5.69 for pd=1 RMSProp and 5.22 for pd=1 Adam at lr 0.0015. d64/L2 bottoms out near
+  768-1024 epochs (rolling byte PPL 4.80 at 1024). d128/L6 does best at its epoch-128 checkpoint
+  (rolling byte PPL 4.71, fixed-token 4.17) and then overfits. Log mass, Adam eps and weight
+  decay did not lower the floor. The README closes the line and expects the next gains to
+  be structural.
+opened: 2026-05-30
+updated: 2026-06-05
+code: main
+eval: canonical
+headline:
+- {label: 'd128/L6 pd=1 Adam lr 0.001, epoch-128 checkpoint', metric: rolling byte PPL (sampled
+    multi-chunk heldout), value: 4.7086, run: 20260601T064609-d128l6-depth16-pd1-adam-lr0010-512ep-wrap}
+- {label: 'd64/L2 pd=1 Adam lr 0.0015, 1024 epochs, wrapped trie', metric: rolling byte PPL
+    (sampled multi-chunk heldout), value: 4.7991, run: 20260603T192234-d64l2-depth16-pd1-adam-lr0015-1024ep-wrap}
+- {label: 'd64/L2 pd=0 RMSProp, 128 epochs', metric: rolling byte PPL (sampled multi-chunk
+    heldout), value: 10.094, run: 20260530T084221-d64l2-depth16-pd0-128ep}
+tags: [baseline, optimizer, partitioning, scaling]
+related: [baseline-calibration-v2-static-tail, cudax-section2-progressive]
+---
+
 # baseline-calibration-v2-static-sampled
 
 Status: closed

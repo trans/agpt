@@ -1,3 +1,31 @@
+---
+title: d_model and depth scaling at 100 SE (Gutenberg)
+kind: experiment
+status: concluded
+outcome: mixed
+question: >-
+  At a fixed budget of 100 super-epochs on Gutenberg 5M, does widening d_model or adding layers
+  push AGPT held-out PPL past the L=6 d=64 ceiling?
+answer: >-
+  Width helps only up to d=128. At L=4, PPL is 3.99 for d=64, 3.745 for d=128 and 3.780 for
+  d=256. Depth helps up to L=8 (3.690) and regresses at L=12 (3.738). Doubling training to
+  200 SE at L=8 d=128 reaches 3.627. All values are legacy sliding-window held-out PPL, mean
+  of 3 seeds.
+opened: 2026-05-24
+updated: 2026-05-25
+code: main
+eval: legacy
+headline:
+- {label: 'L=8 d=128, 200 SE, 3 seeds', metric: 'legacy sliding-window held-out PPL (Gutenberg
+    war_peace tail, d=16)', value: 3.6274}
+- {label: 'L=8 d=128, 100 SE, 3 seeds', metric: 'legacy sliding-window held-out PPL (Gutenberg
+    war_peace tail, d=16)', value: 3.6899}
+- {label: 'L=4 d=256, 100 SE, 3 seeds', metric: 'legacy sliding-window held-out PPL (Gutenberg
+    war_peace tail, d=16)', value: 3.7802}
+tags: [scaling]
+related: [scale-vs-kn]
+---
+
 # d_model and Depth Scaling at 100 SE — Gutenberg
 
 **Date:** 2026-05-24

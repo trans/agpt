@@ -1,3 +1,28 @@
+---
+title: Gutenberg 5M partition-depth sweep
+kind: experiment
+status: concluded
+outcome: mixed
+question: >-
+  How does partition depth (optimizer fires per super-epoch) trade training quality against
+  wall time on Gutenberg 5M at trie depth 16/18?
+answer: >-
+  At a matched 6 super-epochs, training loss improves monotonically with pd (pd=0 4.143, pd=2
+  1.851, pd=4 1.549, pd=6 1.475 nats), but wall time grows super-linearly: pd=6 costs about
+  18x pd=2. At a ~140 s budget pd=2 is competitive. pd=0 is essentially broken. Held-out PPL
+  could not be recovered because the models were lost from /tmp.
+opened: 2026-05-11
+updated: 2026-05-11
+code: main
+eval: none
+headline:
+- {label: 'pd=6, depth 16, 6 SE', metric: final training loss (nats/char), value: 1.475}
+- {label: 'pd=2, depth 16, 6 SE', metric: final training loss (nats/char), value: 1.851}
+- {label: 'pd=0, depth 16, 6 SE', metric: final training loss (nats/char), value: 4.143}
+tags: [partitioning, cadence, data]
+related: [partition-depth, gutenberg-5m]
+---
+
 # Gutenberg 5M — partition-depth sweep at d=16/d=18
 
 **Data source:** 19 logs preserved from a multi-day experiment burst on

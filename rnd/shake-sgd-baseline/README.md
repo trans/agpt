@@ -1,3 +1,27 @@
+---
+title: Shakespeare SGD window baseline
+kind: baseline
+status: concluded
+outcome: n/a
+question: >-
+  What held-out PPL does a standard sliding-window microgpt model (d64 L2, seq_len 16, 10k
+  steps) reach under the AGPT experiment-harness split and evaluator?
+answer: >-
+  Rolling byte PPL 10.23 and fixed-token PPL 10.06 on the 5% tail heldout after 10,000 steps
+  at constant lr 3e-4.
+opened: 2026-05-30
+updated: 2026-05-30
+code: main
+eval: canonical
+headline:
+- {label: 'microgpt window d64/L2 seq 16, 10k steps', metric: rolling byte PPL (tail-heldout
+    5%), value: 10.2344, run: 20260528T181839-d64l2-s16-10k}
+- {label: 'microgpt window d64/L2 seq 16, 10k steps', metric: fixed-window PPL (tail-heldout
+    5%), value: 10.0631, run: 20260528T181839-d64l2-s16-10k}
+tags: [baseline]
+related: [window-d124-baseline]
+---
+
 # shake-sgd-baseline
 
 Status: initial baseline landed

@@ -1,3 +1,33 @@
+---
+title: Progressive growth vs SGD
+kind: experiment
+status: concluded
+outcome: inconclusive
+question: >-
+  How does CUDAX progressive-growth AGPT at several division × epoch schedules compare with
+  a µGPT sliding-window SGD baseline of the same model size and context length?
+answer: >-
+  Every CUDAX schedule beat the preliminary SGD baseline (seq 16, 10k steps) on tail-heldout:
+  fixed-window PPL 6.72-9.27 vs 10.06, rolling byte PPL 8.27-9.96 vs 10.23. But the baseline
+  was not matched on any agreed budget, and the CUDAX runs predate the Section 2 event-weighting
+  fix. At 64+ divisions rolling byte PPL got worse as fixed-window PPL improved; dense-causal-profile.md
+  traces this to poor predictions at the start of each 16-token window.
+opened: 2026-05-26
+updated: 2026-05-30
+code: main
+eval: canonical
+headline:
+- {label: CUDAX 16 divisions × 6 epochs, metric: 'rolling byte PPL (lm-eval, tail-heldout)',
+  value: 8.2664, run: 20260526T133412-cudax-16x6}
+- {label: CUDAX 64 divisions × 6 epochs, metric: fixed-window PPL (tail-heldout), value: 6.7244,
+  run: 20260526T064328-cudax-64x6}
+- {label: 'µGPT SGD seq=16, 10k steps', metric: 'rolling byte PPL (lm-eval, tail-heldout)',
+  value: 10.2344, run: 20260526T153756-sgd-s16-10k}
+tags: [baseline, evaluation, trainer]
+related: [cudax-section2-progressive, sgd-sanity-check]
+superseded_by: [cudax-section2-progressive]
+---
+
 # Progressive Growth vs SGD Baseline
 
 Status: initial run set complete

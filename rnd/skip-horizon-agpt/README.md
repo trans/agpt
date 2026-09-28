@@ -1,3 +1,21 @@
+---
+title: Skip-horizon AGPT
+kind: design
+status: planned
+outcome: n/a
+question: >-
+  Can giving each prefix node a calibrated family of skip-horizon empirical distributions
+  (targets h>1 steps ahead, each with its own backoff ladder) feed AGPT long-range signal
+  without breaking the aggregated-gradient identity?
+answer: ''
+opened: 2026-06-18
+updated: 2026-06-18
+code: main
+eval: none
+tags: [targets, priors, context-length]
+related: [count-backoff-gate]
+---
+
 # Skip-Horizon AGPT
 
 Status: design note.

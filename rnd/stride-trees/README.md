@@ -1,3 +1,31 @@
+---
+title: Stride trees
+kind: experiment
+status: concluded
+outcome: inconclusive
+question: >-
+  Do prefix trees built over strided corpus positions (stride 2, 4, 16) expose longer-range
+  structure that complements the adjacent-character tree?
+answer: >-
+  The signal is real but small. Stride trees collapse into singleton caps quickly (98.6% singleton
+  caps at stride 2, depth 8). A fixed probability mixture with target-aligned stride-2 heads
+  improves the adjacent recurrent d8 model only slightly (held-out PPL 6.3104 to 6.2679).
+  The planned frozen stride-state fusion was never built or run.
+opened: 2026-06-11
+updated: 2026-06-11
+code: main
+eval: legacy
+headline:
+- {label: 'Adjacent recurrent d8/d64 pd=1, epoch 500', metric: legacy held-out next-char PPL
+    (agpt_recur_perplexity), value: 6.3104}
+- {label: Oracle mixture adjacent + stride-2 same + target-next heads, metric: legacy held-out
+    next-char PPL (fixed probability mixture), value: 6.2679}
+- {label: 'Stride-2 phase 0 target-offset=1 head, epoch 100', metric: legacy target-next held-out
+    PPL (agpt_recur_perplexity), value: 9.1685}
+tags: [trie-structure, context-length, recurrence]
+related: [tanh-recurrence, rnn-agpt]
+---
+
 # Stride Trees
 
 Status: active.

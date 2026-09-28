@@ -1,3 +1,30 @@
+---
+title: Virtual tree (composite cap targets)
+kind: experiment
+status: concluded
+outcome: negative
+question: >-
+  Does replacing the one-hot targets at the first cap-tunnel positions with composite shifted-prefix
+  distributions improve AGPT PPL at d=32?
+answer: >-
+  No. Expansion 3 with alpha 0.5 raises PPL@32 from 4.80 to 5.57 (+16%), and leaving position
+  0 one-hot is worse still (6.23). The cap one-hot targets carry most of the useful gradient
+  signal, and softening them hurts.
+opened: 2026-05-06
+updated: 2026-05-07
+code: main
+eval: legacy
+headline:
+- {label: 'AGPT baseline d=32, 6 SE', metric: 'legacy bin/perplexity PPL@32 (data/input.txt,
+    8192 positions)', value: 4.8}
+- {label: 'Virtual tree, expansion 3, alpha 0.5', metric: 'legacy bin/perplexity PPL@32 (data/input.txt,
+    8192 positions)', value: 5.57}
+- {label: 'Virtual tree, positions 1-2 only (skip pos 0)', metric: 'legacy bin/perplexity
+    PPL@32 (data/input.txt, 8192 positions)', value: 6.23}
+tags: [targets, trie-structure]
+related: [cap-folding, dual-model-fold]
+---
+
 # Virtual tree: per-cap multi-position composite distributions
 
 **Status**: negative result at expansion_depth=3, alpha=0.5. Virtual-tree

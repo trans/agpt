@@ -1,3 +1,29 @@
+---
+title: CUDAX progressive-growth held-out rerun
+kind: experiment
+status: concluded
+outcome: mixed
+question: >-
+  Under the YAML harness with a tail held-out split, does giving the 16-division progressive-growth
+  schedule more epochs per frontier improve held-out byte PPL?
+answer: >-
+  Up to 3 epochs per frontier. Going from 1 to 3 improved rolling byte PPL from 9.57 to 8.56,
+  and 6 epochs gave no further gain (8.57).
+opened: 2026-05-29
+updated: 2026-05-29
+code: main
+eval: canonical
+headline:
+- {label: progressive 16 x 3 epochs, metric: rolling byte PPL (tail-heldout), value: 8.5556,
+  run: 20260526T041333-progressive-16x3}
+- {label: progressive 16 x 6 epochs, metric: rolling byte PPL (tail-heldout), value: 8.5672,
+  run: 20260526T041703-progressive-16x6}
+- {label: progressive 16 x 1 epoch, metric: rolling byte PPL (tail-heldout), value: 9.5708,
+  run: 20260526T041157-progressive-16x1}
+tags: [trie-structure, cadence, trainer]
+related: [cudax-growth, progressive-growth-sgd-comparison, cudax-d16-linear-mass-rerun]
+---
+
 # cudax-growth-heldout-rerun
 
 **Status:** active

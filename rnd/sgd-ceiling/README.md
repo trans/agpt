@@ -1,3 +1,31 @@
+---
+title: SGD ceiling
+kind: experiment
+status: concluded
+outcome: mixed
+question: >-
+  How much of AGPT's perplexity advantage over plain SGD on Shakespeare comes from subtree
+  aggregation, and how much from optimizer and recipe differences?
+answer: >-
+  Mostly from the optimizer. At depth 32, real SGD window training reaches legacy PPL 14.72
+  (seq 32), L4 + Adam with the matched recipe 13.12, and full AGPT subtree training 12.79
+  (mean). Adam over SGD accounts for about 1.6 PPL and subtree aggregation for about 0.33
+  PPL. KL-endpoint vs CE loss made no difference.
+opened: 2026-04-24
+updated: 2026-04-25
+code: main
+eval: legacy
+headline:
+- {label: 'real SGD window training, seq 32, constant lr 3e-4', metric: legacy PPL (Shakespeare),
+  value: 14.72}
+- {label: 'L4 path-sampling + Adam, matched recipe, depth 32', metric: legacy PPL (Shakespeare),
+  value: 13.12}
+- {label: 'full AGPT subtree training, depth 32 (mean)', metric: legacy PPL (Shakespeare),
+  value: 12.79}
+tags: [optimizer, baseline]
+related: [sgd-sanity-check, shake-sgd-baseline, wrap-around]
+---
+
 # SGD Ceiling
 
 **Status**: closed

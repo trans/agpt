@@ -1,3 +1,23 @@
+---
+title: SGD vs AGPT sanity check
+kind: experiment
+status: concluded
+outcome: inconclusive
+question: >-
+  Do AGPT and standard SGD over corpus positions reach similar held-out PPL at matched compute,
+  and which AGPT mass weighting (off, log, sqrt, linear) matches SGD?
+answer: >-
+  Unresolved. The only run set predates the Wk/Wv gradient fix (1c858c0), and the SGD side
+  hit a cuBLAS/NaN issue. The pre-fix mass-weight sweep favoured linear weighting, but the
+  README says not to cite those numbers. The planned post-fix redo was never run here.
+opened: 2026-04-21
+updated: 2026-04-25
+code: main
+eval: legacy
+tags: [baseline, gradient]
+related: [sgd-ceiling, agpt-epoch-scaling, progressive-growth-sgd-comparison]
+---
+
 # SGD vs AGPT Sanity Check
 
 **Status**: incomplete — redo required.

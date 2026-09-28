@@ -1,3 +1,40 @@
+---
+title: Hybrid pd1 + stochastic AGPT
+kind: experiment
+status: concluded
+outcome: negative
+question: >-
+  Can a pd1 whole-tree AGPT checkpoint be improved by a short stochastic mini-tree refinement
+  phase using the same attention model?
+answer: >-
+  No. Starting from the pd1-100 checkpoint with reset Adam, every stochastic refinement made
+  held-out metrics worse. Traversal-stop at lr 3e-5 reached rolling byte PPL 5.78 and fixed-window
+  5.43, vs the pd1 baseline's 5.34 and 4.79. Literal uniform random-descendant sampling mostly
+  picked tiny subtrees (6.26 rolling).
+opened: 2026-06-12
+updated: 2026-06-12
+code: main
+eval: canonical
+headline:
+- label: pd1-100 + traversal-stop refine, lr 3e-5
+  metric: rolling byte PPL (multi-chunk-heldout)
+  value: 5.7765
+  run: >-
+    20260612T215441-d64l2-depth16-pd1-100ep-traversal-u10000-r2-lr00003-contexto
+- label: pd1-100 + traversal-stop refine, lr 3e-5
+  metric: fixed-window PPL (multi-chunk-heldout)
+  value: 5.4332
+  run: >-
+    20260612T215441-d64l2-depth16-pd1-100ep-traversal-u10000-r2-lr00003-contexto
+- label: pd1-100 + random-descendants refine, lr 3e-4
+  metric: rolling byte PPL (multi-chunk-heldout)
+  value: 6.257
+  run: >-
+    20260612T215213-d64l2-depth16-pd1-100ep-randdesc-u10000-r2-lr0003-contextonl
+tags: [sampling, cadence, optimizer]
+related: [lightning-agpt, stochastic-agpt]
+---
+
 # Hybrid AGPT Experiments
 
 Purpose: test whether deterministic whole-tree AGPT is best used as the broad

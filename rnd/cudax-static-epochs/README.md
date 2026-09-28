@@ -1,3 +1,30 @@
+---
+title: CUDAX static epoch sweep
+kind: experiment
+status: concluded
+outcome: positive
+question: >-
+  If the rolling-PPL irregularity in CUDAX progressive-growth runs comes from progressive
+  staging, do static full-tree runs improve monotonically with epochs?
+answer: >-
+  Yes. Static full-tree v2 training improved monotonically in both metrics from 1 to 100 epochs
+  (rolling byte PPL 16.16 -> 7.80, 5% tail split). That points the irregularity at progressive
+  staging/order or its interaction with the optimizer, not at CUDAX training in general.
+opened: 2026-05-26
+updated: 2026-05-29
+code: main
+eval: canonical
+headline:
+- {label: 'Static full-tree, RMSProp lr=0.003, 100 epochs', metric: rolling byte PPL, value: 7.8023,
+  run: 20260526T180318-static-100ep}
+- {label: 'Static full-tree, RMSProp lr=0.003, 100 epochs', metric: fixed-window PPL, value: 6.0879,
+  run: 20260526T180318-static-100ep}
+- {label: 'Static full-tree, RMSProp lr=0.003, 25 epochs', metric: rolling byte PPL, value: 8.5709,
+  run: 20260526T173309-static-25ep}
+tags: [trainer, baseline]
+related: [cudax-growth, cudax-growth-heldout-rerun, cudax-exposure-fix]
+---
+
 # cudax-static-epochs
 
 **Status:** initial batch complete

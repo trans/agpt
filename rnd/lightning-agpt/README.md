@@ -1,3 +1,39 @@
+---
+title: Lightning AGPT
+kind: experiment
+status: concluded
+outcome: mixed
+question: >-
+  Can sampling many clustered mini-trees from the full trie (one optimizer step each) recover
+  stochastic update cadence and beat the pd1 whole-tree AGPT baseline?
+answer: >-
+  Partly. Mini-tree sampling gives 18x or more optimizer steps and about 26% lower runtime
+  memory, but it is not a decisive quality or compute win. The best traversal-stop/context-only
+  run slightly beat pd1: rolling byte PPL 5.17 vs 5.34, fixed-window 4.76 vs 4.79. It took
+  1999 s of training against 582 s for pd1. The balanced r6 run matched pd1 on rolling PPL
+  (5.30) and was worse on fixed-window (4.98). The line was closed in favor of update geometry,
+  curvature and suffix statistics.
+opened: 2026-06-12
+updated: 2026-06-12
+code: main
+eval: canonical
+headline:
+- label: traversal-stop, context-only ancestors, u40k r4
+  metric: rolling byte PPL (multi-chunk-heldout)
+  value: 5.1657
+  run: >-
+    20260612T204543-d64l2-depth16-lightning-random-desc-u40000-r4-contextonly-co
+- label: traversal-stop, context-only ancestors, u40k r4
+  metric: fixed-window PPL (multi-chunk-heldout)
+  value: 4.7637
+  run: >-
+    20260612T204543-d64l2-depth16-lightning-random-desc-u40000-r4-contextonly-co
+- {label: Lightning balanced u20k q10k r6, metric: rolling byte PPL (multi-chunk-heldout),
+  value: 5.3037, run: 20260612T024242-d64l2-depth16-lightning-stream-u20000-q10k-r6-cosfloor10}
+tags: [sampling, cadence, partitioning]
+related: [stochastic-agpt, hybrid-agpt, lightning-training, lightning-cap-warmup]
+---
+
 # Lightning AGPT
 
 Status: research thread closed for now.

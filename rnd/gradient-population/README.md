@@ -1,3 +1,28 @@
+---
+title: Gradient population
+kind: experiment
+status: active
+outcome: n/a
+question: >-
+  What does the population of per-unit gradients at a frozen model reveal about the cost of
+  prefix sharing (fewer optimizer updates per epoch), and can a better cadence or optimizer
+  recover that cost?
+answer: ''
+opened: 2026-09-24
+updated: 2026-09-28
+code: main
+eval: canonical
+headline:
+- {label: 'Adam pd=1, exact ancestor gradient, 625 epochs', metric: rolling byte PPL, value: 4.764,
+  run: 20260928T172438-adam-pd1-exact-625ep}
+- {label: 'L-BFGS on the exact trie gradient, 25 Adam epochs + 600 passes', metric: rolling
+    byte PPL, value: 5.019, run: 20260928T155740-lbfgs-trie-exact-pd1-ep25-600}
+- {label: 'Adam pd=1, exact ancestor gradient, 100 epochs', metric: rolling byte PPL, value: 5.225,
+  run: 20260928T153955-adam-pd1-exact-100ep}
+tags: [gradient, cadence, optimizer, curvature, partitioning, kernels]
+related: [partition-depth, stochastic-agpt, hotspot-curriculum]
+---
+
 # Gradient Population — freeze, fan out, observe
 
 Status: active (opened 2026-09-24).

@@ -1,3 +1,32 @@
+---
+title: RNN AGPT
+kind: experiment
+status: concluded
+outcome: negative
+question: >-
+  Can a small recurrent f_θ (tanh recurrence) inside AGPT, later extended with a neural history
+  residual on top of a count/backoff prior, give a strong character model on Tiny Shakespeare?
+answer: >-
+  No, not as posed. Plain tanh recurrence (depth 16, d=64, pd=1) reached held-out rolling
+  PPL 6.50 at 300 epochs (fitted asymptote about 6.44), far behind a learned count/backoff
+  prior (about 3.79, fixed skip-depth). A fixed-lag neural history residual on the live count
+  prior improved it only from 3.8032 to 3.8017. The thread was closed on 2026-06-14 and moved
+  to a separate prior-residual project.
+opened: 2026-06-12
+updated: 2026-06-14
+code: main
+eval: legacy
+headline:
+- {label: 'tanh recurrence d=64, depth 16, pd=1, 300 epochs', metric: 'held-out rolling PPL
+    (bin/agpt_recur_perplexity, 8192 positions)', value: 6.5003}
+- {label: 'learned count/backoff prior, simple standardized features', metric: full held-out
+    fixed skip-depth PPL, value: 3.7914}
+- {label: live count prior + fixed-lag history residual, metric: 'full legal held-out PPL
+    (history script, 54,736 positions)', value: 3.8017}
+tags: [recurrence, priors]
+related: [tanh-recurrence, count-backoff-gate]
+---
+
 # RNN AGPT
 
 Status: closed.

@@ -1,3 +1,32 @@
+---
+title: Streaming AGPT
+kind: experiment
+status: concluded
+outcome: positive
+question: >-
+  Does training while the trie grows (successive corpus-prefix checkpoints, carrying model
+  and optimizer state) beat one-shot full-trie AGPT at a matched SE budget?
+answer: >-
+  Yes, by a small margin. At 500 SE, streaming 100 x 5 SE beat the one-shot baseline on Shakespeare
+  d=16: 4.175 +/- 0.025 vs 4.265 +/- 0.018, 3 seeds, p < 0.01, a 2.1% gain in 42% less wall
+  time. On Gutenberg 5M the gain was 6.46% (4.083 vs 4.365, 3 seeds). Earlier single-seed
+  gaps of 6-9% were lucky variance. Streaming only works with optimizer-state persistence
+  and a global LR-schedule horizon.
+opened: 2026-05-16
+updated: 2026-05-20
+code: main
+eval: legacy
+headline:
+- {label: 'Shakespeare, streaming 100 x 5 SE (3 seeds)', metric: 'legacy PPL@16 (bin/perplexity
+    on training text, 4096 positions)', value: 4.175}
+- {label: 'Shakespeare, baseline 500 SE (3 seeds)', metric: 'legacy PPL@16 (bin/perplexity
+    on training text, 4096 positions)', value: 4.265}
+- {label: 'Gutenberg 5M, streaming 100 x 5 SE (3 seeds)', metric: 'legacy PPL@16 (bin/perplexity
+    on training text, 4096 positions)', value: 4.0831}
+tags: [trie-structure, cadence, optimizer]
+related: [runpod, overnight-2026-05-18]
+---
+
 # Streaming AGPT v1 — 5-checkpoint linear cadence
 
 **Status:** planning (started 2026-05-16)

@@ -1,3 +1,33 @@
+---
+title: CUDAX progressive growth
+kind: experiment
+status: concluded
+outcome: mixed
+question: >-
+  Does training the CUDAX trainer on progressively growing corpus prefixes (N growth divisions
+  times epochs per stage, depth 16) improve held-out PPL, and which growth schedule works
+  best?
+answer: >-
+  More divisions and ramped per-stage epochs improve legacy held-out fixed PPL from 8.59 (static,
+  10 epochs) to 4.99 (512 divisions, epoch ramp 3..10), but cost scales strongly with optimizer
+  steps. Uniform PPL is best at 7.26 (256x6) and regresses at 10 epochs per stage. The only
+  static control is at 650 optimizer steps, so growth versus plain training is not compared
+  at a matched update budget.
+opened: 2026-05-25
+updated: 2026-05-25
+code: main
+eval: legacy
+headline:
+- {label: 'static prefix-only, 10 epochs', metric: 'legacy fixed PPL (agpt_ppl.py, tail 5%,
+    10k targets)', value: 8.5857}
+- {label: 'progressive, 512 divisions, epoch ramp 3..10', metric: 'legacy fixed PPL (agpt_ppl.py,
+    tail 5%, 10k targets)', value: 4.9878}
+- {label: 'progressive, 256 divisions x 6 epochs', metric: 'legacy uniform PPL (agpt_ppl.py,
+    tail 5%, 10k targets)', value: 7.2617}
+tags: [trainer, data, scaling]
+related: [cudax-growth-heldout-rerun, cudax-section2-progressive, progressive-growth-sgd-comparison]
+---
+
 # CUDAX Progressive Growth Experiments
 
 ## Protocol

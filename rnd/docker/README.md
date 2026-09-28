@@ -1,3 +1,24 @@
+---
+title: AGPT Docker image
+kind: infrastructure
+status: concluded
+outcome: n/a
+question: >-
+  Can a prebuilt container image give RunPod pods a ready AGPT build environment without per-pod
+  setup?
+answer: >-
+  Yes. On 2026-05-21 the image was rebased on nvidia/cuda:12.4.1-devel-ubuntu22.04 so it runs
+  on RunPod driver-550 hosts. It ships prebuilt agpt_train, agpt_train_v2, agpt_build_radix_corpus,
+  agpt_experiment and agpt_sliding_window_perplexity. Project memory records the RunPod workflow
+  working end to end.
+opened: 2026-05-18
+updated: 2026-06-05
+code: main
+eval: none
+tags: [infrastructure, reproducibility]
+related: [runpod]
+---
+
 # AGPT Docker image
 
 > **Current state (2026-05-21):** This README describes the original

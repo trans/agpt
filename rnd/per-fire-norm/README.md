@@ -1,3 +1,32 @@
+---
+title: Per-fire gradient normalization
+kind: experiment
+status: concluded
+outcome: mixed
+question: >-
+  Should weight gradients be normalized once per optimizer fire (1/N events) instead of per
+  memory chunk (1/T_q_chunk)?
+answer: >-
+  Per-fire is the correct normalization and became the default in 609e7ab. Per-chunk averaging
+  had been up-weighting the deepest queries in partial chunks by accident. The PPL effect
+  depends on the corpus: with anc-grad on, held-out PPL goes from 8.20 to 8.58 on Shakespeare
+  and from 9.50 to 8.86 on Gutenberg. The anc-grad improvement survives (-6.3% Shakespeare,
+  -2.8% Gutenberg).
+opened: 2026-05-20
+updated: 2026-05-20
+code: main
+eval: legacy
+headline:
+- {label: 'Shakespeare, per-fire + anc-grad, 10 SE, 3 seeds', metric: 'legacy sliding-window
+    held-out PPL (d=16, 10k positions)', value: 8.58}
+- {label: 'Gutenberg, per-fire + anc-grad, 10 SE, 3 seeds', metric: 'legacy sliding-window
+    held-out PPL (d=16, 10k positions)', value: 8.86}
+- {label: 'Shakespeare, per-chunk + anc-grad (old default)', metric: 'legacy sliding-window
+    held-out PPL (d=16, 10k positions)', value: 8.2}
+tags: [gradient, trainer]
+related: [anc-grad]
+---
+
 # per-fire-norm — fixing chunk count out of the gradient math
 
 > **Status (2026-05-20):** per-fire (1/N) is now the default normalizer on main as of commit **609e7ab**. The per-chunk (1/T_q_chunk) behavior is gone. This README documents how we got there.

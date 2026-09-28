@@ -1,3 +1,23 @@
+---
+title: RunPod launcher
+kind: infrastructure
+status: concluded
+outcome: n/a
+question: >-
+  How do we run AGPT experiments on rented RunPod GPUs without hand-maintaining the environment?
+answer: >-
+  launch.sh (setup-image / setup / push-code / run / pull / full) syncs code and data to a
+  pod built from the docker.io/7rans/agpt image and pulls results back. Since 2026-05-21 the
+  image uses a CUDA 12.4 Ubuntu base, because RunPod hosts' driver 550 caps at CUDA 12.4.
+  HOWTO.md is the operational guide.
+opened: 2026-05-17
+updated: 2026-06-05
+code: main
+eval: none
+tags: [infrastructure]
+related: [docker, streaming-agpt-v1, beta2-diagnostic]
+---
+
 # RunPod launcher for AGPT experiments
 
 > **For the current operational guide, see `HOWTO.md` in this

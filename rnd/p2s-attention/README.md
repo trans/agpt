@@ -1,3 +1,30 @@
+---
+title: Prefix-to-suffix attention
+kind: experiment
+status: concluded
+outcome: negative
+question: >-
+  Can structural max-overlap matching between prefix-trie and suffix-trie leaves serve as
+  an attention or prediction backbone that beats a direct transformer on next-character PPL?
+answer: >-
+  No. Cross-attention over matched suffixes either leaks the answer or ends up predicting
+  a far-future character: the scaled cross-attention model reaches corpus PPL 9.45 and root-LOO
+  11.5, against 6.50 for a direct ctx=128 transformer. The matching helps only as an inference-time
+  mask on the roughly 1.9% of positions with genuinely ambiguous candidates (6.50 to 6.35).
+opened: 2026-04-27
+updated: 2026-04-27
+code: main
+eval: legacy
+headline:
+- {label: 'Direct transformer, ctx=128', metric: 'legacy corpus-walk PPL (p2s_eval_corpus.py,
+    Gutenberg 5M)', value: 6.5}
+- {label: Direct transformer + inference-time tree mask, metric: 'legacy corpus-walk PPL (p2s_eval_corpus.py,
+    Gutenberg 5M)', value: 6.35}
+- {label: 'Cross-attention p2s, scaled (256/6, ctx=128)', metric: 'legacy corpus-walk PPL
+    (p2s_eval_corpus.py, Gutenberg 5M)', value: 9.45}
+tags: [attention, trie-structure]
+---
+
 # Prefix-to-Suffix Attention via Structural Max-Overlap Matching
 
 > **Status (2026-04-27): CLOSED.** Architectural investigation complete.

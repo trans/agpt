@@ -1,3 +1,34 @@
+---
+title: AGPT scaling vs Kneser-Ney
+kind: experiment
+status: concluded
+outcome: positive
+question: >-
+  On a provably disjoint Gutenberg held-out set, can AGPT at moderate scale beat a classical
+  Kneser-Ney character model?
+answer: >-
+  Narrowly. AGPT at L=6 with 200 SE reached 3.75 +- 0.014 over 3 seeds, against 3.96 for KN
+  order 6 (legacy sliding-window PPL, d=16, 10k positions). L=4 with 100 SE reached 3.99.
+  The win is small given AGPT's 3x longer context.
+opened: 2026-05-23
+updated: 2026-05-23
+code: main
+eval: legacy
+headline:
+- label: AGPT L=6, 200 SE, 3-seed mean
+  metric: >-
+    legacy sliding-window PPL (d=16, 10k positions, disjoint Gutenberg held-out)
+  value: 3.7544
+- label: AGPT L=4, 100 SE, 3-seed mean
+  metric: >-
+    legacy sliding-window PPL (d=16, 10k positions, disjoint Gutenberg held-out)
+  value: 3.99
+- {label: Kneser-Ney order 6 (nltk), metric: PPL on disjoint Gutenberg held-out (10k positions),
+  value: 3.96}
+tags: [scaling, baseline, evaluation]
+related: [kenlm-baseline, kn-shakespeare-baseline, gutenberg-5m]
+---
+
 # AGPT Scaling vs Kneser-Ney Baseline (Proper Held-out)
 
 **Date:** 2026-05-23 (evening)

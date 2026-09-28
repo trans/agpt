@@ -1,3 +1,31 @@
+---
+title: KenLM KN baseline
+kind: baseline
+status: concluded
+outcome: n/a
+question: >-
+  Where does char-level Kneser-Ney (KenLM) PPL plateau by n-gram order on Gutenberg 5M, and
+  can per-trie-node KN distributions be extracted as soft targets?
+answer: >-
+  KenLM KN (with --discount_fallback and the space-token fix) plateaus at order 8 with PPL
+  4.089 on the proper Gutenberg held-out. Orders 10-12 are slightly worse. nltk KN order 6
+  gives 3.960 and is not comparable across tools. The per-node KN distribution pipeline was
+  built, but the distillation experiment was parked.
+opened: 2026-05-24
+updated: 2026-05-24
+code: main
+eval: legacy
+headline:
+- {label: 'KenLM KN order 8, Gutenberg 5M', metric: 'KenLM per-char PPL, --discount_fallback
+    (gut_holdout_proper)', value: 4.089}
+- {label: 'KenLM KN order 6, Gutenberg 5M', metric: 'KenLM per-char PPL, --discount_fallback
+    (gut_holdout_proper)', value: 4.155}
+- {label: 'nltk KN order 6, Gutenberg 5M', metric: nltk KneserNeyInterpolated PPL (gut_holdout_proper),
+  value: 3.96}
+tags: [baseline, targets]
+related: [kn-shakespeare-baseline, scale-vs-kn]
+---
+
 # KenLM KN Baseline + Per-Trie-Node Distribution Extractor
 
 **Date:** 2026-05-24

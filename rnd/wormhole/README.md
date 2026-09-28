@@ -1,3 +1,31 @@
+---
+title: Wormhole routing
+kind: experiment
+status: concluded
+outcome: negative
+question: >-
+  Does replacing the unary-tunnel walk with a structural wormhole jump (cap to depth-1 re-entry
+  node) give better synthetic-corpus training signal than synth_wrap's walk-and-bridge?
+answer: >-
+  No. Skipping the unary tunnel cost 10-19% PPL. With density matched (--walk-tunnel), wormhole
+  V1/V2 tied synth_wrap: 7.10 / 7.08 vs 7.06, against an SGD real-corpus ceiling of 6.96 (legacy
+  bin/perplexity on the training text, 4096 positions). The routing rule works but gives no
+  benefit.
+opened: 2026-05-06
+updated: 2026-05-06
+code: main
+eval: legacy
+headline:
+- {label: synth_wrap walk-and-bridge (multi-seed mean), metric: 'legacy PPL (bin/perplexity
+    on training text, 4096 positions)', value: 7.06}
+- {label: Wormhole V2 walk-tunnel (multi-seed mean), metric: 'legacy PPL (bin/perplexity on
+    training text, 4096 positions)', value: 7.08}
+- {label: 'Wormhole V1 stream, tunnel skipped (1 seed)', metric: 'legacy PPL (bin/perplexity
+    on training text, 4096 positions)', value: 7.65}
+tags: [data, trie-structure]
+related: [wrap-around, unary-pruning]
+---
+
 # Wormhole / topological-navigation experiments
 
 Tests whether replacing the unary-tunnel walk with a structural

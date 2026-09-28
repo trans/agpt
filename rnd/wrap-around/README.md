@@ -1,3 +1,31 @@
+---
+title: Wrap-around corpus synthesis
+kind: experiment
+status: concluded
+outcome: positive
+question: >-
+  Does a depth-D radix trie carry enough predictive content to train models with seq_len >
+  D? Tested by training on a corpus synthesized from trie walks that wrap from leaf back to
+  root.
+answer: >-
+  Yes at d=32. A microgpt model trained for 10k steps at seq 128 on a 10M-char synthetic wrap
+  corpus scores legacy PPL 7.04 on the real Shakespeare corpus (mean of 4 synth seeds, range
+  6.93-7.13), which the README describes as matching the SGD seq=128 ceiling. Cutting wraps
+  at spaces (--space-cut) gives cleaner generation but worse PPL (7.16), and --space-align
+  is a no-op.
+opened: 2026-04-25
+updated: 2026-04-25
+code: main
+eval: legacy
+headline:
+- {label: 'depth-32 synth, 10M chars, seq 128, 10k steps, mean of 4 seeds', metric: 'legacy
+    PPL (bin/perplexity, 4096 positions, real Shakespeare)', value: 7.04}
+- {label: 'same with --space-cut, mean of 3 seeds', metric: 'legacy PPL (bin/perplexity, 4096
+    positions, real Shakespeare)', value: 7.16}
+tags: [context-length, data, sampling]
+related: [sgd-ceiling, seq-len-decouple]
+---
+
 # Wrap-around corpus synthesis
 
 **Trainer note**: not obviously trainer-dependent.

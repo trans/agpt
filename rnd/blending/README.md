@@ -1,3 +1,28 @@
+---
+title: Suffix-depth blending
+kind: experiment
+status: concluded
+outcome: mixed
+question: >-
+  Does blending shorter-suffix count distributions into the target at radix endpoints (count-aware
+  smoothing) improve AGPT PPL?
+answer: >-
+  It depends on depth. At d=16 it helped: mean 13.66 -> 13.34 (n=6). At d=8 it was a tie and
+  at d=32 it slightly hurt (legacy PPL, Shakespeare per-subtree, 3 SE). These numbers are
+  from the pre-fix trainer and need reassessment.
+opened: 2026-04-21
+updated: 2026-04-21
+code: {branch: agpt-root-loop, tag: exp/root-loop}
+eval: legacy
+headline:
+- {label: d=16 baseline (n=6 mean), metric: 'legacy PPL (agpt_train_best.sh, 16384 positions)',
+  value: 13.66}
+- {label: d=16 blending alpha=1.0 (mean), metric: 'legacy PPL (agpt_train_best.sh, 16384 positions)',
+  value: 13.34}
+tags: [targets, priors, trie-structure]
+related: [root-loop]
+---
+
 # Suffix-Depth Blending at Radix Endpoints
 
 **Status**: complete — helps at d=16, no effect at d=8, hurts at d=32.

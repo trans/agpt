@@ -1,3 +1,29 @@
+---
+title: Gutenberg 5M wrap-around
+kind: experiment
+status: concluded
+outcome: positive
+question: >-
+  Does the wrap-around synthetic-corpus pipeline scale from Shakespeare to a 5M-character
+  Gutenberg corpus?
+answer: >-
+  Yes. With the new per-subtree corpus-to-radix builder, the d=32 pipeline (build, 10M-token
+  synth, 10k SGD steps) ran in about 5 minutes and reached PPL 6.78 (legacy bin/perplexity
+  on the training corpus, 4096 positions). d=48 did worse (7.39): past d=32 the trie adds
+  mostly mass-1 unary tails.
+opened: 2026-04-26
+updated: 2026-04-26
+code: main
+eval: legacy
+headline:
+- {label: 'd=32 synth wrap-around, 10k SGD steps seq=128', metric: 'legacy PPL (bin/perplexity
+    on training corpus, 4096 positions)', value: 6.7807}
+- {label: 'd=48 synth wrap-around, 10k SGD steps seq=128', metric: 'legacy PPL (bin/perplexity
+    on training corpus, 4096 positions)', value: 7.3899}
+tags: [data, scaling, trie-structure, infrastructure]
+related: [wrap-around, unary-pruning, scale-vs-kn]
+---
+
 # Gutenberg 5M — wrap-around scaling test
 
 **Trainer note**: not obviously trainer-dependent.

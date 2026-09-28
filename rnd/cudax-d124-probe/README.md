@@ -1,3 +1,28 @@
+---
+title: CUDAX depth-124 probe
+kind: experiment
+status: concluded
+outcome: inconclusive
+question: >-
+  Can the CUDAX v2 trainer train a d64 L2 model on the full depth-124 Shakespeare trie, and
+  how does held-out PPL move with the number of static epochs?
+answer: >-
+  It trains. Held-out rolling byte PPL falls monotonically from 16.21 at 1 epoch to 7.47 at
+  25 epochs (5226 s of training) and is still falling at the end. The README never recorded
+  a hypothesis or conclusion, there is no depth-16 control in the directory, and the probe
+  was not followed up here.
+opened: 2026-05-28
+updated: 2026-05-29
+code: main
+eval: canonical
+headline:
+- {label: 'depth 124, 1 static epoch', metric: rolling byte PPL, value: 16.2114, run: 20260528T060729-d124-d64l2-static1}
+- {label: 'depth 124, 10 static epochs', metric: rolling byte PPL, value: 8.8797, run: 20260528T071446-d124-d64l2-static10}
+- {label: 'depth 124, 25 static epochs', metric: rolling byte PPL, value: 7.4666, run: 20260528T081405-d124-d64l2-static25}
+tags: [context-length, trie-structure, scaling]
+related: [radix-depth124, window-d124-baseline, shake-small-baseline]
+---
+
 # cudax-d124-probe
 
 **Status:** active

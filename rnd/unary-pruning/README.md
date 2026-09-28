@@ -1,3 +1,31 @@
+---
+title: Mass-1 unary-path pruning
+kind: experiment
+status: concluded
+outcome: mixed
+question: >-
+  Do mass-1 unary chains in the d=32 radix trie carry useful training signal, or can they
+  be pruned from the synthetic wrap-around corpus without cost?
+answer: >-
+  Partly. Keeping only the head token hurts: +0.49 PPL (7.53 vs 7.04). Cutting at the first
+  whitespace inside the chain ties the full edge (6.95 vs 7.04, within seed noise), about
+  40% less content per leaf. Metric: legacy bin/perplexity on the training text, 4096 positions,
+  synth + microgpt 10k steps.
+opened: 2026-04-25
+updated: 2026-04-25
+code: main
+eval: legacy
+headline:
+- {label: baseline synth_wrap (4 seeds), metric: 'legacy PPL (bin/perplexity on training text,
+    4096 positions)', value: 7.04}
+- {label: --prune-mass1-space (4 seeds), metric: 'legacy PPL (bin/perplexity on training text,
+    4096 positions)', value: 6.95}
+- {label: --prune-mass1-head (2 seeds), metric: 'legacy PPL (bin/perplexity on training text,
+    4096 positions)', value: 7.53}
+tags: [trie-structure, data]
+related: [wrap-around, gutenberg-5m, wormhole]
+---
+
 # Mass-1 Unary-Path Pruning
 
 **Trainer note**: not obviously trainer-dependent.

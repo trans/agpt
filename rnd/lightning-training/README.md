@@ -1,3 +1,32 @@
+---
+title: Lightning training
+kind: experiment
+status: concluded
+outcome: negative
+question: >-
+  Can stochastic variable-depth subtree sampling (Lightning L3 mass-weighted walk) match or
+  beat the deterministic per-root-child sweep at the same number of optimizer steps?
+answer: >-
+  No, not at matched steps. At d=8, L3 averaged 18.71-20.46 legacy PPL against 17.99 for the
+  deterministic sweep (L2 19.54, L1 28.55), and mass-proportional LR scaling hurt. With 4-10×
+  more steps and 10-30× lower LR, individual runs reached the baseline but means stayed 0.6-1.5
+  PPL worse. The bf16 and mass-1 compact KV caches built here made d=32 global radix feasible
+  (L3 12.07 at 780 steps).
+opened: 2026-04-22
+updated: 2026-04-23
+code: main
+eval: legacy
+headline:
+- {label: 'd=8 deterministic per-root-child, 65×3 steps', metric: 'legacy PPL (bin/perplexity,
+    data/input.txt)', value: 17.99}
+- {label: 'd=8 L3 p_stop=0.5, 65×3 steps (mean of 3)', metric: 'legacy PPL (bin/perplexity,
+    data/input.txt)', value: 20.09}
+- {label: 'd=32 global radix L3, 260×3 steps, lr=2e-4', metric: 'legacy PPL (bin/perplexity,
+    data/input.txt)', value: 12.07}
+tags: [sampling, cadence, kernels]
+related: [lightning-cap-warmup, lightning-agpt, radix-saturation, hotspot-curriculum]
+---
+
 # Lightning Training — empirical
 
 **Trainer note**: pre-fix, needs reassessment.

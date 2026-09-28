@@ -1,3 +1,30 @@
+---
+title: Partition depth
+kind: experiment
+status: concluded
+outcome: positive
+question: >-
+  Does firing one optimizer step per depth-N prefix group (--partition-depth N --no-accumulate)
+  instead of one per root child speed up AGPT convergence?
+answer: >-
+  Yes, up to pd=6. On Shakespeare 1M at d=32, legacy PPL@32 falls from 5.39 (pd=1, 40 SE)
+  to 3.95 (RMSprop pd=6, 3 SE, 654 s) and to 3.82 with Adam at lr=1e-3. pd=7 is worse and
+  slower (4.00, 1003 s).
+opened: 2026-04-30
+updated: 2026-04-30
+code: main
+eval: legacy
+headline:
+- {label: 'pd=1, 40 SE', metric: 'legacy PPL@32 (bin/perplexity, data/input.txt, 8192 positions)',
+  value: 5.39}
+- {label: 'RMSprop pd=6, 3 SE', metric: 'legacy PPL@32 (bin/perplexity, data/input.txt, 8192
+    positions)', value: 3.95}
+- {label: 'Adam pd=6, 3 SE, lr=1e-3', metric: 'legacy PPL@32 (bin/perplexity, data/input.txt,
+    8192 positions)', value: 3.82}
+tags: [optimizer, partitioning, cadence]
+related: [agpt-epoch-scaling, granularity-redundancy, subtree-dropout]
+---
+
 # Partition-Depth — Bigram-and-Beyond Adam-Step Granularity
 
 > **Status (2026-04-30): MAJOR FINDING.** Increasing `--partition-depth`

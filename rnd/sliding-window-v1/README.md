@@ -1,3 +1,31 @@
+---
+title: Sliding-window AGPT v1
+kind: experiment
+status: concluded
+outcome: negative
+question: >-
+  Can pooling predictions or activations from overlapping d=16 windows at inference time beat
+  the d=16 model's own perplexity on Gutenberg 5M without retraining?
+answer: >-
+  Not in the form tested. v1.0 logit pooling is worse than using only the deepest-context
+  window: legacy PPL over 2048 positions is 8.63 deep-only, 9.51 depth-weighted and 10.51
+  uniform. The planned activation-pooling plus sequence-attention test (v1.1) was never run,
+  and the writeup expected it to need end-to-end training.
+opened: 2026-05-11
+updated: 2026-05-11
+code: main
+eval: legacy
+headline:
+- {label: 'deep-only (no pooling), 2048 positions', metric: 'legacy PPL (agpt_sliding_window_perplexity,
+    Gutenberg 5M)', value: 8.628}
+- {label: 'depth-weighted logit pool, 2048 positions', metric: 'legacy PPL (agpt_sliding_window_perplexity,
+    Gutenberg 5M)', value: 9.514}
+- {label: 'uniform logit pool, 2048 positions', metric: 'legacy PPL (agpt_sliding_window_perplexity,
+    Gutenberg 5M)', value: 10.51}
+tags: [context-length, evaluation]
+related: [seq-len-decouple]
+---
+
 # Sliding-Window AGPT v1 — inference prototype
 
 **Status:** in progress, started 2026-05-11

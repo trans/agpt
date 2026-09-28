@@ -1,3 +1,29 @@
+---
+title: Post Wk/Wv-fix baseline
+kind: baseline
+status: concluded
+outcome: n/a
+question: >-
+  After commit 1c858c0 made Wk, Wv and the biases trainable, which learning rate and schedule
+  give the best deterministic AGPT baseline at d=16 and d=32, and how does it compare with
+  sliding-window SGD?
+answer: >-
+  Warmup-cosine at lr 3e-3 wins at both depths (3 SE x 65 steps, 3 seeds): mean legacy PPL
+  14.38 at d=16 and 12.79 at d=32, against 14.72 for sliding-window SGD at seq=32 after 2000
+  steps.
+opened: 2026-04-23
+updated: 2026-04-24
+code: main
+eval: legacy
+headline:
+- {label: 'AGPT det d=16, wc lr 3e-3, 3 SE (195 steps), 3 seeds', metric: 'legacy bin/perplexity
+    PPL (data/input.txt, 16k positions)', value: 14.38}
+- {label: 'AGPT det d=32, wc lr 3e-3, 3 SE (195 steps), 3 seeds', metric: 'legacy bin/perplexity
+    PPL (data/input.txt, 16k positions)', value: 12.79}
+- {label: 'microgpt SGD window seq=32, 2000 steps', metric: legacy PPL, value: 14.72}
+tags: [baseline, optimizer]
+---
+
 # Post-Fix AGPT Baseline Re-establishment
 
 **Trainer note**: post-fix.

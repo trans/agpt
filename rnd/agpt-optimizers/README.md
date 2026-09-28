@@ -1,3 +1,27 @@
+---
+title: AGPT optimizers
+kind: experiment
+status: concluded
+outcome: positive
+question: >-
+  Does AGPT subtree training need an adaptive optimizer, or can plain SGD or momentum match
+  RMSProp?
+answer: >-
+  It needs one. Without clipping, SGD and momentum blow up almost at once. With grad-clip-norm
+  1 they finish but stall far above RMSProp: best momentum 18.50 and best SGD 19.51 against
+  RMSProp 12.79 (legacy PPL, d=32 Shakespeare, 3 SE).
+opened: 2026-04-25
+updated: 2026-04-25
+code: main
+eval: legacy
+headline:
+- {label: RMSProp (beta=0.999) reference, metric: legacy PPL (protocol not recorded), value: 12.79}
+- {label: 'Momentum lr=3e-2, clip=1', metric: legacy PPL (protocol not recorded), value: 18.5}
+- {label: 'SGD lr=3e-1, clip=1', metric: legacy PPL (protocol not recorded), value: 19.51}
+tags: [optimizer]
+related: [per-rc-adam-v1, gradient-population]
+---
+
 # AGPT Optimizers
 
 **Status**: closed

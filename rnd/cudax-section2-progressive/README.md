@@ -1,3 +1,32 @@
+---
+title: CUDAX Section 2 progressive reruns
+kind: baseline
+status: concluded
+outcome: n/a
+question: >-
+  With the Section 2 event-count weighting restored in the CUDAX (v2) trainer, what held-out
+  PPL do progressive-growth schedules (divisions × epochs) and static full-prefix training
+  reach on Shakespeare?
+answer: >-
+  Re-baselined on the tail-heldout split. d64 L2 runs range from 8.25 rolling byte PPL (16x1to6)
+  to 7.05 (16x25). At 6 epochs per stage, 64, 128 and 256 divisions (7.50, 7.35, 7.39) beat
+  16 divisions (7.98). The best run is d128 L6 static at 200 epochs: 6.16 rolling byte PPL
+  (5.65 fixed-window). The README never received a written conclusion.
+opened: 2026-05-26
+updated: 2026-05-27
+code: main
+eval: canonical
+headline:
+- {label: 'd128 L6, static full-prefix, 200 epochs', metric: 'rolling byte PPL (lm-eval, tail-heldout)',
+  value: 6.1636, run: 20260527T225128-section2-d128l6-static200}
+- {label: 'd64 L2, 16 divisions × 25 epochs', metric: 'rolling byte PPL (lm-eval, tail-heldout)',
+  value: 7.0509, run: 20260527T055358-section2-16x25}
+- {label: 'd64 L2, 16 divisions × 6 epochs', metric: 'rolling byte PPL (lm-eval, tail-heldout)',
+  value: 7.9789, run: 20260526T224149-section2-16x6}
+tags: [baseline, trainer, scaling]
+related: [progressive-growth-sgd-comparison, cudax-growth]
+---
+
 # cudax-section2-progressive
 
 **Status:** active

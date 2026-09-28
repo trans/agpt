@@ -1,3 +1,23 @@
+---
+title: Prefix-suffix Bayesian consistency
+kind: diagnostic
+status: concluded
+outcome: n/a
+question: >-
+  Do next-token distributions read directly from the forward radix trie equal those recovered
+  by Bayesian inversion of the suffix (reversed-corpus) trie?
+answer: >-
+  Yes, exactly: KL = 0 for every prefix tested on Shakespeare 1M d=32, which confirms the
+  tries are symmetric and the inversion math is right. The follow-up with trained models (in
+  cap-folding) found forward and backward models disagree heavily (KL about 2.4 nats).
+opened: 2026-05-11
+updated: 2026-05-11
+code: main
+eval: none
+tags: [trie-structure]
+related: [cap-folding, dual-model-fold]
+---
+
 # Prefix–Suffix Bayesian Consistency
 
 **Status:** investigation in progress (2026-05-02).
