@@ -87,6 +87,40 @@ static inline BackwardPassResult run_backward_output_head_v2(const TrainerConfig
     return result;
 }
 
+// Second-pass backward for experimental.anc_grad_exact. The chunk's forward has
+// just been recomputed (same weights, same cache). No loss gradient enters at
+// the output; the only upstream signal is the descendant->ancestor K/V
+// gradient accumulated in anc_runtime for this chunk's characters, injected at
+// every layer before the K/V projection backward. The ordinary layer backward
+// then carries it through LN1, the residual stream, lower layers (scattering
+// any new ancestor gradient further up) and the embeddings. Processing nodes in
+// descending endpoint depth makes each node's accumulated gradient complete
+// before it is injected.
+static inline BackwardPassResult run_backward_ancestor_path_v2(const TrainerConfig& cfg,
+                                                               const ModelLayout& layout,
+                                                               const ChunkMetadataV2& meta,
+                                                               const ChunkDeviceMetadataV2& device_meta,
+                                                               const ChunkUploadRuntimeV2& upload,
+                                                               TrainerRuntimeV2& runtime,
+                                                               UnitAncGradRuntimeV2* anc_runtime) {
+    BackwardPassResult result;
+    result.message = "ancestor-path backward executed";
+    int T_q = meta.T_q;
+    int D = cfg.d_model;
+    int F = cfg.d_ff;
+    int V = cfg.vocab_size;
+    ChunkBufferLayoutV2 buf = make_chunk_buffer_layout_v2(runtime.chunk, T_q, D, F, V);
+    AGPT_V2_CUDA_CHECK(cudaMemset(buf.query.x, 0, (size_t)((long long)T_q * D * sizeof(float))));
+    for (int l = cfg.n_layers - 1; l >= 0; l--) {
+        run_backward_transformer_layer_stage_v2(cfg, layout, meta, device_meta, upload, runtime, buf, runtime.cublas,
+                                                1.0f, anc_runtime, l, runtime.d_rope_cos, runtime.d_rope_sin,
+                                                /*inject_anc_dkv=*/true);
+    }
+    run_backward_embedding_stage_v2(cfg, layout, upload, runtime, buf, T_q);
+    AGPT_V2_CUDA_CHECK(cudaDeviceSynchronize());
+    return result;
+}
+
 }  // namespace agpt_v2
 
 #endif

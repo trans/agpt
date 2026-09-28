@@ -57,10 +57,13 @@ def write_perturbed(src, dst, delta, n_params):
     open(dst, "wb").write(bytes(buf))
 
 
-def run_dump(cfg_text, init, anc, dump_dir, work, trainer="bin/agpt_train_v2"):
+def run_dump(cfg_text, init, anc, dump_dir, work, trainer="bin/agpt_train_v2", exact=True):
     os.makedirs(dump_dir, exist_ok=True)
     y = re.sub(r"init_file: .*", f"init_file: {init}", cfg_text)
     y = re.sub(r"anc_grad: .*", f"anc_grad: {'true' if anc else 'false'}", y)
+    if not anc or not exact:
+        y = re.sub(r"\n *anc_grad_exact: .*", "", y)  # exact pass requires anc_grad
+        y = re.sub(r"\nexperimental:[ \t]*(?=\n[^ \t\n]|\n?$)", "", y)  # drop an emptied block
     y = re.sub(r"value: \d+", "value: 1", y)
     y = re.sub(r"partition_depth: \d+", "partition_depth: 1", y)
     y = re.sub(r"\n  save_file: .*", "", y)
@@ -89,20 +92,42 @@ def main():
     ap.add_argument("--out", required=True)
     ap.add_argument("--eps", type=float, nargs="+", default=[1e-2, 3e-3])
     ap.add_argument("--trainer", default="bin/agpt_train_v2")
+    ap.add_argument("--dirs", nargs="+", default=["anc", "noanc"],
+                    help="directions to test: anc (g from base config), noanc, trunc (anc_grad on, exact off), "
+                         "diff (g_anc - g_trunc: where the exact and truncated gradients disagree)")
     args = ap.parse_args()
     os.makedirs(args.out, exist_ok=True)
     cfg_text = open(args.base_config).read()
+    has_exact = re.search(r"anc_grad_exact: *true", cfg_text) is not None
 
     f0, g_anc, lay = run_dump(cfg_text, args.ckpt, True, os.path.join(args.out, "d0_anc"), args.out, args.trainer)
     _, g_no, _ = run_dump(cfg_text, args.ckpt, False, os.path.join(args.out, "d0_noanc"), args.out, args.trainer)
+    grads = {"anc": g_anc, "noanc": g_no}
+    if has_exact:
+        _, g_tr, _ = run_dump(cfg_text, args.ckpt, True, os.path.join(args.out, "d0_trunc"), args.out, args.trainer,
+                              exact=False)
+        grads["trunc"] = g_tr
     P = lay["total_floats"]
     na, nn = np.linalg.norm(g_anc), np.linalg.norm(g_no)
     cos = float(g_anc @ g_no / (na * nn))
-    print(f"ckpt {args.ckpt}  trainer {args.trainer}")
-    print(f"  f(theta) = {f0:.7f}   |g_anc| = {na:.5f}   |g_noanc| = {nn:.5f}   cos(g_anc, g_noanc) = {cos:.4f}")
-    res = {"ckpt": args.ckpt, "f0": f0, "g_anc_norm": na, "g_noanc_norm": nn, "cos_anc_noanc": cos, "checks": []}
-    for which, g in (("anc", g_anc), ("noanc", g_no)):
-        d = g / np.linalg.norm(g)
+    print(f"ckpt {args.ckpt}  trainer {args.trainer}  exact={has_exact}  TF32_OVERRIDE={os.environ.get('NVIDIA_TF32_OVERRIDE', 'unset')}")
+    line = f"  f(theta) = {f0:.7f}   |g_anc| = {na:.5f}   |g_noanc| = {nn:.5f}   cos(g_anc, g_noanc) = {cos:.4f}"
+    if "trunc" in grads:
+        nt = np.linalg.norm(grads["trunc"])
+        line += f"   |g_trunc| = {nt:.5f}   cos(g_anc, g_trunc) = {float(g_anc @ grads['trunc'] / (na * nt)):.4f}"
+    print(line)
+    res = {"ckpt": args.ckpt, "f0": f0, "exact": has_exact, "tf32_override": os.environ.get("NVIDIA_TF32_OVERRIDE"),
+           "norms": {k: float(np.linalg.norm(v)) for k, v in grads.items()}, "cos_anc_noanc": cos, "checks": []}
+    for which in args.dirs:
+        if which == "diff":
+            if "trunc" not in grads:
+                print("  (skip diff: base config has no anc_grad_exact)"); continue
+            v = grads["anc"] - grads["trunc"]
+        else:
+            if which not in grads:
+                print(f"  (skip {which})"); continue
+            v = grads[which]
+        d = v / np.linalg.norm(v)
         for eps in args.eps:
             fs = {}
             for sign in (+1, -1):
@@ -112,12 +137,12 @@ def main():
                 fs[sign] = f
                 os.remove(mp)
             fd = (fs[+1] - fs[-1]) / (2 * eps)
-            pred_anc = float(g_anc @ d)
-            pred_no = float(g_no @ d)
+            preds = {k: float(g @ d) for k, g in grads.items()}
             curv = (fs[+1] + fs[-1] - 2 * f0) / eps ** 2
-            print(f"  dir=g_{which:5s} eps={eps:<6g} finite-diff d f/d eps = {fd:+.6f} | g_anc.d = {pred_anc:+.6f} (ratio {fd / pred_anc:.4f}) "
-                  f"| g_noanc.d = {pred_no:+.6f} (ratio {fd / pred_no:.4f}) | curvature d2f = {curv:.4f}")
-            res["checks"].append({"dir": which, "eps": eps, "fd": fd, "g_anc_dot_d": pred_anc, "g_noanc_dot_d": pred_no,
+            parts = " | ".join(f"g_{k}.d = {p:+.6f} (ratio {fd / p:.4f})" if abs(p) > 1e-12 else f"g_{k}.d = 0"
+                               for k, p in preds.items())
+            print(f"  dir={which:5s} eps={eps:<6g} FD = {fd:+.6f} | {parts} | d2f = {curv:.3f}")
+            res["checks"].append({"dir": which, "eps": eps, "fd": fd, "pred": preds,
                                   "f_plus": fs[+1], "f_minus": fs[-1], "curvature": curv})
     json.dump(res, open(os.path.join(args.out, "result.json"), "w"), indent=1)
     # clean the large dumps

@@ -1,0 +1,42 @@
+---
+description: 'Exp 7: L-BFGS on the trie''s exact aggregated gradient (pd1 units accumulated
+  into one pass per evaluation), 600 evaluations from the clean pd1 Adam epoch-25
+  checkpoint, history 20, Armijo backtracking'
+experiment: gradient-population
+run_slug: lbfgs-trie-pd1-ep25-600
+corpus:
+  path: data/.splits/4fa9aec1db6b3aea/train_corpus.txt
+  heldout: data/.splits/4fa9aec1db6b3aea/heldout_corpus.txt
+  vocab_source: data/input.txt
+trie:
+  prune_min_mass: 1
+  prune_min_depth: 0
+  path: data/.tries/64e9fe109211b366
+  virtual_tree: false
+model:
+  init_file: rnd/gradient-population/gradcheck-start-exact-kvfp32/theta_noanc_0.003_m.model
+train:
+  budget:
+    unit: epochs
+    value: 1
+  seed: 42
+  quiet: true
+  optimizer:
+    name: sgd
+    lr: 1.0
+    history: 20
+  lr_schedule:
+    name: constant
+    warmup_epochs: 0
+    min_lr_ratio: 0.0
+  max_depth: 16
+  seq_len: 16
+  partition_depth: 1
+  chunk_queries: 50000
+  anc_grad: true
+eval:
+  train_sanity: false
+  batch_size: 1
+  device: cpu
+experimental:
+  anc_grad_exact: true

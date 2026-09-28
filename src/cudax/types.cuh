@@ -67,6 +67,10 @@ struct TrainerConfig {
     float lr_min_ratio = 0.0f;
 
     bool anc_grad = false;
+    // Exact ancestor backward: a second pass over internal nodes in descending
+    // endpoint depth carries descendant->ancestor K/V gradient through the full
+    // ancestor computation instead of stopping at Wk/Wv.
+    bool anc_grad_exact = false;
     bool accumulate = false;
     bool quiet = false;
     RopePositionModeV2 rope_position_mode = RopePositionModeV2::Depth;

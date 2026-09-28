@@ -337,6 +337,42 @@ static inline void launch_scatter_anc_dkv_to_subtree_v2(const float* packed_grad
         N, n_heads, head_dim);
 }
 
+// Exact ancestor backward (experimental.anc_grad_exact): add the accumulated
+// descendant->ancestor K/V gradient for this chunk's own characters into the
+// query-row K/V gradient (post-RoPE space, same as d_dkv_subtree rows), so the
+// ordinary layer backward carries it through Wk/Wv, their biases, LN1, the
+// residual stream, lower layers and the embeddings.
+__global__ static void inject_anc_dkv_kernel_v2(float* d_kv_query,
+                                                const float* dkv_subtree,
+                                                const int* char_pos,
+                                                const int* compact_slot,
+                                                const int* compact_to_subtree,
+                                                int T_q, int D) {
+    int q = blockIdx.x;
+    if (q >= T_q) return;
+    int cp = char_pos[q];
+    if (cp < 0) return;
+    int slot = compact_slot[cp];
+    if (slot < 0) return;
+    int sub_idx = compact_to_subtree[slot];
+    if (sub_idx < 0) return;
+    for (int j = threadIdx.x; j < D; j += blockDim.x) {
+        d_kv_query[(long long)q * D + j] += dkv_subtree[(long long)sub_idx * D + j];
+    }
+}
+
+static inline void launch_inject_anc_dkv_v2(float* d_kv_query,
+                                            const float* dkv_subtree,
+                                            const int* char_pos,
+                                            const int* compact_slot,
+                                            const int* compact_to_subtree,
+                                            int T_q, int D) {
+    if (T_q <= 0) return;
+    int threads = (D < 256) ? D : 256;
+    inject_anc_dkv_kernel_v2<<<T_q, threads>>>(d_kv_query, dkv_subtree, char_pos, compact_slot,
+                                               compact_to_subtree, T_q, D);
+}
+
 __global__ static void save_ln1_to_subtree_kernel_v2(const float* ln1_out,
                                                      const int* char_pos,
                                                      const int* compact_slot,

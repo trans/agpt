@@ -362,6 +362,136 @@ static const char* lbfgs_update_v2(cublasHandle_t h, const agpt_v2::TrainerConfi
     return "backtrack";
 }
 
+// ---------------------------------------------------------------------------
+// Exact ancestor backward, second pass (experimental.anc_grad_exact).
+// After a unit's normal chunks (loss backward, ancestor K/V gradient
+// accumulated in unit_anc), revisit the unit's internal nodes (edge_mass > 1:
+// the only nodes any descendant attends to), grouped by endpoint depth,
+// deepest group first. Nodes with equal endpoint depth are never
+// ancestor/descendant, so a group is safe to batch. Each group is chunked
+// against the runtime's fixed node/query/kv capacities, its forward is
+// recomputed, and run_backward_ancestor_path_v2 injects the accumulated
+// gradient. Must run before the unit's fire scaling / optimizer step.
+// ---------------------------------------------------------------------------
+static double wall_seconds_v2();
+
+struct AncExactStatsV2 {
+    int groups = 0;
+    int chunks = 0;
+    long long nodes = 0;
+    long long queries = 0;
+    double seconds = 0.0;
+};
+
+static AncExactStatsV2 run_anc_exact_pass_v2(const agpt_v2::TrainerConfig& cfg,
+                                             const agpt_v2::RuntimeShape& shape,
+                                             const agpt_v2::ModelLayout& model,
+                                             const agpt_v2::RadixTrieStructure& trie,
+                                             const agpt_v2::TrainingUnit& unit,
+                                             const agpt_v2::PositionSamplingStageV2* pos_stage,
+                                             int epoch,
+                                             int optimizer_step_index,
+                                             agpt_v2::ChunkUploadRuntimeV2& upload,
+                                             const agpt_v2::LossTablesV2& loss_tables,
+                                             agpt_v2::TrainerRuntimeV2& runtime,
+                                             agpt_v2::UnitAncGradRuntimeV2& anc,
+                                             const agpt_v2::TrainerRuntimeContract& contract) {
+    AncExactStatsV2 st;
+    double t0 = wall_seconds_v2();
+    if (!anc.enabled || anc.subtree_compact_chars <= 0) return st;
+
+    int max_depth = 0;
+    for (int i = 0; i < unit.node_count; i++) {
+        int r = unit.radix_ids[i];
+        if (trie.edge_mass[r] <= 1) continue;
+        int ep = trie.edge_first_char_depths[r] + trie.edge_lens[r] - 1;
+        if (ep > max_depth) max_depth = ep;
+    }
+    std::vector<std::vector<int>> by_depth((size_t)max_depth + 1);
+    std::vector<std::vector<unsigned char>> ctx_by_depth((size_t)max_depth + 1);
+    for (int i = 0; i < unit.node_count; i++) {
+        int r = unit.radix_ids[i];
+        if (trie.edge_mass[r] <= 1) continue;
+        int ep = trie.edge_first_char_depths[r] + trie.edge_lens[r] - 1;
+        if (ep < 0) continue;
+        by_depth[(size_t)ep].push_back(r);
+        ctx_by_depth[(size_t)ep].push_back(unit.context_only ? unit.context_only[i] : (unsigned char)0);
+    }
+
+    const int node_cap = contract.chunk.node_capacity;
+    const int query_cap = contract.chunk.query_capacity;
+    const long long kv_cap = contract.chunk.kv_capacity;
+    const int max_kv_cap = contract.chunk.max_kv_len;
+
+    for (int d = max_depth; d >= 0; d--) {
+        std::vector<int>& ids = by_depth[(size_t)d];
+        if (ids.empty()) continue;
+        agpt_v2::TrainingUnit g{};
+        g.kind = unit.kind;
+        g.unit_index = unit.unit_index;
+        g.root_child_id = unit.root_child_id;
+        g.anchor_id = unit.anchor_id;
+        g.node_count = (int)ids.size();
+        g.radix_ids = ids.data();
+        g.context_only = ctx_by_depth[(size_t)d].data();
+        st.groups++;
+
+        int start = 0;
+        while (start < g.node_count) {
+            long long q_sum = 0, kv_sum = 0, compact_sum = 0;
+            int max_kv_len = 0;
+            int end = start;
+            while (end < g.node_count) {
+                int r = g.radix_ids[end];
+                int q_next = trie.edge_lens[r];
+                int kv_next = trie.edge_first_char_depths[r] + trie.edge_lens[r] - 1;
+                if (end > start && (end - start + 1 > node_cap || q_sum + q_next > query_cap ||
+                                    kv_sum + kv_next > kv_cap)) break;
+                q_sum += q_next;
+                kv_sum += kv_next;
+                compact_sum += trie.edge_lens[r];
+                if (kv_next > max_kv_len) max_kv_len = kv_next;
+                end++;
+            }
+            if (end - start > node_cap || q_sum > query_cap || kv_sum > kv_cap || max_kv_len > max_kv_cap) {
+                std::fprintf(stderr, "anc-exact: node %d exceeds chunk capacity (nodes %d/%d q %lld/%d kv %lld/%lld maxkv %d/%d)\n",
+                             g.radix_ids[start], end - start, node_cap, q_sum, query_cap, kv_sum, kv_cap,
+                             max_kv_len, max_kv_cap);
+                std::exit(1);
+            }
+            agpt_v2::ChunkPlan chunk{};
+            chunk.chunk_index = st.chunks;
+            chunk.start_node_index = start;
+            chunk.end_node_index = end;
+            chunk.node_count = end - start;
+            chunk.query_count = q_sum;
+            chunk.kv_count = kv_sum;
+            chunk.compact_char_count = compact_sum;
+            chunk.max_kv_len = max_kv_len;
+
+            agpt_v2::ChunkMetadataV2 meta =
+                agpt_v2::build_chunk_metadata_v2(cfg, shape, trie, g, chunk, pos_stage,
+                                                 epoch, optimizer_step_index, nullptr, nullptr);
+            agpt_v2::ChunkDeviceMetadataV2 dmeta = upload_chunk_metadata_v2(meta, upload);
+            agpt_v2::ForwardPassResult fwd =
+                agpt_v2::run_forward_prefix_v2(cfg, model, meta, dmeta, upload, loss_tables, runtime, &anc, nullptr);
+            if (!fwd.ok) {
+                std::fprintf(stderr, "anc-exact: recomputed forward failed (%s) at depth %d\n", fwd.message, d);
+                std::exit(1);
+            }
+            agpt_v2::run_backward_ancestor_path_v2(cfg, model, meta, dmeta, upload, runtime, &anc);
+            agpt_v2::free_chunk_metadata_v2(meta);
+            st.chunks++;
+            st.nodes += chunk.node_count;
+            st.queries += q_sum;
+            start = end;
+        }
+        // g borrows the vectors' storage; nothing to free.
+    }
+    st.seconds = wall_seconds_v2() - t0;
+    return st;
+}
+
 enum class V2Mode {
     Plan,
     InstantiateRuntime,
@@ -1794,6 +1924,20 @@ int main(int argc, char** argv) {
             std::printf("  checkpoint_epochs: ignored because model.save_file is not set\n");
         }
     }
+    if (cfg.anc_grad_exact) {
+        if (cfg.rope_position_mode != agpt_v2::RopePositionModeV2::Depth || successor_table_ptr ||
+            target_sidecar_ptr || cfg.lightning_enabled || cfg.dropout_node_keep_prob < 1.0f) {
+            std::fprintf(stderr, "agpt_train_v2: experimental.anc_grad_exact currently supports only depth RoPE, "
+                                 "no successor table, no target sidecar, no lightning, no node dropout\n");
+            return 1;
+        }
+        if (mode != V2Mode::TrainEpoch) {
+            std::fprintf(stderr, "agpt_train_v2: experimental.anc_grad_exact is implemented for train-epoch mode only\n");
+            return 1;
+        }
+        std::printf("  anc-grad-exact: enabled (second pass over internal nodes, deepest endpoint depth first; "
+                    "ancestor K/V gradient carried through the full ancestor computation)\n");
+    }
     if (cfg.anc_grad) {
         std::printf("  anc-grad: enabled (descendant->ancestor scatter into Wk/Wv)\n");
     }
@@ -2012,6 +2156,9 @@ int main(int argc, char** argv) {
                     double epoch_events = 0.0;
                     long long epoch_trained = 0;
                     int skipped_phase_zero_units = 0;
+                    double anc_exact_epoch_seconds = 0.0;
+                    long long anc_exact_epoch_queries = 0;
+                    long long anc_exact_epoch_chunks = 0;
                     long long phase_target_nodes = 0;
                     long long phase_target_zero_nodes = 0;
                     long long phase_target_singleton_nodes = 0;
@@ -2153,7 +2300,7 @@ int main(int argc, char** argv) {
                                 agpt_v2::BackwardPassResult chunk_bwd =
                                     agpt_v2::run_backward_output_head_v2(cfg, model, chunk_meta, chunk_device_meta, upload, chunk_fwd, runtime,
                                                                          cfg.anc_grad ? &unit_anc : nullptr,
-                                                                         s == 0, s + 1 == unit_chunks.chunk_count);
+                                                                         s == 0, (s + 1 == unit_chunks.chunk_count) && !cfg.anc_grad_exact);
                                 (void)chunk_bwd;
                                 unit_loss_sum += (double)chunk_fwd.mean_loss * chunk_fwd.trained_events;
                                 unit_events += chunk_fwd.trained_events;
@@ -2164,6 +2311,15 @@ int main(int argc, char** argv) {
                                 agpt_v2::free_chunk_metadata_v2(chunk_meta);
                             }
 
+                            if (cfg.anc_grad_exact && cfg.anc_grad) {
+                                AncExactStatsV2 ax = run_anc_exact_pass_v2(cfg, shape, model, trie, unit, pos_stage_ptr,
+                                                                           epoch, optimizer_step_index, upload,
+                                                                           epoch_loss_tables, runtime, unit_anc,
+                                                                           runtime_contract);
+                                anc_exact_epoch_seconds += ax.seconds;
+                                anc_exact_epoch_queries += ax.queries;
+                                anc_exact_epoch_chunks += ax.chunks;
+                            }
                             if (unit_events <= 0.0 || unit_trained <= 0) {
                                 abort_empty_training_unit_v2("train-epoch", epoch + 1, u, units_to_run,
                                                              unit.root_child_id, unit_chunks.chunk_count,
@@ -2240,6 +2396,10 @@ int main(int argc, char** argv) {
                                     local_h, global_h);
                     }
                     std::printf("\n");
+                    if (cfg.anc_grad_exact) {
+                        std::printf("  anc-exact: epoch %d second pass queries=%lld chunks=%lld seconds=%.2f\n",
+                                    epoch + 1, anc_exact_epoch_queries, anc_exact_epoch_chunks, anc_exact_epoch_seconds);
+                    }
                     if (lbfgs_mode) {
                         lbfgs_copy_v2(runtime.cublas, lbfgs.d_acc, runtime.d_grads, model.total_floats);
                         if (epoch_events > 0.0) {

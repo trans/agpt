@@ -43,7 +43,8 @@ static inline void run_backward_transformer_layer_stage_v2(const TrainerConfig& 
                                                            UnitAncGradRuntimeV2* anc_runtime,
                                                            int layer,
                                                            float* d_rope_cos,
-                                                           float* d_rope_sin) {
+                                                           float* d_rope_sin,
+                                                           bool inject_anc_dkv = false) {
     int T_q = meta.T_q;
     int D = cfg.d_model;
     int F = cfg.d_ff;
@@ -158,6 +159,12 @@ static inline void run_backward_transformer_layer_stage_v2(const TrainerConfig& 
     launch_kv_uncopy_own_edge_v2(buf.packed.d_dv_pack, upload.d_query_offsets, upload.d_kv_offsets,
                                  device_meta.d_anc_lengths, device_meta.d_own_lengths,
                                  buf.query.v, meta.N, H, HD);
+    if (inject_anc_dkv && anc_runtime && anc_runtime->enabled && anc_runtime->subtree_compact_chars > 0) {
+        launch_inject_anc_dkv_v2(buf.query.k, anc_runtime->d_dkv_subtree_k[layer], upload.d_char_pos,
+                                 runtime.cache.d_compact_slot, anc_runtime->d_compact_to_subtree_idx, T_q, D);
+        launch_inject_anc_dkv_v2(buf.query.v, anc_runtime->d_dkv_subtree_v[layer], upload.d_char_pos,
+                                 runtime.cache.d_compact_slot, anc_runtime->d_compact_to_subtree_idx, T_q, D);
+    }
     launch_rope_batched_inverse_v2(buf.query.k, upload.d_rope_positions, d_rope_cos, d_rope_sin, T_q * H, HD);
 
     AGPT_V2_CUBLAS_CHECK(cublasSgemm(cublas, CUBLAS_OP_T, CUBLAS_OP_N, D, T_q, D,
