@@ -1,5 +1,24 @@
 # rnd/ triage — 2026-05-26
 
+> **Review note (2026-09-28).** This is a snapshot of the 2026-05-26
+> loss-fix cleanup; the lists below were not updated after that day.
+> - **Per-experiment status now lives in each README's front matter**
+>   (`notes/operations/experiment-front-matter.md`,
+>   `src/tools/rnd_front_matter.py`). "Trained before the 2026-05-26 loss
+>   fix" is now a caveat derived from run dates (`pre-loss-fix`), so the
+>   AFFECTED-BY-BUG list below is no longer the source of truth.
+> - **Two later fixes are not reflected here:** the CUDA reduction race
+>   (2026-09-24, commit 27ee367; ~0.3% of per-query losses corrupted before
+>   it) and the exact ancestor backward (2026-09-28; attention runs before
+>   it used a truncated ancestor gradient). Both are derived caveats too.
+> - **Corrections found in the review:** `mass-conservation/` and
+>   `sparsity-profile/` are pure trie/corpus statistics with no trained
+>   model, so the loss bug does not apply to them; they are listed under
+>   AFFECTED-BY-BUG below in error.
+> - **The REMOVE list is still undecided.** Every directory in it now has
+>   front matter describing it (mostly fix-verification runs), which is a
+>   reason to keep them as provenance rather than `git rm` them.
+
 Working doc. User cleans up by hand; this file is the reference for
 what's in each category and why.
 

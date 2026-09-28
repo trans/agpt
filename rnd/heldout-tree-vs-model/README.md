@@ -40,4 +40,4 @@ related: [streaming-agpt-v1, count-backoff-gate]
 
 **Sources.** findings.md (Question, Result table, Interpretation, Caveats, Shuffle ablation); logs/model_ppl_heldout.log (5.0274) and logs/trie_ppl_heldout.log (170.3934).
 
-**Caveats.** md is the writeup and a stub is needed. Outcome 'negative' refers to the tested hypothesis 'the trie does the work'. The finding that the trie does not generalize holds only for the naive-backoff evaluator, as the doc's own caveat 4 says. The later count-backoff-gate learned gate reaches heldout fixed PPL ~3.9 on Shakespeare. Model and trie artifacts lived in /tmp.
+**Caveats.** Outcome 'negative' refers to the tested hypothesis 'the trie does the work'. The finding that the trie does not generalize holds only for the naive-backoff evaluator, as the doc's own caveat 4 says. The later count-backoff-gate learned gate reaches heldout fixed PPL ~3.9 on Shakespeare. Model and trie artifacts lived in /tmp.

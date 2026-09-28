@@ -38,4 +38,4 @@ related: [convergence]
 
 **Sources.** findings.md question/answer, results table and interpretation; notes.md conservation-law derivation; mass_filter_experiment.py reads rnd/convergence shared-path CSVs.
 
-**Caveats.** md. rnd/TRIAGE.md lists this directory under AFFECTED-BY-BUG as 'directly relevant — redo'. But the analysis uses trie/corpus statistics only, with no trained model, and rnd/README.md calls it 'not obviously trainer-dependent', so the loss bug should not apply. The uniform-mass follow-up was not run. findings.md's reproduce command points at rnd/mass_filter_experiment.py, but the script is in rnd/mass-conservation/.
+**Caveats.** rnd/TRIAGE.md lists this directory under AFFECTED-BY-BUG as 'directly relevant — redo'. But the analysis uses trie/corpus statistics only, with no trained model, and rnd/README.md calls it 'not obviously trainer-dependent', so the loss bug should not apply. The uniform-mass follow-up was not run. findings.md's reproduce command points at rnd/mass_filter_experiment.py, but the script is in rnd/mass-conservation/.

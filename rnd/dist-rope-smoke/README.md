@@ -37,4 +37,4 @@ related: [rope-position-substitution, harmonic-filter-diagnostic, harmonic-bias-
 
 **Sources.** The 'Epoch 100: loss=' lines in default.log / distrope.log / expected.log, the message of commit 32c3a0c, and notes/seq-len-extension/position-distributions-plan.md ('ruled out', +18% / +30%).
 
-**Caveats.** md. The only metric is training loss (no PPL eval). v1 trainer, RMSProp lr=3e-3, anc-grad on. rnd/TRIAGE.md lists this dir under KEEP ('regression was decisive').
+**Caveats.** The only metric is training loss (no PPL eval). v1 trainer, RMSProp lr=3e-3, anc-grad on. rnd/TRIAGE.md lists this dir under KEEP ('regression was decisive').
