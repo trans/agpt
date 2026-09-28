@@ -30,7 +30,8 @@ headline:
     20260612T162513-d64l2-depth16-lightning-u20k-q10k-r6-sidecar-top16-rerun1
 - {label: 20% sidecar / 80% raw target mixture, metric: rolling byte PPL, value: 5.3667, run: 20260612T165141-d64l2-depth16-lightning-u20k-q10k-r6-sidecar-mix020}
 tags: [priors, targets, baseline]
-related: [lightning-agpt, kenlm-baseline]
+related: [lightning-agpt, kenlm-baseline, count-prior-residual, gutenberg-prior-residual,
+  poe-backoff-prior]
 ---
 
 # Count Backoff Gate
@@ -228,3 +229,9 @@ even though the suffix distribution is not directly predicting the next token.
   reduce split-specific calibration.
 - Use this count gate as a non-neural prior or calibration target for stochastic
   AGPT rather than adding entropy directly to the neural loss.
+
+## Reproduction in the recurrent PyTorch track
+
+The former agpt-ultra track ported this tool as `research/ultra/scripts/agpt_count_gate.py` (library copy `research/ultra/agpt_ultra/count_gate.py`) and reproduced it on the same carved split (depth 8, `entropy_delta,suffix_stats`, 100 epochs). Heldout fixed-skip PPL: unigram 27.245, Witten-Bell 5.433, learned gate 3.860, target-backoff oracle 2.952.
+Loaded as a frozen prior in Ultra's segment-memory harness it scores 3.859 on the carved heldout, and neural residuals were trained on top of it (`rnd/count-prior-residual`). On a carved Gutenberg 5M split the same gate scores 3.57155 against Witten-Bell 4.60359 (`rnd/gutenberg-prior-residual`). An earlier product-of-experts form was unstable (`rnd/poe-backoff-prior`).
+Records: `research/ultra/notebook/archive/state_fisher_results.md`, sections "Count Backoff Gate Reproduction" and "Initial Protocol Audits"; `research/ultra/notebook/journal/2026-06-13.md`, entry 23:55. All Ultra numbers are legacy, track-local evaluations.
