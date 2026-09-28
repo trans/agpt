@@ -12,8 +12,8 @@ answer: >-
   run (11.67 vs 11.56, one seed). The design needs pd=0, so it cannot be tested at pd=1, where
   AGPT performs.
 opened: 2026-05-30
-updated: 2026-05-31
-code: {branch: slot-selection, tag: exp/slot-selection}
+updated: 2026-09-28
+code: {branch: slot-selection, tag: exp/slot-selection-final}
 eval: canonical
 family: attention
 headline:
@@ -39,7 +39,7 @@ and in a 100-epoch Adam run the effect was null. Closed 2026-05-31: the mechanis
 pd=0 because `h_subtree` is fire-scoped, so it cannot run at pd=1, where AGPT reaches
 useful PPL.
 
-Code: branch `slot-selection`, tag `exp/slot-selection`. Key files are
+Code: branch `slot-selection`, tag `exp/slot-selection-final` (includes the 23 run directories with their `result.json`; the older tag `exp/slot-selection` predates them). Key files are
 `notes/seq-len-extension/slot-selection.md` (branch version), `src/cuda/agpt_backoff_kernels.cuh`,
 `src/cuda/agpt_backoff_table.cuh`, `src/cuda/agpt_train.cu`, `src/cuda/kernels.cu` and
 `src/tools/agpt_build_backoff_table.cr` (YAML `experimental.backoff_slots`,

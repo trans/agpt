@@ -12,8 +12,8 @@ answer: >-
   position (RoPE 5.58; SinPos 6.61 at 100 ep) hurt, and GRU+Wrap reached 5.49 at 100 ep. No
   variant beat a vanilla GRU LM trained without the trie (4.53) or attention AGPT (~4.3).
 opened: 2026-06-06
-updated: 2026-06-07
-code: {branch: worktree-linear-recurrence, tag: exp/linear-recurrence}
+updated: 2026-09-28
+code: {branch: worktree-linear-recurrence, tag: exp/linear-recurrence-final}
 eval: legacy
 family: recurrent
 headline:
@@ -40,7 +40,7 @@ at 500 ep, against 9.13 for linear and 8.15 for linear+RMSNorm. Position inputs 
 f_theta, but no variant beat the vanilla GRU LM (4.53) or attention AGPT (~4.3). See
 ../tanh-recurrence for the parallel tanh trainer and ../rnn-agpt for how the line closed.
 
-Code: branch `worktree-linear-recurrence`, tag `exp/linear-recurrence`. Key files, all in
+Code: branch `worktree-linear-recurrence`, tag `exp/linear-recurrence-final` (adds the overlay trainers, the vanilla attention trainer and the 2026-06-11 closure memo `notes/agpt-project-closure.md`, committed 2026-09-28; the older tag `exp/linear-recurrence` predates them). Key files, all in
 `src/tools/`: `agpt_train_recur_linear.cr`, `agpt_train_recur_linear_rms.cr`,
 `agpt_train_recur_gru.cr`, `agpt_train_recur_gru_{rope,sinpos,wrap}.cr`,
 `agpt_train_gru_lm.cr`, and the evaluator `agpt_recur_perplexity.cr`.
