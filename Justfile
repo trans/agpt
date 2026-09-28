@@ -273,6 +273,22 @@ build-agpt-train-gru-lm:
     mkdir -p bin
     timeout 10m crystal build src/tools/agpt_train_gru_lm.cr -o bin/agpt_train_gru_lm --release --link-flags="-lopenblas_64"
 
+# Build overlay-AGPT GRU trainer (sample backoff stacks). Per non-overlapping
+# window of length n_targets + d_max, for each target × backoff depth pair
+# do an independent rooted GRU walk and accumulate per-(target,j) loss.
+# One Adam step per window. Magic 'ACGO'. Same param layout as ACGU (GRU).
+build-agpt-train-overlay-gru:
+    mkdir -p bin
+    timeout 10m crystal build src/tools/agpt_train_overlay_gru.cr -o bin/agpt_train_overlay_gru --release --link-flags="-lopenblas_64"
+
+# Build overlay-mixture trainer (KN-style learnable λ). Per target, d_max GRU
+# walks → λ_j = softmax(lambda_proj·h_j + lambda_alpha·log m_j) → mixture
+# p_final = Σ λ_j p_j → single CE loss per target. Mass enters forward only.
+# Magic 'ACGM'. Adds lambda_proj (d-vec) + lambda_alpha (scalar) to params.
+build-agpt-train-overlay-mix:
+    mkdir -p bin
+    timeout 10m crystal build src/tools/agpt_train_overlay_mix.cr -o bin/agpt_train_overlay_mix --release --link-flags="-lopenblas_64"
+
 # Build held-out PPL evaluator for recurrent-AGPT checkpoints. Loads either
 # tanh-Elman (ACGR) or linear (ACGL) checkpoint, walks held-out text through
 # the appropriate f_θ, reports mean NLL / PPL / BPC. The canonical "real

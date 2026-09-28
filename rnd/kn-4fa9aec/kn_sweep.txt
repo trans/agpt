@@ -1,0 +1,5 @@
+KN order 5: Perplexity excluding OOVs:	4.429114178955424
+KN order 6: Perplexity excluding OOVs:	4.23001093142947
+KN order 7: Perplexity excluding OOVs:	4.194674769734843
+KN order 8: Perplexity excluding OOVs:	4.208150388039306
+KN order 9: Perplexity excluding OOVs:	4.218184242612118
