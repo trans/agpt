@@ -921,6 +921,22 @@ Adam pd=1, 100 epochs from the seed, fixed 4.810 / rolling 5.348. The
 PyTorch exact-gradient curve gained another ~0.08 nats between pass 200
 and 600, so a 600-pass trie run should pass Adam.
 
+**The fix also improves ordinary Adam training.** Run `20260928T153955-adam-pd1-exact-100ep`, Adam
+pd=1 100 epochs from the seed with `anc_grad_exact: true`, otherwise
+identical to the post-fix baseline `20260924T205951-cadence-pd1-100ep`:
+
+| Adam pd=1 from the seed | ep 25 | ep 50 | ep 100 | train loss ep 100 | train wall |
+|---|---:|---:|---:|---:|---:|
+| truncated gradient — rolling byte / fixed PPL | 6.637 / 6.114 | 5.704 / 5.149 | 5.348 / 4.810 | 1.6626 | 570 s |
+| **exact gradient** — rolling byte / fixed PPL | **6.330 / 5.792** | **5.619 / 5.040** | **5.225 / 4.684** | **1.6374** | 654 s |
+
+−2.3% rolling byte PPL and −2.6% fixed-window PPL at 100 epochs, better at
+every checkpoint, for +15% wall. It also wins at equal wall-clock: the
+truncated baseline curve is nearly flat by then (the June run moved 0.03
+between epochs 80 and 100). One seed each; the gap is ~10× the run-to-run
+differences seen so far. Every AGPT-attention number trained before this
+fix optimised a slightly wrong gradient.
+
 Measurement note: with TF32 matmuls (the cuBLAS default here) the loss
 carries ~3e-5 of rounding noise, which makes small-ε checks wobble (the
 curvature estimates disagree by up to 2×). `NVIDIA_TF32_OVERRIDE=0` plus
