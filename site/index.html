@@ -31,7 +31,7 @@
         <div class="nav-links">
           <a href="#idea">The idea</a>
           <a href="#advantage">Advantage</a>
-          <a href="#evidence">Evidence</a>
+          <a href="#evidence">Challenges</a>
           <a href="#next">What’s next</a>
           <a class="nav-source" href="https://github.com/trans/agpt">Source <span aria-hidden="true">↗</span></a>
         </div>
@@ -164,37 +164,40 @@
 
       <section id="evidence" class="section evidence-section">
         <div class="shell">
-          <div class="section-heading evidence-heading"><span class="section-number">03 / WHAT WE KNOW</span><h2>Progress is measured<br />against the goal.</h2><p>The useful results include constraints and failed approaches. Every number below links to its experiment record.</p></div>
+          <div class="section-heading evidence-heading"><span class="section-number">03 / THE CHALLENGES</span><h2>Three problems<br />to solve.</h2><p>Shared-prefix training has to find useful context beyond the tree, update often enough to learn, and pay for its extra computation.</p></div>
           <div class="evidence-grid">
             <article class="evidence-card">
-              <div class="card-top"><span class="card-index">01</span><span class="card-tag">MATCHED INTERNAL CONTROL</span></div>
-              <h3>Update cadence matters.</h3>
-              <p>At 100 epochs on a matched, post-fix depth-16 Shakespeare setup, one update per root-child subtree reached 5.35 rolling byte perplexity versus 12.05 for one update per whole trie, at nearly equal training time.</p>
-              <div class="bar-chart" role="img" aria-label="Post-fix rolling byte perplexity: one full-trie update per epoch 12.05; partitioned by root child 5.35. Lower is better.">
-                <div class="bar-row"><span>Full trie</span><div class="bar-track"><div class="bar bar-muted" style="width:100%"></div></div><strong>12.05</strong></div>
-                <div class="bar-row"><span>Root child</span><div class="bar-track"><div class="bar bar-accent" style="width:44.4%"></div></div><strong>5.35</strong></div>
+              <div class="card-top"><span class="card-index">01</span><span class="card-tag">CONTEXT DEPTH</span></div>
+              <h3>Longer context runs past the reusable tree.</h3>
+              <p>The current attention window follows a trie path. As that path deepens, repeated contexts thin out; eventually, the observed corpus offers only one continuation per path. Longer context then brings less shared work and less repeated evidence.</p>
+              <div class="challenge-outlook">
+                <span class="micro-label">LEADING IDEA · UNTESTED</span>
+                <p>A Möbius-function approach on a partially ordered set (poset) is the next candidate. Earlier <a href="https://github.com/trans/agpt/blob/main/rnd/root-loop/README.md">virtual RoPE work</a> gave mixed results.</p>
               </div>
-              <p class="card-foot">Held-out rolling byte perplexity · lower is better</p>
-              <a class="card-link" href="https://github.com/trans/agpt/blob/main/rnd/gradient-population/README.md#full-trie-control-added-2026-09-28">See the matched runs <span aria-hidden="true">↗</span></a>
+              <a class="card-link" href="https://github.com/trans/agpt/blob/main/notes/trie-structure/shakespeare-h0-depth-profile.md">See the depth profile <span aria-hidden="true">↗</span></a>
             </article>
             <article class="evidence-card">
-              <div class="card-top"><span class="card-index">02</span><span class="card-tag">GRADIENT DIAGNOSTIC</span></div>
-              <h3>Sharing has a cost. Can we earn it back?</h3>
-              <p>Sharing means one combined update where ordinary training takes many. Early on, the branches mostly agree: at initialization the combined update keeps about 72% of their combined push. By epoch 100 they pull against each other, and it keeps 13%. A first-order step on that small remainder moves slowly and can't simply be made larger. The way back is more updates (card 01) or more from each one (card 03).</p>
-              <div class="coherence-metric"><span>72%</span><span class="metric-arrow" aria-hidden="true">→</span><span>13%</span></div>
-              <p class="card-foot">Combined gradient strength retained · initialization to epoch 100</p>
-              <a class="card-link" href="https://github.com/trans/agpt/blob/main/rnd/gradient-population/README.md">See the diagnostic <span aria-hidden="true">↗</span></a>
+              <div class="card-top"><span class="card-index">02</span><span class="card-tag">UPDATE CADENCE</span></div>
+              <h3>More sharing means fewer updates.</h3>
+              <p>A whole-tree step reuses the most computation, but combines many branches before the weights can move. When their gradients disagree, that one step may learn less than several smaller steps.</p>
+              <div class="challenge-outlook">
+                <span class="micro-label">CURRENT MITIGATION</span>
+                <p>Partitioning gives the optimizer more frequent updates. Split too far, though, and the work loses sharing while training units become small and noisy.</p>
+              </div>
+              <a class="card-link" href="https://github.com/trans/agpt/blob/main/rnd/gradient-population/README.md">See the cadence experiments <span aria-hidden="true">↗</span></a>
             </article>
             <article class="evidence-card">
-              <div class="card-top"><span class="card-index">03</span><span class="card-tag">OPEN IMPLEMENTATION ISSUE</span></div>
-              <h3>Exact backward comes first.</h3>
-              <p>After 25 epochs of Adam, a controlled PyTorch L-BFGS run with exact gradients reached held-out NLL 1.523; continuing Adam to epoch 100 reached 1.571. L-BFGS also needed 42× fewer passes than full-batch gradient descent to reach one target. The matched CUDA algorithm backtracked on 44% of passes versus 1% with exact gradients. A finite-difference check found the trie gradient about 4% short at the tested checkpoint; completing ancestor backward will test whether removing that error restores the gain.</p>
-              <div class="open-status"><span class="open-status-dot" aria-hidden="true"></span> Fix and rerun pending</div>
-              <p class="card-foot">Controlled PyTorch pass counts · end-to-end AGPT speed unmeasured</p>
-              <a class="card-link" href="https://github.com/trans/agpt/blob/main/rnd/gradient-population/README.md">Read the diagnosis <span aria-hidden="true">↗</span></a>
+              <div class="card-top"><span class="card-index">03</span><span class="card-tag">COMPUTE COST</span></div>
+              <h3>Can better updates pay for themselves?</h3>
+              <p>More exact, curvature-aware updates may extract more learning from each shared pass. They also require accurate gradients and extra computation. Fewer passes alone do not make training faster.</p>
+              <div class="challenge-outlook">
+                <span class="micro-label">THE DECISIVE TEST</span>
+                <p>Measure matched model quality against wall-clock time, including the cost of each update and the memory needed to cache shared work.</p>
+              </div>
+              <a class="card-link" href="https://github.com/trans/agpt/blob/main/rnd/gradient-population/README.md#experiment-6--curvature-l-bfgs-passes-to-parity-2026-09-25">See the optimizer experiments <span aria-hidden="true">↗</span></a>
             </article>
           </div>
-          <p class="evidence-note"><strong>Comparison boundary:</strong> AGPT has not shown a quality-and-time win over conventional mini-batch Adam at this scale. The available comparisons against that baseline predate the <a href="https://github.com/trans/agpt/blob/main/rnd/gradient-population/README.md#trainer-bug-found-on-the-way-fixed-2026-09-24">CUDA kernel race fix</a>, so a corrected matched test is still needed. One-epoch parity remains unproven.</p>
+          <p class="evidence-note"><strong>The bar for success:</strong> matched model quality and wall-clock time against conventional training. One-epoch parity and an end-to-end speed advantage remain unproven.</p>
         </div>
       </section>
 
