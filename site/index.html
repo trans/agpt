@@ -180,7 +180,7 @@
             <article class="evidence-card">
               <div class="card-top"><span class="card-index">02</span><span class="card-tag">GRADIENT DIAGNOSTIC</span></div>
               <h3>Sharing has a cost. Can we earn it back?</h3>
-              <p>At initialization, one whole-trie update retained about 72% of the branches’ combined gradient strength. By epoch 100 it retained only 13%, as branch directions increasingly canceled.</p>
+              <p>Sharing means one combined update where ordinary training takes many. Early on, the branches mostly agree: at initialization the combined update keeps about 72% of their combined push. By epoch 100 they pull against each other, and it keeps 13%. A first-order step on that small remainder moves slowly and can't simply be made larger. The way back is more updates (card 01) or more from each one (card 03).</p>
               <div class="coherence-metric"><span>72%</span><span class="metric-arrow" aria-hidden="true">→</span><span>13%</span></div>
               <p class="card-foot">Combined gradient strength retained · initialization to epoch 100</p>
               <a class="card-link" href="https://github.com/trans/agpt/blob/main/rnd/gradient-population/README.md">See the diagnostic <span aria-hidden="true">↗</span></a>
