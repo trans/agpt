@@ -32,7 +32,8 @@
         <span class="section-number">THE RESEARCH RECORD / post-fix-baseline</span>
         <h1>Post Wk/Wv-fix baseline</h1>
         <p class="experiment-question">After commit 1c858c0 made Wk, Wv and the biases trainable, which learning rate and schedule give the best deterministic AGPT baseline at d=16 and d=32, and how does it compare with sliding-window SGD?</p>
-        <div class="badge-row"><span class="badge badge-kind">baseline</span><span class="badge badge-status">concluded</span><span class="badge badge-outcome outcome-n-a">n/a</span><span class="badge badge-family">attention</span><span class="badge badge-eval">eval: legacy</span><span class="badge badge-caveat" title="All recorded runs. Runs before the loss-normalization fix.">pre-loss-fix</span><span class="badge badge-caveat" title="All recorded runs. Runs before the CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="All recorded runs. Attention runs before exact ancestor-gradient propagation.">truncated-ancestor-gradient</span><span class="badge badge-caveat" title="Uses a historical evaluation protocol; compare only within that protocol.">legacy-eval</span></div>
+        <div class="badge-row"><span class="badge badge-kind">baseline</span><span class="badge badge-status">concluded</span><span class="badge badge-outcome outcome-n-a">n/a</span><span class="badge badge-family">attention</span><span class="badge badge-eval">eval: legacy</span></div>
+
         <div class="experiment-dates"><span>Opened <time datetime="2026-04-23">2026-04-23</time></span><span>Updated <time datetime="2026-04-24">2026-04-24</time></span></div>
       </div>
     </section>
@@ -42,17 +43,17 @@
           <span class="headline-label">AGPT det d=16, wc lr 3e-3, 3 SE (195 steps), 3 seeds</span>
           <strong>14.38</strong>
           <span class="headline-metric">legacy bin/perplexity PPL (data/input.txt, 16k positions)</span>
-          <span class="headline-extra"><span class="badge badge-caveat" title="All recorded runs. Runs before the loss-normalization fix.">pre-loss-fix</span><span class="badge badge-caveat" title="All recorded runs. Runs before the CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="All recorded runs. Attention runs before exact ancestor-gradient propagation.">truncated-ancestor-gradient</span><span class="badge badge-caveat" title="Uses a historical evaluation protocol; compare only within that protocol.">legacy-eval</span></span>
+          <span class="headline-extra"><span class="badge badge-caveat" title="This result predates the 2026-05-26 loss-normalization fix.">pre-loss-fix</span><span class="badge badge-caveat" title="This result predates the 2026-09-24 CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="This result predates the 2026-09-28 exact ancestor backward.">truncated-ancestor-gradient</span><span class="badge badge-caveat" title="Uses a historical evaluation protocol; compare only within that protocol.">legacy-eval</span></span>
         </div><div class="headline-item">
           <span class="headline-label">AGPT det d=32, wc lr 3e-3, 3 SE (195 steps), 3 seeds</span>
           <strong>12.79</strong>
           <span class="headline-metric">legacy bin/perplexity PPL (data/input.txt, 16k positions)</span>
-          <span class="headline-extra"><span class="badge badge-caveat" title="All recorded runs. Runs before the loss-normalization fix.">pre-loss-fix</span><span class="badge badge-caveat" title="All recorded runs. Runs before the CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="All recorded runs. Attention runs before exact ancestor-gradient propagation.">truncated-ancestor-gradient</span><span class="badge badge-caveat" title="Uses a historical evaluation protocol; compare only within that protocol.">legacy-eval</span></span>
+          <span class="headline-extra"><span class="badge badge-caveat" title="This result predates the 2026-05-26 loss-normalization fix.">pre-loss-fix</span><span class="badge badge-caveat" title="This result predates the 2026-09-24 CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="This result predates the 2026-09-28 exact ancestor backward.">truncated-ancestor-gradient</span><span class="badge badge-caveat" title="Uses a historical evaluation protocol; compare only within that protocol.">legacy-eval</span></span>
         </div><div class="headline-item">
           <span class="headline-label">microgpt SGD window seq=32, 2000 steps</span>
           <strong>14.72</strong>
           <span class="headline-metric">legacy PPL</span>
-          <span class="headline-extra"><span class="badge badge-caveat" title="All recorded runs. Runs before the loss-normalization fix.">pre-loss-fix</span><span class="badge badge-caveat" title="All recorded runs. Runs before the CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="All recorded runs. Attention runs before exact ancestor-gradient propagation.">truncated-ancestor-gradient</span><span class="badge badge-caveat" title="Uses a historical evaluation protocol; compare only within that protocol.">legacy-eval</span></span>
+          <span class="headline-extra"><span class="badge badge-caveat" title="This result predates the 2026-05-26 loss-normalization fix.">pre-loss-fix</span><span class="badge badge-caveat" title="This result predates the 2026-09-24 CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="This result predates the 2026-09-28 exact ancestor backward.">truncated-ancestor-gradient</span><span class="badge badge-caveat" title="Uses a historical evaluation protocol; compare only within that protocol.">legacy-eval</span></span>
         </div></section>
       <section class="experiment-meta" aria-label="Experiment connections">
         <div><span class="micro-label">TOPICS</span><div class="meta-links"><a class="tag-link" href="index.html?tag=baseline">baseline</a><a class="tag-link" href="index.html?tag=optimizer">optimizer</a></div></div>

@@ -32,7 +32,8 @@
         <span class="section-number">THE RESEARCH RECORD / trie-attention-framing</span>
         <h1>Trie-as-attention framing</h1>
         <p class="experiment-question">Does splitting the radix trie into a root-side decision zone and a leaf-side identity zone (K = decision, V = identity) predict trie statistics and AGPT depth behaviour, and can it be turned into a training improvement?</p>
-        <div class="badge-row"><span class="badge badge-kind">experiment</span><span class="badge badge-status">concluded</span><span class="badge badge-outcome outcome-mixed">mixed</span><span class="badge badge-family">attention</span><span class="badge badge-eval">eval: legacy</span><span class="badge badge-caveat" title="All recorded runs. Runs before the loss-normalization fix.">pre-loss-fix</span><span class="badge badge-caveat" title="All recorded runs. Runs before the CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="All recorded runs. Attention runs before exact ancestor-gradient propagation.">truncated-ancestor-gradient</span><span class="badge badge-caveat" title="Uses a historical evaluation protocol; compare only within that protocol.">legacy-eval</span></div>
+        <div class="badge-row"><span class="badge badge-kind">experiment</span><span class="badge badge-status">concluded</span><span class="badge badge-outcome outcome-mixed">mixed</span><span class="badge badge-family">attention</span><span class="badge badge-eval">eval: legacy</span></div>
+
         <div class="experiment-dates"><span>Opened <time datetime="2026-04-28">2026-04-28</time></span><span>Updated <time datetime="2026-04-29">2026-04-29</time></span></div>
       </div>
     </section>
@@ -42,17 +43,17 @@
           <span class="headline-label">AGPT depth 32, 3 SE (d-sweep)</span>
           <strong>12.99</strong>
           <span class="headline-metric">legacy PPL (Shakespeare 1M)</span>
-          <span class="headline-extra"><span class="badge badge-caveat" title="All recorded runs. Runs before the loss-normalization fix.">pre-loss-fix</span><span class="badge badge-caveat" title="All recorded runs. Runs before the CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="All recorded runs. Attention runs before exact ancestor-gradient propagation.">truncated-ancestor-gradient</span><span class="badge badge-caveat" title="Uses a historical evaluation protocol; compare only within that protocol.">legacy-eval</span></span>
+          <span class="headline-extra"><span class="badge badge-caveat" title="This result predates the 2026-05-26 loss-normalization fix.">pre-loss-fix</span><span class="badge badge-caveat" title="This result predates the 2026-09-24 CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="This result predates the 2026-09-28 exact ancestor backward.">truncated-ancestor-gradient</span><span class="badge badge-caveat" title="Uses a historical evaluation protocol; compare only within that protocol.">legacy-eval</span></span>
         </div><div class="headline-item">
           <span class="headline-label">AGPT depth 32 baseline, depth-routing comparison</span>
           <strong>13.57</strong>
           <span class="headline-metric">legacy PPL (Shakespeare 1M)</span>
-          <span class="headline-extra"><span class="badge badge-caveat" title="All recorded runs. Runs before the loss-normalization fix.">pre-loss-fix</span><span class="badge badge-caveat" title="All recorded runs. Runs before the CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="All recorded runs. Attention runs before exact ancestor-gradient propagation.">truncated-ancestor-gradient</span><span class="badge badge-caveat" title="Uses a historical evaluation protocol; compare only within that protocol.">legacy-eval</span></span>
+          <span class="headline-extra"><span class="badge badge-caveat" title="This result predates the 2026-05-26 loss-normalization fix.">pre-loss-fix</span><span class="badge badge-caveat" title="This result predates the 2026-09-24 CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="This result predates the 2026-09-28 exact ancestor backward.">truncated-ancestor-gradient</span><span class="badge badge-caveat" title="Uses a historical evaluation protocol; compare only within that protocol.">legacy-eval</span></span>
         </div><div class="headline-item">
           <span class="headline-label">static depth routing, k=11</span>
           <strong>13.78</strong>
           <span class="headline-metric">legacy PPL (Shakespeare 1M)</span>
-          <span class="headline-extra"><span class="badge badge-caveat" title="All recorded runs. Runs before the loss-normalization fix.">pre-loss-fix</span><span class="badge badge-caveat" title="All recorded runs. Runs before the CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="All recorded runs. Attention runs before exact ancestor-gradient propagation.">truncated-ancestor-gradient</span><span class="badge badge-caveat" title="Uses a historical evaluation protocol; compare only within that protocol.">legacy-eval</span></span>
+          <span class="headline-extra"><span class="badge badge-caveat" title="This result predates the 2026-05-26 loss-normalization fix.">pre-loss-fix</span><span class="badge badge-caveat" title="This result predates the 2026-09-24 CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="This result predates the 2026-09-28 exact ancestor backward.">truncated-ancestor-gradient</span><span class="badge badge-caveat" title="Uses a historical evaluation protocol; compare only within that protocol.">legacy-eval</span></span>
         </div></section>
       <section class="experiment-meta" aria-label="Experiment connections">
         <div><span class="micro-label">TOPICS</span><div class="meta-links"><a class="tag-link" href="index.html?tag=attention">attention</a><a class="tag-link" href="index.html?tag=trie-structure">trie-structure</a><a class="tag-link" href="index.html?tag=gradient">gradient</a></div></div>

@@ -32,7 +32,8 @@
         <span class="section-number">THE RESEARCH RECORD / cudax-section2-progressive</span>
         <h1>CUDAX Section 2 progressive reruns</h1>
         <p class="experiment-question">With the Section 2 event-count weighting restored in the CUDAX (v2) trainer, what held-out PPL do progressive-growth schedules (divisions × epochs) and static full-prefix training reach on Shakespeare?</p>
-        <div class="badge-row"><span class="badge badge-kind">baseline</span><span class="badge badge-status">concluded</span><span class="badge badge-outcome outcome-n-a">n/a</span><span class="badge badge-family">attention</span><span class="badge badge-eval">eval: canonical</span><span class="badge badge-caveat" title="All recorded runs. Runs before the CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="All recorded runs. Attention runs before exact ancestor-gradient propagation.">truncated-ancestor-gradient</span></div>
+        <div class="badge-row"><span class="badge badge-kind">baseline</span><span class="badge badge-status">concluded</span><span class="badge badge-outcome outcome-n-a">n/a</span><span class="badge badge-family">attention</span><span class="badge badge-eval">eval: canonical</span></div>
+<p class="run-history"><strong>Run history:</strong> 15 of 15 predate the 2026-09-24 CUDA kernel race fix; 15 of 15 predate the 2026-09-28 exact ancestor backward.</p>
         <div class="experiment-dates"><span>Opened <time datetime="2026-05-26">2026-05-26</time></span><span>Updated <time datetime="2026-05-27">2026-05-27</time></span></div>
       </div>
     </section>
@@ -42,17 +43,17 @@
           <span class="headline-label">d128 L6, static full-prefix, 200 epochs</span>
           <strong>6.1636</strong>
           <span class="headline-metric">rolling byte PPL (lm-eval, tail-heldout)</span>
-          <span class="headline-extra"><a href="https://github.com/trans/agpt/tree/main/rnd/cudax-section2-progressive/20260527T225128-section2-d128l6-static200">Run record ↗</a><span class="badge badge-caveat" title="All recorded runs. Runs before the CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="All recorded runs. Attention runs before exact ancestor-gradient propagation.">truncated-ancestor-gradient</span></span>
+          <span class="headline-extra"><a href="https://github.com/trans/agpt/tree/main/rnd/cudax-section2-progressive/20260527T225128-section2-d128l6-static200">Run record ↗</a><span class="badge badge-caveat" title="This result predates the 2026-09-24 CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="This result predates the 2026-09-28 exact ancestor backward.">truncated-ancestor-gradient</span></span>
         </div><div class="headline-item">
           <span class="headline-label">d64 L2, 16 divisions × 25 epochs</span>
           <strong>7.0509</strong>
           <span class="headline-metric">rolling byte PPL (lm-eval, tail-heldout)</span>
-          <span class="headline-extra"><a href="https://github.com/trans/agpt/tree/main/rnd/cudax-section2-progressive/20260527T055358-section2-16x25">Run record ↗</a><span class="badge badge-caveat" title="All recorded runs. Runs before the CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="All recorded runs. Attention runs before exact ancestor-gradient propagation.">truncated-ancestor-gradient</span></span>
+          <span class="headline-extra"><a href="https://github.com/trans/agpt/tree/main/rnd/cudax-section2-progressive/20260527T055358-section2-16x25">Run record ↗</a><span class="badge badge-caveat" title="This result predates the 2026-09-24 CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="This result predates the 2026-09-28 exact ancestor backward.">truncated-ancestor-gradient</span></span>
         </div><div class="headline-item">
           <span class="headline-label">d64 L2, 16 divisions × 6 epochs</span>
           <strong>7.9789</strong>
           <span class="headline-metric">rolling byte PPL (lm-eval, tail-heldout)</span>
-          <span class="headline-extra"><a href="https://github.com/trans/agpt/tree/main/rnd/cudax-section2-progressive/20260526T224149-section2-16x6">Run record ↗</a><span class="badge badge-caveat" title="All recorded runs. Runs before the CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="All recorded runs. Attention runs before exact ancestor-gradient propagation.">truncated-ancestor-gradient</span></span>
+          <span class="headline-extra"><a href="https://github.com/trans/agpt/tree/main/rnd/cudax-section2-progressive/20260526T224149-section2-16x6">Run record ↗</a><span class="badge badge-caveat" title="This result predates the 2026-09-24 CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="This result predates the 2026-09-28 exact ancestor backward.">truncated-ancestor-gradient</span></span>
         </div></section>
       <section class="experiment-meta" aria-label="Experiment connections">
         <div><span class="micro-label">TOPICS</span><div class="meta-links"><a class="tag-link" href="index.html?tag=baseline">baseline</a><a class="tag-link" href="index.html?tag=trainer">trainer</a><a class="tag-link" href="index.html?tag=scaling">scaling</a></div></div>

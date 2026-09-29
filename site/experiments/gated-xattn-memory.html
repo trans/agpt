@@ -32,7 +32,8 @@
         <span class="section-number">THE RESEARCH RECORD / gated-xattn-memory</span>
         <h1>Gated cross-attention memory</h1>
         <p class="experiment-question">In a matched segment harness, does a zero-initialized gated cross-attention block over segment memory records improve on a carried GRU, and does the answer depend on data scale?</p>
-        <div class="badge-row"><span class="badge badge-kind">experiment</span><span class="badge badge-status">concluded</span><span class="badge badge-outcome outcome-mixed">mixed</span><span class="badge badge-family">recurrent</span><span class="badge badge-eval">eval: legacy</span><span class="badge badge-caveat" title="All recorded runs. Runs before the CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="Uses a historical evaluation protocol; compare only within that protocol.">legacy-eval</span></div>
+        <div class="badge-row"><span class="badge badge-kind">experiment</span><span class="badge badge-status">concluded</span><span class="badge badge-outcome outcome-mixed">mixed</span><span class="badge badge-family">recurrent</span><span class="badge badge-eval">eval: legacy</span></div>
+
         <div class="experiment-dates"><span>Opened <time datetime="2026-06-12">2026-06-12</time></span><span>Updated <time datetime="2026-06-12">2026-06-12</time></span></div>
       </div>
     </section>
@@ -42,17 +43,17 @@
           <span class="headline-label">Full corpus, no-memory carried GRU (d64), epoch 5</span>
           <strong>5.627</strong>
           <span class="headline-metric">legacy segment-harness held-out PPL, first 20k chars of the tail-10% split</span>
-          <span class="headline-extra"><span class="badge badge-caveat" title="All recorded runs. Runs before the CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="Uses a historical evaluation protocol; compare only within that protocol.">legacy-eval</span></span>
+          <span class="headline-extra"><span class="badge badge-caveat" title="This result predates the 2026-09-24 CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="Uses a historical evaluation protocol; compare only within that protocol.">legacy-eval</span></span>
         </div><div class="headline-item">
           <span class="headline-label">Full corpus, gated-xattn + terminal aux 0.1, max_memory 16, epoch 5</span>
           <strong>5.199</strong>
           <span class="headline-metric">legacy segment-harness held-out PPL, first 20k chars of the tail-10% split</span>
-          <span class="headline-extra"><span class="badge badge-caveat" title="All recorded runs. Runs before the CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="Uses a historical evaluation protocol; compare only within that protocol.">legacy-eval</span></span>
+          <span class="headline-extra"><span class="badge badge-caveat" title="This result predates the 2026-09-24 CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="Uses a historical evaluation protocol; compare only within that protocol.">legacy-eval</span></span>
         </div><div class="headline-item">
           <span class="headline-label">Matched harness check, carried segment GRU, 200k chars, epoch 10 (sequence GRU 7.83)</span>
           <strong>7.757</strong>
           <span class="headline-metric">legacy validation PPL, first 20k validation chars</span>
-          <span class="headline-extra"><span class="badge badge-caveat" title="All recorded runs. Runs before the CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="Uses a historical evaluation protocol; compare only within that protocol.">legacy-eval</span></span>
+          <span class="headline-extra"><span class="badge badge-caveat" title="This result predates the 2026-09-24 CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="Uses a historical evaluation protocol; compare only within that protocol.">legacy-eval</span></span>
         </div></section>
       <section class="experiment-meta" aria-label="Experiment connections">
         <div><span class="micro-label">TOPICS</span><div class="meta-links"><a class="tag-link" href="index.html?tag=recurrence">recurrence</a><a class="tag-link" href="index.html?tag=attention">attention</a><a class="tag-link" href="index.html?tag=context-length">context-length</a><a class="tag-link" href="index.html?tag=scaling">scaling</a></div></div>

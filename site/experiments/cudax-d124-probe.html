@@ -32,7 +32,8 @@
         <span class="section-number">THE RESEARCH RECORD / cudax-d124-probe</span>
         <h1>CUDAX depth-124 probe</h1>
         <p class="experiment-question">Can the CUDAX v2 trainer train a d64 L2 model on the full depth-124 Shakespeare trie, and how does held-out PPL move with the number of static epochs?</p>
-        <div class="badge-row"><span class="badge badge-kind">experiment</span><span class="badge badge-status">concluded</span><span class="badge badge-outcome outcome-inconclusive">inconclusive</span><span class="badge badge-family">attention</span><span class="badge badge-eval">eval: canonical</span><span class="badge badge-caveat" title="All recorded runs. Runs before the CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="All recorded runs. Attention runs before exact ancestor-gradient propagation.">truncated-ancestor-gradient</span></div>
+        <div class="badge-row"><span class="badge badge-kind">experiment</span><span class="badge badge-status">concluded</span><span class="badge badge-outcome outcome-inconclusive">inconclusive</span><span class="badge badge-family">attention</span><span class="badge badge-eval">eval: canonical</span></div>
+<p class="run-history"><strong>Run history:</strong> 5 of 5 predate the 2026-09-24 CUDA kernel race fix; 5 of 5 predate the 2026-09-28 exact ancestor backward.</p>
         <div class="experiment-dates"><span>Opened <time datetime="2026-05-28">2026-05-28</time></span><span>Updated <time datetime="2026-05-29">2026-05-29</time></span></div>
       </div>
     </section>
@@ -42,17 +43,17 @@
           <span class="headline-label">depth 124, 1 static epoch</span>
           <strong>16.2114</strong>
           <span class="headline-metric">rolling byte PPL</span>
-          <span class="headline-extra"><a href="https://github.com/trans/agpt/tree/main/rnd/cudax-d124-probe/20260528T060729-d124-d64l2-static1">Run record ↗</a><span class="badge badge-caveat" title="All recorded runs. Runs before the CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="All recorded runs. Attention runs before exact ancestor-gradient propagation.">truncated-ancestor-gradient</span></span>
+          <span class="headline-extra"><a href="https://github.com/trans/agpt/tree/main/rnd/cudax-d124-probe/20260528T060729-d124-d64l2-static1">Run record ↗</a><span class="badge badge-caveat" title="This result predates the 2026-09-24 CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="This result predates the 2026-09-28 exact ancestor backward.">truncated-ancestor-gradient</span></span>
         </div><div class="headline-item">
           <span class="headline-label">depth 124, 10 static epochs</span>
           <strong>8.8797</strong>
           <span class="headline-metric">rolling byte PPL</span>
-          <span class="headline-extra"><a href="https://github.com/trans/agpt/tree/main/rnd/cudax-d124-probe/20260528T071446-d124-d64l2-static10">Run record ↗</a><span class="badge badge-caveat" title="All recorded runs. Runs before the CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="All recorded runs. Attention runs before exact ancestor-gradient propagation.">truncated-ancestor-gradient</span></span>
+          <span class="headline-extra"><a href="https://github.com/trans/agpt/tree/main/rnd/cudax-d124-probe/20260528T071446-d124-d64l2-static10">Run record ↗</a><span class="badge badge-caveat" title="This result predates the 2026-09-24 CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="This result predates the 2026-09-28 exact ancestor backward.">truncated-ancestor-gradient</span></span>
         </div><div class="headline-item">
           <span class="headline-label">depth 124, 25 static epochs</span>
           <strong>7.4666</strong>
           <span class="headline-metric">rolling byte PPL</span>
-          <span class="headline-extra"><a href="https://github.com/trans/agpt/tree/main/rnd/cudax-d124-probe/20260528T081405-d124-d64l2-static25">Run record ↗</a><span class="badge badge-caveat" title="All recorded runs. Runs before the CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="All recorded runs. Attention runs before exact ancestor-gradient propagation.">truncated-ancestor-gradient</span></span>
+          <span class="headline-extra"><a href="https://github.com/trans/agpt/tree/main/rnd/cudax-d124-probe/20260528T081405-d124-d64l2-static25">Run record ↗</a><span class="badge badge-caveat" title="This result predates the 2026-09-24 CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="This result predates the 2026-09-28 exact ancestor backward.">truncated-ancestor-gradient</span></span>
         </div></section>
       <section class="experiment-meta" aria-label="Experiment connections">
         <div><span class="micro-label">TOPICS</span><div class="meta-links"><a class="tag-link" href="index.html?tag=context-length">context-length</a><a class="tag-link" href="index.html?tag=trie-structure">trie-structure</a><a class="tag-link" href="index.html?tag=scaling">scaling</a></div></div>

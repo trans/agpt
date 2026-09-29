@@ -26,8 +26,9 @@ python3 src/tools/build_experiment_pages.py
 The generator checks front-matter schema, uses only nonignored README records,
 and writes `site/experiments/index.html` plus one page per record. It omits
 the local scratch directories `rnd/_smoke` and `rnd/pd6-canonical-eval`.
-For valid orchestrator runs, caveat badges use the dates in `result.json`
-and `meta.json`; otherwise they use the front-matter `updated` date.
+Headline caveat badges use their linked run's `result.json` or `meta.json`
+date, falling back to the front-matter `updated` date. A separate, quieter
+line summarizes older orchestrator runs across each directory.
 The Markdown renderer is a build dependency only. Commit regenerated pages
 along with any changed README summaries so GitHub Pages publishes them.
 

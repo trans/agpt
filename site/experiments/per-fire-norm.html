@@ -32,7 +32,8 @@
         <span class="section-number">THE RESEARCH RECORD / per-fire-norm</span>
         <h1>Per-fire gradient normalization</h1>
         <p class="experiment-question">Should weight gradients be normalized once per optimizer fire (1/N events) instead of per memory chunk (1/T_q_chunk)?</p>
-        <div class="badge-row"><span class="badge badge-kind">experiment</span><span class="badge badge-status">concluded</span><span class="badge badge-outcome outcome-mixed">mixed</span><span class="badge badge-family">attention</span><span class="badge badge-eval">eval: legacy</span><span class="badge badge-caveat" title="All recorded runs. Runs before the loss-normalization fix.">pre-loss-fix</span><span class="badge badge-caveat" title="All recorded runs. Runs before the CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="All recorded runs. Attention runs before exact ancestor-gradient propagation.">truncated-ancestor-gradient</span><span class="badge badge-caveat" title="Uses a historical evaluation protocol; compare only within that protocol.">legacy-eval</span></div>
+        <div class="badge-row"><span class="badge badge-kind">experiment</span><span class="badge badge-status">concluded</span><span class="badge badge-outcome outcome-mixed">mixed</span><span class="badge badge-family">attention</span><span class="badge badge-eval">eval: legacy</span></div>
+
         <div class="experiment-dates"><span>Opened <time datetime="2026-05-20">2026-05-20</time></span><span>Updated <time datetime="2026-05-20">2026-05-20</time></span></div>
       </div>
     </section>
@@ -42,17 +43,17 @@
           <span class="headline-label">Shakespeare, per-fire + anc-grad, 10 SE, 3 seeds</span>
           <strong>8.58</strong>
           <span class="headline-metric">legacy sliding-window held-out PPL (d=16, 10k positions)</span>
-          <span class="headline-extra"><span class="badge badge-caveat" title="All recorded runs. Runs before the loss-normalization fix.">pre-loss-fix</span><span class="badge badge-caveat" title="All recorded runs. Runs before the CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="All recorded runs. Attention runs before exact ancestor-gradient propagation.">truncated-ancestor-gradient</span><span class="badge badge-caveat" title="Uses a historical evaluation protocol; compare only within that protocol.">legacy-eval</span></span>
+          <span class="headline-extra"><span class="badge badge-caveat" title="This result predates the 2026-05-26 loss-normalization fix.">pre-loss-fix</span><span class="badge badge-caveat" title="This result predates the 2026-09-24 CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="This result predates the 2026-09-28 exact ancestor backward.">truncated-ancestor-gradient</span><span class="badge badge-caveat" title="Uses a historical evaluation protocol; compare only within that protocol.">legacy-eval</span></span>
         </div><div class="headline-item">
           <span class="headline-label">Gutenberg, per-fire + anc-grad, 10 SE, 3 seeds</span>
           <strong>8.86</strong>
           <span class="headline-metric">legacy sliding-window held-out PPL (d=16, 10k positions)</span>
-          <span class="headline-extra"><span class="badge badge-caveat" title="All recorded runs. Runs before the loss-normalization fix.">pre-loss-fix</span><span class="badge badge-caveat" title="All recorded runs. Runs before the CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="All recorded runs. Attention runs before exact ancestor-gradient propagation.">truncated-ancestor-gradient</span><span class="badge badge-caveat" title="Uses a historical evaluation protocol; compare only within that protocol.">legacy-eval</span></span>
+          <span class="headline-extra"><span class="badge badge-caveat" title="This result predates the 2026-05-26 loss-normalization fix.">pre-loss-fix</span><span class="badge badge-caveat" title="This result predates the 2026-09-24 CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="This result predates the 2026-09-28 exact ancestor backward.">truncated-ancestor-gradient</span><span class="badge badge-caveat" title="Uses a historical evaluation protocol; compare only within that protocol.">legacy-eval</span></span>
         </div><div class="headline-item">
           <span class="headline-label">Shakespeare, per-chunk + anc-grad (old default)</span>
           <strong>8.2</strong>
           <span class="headline-metric">legacy sliding-window held-out PPL (d=16, 10k positions)</span>
-          <span class="headline-extra"><span class="badge badge-caveat" title="All recorded runs. Runs before the loss-normalization fix.">pre-loss-fix</span><span class="badge badge-caveat" title="All recorded runs. Runs before the CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="All recorded runs. Attention runs before exact ancestor-gradient propagation.">truncated-ancestor-gradient</span><span class="badge badge-caveat" title="Uses a historical evaluation protocol; compare only within that protocol.">legacy-eval</span></span>
+          <span class="headline-extra"><span class="badge badge-caveat" title="This result predates the 2026-05-26 loss-normalization fix.">pre-loss-fix</span><span class="badge badge-caveat" title="This result predates the 2026-09-24 CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="This result predates the 2026-09-28 exact ancestor backward.">truncated-ancestor-gradient</span><span class="badge badge-caveat" title="Uses a historical evaluation protocol; compare only within that protocol.">legacy-eval</span></span>
         </div></section>
       <section class="experiment-meta" aria-label="Experiment connections">
         <div><span class="micro-label">TOPICS</span><div class="meta-links"><a class="tag-link" href="index.html?tag=gradient">gradient</a><a class="tag-link" href="index.html?tag=trainer">trainer</a></div></div>

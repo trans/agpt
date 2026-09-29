@@ -11,7 +11,8 @@
 .experiment-hero .badge-outcome { color: #202e19; border-color: #cce491; background: var(--lime); }
 .experiment-hero .outcome-negative { color: #ffd9bf; border-color: #94654e; background: #573d35; }
 .experiment-hero .outcome-mixed, .experiment-hero .outcome-inconclusive { color: #f5e7b2; border-color: #817544; background: #504c31; }
-.experiment-hero .badge-caveat { color: #efd8ae; border-color: #927850; background: #423c2c; }
+.run-history { max-width: 850px; margin: 15px 0 0; color: #a7b7a9; font-size: 12px; line-height: 1.55; }
+.run-history strong { color: #d2dfc8; font-weight: 700; }
 .experiment-dates { display: flex; flex-wrap: wrap; gap: 11px 27px; margin-top: 26px; color: #a9bdb0; font: 11px var(--mono); }
 .experiment-dates time { color: #edf3e9; }
 .experiment-main { padding-block: 55px 110px; }

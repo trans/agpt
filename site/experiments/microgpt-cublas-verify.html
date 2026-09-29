@@ -32,7 +32,8 @@
         <span class="section-number">THE RESEARCH RECORD / microgpt-cublas-verify</span>
         <h1>microgpt cuBLAS verification</h1>
         <p class="experiment-question">Is microgpt&#x27;s cuBLAS training path correct, and how much wall-clock speedup does it give over openBLAS?</p>
-        <div class="badge-row"><span class="badge badge-kind">diagnostic</span><span class="badge badge-status">concluded</span><span class="badge badge-outcome outcome-n-a">n/a</span><span class="badge badge-family">attention</span><span class="badge badge-eval">eval: legacy</span><span class="badge badge-caveat" title="All recorded runs. Runs before the loss-normalization fix.">pre-loss-fix</span><span class="badge badge-caveat" title="All recorded runs. Runs before the CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="All recorded runs. Attention runs before exact ancestor-gradient propagation.">truncated-ancestor-gradient</span><span class="badge badge-caveat" title="Uses a historical evaluation protocol; compare only within that protocol.">legacy-eval</span></div>
+        <div class="badge-row"><span class="badge badge-kind">diagnostic</span><span class="badge badge-status">concluded</span><span class="badge badge-outcome outcome-n-a">n/a</span><span class="badge badge-family">attention</span><span class="badge badge-eval">eval: legacy</span></div>
+
         <div class="experiment-dates"><span>Opened <time datetime="2026-05-10">2026-05-10</time></span><span>Updated <time datetime="2026-05-11">2026-05-11</time></span></div>
       </div>
     </section>
@@ -42,12 +43,12 @@
           <span class="headline-label">cuBLAS vs openBLAS, d=256 L=4 seq=128, 1000 steps</span>
           <strong>5.5</strong>
           <span class="headline-metric">wall-clock speedup (x)</span>
-          <span class="headline-extra"><span class="badge badge-caveat" title="All recorded runs. Runs before the loss-normalization fix.">pre-loss-fix</span><span class="badge badge-caveat" title="All recorded runs. Runs before the CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="All recorded runs. Attention runs before exact ancestor-gradient propagation.">truncated-ancestor-gradient</span><span class="badge badge-caveat" title="Uses a historical evaluation protocol; compare only within that protocol.">legacy-eval</span></span>
+          <span class="headline-extra"><span class="badge badge-caveat" title="This result predates the 2026-05-26 loss-normalization fix.">pre-loss-fix</span><span class="badge badge-caveat" title="This result predates the 2026-09-24 CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="This result predates the 2026-09-28 exact ancestor backward.">truncated-ancestor-gradient</span><span class="badge badge-caveat" title="Uses a historical evaluation protocol; compare only within that protocol.">legacy-eval</span></span>
         </div><div class="headline-item">
           <span class="headline-label">microgpt SGD d=256 L=4 seq=128, 1000 steps (openblas)</span>
           <strong>7.64</strong>
           <span class="headline-metric">legacy PPL (bin/perplexity on data/input.txt)</span>
-          <span class="headline-extra"><span class="badge badge-caveat" title="All recorded runs. Runs before the loss-normalization fix.">pre-loss-fix</span><span class="badge badge-caveat" title="All recorded runs. Runs before the CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="All recorded runs. Attention runs before exact ancestor-gradient propagation.">truncated-ancestor-gradient</span><span class="badge badge-caveat" title="Uses a historical evaluation protocol; compare only within that protocol.">legacy-eval</span></span>
+          <span class="headline-extra"><span class="badge badge-caveat" title="This result predates the 2026-05-26 loss-normalization fix.">pre-loss-fix</span><span class="badge badge-caveat" title="This result predates the 2026-09-24 CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="This result predates the 2026-09-28 exact ancestor backward.">truncated-ancestor-gradient</span><span class="badge badge-caveat" title="Uses a historical evaluation protocol; compare only within that protocol.">legacy-eval</span></span>
         </div></section>
       <section class="experiment-meta" aria-label="Experiment connections">
         <div><span class="micro-label">TOPICS</span><div class="meta-links"><a class="tag-link" href="index.html?tag=infrastructure">infrastructure</a><a class="tag-link" href="index.html?tag=kernels">kernels</a><a class="tag-link" href="index.html?tag=baseline">baseline</a></div></div>

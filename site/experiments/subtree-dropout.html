@@ -32,7 +32,8 @@
         <span class="section-number">THE RESEARCH RECORD / subtree-dropout</span>
         <h1>Subtree dropout</h1>
         <p class="experiment-question">Does randomly dropping root-child subtrees each super-epoch improve AGPT training through trajectory variety or dropout-like regularization?</p>
-        <div class="badge-row"><span class="badge badge-kind">experiment</span><span class="badge badge-status">concluded</span><span class="badge badge-outcome outcome-negative">negative</span><span class="badge badge-family">attention</span><span class="badge badge-eval">eval: legacy</span><span class="badge badge-caveat" title="All recorded runs. Runs before the loss-normalization fix.">pre-loss-fix</span><span class="badge badge-caveat" title="All recorded runs. Runs before the CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="All recorded runs. Attention runs before exact ancestor-gradient propagation.">truncated-ancestor-gradient</span><span class="badge badge-caveat" title="Uses a historical evaluation protocol; compare only within that protocol.">legacy-eval</span></div>
+        <div class="badge-row"><span class="badge badge-kind">experiment</span><span class="badge badge-status">concluded</span><span class="badge badge-outcome outcome-negative">negative</span><span class="badge badge-family">attention</span><span class="badge badge-eval">eval: legacy</span></div>
+
         <div class="experiment-dates"><span>Opened <time datetime="2026-04-29">2026-04-29</time></span><span>Updated <time datetime="2026-04-29">2026-04-29</time></span></div>
       </div>
     </section>
@@ -42,17 +43,17 @@
           <span class="headline-label">p=0 (pure AGPT), 15 SE, 3 reps</span>
           <strong>7.21</strong>
           <span class="headline-metric">legacy bin/perplexity PPL@32 (data/input.txt, 8192 positions)</span>
-          <span class="headline-extra"><span class="badge badge-caveat" title="All recorded runs. Runs before the loss-normalization fix.">pre-loss-fix</span><span class="badge badge-caveat" title="All recorded runs. Runs before the CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="All recorded runs. Attention runs before exact ancestor-gradient propagation.">truncated-ancestor-gradient</span><span class="badge badge-caveat" title="Uses a historical evaluation protocol; compare only within that protocol.">legacy-eval</span></span>
+          <span class="headline-extra"><span class="badge badge-caveat" title="This result predates the 2026-05-26 loss-normalization fix.">pre-loss-fix</span><span class="badge badge-caveat" title="This result predates the 2026-09-24 CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="This result predates the 2026-09-28 exact ancestor backward.">truncated-ancestor-gradient</span><span class="badge badge-caveat" title="Uses a historical evaluation protocol; compare only within that protocol.">legacy-eval</span></span>
         </div><div class="headline-item">
           <span class="headline-label">p=0.3 dropout, 15 SE, 3 reps</span>
           <strong>7.69</strong>
           <span class="headline-metric">legacy bin/perplexity PPL@32 (data/input.txt, 8192 positions)</span>
-          <span class="headline-extra"><span class="badge badge-caveat" title="All recorded runs. Runs before the loss-normalization fix.">pre-loss-fix</span><span class="badge badge-caveat" title="All recorded runs. Runs before the CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="All recorded runs. Attention runs before exact ancestor-gradient propagation.">truncated-ancestor-gradient</span><span class="badge badge-caveat" title="Uses a historical evaluation protocol; compare only within that protocol.">legacy-eval</span></span>
+          <span class="headline-extra"><span class="badge badge-caveat" title="This result predates the 2026-05-26 loss-normalization fix.">pre-loss-fix</span><span class="badge badge-caveat" title="This result predates the 2026-09-24 CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="This result predates the 2026-09-28 exact ancestor backward.">truncated-ancestor-gradient</span><span class="badge badge-caveat" title="Uses a historical evaluation protocol; compare only within that protocol.">legacy-eval</span></span>
         </div><div class="headline-item">
           <span class="headline-label">p=0.3 dropout, 5 SE, 3 reps</span>
           <strong>10.13</strong>
           <span class="headline-metric">legacy bin/perplexity PPL@32 (data/input.txt, 8192 positions)</span>
-          <span class="headline-extra"><span class="badge badge-caveat" title="All recorded runs. Runs before the loss-normalization fix.">pre-loss-fix</span><span class="badge badge-caveat" title="All recorded runs. Runs before the CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="All recorded runs. Attention runs before exact ancestor-gradient propagation.">truncated-ancestor-gradient</span><span class="badge badge-caveat" title="Uses a historical evaluation protocol; compare only within that protocol.">legacy-eval</span></span>
+          <span class="headline-extra"><span class="badge badge-caveat" title="This result predates the 2026-05-26 loss-normalization fix.">pre-loss-fix</span><span class="badge badge-caveat" title="This result predates the 2026-09-24 CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="This result predates the 2026-09-28 exact ancestor backward.">truncated-ancestor-gradient</span><span class="badge badge-caveat" title="Uses a historical evaluation protocol; compare only within that protocol.">legacy-eval</span></span>
         </div></section>
       <section class="experiment-meta" aria-label="Experiment connections">
         <div><span class="micro-label">TOPICS</span><div class="meta-links"><a class="tag-link" href="index.html?tag=partitioning">partitioning</a><a class="tag-link" href="index.html?tag=sampling">sampling</a></div></div>

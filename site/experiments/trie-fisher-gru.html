@@ -32,7 +32,8 @@
         <span class="section-number">THE RESEARCH RECORD / trie-fisher-gru</span>
         <h1>Trie-Fisher GRU training</h1>
         <p class="experiment-question">Can trie-aggregated Fisher natural-gradient updates (an exact merged output-head Fisher step, optionally a body Fisher step) train a small GRU character model competitively, over the whole trie or over bounded prefix subtrees?</p>
-        <div class="badge-row"><span class="badge badge-kind">experiment</span><span class="badge badge-status">concluded</span><span class="badge badge-outcome outcome-negative">negative</span><span class="badge badge-family">recurrent</span><span class="badge badge-eval">eval: legacy</span><span class="badge badge-caveat" title="All recorded runs. Runs before the CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="Uses a historical evaluation protocol; compare only within that protocol.">legacy-eval</span></div>
+        <div class="badge-row"><span class="badge badge-kind">experiment</span><span class="badge badge-status">concluded</span><span class="badge badge-outcome outcome-negative">negative</span><span class="badge badge-family">recurrent</span><span class="badge badge-eval">eval: legacy</span></div>
+
         <div class="experiment-dates"><span>Opened <time datetime="2026-06-09">2026-06-09</time></span><span>Updated <time datetime="2026-06-10">2026-06-10</time></span></div>
       </div>
     </section>
@@ -42,17 +43,17 @@
           <span class="headline-label">AdamW GRU body + merged Fisher head, depth-8 subtrees, 5 passes</span>
           <strong>11.96</strong>
           <span class="headline-metric">legacy held-out sequential PPL (Tiny Shakespeare, script-default 90/10 contiguous split)</span>
-          <span class="headline-extra"><span class="badge badge-caveat" title="All recorded runs. Runs before the CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="Uses a historical evaluation protocol; compare only within that protocol.">legacy-eval</span></span>
+          <span class="headline-extra"><span class="badge badge-caveat" title="This result predates the 2026-09-24 CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="Uses a historical evaluation protocol; compare only within that protocol.">legacy-eval</span></span>
         </div><div class="headline-item">
           <span class="headline-label">Body Fisher GRU + Fisher head, all prefixes, 1 pass</span>
           <strong>2287.49</strong>
           <span class="headline-metric">legacy held-out sequential PPL (same protocol)</span>
-          <span class="headline-extra"><span class="badge badge-caveat" title="All recorded runs. Runs before the CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="Uses a historical evaluation protocol; compare only within that protocol.">legacy-eval</span></span>
+          <span class="headline-extra"><span class="badge badge-caveat" title="This result predates the 2026-09-24 CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="Uses a historical evaluation protocol; compare only within that protocol.">legacy-eval</span></span>
         </div><div class="headline-item">
           <span class="headline-label">Reference: sequence-trained GRU, context 8, 50,000 updates</span>
           <strong>5.78</strong>
           <span class="headline-metric">legacy validation PPL</span>
-          <span class="headline-extra"><span class="badge badge-caveat" title="All recorded runs. Runs before the CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="Uses a historical evaluation protocol; compare only within that protocol.">legacy-eval</span></span>
+          <span class="headline-extra"><span class="badge badge-caveat" title="This result predates the 2026-09-24 CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="Uses a historical evaluation protocol; compare only within that protocol.">legacy-eval</span></span>
         </div></section>
       <section class="experiment-meta" aria-label="Experiment connections">
         <div><span class="micro-label">TOPICS</span><div class="meta-links"><a class="tag-link" href="index.html?tag=optimizer">optimizer</a><a class="tag-link" href="index.html?tag=curvature">curvature</a><a class="tag-link" href="index.html?tag=recurrence">recurrence</a><a class="tag-link" href="index.html?tag=baseline">baseline</a></div></div>

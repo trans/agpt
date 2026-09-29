@@ -32,7 +32,8 @@
         <span class="section-number">THE RESEARCH RECORD / dual-model-fold</span>
         <h1>Dual-view consistency (forward + backward models)</h1>
         <p class="experiment-question">Does a stop-gradient KL consistency loss between a forward (prefix) model and a backward (reversed-suffix) model shrink their divergence and improve forward-only PPL?</p>
-        <div class="badge-row"><span class="badge badge-kind">experiment</span><span class="badge badge-status">concluded</span><span class="badge badge-outcome outcome-inconclusive">inconclusive</span><span class="badge badge-family">attention</span><span class="badge badge-eval">eval: none</span><span class="badge badge-caveat" title="All recorded runs. Runs before the loss-normalization fix.">pre-loss-fix</span><span class="badge badge-caveat" title="All recorded runs. Runs before the CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="All recorded runs. Attention runs before exact ancestor-gradient propagation.">truncated-ancestor-gradient</span></div>
+        <div class="badge-row"><span class="badge badge-kind">experiment</span><span class="badge badge-status">concluded</span><span class="badge badge-outcome outcome-inconclusive">inconclusive</span><span class="badge badge-family">attention</span><span class="badge badge-eval">eval: none</span></div>
+
         <div class="experiment-dates"><span>Opened <time datetime="2026-05-05">2026-05-05</time></span><span>Updated <time datetime="2026-05-05">2026-05-05</time></span></div>
       </div>
     </section>
@@ -42,17 +43,17 @@
           <span class="headline-label">beta 1.0, aligned suffix, 10k positions</span>
           <strong>0.17</strong>
           <span class="headline-metric">F-vs-B symmetric KL gap (nats, training)</span>
-          <span class="headline-extra"><span class="badge badge-caveat" title="All recorded runs. Runs before the loss-normalization fix.">pre-loss-fix</span><span class="badge badge-caveat" title="All recorded runs. Runs before the CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="All recorded runs. Attention runs before exact ancestor-gradient propagation.">truncated-ancestor-gradient</span></span>
+          <span class="headline-extra"><span class="badge badge-caveat" title="This result predates the 2026-05-26 loss-normalization fix.">pre-loss-fix</span><span class="badge badge-caveat" title="This result predates the 2026-09-24 CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="This result predates the 2026-09-28 exact ancestor backward.">truncated-ancestor-gradient</span></span>
         </div><div class="headline-item">
           <span class="headline-label">beta 0 (uncoupled), 10k positions</span>
           <strong>0.66</strong>
           <span class="headline-metric">F-vs-B symmetric KL gap (nats, training)</span>
-          <span class="headline-extra"><span class="badge badge-caveat" title="All recorded runs. Runs before the loss-normalization fix.">pre-loss-fix</span><span class="badge badge-caveat" title="All recorded runs. Runs before the CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="All recorded runs. Attention runs before exact ancestor-gradient propagation.">truncated-ancestor-gradient</span></span>
+          <span class="headline-extra"><span class="badge badge-caveat" title="This result predates the 2026-05-26 loss-normalization fix.">pre-loss-fix</span><span class="badge badge-caveat" title="This result predates the 2026-09-24 CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="This result predates the 2026-09-28 exact ancestor backward.">truncated-ancestor-gradient</span></span>
         </div><div class="headline-item">
           <span class="headline-label">beta 0.1, shuffled-suffix control, 10k positions</span>
           <strong>0.69</strong>
           <span class="headline-metric">F-vs-B symmetric KL gap (nats, training)</span>
-          <span class="headline-extra"><span class="badge badge-caveat" title="All recorded runs. Runs before the loss-normalization fix.">pre-loss-fix</span><span class="badge badge-caveat" title="All recorded runs. Runs before the CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="All recorded runs. Attention runs before exact ancestor-gradient propagation.">truncated-ancestor-gradient</span></span>
+          <span class="headline-extra"><span class="badge badge-caveat" title="This result predates the 2026-05-26 loss-normalization fix.">pre-loss-fix</span><span class="badge badge-caveat" title="This result predates the 2026-09-24 CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="This result predates the 2026-09-28 exact ancestor backward.">truncated-ancestor-gradient</span></span>
         </div></section>
       <section class="experiment-meta" aria-label="Experiment connections">
         <div><span class="micro-label">TOPICS</span><div class="meta-links"><a class="tag-link" href="index.html?tag=targets">targets</a></div></div>

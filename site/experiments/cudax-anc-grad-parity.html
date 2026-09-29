@@ -32,7 +32,8 @@
         <span class="section-number">THE RESEARCH RECORD / cudax-anc-grad-parity</span>
         <h1>CUDAX anc-grad parity</h1>
         <p class="experiment-question">Does the v2 (CUDAX) trainer&#x27;s descendant-to-ancestor Wk/Wv gradient (anc-grad) reproduce the legacy trainer&#x27;s held-out improvement over anc-grad off?</p>
-        <div class="badge-row"><span class="badge badge-kind">diagnostic</span><span class="badge badge-status">concluded</span><span class="badge badge-outcome outcome-n-a">n/a</span><span class="badge badge-family">attention</span><span class="badge badge-eval">eval: legacy</span><span class="badge badge-caveat" title="All recorded runs. Runs before the loss-normalization fix.">pre-loss-fix</span><span class="badge badge-caveat" title="All recorded runs. Runs before the CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="All recorded runs. Attention runs before exact ancestor-gradient propagation.">truncated-ancestor-gradient</span><span class="badge badge-caveat" title="Uses a historical evaluation protocol; compare only within that protocol.">legacy-eval</span></div>
+        <div class="badge-row"><span class="badge badge-kind">diagnostic</span><span class="badge badge-status">concluded</span><span class="badge badge-outcome outcome-n-a">n/a</span><span class="badge badge-family">attention</span><span class="badge badge-eval">eval: legacy</span></div>
+
         <div class="experiment-dates"><span>Opened <time datetime="2026-05-21">2026-05-21</time></span><span>Updated <time datetime="2026-05-21">2026-05-21</time></span></div>
       </div>
     </section>
@@ -42,12 +43,12 @@
           <span class="headline-label">seed1, anc-grad off</span>
           <strong>10.1351</strong>
           <span class="headline-metric">legacy sliding-window PPL (d=16, 10k positions)</span>
-          <span class="headline-extra"><span class="badge badge-caveat" title="All recorded runs. Runs before the loss-normalization fix.">pre-loss-fix</span><span class="badge badge-caveat" title="All recorded runs. Runs before the CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="All recorded runs. Attention runs before exact ancestor-gradient propagation.">truncated-ancestor-gradient</span><span class="badge badge-caveat" title="Uses a historical evaluation protocol; compare only within that protocol.">legacy-eval</span></span>
+          <span class="headline-extra"><span class="badge badge-caveat" title="This result predates the 2026-05-26 loss-normalization fix.">pre-loss-fix</span><span class="badge badge-caveat" title="This result predates the 2026-09-24 CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="This result predates the 2026-09-28 exact ancestor backward.">truncated-ancestor-gradient</span><span class="badge badge-caveat" title="Uses a historical evaluation protocol; compare only within that protocol.">legacy-eval</span></span>
         </div><div class="headline-item">
           <span class="headline-label">seed1, anc-grad on</span>
           <strong>9.0585</strong>
           <span class="headline-metric">legacy sliding-window PPL (d=16, 10k positions)</span>
-          <span class="headline-extra"><span class="badge badge-caveat" title="All recorded runs. Runs before the loss-normalization fix.">pre-loss-fix</span><span class="badge badge-caveat" title="All recorded runs. Runs before the CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="All recorded runs. Attention runs before exact ancestor-gradient propagation.">truncated-ancestor-gradient</span><span class="badge badge-caveat" title="Uses a historical evaluation protocol; compare only within that protocol.">legacy-eval</span></span>
+          <span class="headline-extra"><span class="badge badge-caveat" title="This result predates the 2026-05-26 loss-normalization fix.">pre-loss-fix</span><span class="badge badge-caveat" title="This result predates the 2026-09-24 CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="This result predates the 2026-09-28 exact ancestor backward.">truncated-ancestor-gradient</span><span class="badge badge-caveat" title="Uses a historical evaluation protocol; compare only within that protocol.">legacy-eval</span></span>
         </div></section>
       <section class="experiment-meta" aria-label="Experiment connections">
         <div><span class="micro-label">TOPICS</span><div class="meta-links"><a class="tag-link" href="index.html?tag=gradient">gradient</a><a class="tag-link" href="index.html?tag=trainer">trainer</a><a class="tag-link" href="index.html?tag=attention">attention</a></div></div>

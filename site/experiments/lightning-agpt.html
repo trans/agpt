@@ -32,7 +32,8 @@
         <span class="section-number">THE RESEARCH RECORD / lightning-agpt</span>
         <h1>Lightning AGPT</h1>
         <p class="experiment-question">Can sampling many clustered mini-trees from the full trie (one optimizer step each) recover stochastic update cadence and beat the pd1 whole-tree AGPT baseline?</p>
-        <div class="badge-row"><span class="badge badge-kind">experiment</span><span class="badge badge-status">concluded</span><span class="badge badge-outcome outcome-mixed">mixed</span><span class="badge badge-family">attention</span><span class="badge badge-eval">eval: canonical</span><span class="badge badge-caveat" title="All recorded runs. Runs before the CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="All recorded runs. Attention runs before exact ancestor-gradient propagation.">truncated-ancestor-gradient</span></div>
+        <div class="badge-row"><span class="badge badge-kind">experiment</span><span class="badge badge-status">concluded</span><span class="badge badge-outcome outcome-mixed">mixed</span><span class="badge badge-family">attention</span><span class="badge badge-eval">eval: canonical</span></div>
+<p class="run-history"><strong>Run history:</strong> 25 of 25 predate the 2026-09-24 CUDA kernel race fix; 25 of 25 predate the 2026-09-28 exact ancestor backward.</p>
         <div class="experiment-dates"><span>Opened <time datetime="2026-06-12">2026-06-12</time></span><span>Updated <time datetime="2026-06-12">2026-06-12</time></span></div>
       </div>
     </section>
@@ -42,17 +43,17 @@
           <span class="headline-label">traversal-stop, context-only ancestors, u40k r4</span>
           <strong>5.1657</strong>
           <span class="headline-metric">rolling byte PPL (multi-chunk-heldout)</span>
-          <span class="headline-extra"><a href="https://github.com/trans/agpt/tree/main/rnd/lightning-agpt/20260612T204543-d64l2-depth16-lightning-random-desc-u40000-r4-contextonly-co">Run record ↗</a><span class="badge badge-caveat" title="All recorded runs. Runs before the CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="All recorded runs. Attention runs before exact ancestor-gradient propagation.">truncated-ancestor-gradient</span></span>
+          <span class="headline-extra"><a href="https://github.com/trans/agpt/tree/main/rnd/lightning-agpt/20260612T204543-d64l2-depth16-lightning-random-desc-u40000-r4-contextonly-co">Run record ↗</a><span class="badge badge-caveat" title="This result predates the 2026-09-24 CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="This result predates the 2026-09-28 exact ancestor backward.">truncated-ancestor-gradient</span></span>
         </div><div class="headline-item">
           <span class="headline-label">traversal-stop, context-only ancestors, u40k r4</span>
           <strong>4.7637</strong>
           <span class="headline-metric">fixed-window PPL (multi-chunk-heldout)</span>
-          <span class="headline-extra"><a href="https://github.com/trans/agpt/tree/main/rnd/lightning-agpt/20260612T204543-d64l2-depth16-lightning-random-desc-u40000-r4-contextonly-co">Run record ↗</a><span class="badge badge-caveat" title="All recorded runs. Runs before the CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="All recorded runs. Attention runs before exact ancestor-gradient propagation.">truncated-ancestor-gradient</span></span>
+          <span class="headline-extra"><a href="https://github.com/trans/agpt/tree/main/rnd/lightning-agpt/20260612T204543-d64l2-depth16-lightning-random-desc-u40000-r4-contextonly-co">Run record ↗</a><span class="badge badge-caveat" title="This result predates the 2026-09-24 CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="This result predates the 2026-09-28 exact ancestor backward.">truncated-ancestor-gradient</span></span>
         </div><div class="headline-item">
           <span class="headline-label">Lightning balanced u20k q10k r6</span>
           <strong>5.3037</strong>
           <span class="headline-metric">rolling byte PPL (multi-chunk-heldout)</span>
-          <span class="headline-extra"><a href="https://github.com/trans/agpt/tree/main/rnd/lightning-agpt/20260612T024242-d64l2-depth16-lightning-stream-u20000-q10k-r6-cosfloor10">Run record ↗</a><span class="badge badge-caveat" title="All recorded runs. Runs before the CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="All recorded runs. Attention runs before exact ancestor-gradient propagation.">truncated-ancestor-gradient</span></span>
+          <span class="headline-extra"><a href="https://github.com/trans/agpt/tree/main/rnd/lightning-agpt/20260612T024242-d64l2-depth16-lightning-stream-u20000-q10k-r6-cosfloor10">Run record ↗</a><span class="badge badge-caveat" title="This result predates the 2026-09-24 CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="This result predates the 2026-09-28 exact ancestor backward.">truncated-ancestor-gradient</span></span>
         </div></section>
       <section class="experiment-meta" aria-label="Experiment connections">
         <div><span class="micro-label">TOPICS</span><div class="meta-links"><a class="tag-link" href="index.html?tag=sampling">sampling</a><a class="tag-link" href="index.html?tag=cadence">cadence</a><a class="tag-link" href="index.html?tag=partitioning">partitioning</a></div></div>

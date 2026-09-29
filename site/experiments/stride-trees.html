@@ -32,7 +32,8 @@
         <span class="section-number">THE RESEARCH RECORD / stride-trees</span>
         <h1>Stride trees</h1>
         <p class="experiment-question">Do prefix trees built over strided corpus positions (stride 2, 4, 16) expose longer-range structure that complements the adjacent-character tree?</p>
-        <div class="badge-row"><span class="badge badge-kind">experiment</span><span class="badge badge-status">concluded</span><span class="badge badge-outcome outcome-inconclusive">inconclusive</span><span class="badge badge-family">recurrent</span><span class="badge badge-eval">eval: legacy</span><span class="badge badge-caveat" title="All recorded runs. Runs before the CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="Uses a historical evaluation protocol; compare only within that protocol.">legacy-eval</span></div>
+        <div class="badge-row"><span class="badge badge-kind">experiment</span><span class="badge badge-status">concluded</span><span class="badge badge-outcome outcome-inconclusive">inconclusive</span><span class="badge badge-family">recurrent</span><span class="badge badge-eval">eval: legacy</span></div>
+
         <div class="experiment-dates"><span>Opened <time datetime="2026-06-11">2026-06-11</time></span><span>Updated <time datetime="2026-06-11">2026-06-11</time></span></div>
       </div>
     </section>
@@ -42,17 +43,17 @@
           <span class="headline-label">Adjacent recurrent d8/d64 pd=1, epoch 500</span>
           <strong>6.3104</strong>
           <span class="headline-metric">legacy held-out next-char PPL (agpt_recur_perplexity)</span>
-          <span class="headline-extra"><span class="badge badge-caveat" title="All recorded runs. Runs before the CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="Uses a historical evaluation protocol; compare only within that protocol.">legacy-eval</span></span>
+          <span class="headline-extra"><span class="badge badge-caveat" title="This result predates the 2026-09-24 CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="Uses a historical evaluation protocol; compare only within that protocol.">legacy-eval</span></span>
         </div><div class="headline-item">
           <span class="headline-label">Oracle mixture adjacent + stride-2 same + target-next heads</span>
           <strong>6.2679</strong>
           <span class="headline-metric">legacy held-out next-char PPL (fixed probability mixture)</span>
-          <span class="headline-extra"><span class="badge badge-caveat" title="All recorded runs. Runs before the CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="Uses a historical evaluation protocol; compare only within that protocol.">legacy-eval</span></span>
+          <span class="headline-extra"><span class="badge badge-caveat" title="This result predates the 2026-09-24 CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="Uses a historical evaluation protocol; compare only within that protocol.">legacy-eval</span></span>
         </div><div class="headline-item">
           <span class="headline-label">Stride-2 phase 0 target-offset=1 head, epoch 100</span>
           <strong>9.1685</strong>
           <span class="headline-metric">legacy target-next held-out PPL (agpt_recur_perplexity)</span>
-          <span class="headline-extra"><span class="badge badge-caveat" title="All recorded runs. Runs before the CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="Uses a historical evaluation protocol; compare only within that protocol.">legacy-eval</span></span>
+          <span class="headline-extra"><span class="badge badge-caveat" title="This result predates the 2026-09-24 CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="Uses a historical evaluation protocol; compare only within that protocol.">legacy-eval</span></span>
         </div></section>
       <section class="experiment-meta" aria-label="Experiment connections">
         <div><span class="micro-label">TOPICS</span><div class="meta-links"><a class="tag-link" href="index.html?tag=trie-structure">trie-structure</a><a class="tag-link" href="index.html?tag=context-length">context-length</a><a class="tag-link" href="index.html?tag=recurrence">recurrence</a></div></div>

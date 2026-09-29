@@ -32,7 +32,8 @@
         <span class="section-number">THE RESEARCH RECORD / baseline-calibration-v2-static-sampled</span>
         <h1>v2 static calibration (sampled heldout)</h1>
         <p class="experiment-question">Which partition depth, optimizer, learning rate and epoch budget give the best static full-trie CUDAX v2 AGPT baseline at depth 16 on Shakespeare, scored on the sampled multi-chunk heldout?</p>
-        <div class="badge-row"><span class="badge badge-kind">baseline</span><span class="badge badge-status">concluded</span><span class="badge badge-outcome outcome-n-a">n/a</span><span class="badge badge-family">attention</span><span class="badge badge-eval">eval: canonical</span><span class="badge badge-caveat" title="All recorded runs. Runs before the CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="All recorded runs. Attention runs before exact ancestor-gradient propagation.">truncated-ancestor-gradient</span></div>
+        <div class="badge-row"><span class="badge badge-kind">baseline</span><span class="badge badge-status">concluded</span><span class="badge badge-outcome outcome-n-a">n/a</span><span class="badge badge-family">attention</span><span class="badge badge-eval">eval: canonical</span></div>
+<p class="run-history"><strong>Run history:</strong> 26 of 26 predate the 2026-09-24 CUDA kernel race fix; 26 of 26 predate the 2026-09-28 exact ancestor backward.</p>
         <div class="experiment-dates"><span>Opened <time datetime="2026-05-30">2026-05-30</time></span><span>Updated <time datetime="2026-06-05">2026-06-05</time></span></div>
       </div>
     </section>
@@ -42,17 +43,17 @@
           <span class="headline-label">d128/L6 pd=1 Adam lr 0.001, epoch-128 checkpoint</span>
           <strong>4.7086</strong>
           <span class="headline-metric">rolling byte PPL (sampled multi-chunk heldout)</span>
-          <span class="headline-extra"><a href="https://github.com/trans/agpt/tree/main/rnd/baseline-calibration-v2-static-sampled/20260601T064609-d128l6-depth16-pd1-adam-lr0010-512ep-wrap">Run record ↗</a><span class="badge badge-caveat" title="All recorded runs. Runs before the CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="All recorded runs. Attention runs before exact ancestor-gradient propagation.">truncated-ancestor-gradient</span></span>
+          <span class="headline-extra"><a href="https://github.com/trans/agpt/tree/main/rnd/baseline-calibration-v2-static-sampled/20260601T064609-d128l6-depth16-pd1-adam-lr0010-512ep-wrap">Run record ↗</a><span class="badge badge-caveat" title="This result predates the 2026-09-24 CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="This result predates the 2026-09-28 exact ancestor backward.">truncated-ancestor-gradient</span></span>
         </div><div class="headline-item">
           <span class="headline-label">d64/L2 pd=1 Adam lr 0.0015, 1024 epochs, wrapped trie</span>
           <strong>4.7991</strong>
           <span class="headline-metric">rolling byte PPL (sampled multi-chunk heldout)</span>
-          <span class="headline-extra"><a href="https://github.com/trans/agpt/tree/main/rnd/baseline-calibration-v2-static-sampled/20260603T192234-d64l2-depth16-pd1-adam-lr0015-1024ep-wrap">Run record ↗</a><span class="badge badge-caveat" title="All recorded runs. Runs before the CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="All recorded runs. Attention runs before exact ancestor-gradient propagation.">truncated-ancestor-gradient</span></span>
+          <span class="headline-extra"><a href="https://github.com/trans/agpt/tree/main/rnd/baseline-calibration-v2-static-sampled/20260603T192234-d64l2-depth16-pd1-adam-lr0015-1024ep-wrap">Run record ↗</a><span class="badge badge-caveat" title="This result predates the 2026-09-24 CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="This result predates the 2026-09-28 exact ancestor backward.">truncated-ancestor-gradient</span></span>
         </div><div class="headline-item">
           <span class="headline-label">d64/L2 pd=0 RMSProp, 128 epochs</span>
           <strong>10.094</strong>
           <span class="headline-metric">rolling byte PPL (sampled multi-chunk heldout)</span>
-          <span class="headline-extra"><a href="https://github.com/trans/agpt/tree/main/rnd/baseline-calibration-v2-static-sampled/20260530T084221-d64l2-depth16-pd0-128ep">Run record ↗</a><span class="badge badge-caveat" title="All recorded runs. Runs before the CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="All recorded runs. Attention runs before exact ancestor-gradient propagation.">truncated-ancestor-gradient</span></span>
+          <span class="headline-extra"><a href="https://github.com/trans/agpt/tree/main/rnd/baseline-calibration-v2-static-sampled/20260530T084221-d64l2-depth16-pd0-128ep">Run record ↗</a><span class="badge badge-caveat" title="This result predates the 2026-09-24 CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="This result predates the 2026-09-28 exact ancestor backward.">truncated-ancestor-gradient</span></span>
         </div></section>
       <section class="experiment-meta" aria-label="Experiment connections">
         <div><span class="micro-label">TOPICS</span><div class="meta-links"><a class="tag-link" href="index.html?tag=baseline">baseline</a><a class="tag-link" href="index.html?tag=optimizer">optimizer</a><a class="tag-link" href="index.html?tag=partitioning">partitioning</a><a class="tag-link" href="index.html?tag=scaling">scaling</a></div></div>
