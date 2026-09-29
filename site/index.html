@@ -170,36 +170,35 @@
           <div class="evidence-grid">
             <article class="evidence-card">
               <div class="card-top"><span class="card-index">01</span><span class="card-tag">CONTEXT DEPTH</span></div>
-              <h3>Longer context runs past the reusable tree.</h3>
-              <p>The current attention window follows a trie path. As that path deepens, repeated contexts thin out; eventually, the observed corpus offers only one continuation per path. Longer context then brings less shared work and less repeated evidence.</p>
+              <h3>Useful context outruns the reusable tree.</h3>
+              <p>Sharing works because short contexts repeat. Long ones rarely do: extend a context far enough and nearly every path through the tree has only one observed continuation. At depth 16 in Tiny Shakespeare, 99.43% do. Yet language depends on context far longer than the point where repetition runs out.</p>
               <div class="challenge-outlook">
-                <span class="micro-label">LEADING IDEA · UNTESTED</span>
-                <p>A Möbius-function approach on a partially ordered set (poset) is the next candidate. Earlier <a href="https://github.com/trans/agpt/blob/main/rnd/root-loop/README.md">virtual RoPE work</a> gave mixed results.</p>
+                <span class="micro-label">WHAT SUCCESS LOOKS LIKE</span>
+                <p>Long-range context and prefix sharing in the same model, rather than one traded for the other.</p>
               </div>
-              <a class="card-link" href="https://github.com/trans/agpt/blob/main/notes/trie-structure/shakespeare-h0-depth-profile.md">See the depth profile <span aria-hidden="true">↗</span></a>
+              <a class="card-link" href="experiments/index.html?tag=context-length">See how we’ve approached this <span aria-hidden="true">↗</span></a>
             </article>
             <article class="evidence-card">
               <div class="card-top"><span class="card-index">02</span><span class="card-tag">UPDATE CADENCE</span></div>
               <h3>More sharing means fewer updates.</h3>
-              <p>A whole-tree step reuses the most computation, but combines many branches before the weights can move. When their gradients disagree, that one step may learn less than several smaller steps.</p>
+              <p>Every branch below a shared prefix feeds one combined step. That is where the savings come from, and also the cost: the weights move once where ordinary training would move them many times. When branches pull in different directions, one combined step can learn less than many smaller ones would have.</p>
               <div class="challenge-outlook">
-                <span class="micro-label">CURRENT MITIGATION</span>
-                <p>Partitioning gives the optimizer more frequent updates. Split too far, though, and the work loses sharing while training units become small and noisy.</p>
+                <span class="micro-label">WHAT SUCCESS LOOKS LIKE</span>
+                <p>Keeping the savings of sharing while learning at least as much per unit of computation as ordinary training.</p>
               </div>
-              <a class="card-link" href="https://github.com/trans/agpt/blob/main/rnd/gradient-population/README.md">See the cadence experiments <span aria-hidden="true">↗</span></a>
+              <a class="card-link" href="experiments/index.html?tag=cadence">See how we’ve approached this <span aria-hidden="true">↗</span></a>
             </article>
             <article class="evidence-card">
               <div class="card-top"><span class="card-index">03</span><span class="card-tag">COMPUTE COST</span></div>
-              <h3>Can better updates pay for themselves?</h3>
-              <p>More exact, curvature-aware updates may extract more learning from each shared pass. They also require accurate gradients and extra computation. Fewer passes alone do not make training faster.</p>
+              <h3>Sharing has to pay for itself.</h3>
+              <p>Ordinary training spends its compute on many small, noisy updates. A shared pass spends it on fewer updates, each built from exact information about the whole corpus. That trade wins only if the exact information is worth more than the updates given up, and only if maintaining the tree costs less than the work it saves: the caches, the gradient through shared prefixes, the structure itself.</p>
               <div class="challenge-outlook">
-                <span class="micro-label">THE DECISIVE TEST</span>
-                <p>Measure matched model quality against wall-clock time, including the cost of each update and the memory needed to cache shared work.</p>
+                <span class="micro-label">WHAT SUCCESS LOOKS LIKE</span>
+                <p>Matched model quality in less wall-clock time than conventional training, on the same hardware, counting every cost.</p>
               </div>
-              <a class="card-link" href="https://github.com/trans/agpt/blob/main/rnd/gradient-population/README.md#experiment-6--curvature-l-bfgs-passes-to-parity-2026-09-25">See the optimizer experiments <span aria-hidden="true">↗</span></a>
+              <a class="card-link" href="experiments/index.html?tag=optimizer">See how we’ve approached this <span aria-hidden="true">↗</span></a>
             </article>
           </div>
-          <p class="evidence-note"><strong>The bar for success:</strong> matched model quality and wall-clock time against conventional training. One-epoch parity and an end-to-end speed advantage remain unproven.</p>
         </div>
       </section>
 

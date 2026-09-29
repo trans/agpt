@@ -160,9 +160,6 @@ h1 em, .next-section h2 em { color: var(--lime); font-weight: 400; }
 .challenge-outlook a { color: #375a19; text-underline-offset: 3px; }
 .card-link { display: flex; justify-content: space-between; margin-top: 17px; padding-top: 18px; border-top: 1px solid var(--line); text-decoration: none; font-size: 12px; font-weight: 700; }
 .card-link:hover { color: #5e7c13; }
-.evidence-note { margin: 26px 0 0; color: #53645a; font-size: 13px; line-height: 1.55; }
-.evidence-note a { color: #375a19; text-underline-offset: 3px; }
-
 .tracks-section { padding-bottom: 128px; }
 .track-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 19px; }
 .track-card { display: flex; flex-direction: column; min-height: 345px; padding: 30px 36px 28px; border: 1px solid #d0d8cd; background: var(--white); text-decoration: none; transition: border .2s ease, transform .2s ease, box-shadow .2s ease; }
