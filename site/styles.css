@@ -140,9 +140,9 @@ h1 em, .next-section h2 em { color: var(--lime); font-weight: 400; }
 .profile-values { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
 .profile-values span { color: #b9c9c0; font: 10px/1.4 var(--mono); }
 .profile-values strong { display: block; margin-bottom: 8px; color: #f5f8ee; font: 400 39px/1 var(--serif); letter-spacing: -.05em; }
-.advantage-hypothesis { max-width: 1050px; margin: 24px 0 0; color: #e0e9d9; font-size: 15px; line-height: 1.65; }
+.advantage-hypothesis { margin: 24px 0 0; color: #e0e9d9; font-size: 15px; line-height: 1.65; }
 .advantage-hypothesis strong { color: var(--lime); }
-.advantage-note { max-width: 1050px; margin: 12px 0 0; color: #a9bbb0; font-size: 15px; line-height: 1.65; }
+.advantage-note { margin: 12px 0 0; color: #a9bbb0; font-size: 15px; line-height: 1.65; }
 .advantage-note a { color: var(--lime); text-underline-offset: 3px; }
 
 .evidence-section { background: #e9ede6; }
@@ -160,7 +160,7 @@ h1 em, .next-section h2 em { color: var(--lime); font-weight: 400; }
 .challenge-outlook a { color: #375a19; text-underline-offset: 3px; }
 .card-link { display: flex; justify-content: space-between; margin-top: 17px; padding-top: 18px; border-top: 1px solid var(--line); text-decoration: none; font-size: 12px; font-weight: 700; }
 .card-link:hover { color: #5e7c13; }
-.evidence-note { max-width: 880px; margin: 26px 0 0; color: #53645a; font-size: 13px; line-height: 1.55; }
+.evidence-note { margin: 26px 0 0; color: #53645a; font-size: 13px; line-height: 1.55; }
 .evidence-note a { color: #375a19; text-underline-offset: 3px; }
 
 .tracks-section { padding-bottom: 128px; }
