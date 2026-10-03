@@ -2,7 +2,15 @@
 
 ## Status
 
-Open. Idea from Thomas, 2026-10-03. Nothing built or run yet.
+Mostly closed. Idea from Thomas, 2026-10-03.
+
+Tested 2026-10-03 (`rnd/context-tree-orientation`), GRU at depth 8: negative.
+Diagnostic held-out PPL is 4.75 prefix vs 5.09 suffix at pd=0 (2000 epochs), and
+5.09 vs 6.29 at pd=1 (500 epochs). The residual readout helps at pd=0 (4.96)
+but breaks at pd=1 (9.22). Suffix-tree pd=1 units each hold one target class,
+so partitioned steps act like class-sorted minibatches. The prefix trie's
+grouping by the least predictive character is what keeps its units mixed.
+Open: an attention f_θ at pd=0 only.
 
 ## The observation
 
@@ -171,6 +179,37 @@ tree, not for the prefix trie.
   reusable.
 - **Eval.** Canonical eval needs an HF wrapper that re-encodes newest-first at
   each position.
+
+## Next session: run it to ground (Thomas, 2026-10-03)
+
+Thomas predicted months ago that a tree grouped by what predicts the target
+would make partitioned training behave like sorted, non-shuffled batches. The
+first runs suggest the prefix trie we built avoids exactly that by grouping on
+the oldest character. One GRU, one seed, depth 8 and a diagnostic eval are
+not enough to settle it. In order:
+
+1. **Test the mechanism directly.**
+   - **Mixed units.** On the suffix tree at pd=1, make each step a random
+     mix of depth-2 suffix subtrees across roots, with the same events per
+     step as a root unit. If class-sorting is the cause, mixing recovers most
+     of the gap to the prefix trie. Run the prefix trie with mixed units as
+     the control.
+   - **Interference.** After each unit step, measure the loss change on the
+     other units: how much one step undoes the others.
+   - **No-trie control.** Plain mini-batch SGD with batches sorted by last
+     character, by first character, and random. This shows whether the
+     effect exists with no tree at all.
+2. **Attention f_θ.** A small PyTorch attention model over the path in both
+   orientations, at pd=0 and pd=1. The GRU's recency inversion confounds
+   pd=0, while the pd=1 units come from the tree, whatever the f_θ.
+3. **Robustness.** 3 seeds, warmup-cosine LR (these runs used a constant
+   3e-3), depth 16, and pd=2/3. Suffix units at pd≥2 are even narrower: all
+   contexts ending in the same 2–3 characters.
+4. **History.** `--shuffle-order` helped ~2% at pd>1 (`rnd/cap-folding`) and
+   not at pd=1 (`todo/agpt-trainer-structure-and-staleness-analysis.md`).
+   Also re-read Thomas's earlier notes on the expected sorting problem.
+5. **Canonical eval** for anything reported. A newest-first model needs its
+   own HF wrapper, or the claim stays labelled diagnostic.
 
 ## Experiments, cheapest first
 
