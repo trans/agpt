@@ -14,6 +14,15 @@ working on the code needs belongs in the project's own docs, not here.
 
 | File | What it holds |
 |---|---|
+| [handoff.md](handoff.md) | Where the project stands and what's next: active threads, latest results, open questions, docs that lag the code |
+| [open-lines.md](open-lines.md) | Open research lines with their plans: context-tree orientation, partitioned curvature, v2 kernel speed work, cadence leftovers, weak baselines |
+| [decisions.md](decisions.md) | Decisions and conventions in force (exact backward default, front matter, tags, site rules) and those pending the user |
+| [methodology.md](methodology.md) | Evaluation pitfalls (metrics, trainer eras, compute matching, held-out hygiene) and working rules for gradient work |
+| [principles.md](principles.md) | What AGPT's equivalences do and don't buy: framework vs f_θ, SGD-equivalence test, cadence, optimizer mismatch |
+| [measurements.md](measurements.md) | Key numbers with run configs and how to reproduce them; baselines with provenance caveats |
+| [closed-lines.md](closed-lines.md) | Negative results and closed lines not to retry as-is, with pointers to their records |
+| [air-projects.md](air-projects.md) | How AGPT relates to @ugpt, @imm, @mobius, @semtrace, and Codex sessions |
+| [branches.md](branches.md) | Experiment branches, `exp/*` tags and worktrees, and their state |
 
 Keep each note short and dated (`*Updated YYYY-MM-DD*`), with absolute
 dates and commit hashes. Check the code or `git log` before acting on
