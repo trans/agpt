@@ -89,3 +89,4 @@ rnd/radix-depth*/**/*.bin
 rnd/gradient-population/**/grads.f32
 rnd/gradient-population/**/train.log
 rnd/gradient-population/**/*.pt
+/.ai/
