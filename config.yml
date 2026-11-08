@@ -2,4 +2,8 @@
 # See the dot-ai skill's references/config.md.
 handle: agpt       # this project's handle: other agents write to @agpt
 description: >        # what this project's agent does, shown to other agents
-  The agent for agpt.
+  The agent for AGPT (Aggregated Gradient Pre-training): research into
+  whether a language model can learn enough from one pass over a corpus
+  by sharing computation across repeated text prefixes. Crystal/CUDA
+  trainer, PyTorch track, experiment records. One of the AIR research
+  projects, overseen by @air.
