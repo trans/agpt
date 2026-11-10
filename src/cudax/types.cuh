@@ -82,6 +82,11 @@ struct TrainerConfig {
     int rope_position_offset = -1;
     bool rope_phase_shuffle = false;
     unsigned rope_phase_shuffle_seed = 1;
+    // experimental.rope_phase_positions: in phase modes, present RoPE at
+    // phase + depth (true, the original behaviour) or at plain depth (false).
+    // false keeps the phase's loss weights / targets but drops the position
+    // shift: the control for whether a phase mode's effect is positional.
+    bool rope_phase_positions = true;
     int loss_depth_min = -1;
     int loss_depth_max = -1;
     float entropy_gate_min_scale = 1.0f;

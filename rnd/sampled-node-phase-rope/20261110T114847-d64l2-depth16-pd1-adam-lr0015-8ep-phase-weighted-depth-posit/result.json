@@ -1,0 +1,105 @@
+{
+  "run_id": "20261110T114847-d64l2-depth16-pd1-adam-lr0015-8ep-phase-weighted-depth-posit",
+  "experiment": "sampled-node-phase-rope",
+  "wall_seconds": 148.435886674,
+  "train_wall_seconds": 47.758965132,
+  "convert_wall_seconds": 4.621783291,
+  "eval_wall_seconds": 17.181931229,
+  "started_utc": "2026-11-10T11:48:47Z",
+  "ended_utc": "2026-11-10T11:51:15Z",
+  "trainer": "v2",
+  "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+  "eval": {
+    "split": "multi-chunk-heldout",
+    "source_path": null,
+    "source_sha256": null,
+    "chunks_dir": "data/.splits/4fa9aec1db6b3aea/heldout_chunks",
+    "benchmark": null,
+    "task_name": "d64l2-depth16-pd1-adam-lr0015-8ep-phase-weighted-depth-posit_holdout"
+  },
+  "metrics": {
+    "lm_eval_rolling_word_perplexity": 322015.8187669928,
+    "lm_eval_rolling_byte_perplexity": 10.17509595317565,
+    "lm_eval_rolling_bits_per_byte": 3.3469704943437937,
+    "agpt_fixed_token_perplexity": 10.136781441936742
+  },
+  "checkpoint_sha": "5c0e773ed9e8220b818d8935141e760bce3e9c002baa7f27d7ffa4f756fcf1c0",
+  "checkpoint_results": [
+    {
+      "epoch": 1,
+      "checkpoint_path": "rnd/sampled-node-phase-rope/20261110T114847-d64l2-depth16-pd1-adam-lr0015-8ep-phase-weighted-depth-posit/checkpoint.epoch_000001.model",
+      "checkpoint_sha": "b37fd217e3654a5db524a79b12328248eaf7075bf24b1ae9bb48b69ef31a259d",
+      "hf_dir": "rnd/sampled-node-phase-rope/20261110T114847-d64l2-depth16-pd1-adam-lr0015-8ep-phase-weighted-depth-posit/hf_checkpoint_epoch_000001",
+      "eval_raw_json": "rnd/sampled-node-phase-rope/20261110T114847-d64l2-depth16-pd1-adam-lr0015-8ep-phase-weighted-depth-posit/eval_raw_epoch_000001.json",
+      "task_name": "d64l2-depth16-pd1-adam-lr0015-8ep-phase-weighted-depth-posit_epoch_000001_holdout",
+      "train_wall_seconds": 5.993482,
+      "convert_wall_seconds": 3.421763551,
+      "eval_wall_seconds": 14.874879298,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 4106519.691817935,
+        "lm_eval_rolling_byte_perplexity": 16.209955132000534,
+        "lm_eval_rolling_bits_per_byte": 4.018808192471385,
+        "agpt_fixed_token_perplexity": 16.411275322631848
+      }
+    },
+    {
+      "epoch": 2,
+      "checkpoint_path": "rnd/sampled-node-phase-rope/20261110T114847-d64l2-depth16-pd1-adam-lr0015-8ep-phase-weighted-depth-posit/checkpoint.epoch_000002.model",
+      "checkpoint_sha": "ea3e3f2bd985e45699eeeaf93c55bf6167fc9c46ae9154482055ea1ee8dec71c",
+      "hf_dir": "rnd/sampled-node-phase-rope/20261110T114847-d64l2-depth16-pd1-adam-lr0015-8ep-phase-weighted-depth-posit/hf_checkpoint_epoch_000002",
+      "eval_raw_json": "rnd/sampled-node-phase-rope/20261110T114847-d64l2-depth16-pd1-adam-lr0015-8ep-phase-weighted-depth-posit/eval_raw_epoch_000002.json",
+      "task_name": "d64l2-depth16-pd1-adam-lr0015-8ep-phase-weighted-depth-posit_epoch_000002_holdout",
+      "train_wall_seconds": 11.696412,
+      "convert_wall_seconds": 3.384736966,
+      "eval_wall_seconds": 14.845214724,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 1254170.638132965,
+        "lm_eval_rolling_byte_perplexity": 13.048273220600844,
+        "lm_eval_rolling_bits_per_byte": 3.705786991267994,
+        "agpt_fixed_token_perplexity": 13.045241348584016
+      }
+    },
+    {
+      "epoch": 4,
+      "checkpoint_path": "rnd/sampled-node-phase-rope/20261110T114847-d64l2-depth16-pd1-adam-lr0015-8ep-phase-weighted-depth-posit/checkpoint.epoch_000004.model",
+      "checkpoint_sha": "ea3a55d761173c0db3a151569ad24884fa12ba7366f494fba165d30e8b1528d3",
+      "hf_dir": "rnd/sampled-node-phase-rope/20261110T114847-d64l2-depth16-pd1-adam-lr0015-8ep-phase-weighted-depth-posit/hf_checkpoint_epoch_000004",
+      "eval_raw_json": "rnd/sampled-node-phase-rope/20261110T114847-d64l2-depth16-pd1-adam-lr0015-8ep-phase-weighted-depth-posit/eval_raw_epoch_000004.json",
+      "task_name": "d64l2-depth16-pd1-adam-lr0015-8ep-phase-weighted-depth-posit_epoch_000004_holdout",
+      "train_wall_seconds": 22.72082,
+      "convert_wall_seconds": 3.346890056,
+      "eval_wall_seconds": 14.832836078,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 525332.0205605638,
+        "lm_eval_rolling_byte_perplexity": 11.128095151321192,
+        "lm_eval_rolling_bits_per_byte": 3.4761347557673137,
+        "agpt_fixed_token_perplexity": 11.070216455846479
+      }
+    },
+    {
+      "epoch": 8,
+      "checkpoint_path": "rnd/sampled-node-phase-rope/20261110T114847-d64l2-depth16-pd1-adam-lr0015-8ep-phase-weighted-depth-posit/checkpoint.epoch_000008.model",
+      "checkpoint_sha": "5c0e773ed9e8220b818d8935141e760bce3e9c002baa7f27d7ffa4f756fcf1c0",
+      "hf_dir": "rnd/sampled-node-phase-rope/20261110T114847-d64l2-depth16-pd1-adam-lr0015-8ep-phase-weighted-depth-posit/hf_checkpoint_epoch_000008",
+      "eval_raw_json": "rnd/sampled-node-phase-rope/20261110T114847-d64l2-depth16-pd1-adam-lr0015-8ep-phase-weighted-depth-posit/eval_raw_epoch_000008.json",
+      "task_name": "d64l2-depth16-pd1-adam-lr0015-8ep-phase-weighted-depth-posit_epoch_000008_holdout",
+      "train_wall_seconds": 45.197587,
+      "convert_wall_seconds": 3.3959258500000002,
+      "eval_wall_seconds": 14.834040793,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 322015.8187669928,
+        "lm_eval_rolling_byte_perplexity": 10.17509595317565,
+        "lm_eval_rolling_bits_per_byte": 3.3469704943437937,
+        "agpt_fixed_token_perplexity": 10.136781441936742
+      }
+    }
+  ],
+  "experimental_used": {
+    "v2": [
+      "anc_grad_exact",
+      "position_data_dir",
+      "rope_phase_positions",
+      "rope_position_mode"
+    ]
+  }
+}

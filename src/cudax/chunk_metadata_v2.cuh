@@ -291,7 +291,8 @@ static inline ChunkMetadataV2 build_chunk_metadata_v2(const TrainerConfig& cfg,
             out.h_char_pos[q_fill + j] = edge_start + j;
             out.h_query_depth[q_fill + j] = query_depth;
             int pos = fcd + j - 1;
-            if (sampled_start >= 0) {
+            if (sampled_start >= 0 && (cfg.rope_phase_positions ||
+                                       cfg.rope_position_mode == RopePositionModeV2::SampledBin)) {
                 int sampled_pos = (cfg.rope_position_mode == RopePositionModeV2::SampledBin)
                     ? sampled_rope_pos_from_start_v2(
                         sampled_start, fcd + j - 1, pos_stage->data->prefix_table.window_size)
@@ -535,7 +536,8 @@ static inline ChunkMetadataV2 build_chunk_metadata_v2(const TrainerConfig& cfg,
             int char_pos = trie.ancestor_char_ids[anc_off + a];
             out.h_anc_ids[anc_fill] = char_pos;
             int read_pos = trie.real_pos_of_char[char_pos];
-            if (sampled_start >= 0) {
+            if (sampled_start >= 0 && (cfg.rope_phase_positions ||
+                                       cfg.rope_position_mode == RopePositionModeV2::SampledBin)) {
                 int sampled_pos = (cfg.rope_position_mode == RopePositionModeV2::SampledBin)
                     ? sampled_rope_pos_from_start_v2(
                         sampled_start, read_pos, pos_stage->data->prefix_table.window_size)

@@ -1984,6 +1984,7 @@ int main(int argc, char** argv) {
             } else {
                 std::printf(" phase_order=sequential");
             }
+            std::printf(" rope_phase_positions=%s", cfg.rope_phase_positions ? "phase+depth" : "depth");
         }
     }
     if (successor_table_ptr) {

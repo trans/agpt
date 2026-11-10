@@ -106,7 +106,8 @@ static inline void init_unit_anc_grad_runtime_v2(UnitAncGradRuntimeV2& runtime,
             if (slot < 0) continue;
             h_subtree_slots[n_sub] = slot;
             int pos = trie.real_pos_of_char[char_pos];
-            if (sampled_start >= 0) {
+            if (sampled_start >= 0 && (cfg.rope_phase_positions ||
+                                       cfg.rope_position_mode == RopePositionModeV2::SampledBin)) {
                 int sampled_pos = (cfg.rope_position_mode == RopePositionModeV2::SampledBin)
                     ? sampled_rope_pos_from_start_v2(
                         sampled_start, pos, pos_stage->data->prefix_table.window_size)

@@ -278,6 +278,7 @@ static bool yaml_is_known_experimental_field_v2(const std::string& path) {
         "experimental.rope_position_offset",
         "experimental.phase_order",
         "experimental.phase_order_seed",
+        "experimental.rope_phase_positions",
         "experimental.position_data_dir",
         "experimental.partition_depth_map",
         "experimental.unit_order_seed",
@@ -655,6 +656,7 @@ static bool apply_yaml_config_v2(const char* config_path,
         }
         cfg.rope_phase_shuffle_seed = (unsigned)phase_order_seed;
     }
+    if (!yaml_get_bool_v2(doc, "experimental.rope_phase_positions", cfg.rope_phase_positions)) return false;
     if (!yaml_expect_string_v2(doc, "experimental.position_data_dir", yaml_cfg.position_data_dir, false)) return false;
     if (!yaml_expect_string_v2(doc, "experimental.partition_depth_map", yaml_cfg.partition_depth_map, false)) return false;
     { bool has_uos = false; if (!yaml_get_int_v2(doc, "experimental.unit_order_seed", yaml_cfg.unit_order_seed, &has_uos)) return false; }
