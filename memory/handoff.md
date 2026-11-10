@@ -57,7 +57,10 @@ The user named item 1 on 2026-11-10. No order is agreed for the rest.
    phase control settled that phase RoPE isn't positional. Step 1 (the
    superposed tail, `rnd/superposed-tail-rope`) was inconclusive (the runs
    were undertrained), and the user judged the test worthless, 2026-11-10.
-   No next step agreed. The other direction the user named, a Möbius prior plus imm's
+   The softmax limit of superposition is now derived and measured
+   (`notes/seq-len-extension/superposition-softmax-limit.md`): superposed
+   keys can't stand in for softmax over occurrences at the sharpness trained
+   heads use. No next step agreed. The other direction the user named, a Möbius prior plus imm's
    residual models, belongs to @mobius and @imm.
 2. **The orientation proviso checks** ([open-lines.md](open-lines.md) §1),
    whenever the result is built on.

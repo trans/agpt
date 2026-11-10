@@ -142,6 +142,22 @@ and @imm (see [air-projects.md](air-projects.md)).
   characters, and this had been tested before. **Lesson:** check the record
   with the user before building a test, and treat a control that fails to
   reproduce a known effect as a broken setup.
+- **Superposition's softmax limit: derived and measured, 2026-11-10** (the
+  user asked for grounded math, then said "go ahead"). Note:
+  `notes/seq-len-extension/superposition-softmax-limit.md`. Record:
+  `rnd/superposition-moment-order`.
+  - An exact superposed lookup needs exponential atoms λ^Δ, or exponential
+    polynomials with a vector state. True wavelets break it.
+  - Summing keeps the mean of the occurrence cloud on the RoPE torus. Softmax
+    needs all its cumulants, and hard max needs every occurrence.
+  - Measured on a regular d64/L2 model with 124-character windows: heads are
+    sharp (window max weight 0.84, logit range 14), and matching their
+    attention takes moment order 8 (p90 KL 0.012) to 24 (p99 KL < 1e-3).
+    That is 2.7e5 to 8.7e8 coefficients per character, against ≤ 108
+    occurrences.
+  - **Settled:** superposed keys can serve only a linear readout, and trained
+    heads aren't linear. What survives is shared-key RoPE (compressing
+    compute) or exact merging (the trie).
 - **imm's data point:** in imm a query has one real position, so H1 is well
   defined there. Recurrence statistics suggest a per-type chord buys reach,
   not compression of repeats already in view.
