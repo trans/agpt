@@ -15,10 +15,18 @@ gives sum_p s_p exactly, which is the linear readout. Softmax needs
 
 and with the moment tensors of the cloud up to order m, the exact quantities
 available are sum_p s_p^k for k <= m. (s^k is linear in phi^{(x)k}; this is
-checked numerically below for k = 2 and 3.) Two order-m estimators are scored:
+checked numerically below for k = 2 and 3.) So any degree-m polynomial P gives
+sum_p P(s_p) exactly. Three order-m estimators are scored:
 
-    taylor0:  Z_c ~ sum_p T_m(s_p)                      T_m = degree-m Taylor of exp at 0
-    centred:  Z_c ~ exp(sbar_c) sum_p T_m(s_p - sbar_c) sbar_c = mean score (order 1)
+    taylor0:   Z_c ~ sum_p T_m(s_p)                      T_m = degree-m Taylor of exp at 0
+    centred:   Z_c ~ exp(sbar_c) sum_p T_m(s_p - sbar_c) sbar_c = mean score (order 1)
+    chebyshev: Z_c ~ sum_p C_m(s_p)                      C_m = degree-m Chebyshev interpolant
+                                                         of exp on [lo, hi]
+
+For chebyshev, [lo, hi] is the range of the score over every offset in
+[window, max_offset) for this (query char, key char, head). It is known before
+any occurrence is seen, so C_m is a fixed polynomial and the estimate needs only
+the order-<=m moments. Chebyshev interpolation is near-best in uniform error.
 
 Only even m is used, where T_m > 0. The metric is the KL divergence, for each
 (query, head), between the exact attention distribution and the approximate
@@ -130,7 +138,35 @@ def main():
         chunks.append(torch.tensor([vocab[c] for c in txt]))
 
     W = args.window
-    kl = {(est, m): [] for est in ('taylor0', 'centred') for m in ORDERS}
+    ESTS = ('taylor0', 'centred', 'chebyshev')
+
+    # chebyshev: per (query char, key char, head), the score range over all older offsets
+    # and the degree-m interpolant of exp on it, as coefficients of T_n(u), u in [-1, 1]
+    all_old = torch.arange(W, args.max_offset)
+    ph_old = torch.polar(torch.ones(len(all_old), J, dtype=torch.float64), all_old[:, None].double() * omega)
+    s_all = torch.einsum('qkhj,nj->qkhn', A, ph_old).real        # (Vq, Vk, H, n_old)
+    lo, hi = s_all.min(-1).values, s_all.max(-1).values
+    mid, half = (hi + lo) / 2, ((hi - lo) / 2).clamp_min(1e-12)
+    cheb = {}
+    for m in ORDERS:
+        kk = torch.arange(m + 1, dtype=torch.float64)
+        theta = math.pi * (kk + 0.5) / (m + 1)                    # Chebyshev nodes u_k = cos(theta_k)
+        f = torch.exp(half[..., None] * torch.cos(theta))        # exp(half * u_k), mid factored out
+        c = (2.0 / (m + 1)) * f @ torch.cos(kk[:, None] * theta[None, :]).T  # c_n, n = 0..m
+        c[..., 0] /= 2
+        cheb[m] = c                                              # (Vq, Vk, H, m+1)
+
+    # --- check 3: the largest-order interpolant equals exp at its own nodes (query char qa), as
+    # uniform error relative to exp(hi). (Relative to exp(lo) it is limited by float64 cancellation
+    # once the interval is wide: the coefficients are ~exp(hi), the smallest values exp(lo).)
+    mt = ORDERS[-1]
+    uu = torch.cos(math.pi * (torch.arange(mt + 1, dtype=torch.float64) + 0.5) / (mt + 1))
+    Tg = torch.cos(torch.arange(mt + 1, dtype=torch.float64) * torch.arccos(uu)[:, None])  # (nodes, mt+1)
+    approx = torch.exp(mid[qa][..., None]) * (cheb[mt][qa] @ Tg.T)                    # (Vk, H, nodes)
+    truth = torch.exp(mid[qa][..., None] + half[qa][..., None] * uu)
+    err_cheb = float(((approx - truth).abs() / torch.exp(hi[qa])[..., None]).max())
+
+    kl = {(est, m): [] for est in ESTS for m in ORDERS}
     older_mass, logit_range, win_entropy, win_maxw, n_occ = [], [], [], [], []
     for x in chunks:
         n = x.numel()
@@ -150,11 +186,17 @@ def main():
             p_exact = lp_exact.exp()
             cnt = onehot.sum(0)[present]
             sbar = (s_old @ onehot)[:, present] / cnt
+            mid_p = mid[a_char][older_chars].T                         # (H, n_old)
+            half_p = half[a_char][older_chars].T
+            acos_u = torch.arccos(((s_old - mid_p) / half_p).clamp(-1, 1))
             for m in ORDERS:
                 Z0 = (taylor_exp(s_old, m) @ onehot)[:, present]
                 dev = s_old - (sbar @ onehot[:, present].T)          # s_p - sbar_{c(p)}
                 Zc_ = (taylor_exp(dev, m) @ onehot)[:, present] * torch.exp(sbar)
-                for est, Zhat in (('taylor0', Z0), ('centred', Zc_)):
+                cp = cheb[m][a_char][older_chars].permute(1, 0, 2)    # (H, n_old, m+1)
+                Tn = torch.cos(torch.arange(m + 1, dtype=torch.float64) * acos_u[..., None])
+                Zch = ((torch.exp(mid_p) * (cp * Tn).sum(-1)) @ onehot)[:, present]
+                for est, Zhat in (('taylor0', Z0), ('centred', Zc_), ('chebyshev', Zch)):
                     la = torch.cat([s_win, torch.log(Zhat.clamp_min(1e-300))], 1)
                     lp = torch.log_softmax(la, 1)
                     kl[(est, m)].append((p_exact * (lp_exact - lp)).sum(1))
@@ -174,14 +216,15 @@ def main():
     res = {
         'model': args.model, 'model_seq_len': cfg['seq_len'], 'window': W, 'max_offset': args.max_offset,
         'queries': len(older_mass), 'heads': H, 'freqs_per_head': J,
-        'checks': {'factored_vs_rope_logit_max_abs_err': err_rope, 'moment_tensor_rel_err_k2_k3': err_mom},
+        'checks': {'factored_vs_rope_logit_max_abs_err': err_rope, 'moment_tensor_rel_err_k2_k3': err_mom,
+                   f'chebyshev_m{ORDERS[-1]}_err_at_nodes_rel_to_interval_max': err_cheb},
         'older_attention_mass': pct(older_mass) | {'per_head_mean': per_head(older_mass)},
         'older_logit_range_max_abs_s': pct(logit_range) | {'per_head_mean': per_head(logit_range)},
         'window_entropy_nats': pct(win_entropy) | {'uniform': math.log(W), 'per_head_mean': per_head(win_entropy)},
         'window_max_weight': pct(win_maxw),
-        'kl_exact_vs_order_m': {est: {str(m): pct(kl[(est, m)]) for m in ORDERS} for est in ('taylor0', 'centred')},
+        'kl_exact_vs_order_m': {est: {str(m): pct(kl[(est, m)]) for m in ORDERS} for est in ESTS},
     }
-    for est in ('taylor0', 'centred'):
+    for est in ESTS:
         need = None
         for m in ORDERS:
             if res['kl_exact_vs_order_m'][est][str(m)]['p99'] < 1e-3:
@@ -192,7 +235,7 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     (out / 'metrics.json').write_text(json.dumps(res, indent=2) + '\n')
     print(json.dumps({k: v for k, v in res.items() if k != 'kl_exact_vs_order_m'}, indent=1))
-    for est in ('taylor0', 'centred'):
+    for est in ESTS:
         print(est, ' '.join(f"m={m}:p50={res['kl_exact_vs_order_m'][est][str(m)]['p50']:.2e},"
                             f"p99={res['kl_exact_vs_order_m'][est][str(m)]['p99']:.2e}" for m in ORDERS))
 
