@@ -1,0 +1,50 @@
+{
+  "arm": "decay",
+  "steps": 20000,
+  "batch_size": 1024,
+  "loss_positions": "last",
+  "lr": 0.0015,
+  "warmup": 500,
+  "min_lr_frac": 0.1,
+  "seed": 42,
+  "window": 16,
+  "doc_len": 5568,
+  "fourier_tau": 512.0,
+  "cycles": 1.0,
+  "rope_base": 10000.0,
+  "d_model": 64,
+  "n_heads": 4,
+  "n_layers": 2,
+  "d_ff": 256,
+  "eval_every": 5000,
+  "eval_batch": 512,
+  "threads": 2,
+  "out": "rnd/superposed-tail-rope/20261110T182838-sweep20k/decay-s42",
+  "git_sha": "4a2f4e513a22697c8dc10c0c51b8a050404b7a44",
+  "tools_dirty": true,
+  "atoms": {
+    "omega": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "tau": [
+      6.283185307179586,
+      19.8691765315922,
+      62.83185307179586,
+      198.69176531592203,
+      628.3185307179587,
+      1986.91765315922,
+      6283.185307179586,
+      19869.1765315922
+    ]
+  },
+  "train_chars": 1059634,
+  "train_starts": 1056577,
+  "params": 108485
+}
