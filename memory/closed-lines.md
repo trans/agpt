@@ -68,7 +68,10 @@ All three were null, as the SGD-equivalence test predicts
 - **Distribution and expected-position RoPE:** `rnd/dist-rope-smoke`.
 - **Harmonic attention bias:** `rnd/harmonic-bias-prototype`.
 - **Wrapped and sampled-unit phase variants:** these failed. The unwrapped
-  phase variants in `rnd/sampled-node-phase-rope` are the positive result.
+  phase variants in `rnd/sampled-node-phase-rope` are the positive result,
+  but not as position encodings: the shift cancels in Q·K (control,
+  2026-11-10). Phase RoPE as a positional idea is closed; what helped there
+  was the per-epoch strided sampling of loss weights.
 - **Successor prefix attention:** inconclusive. Its 5.23 is a leakage
   diagnostic, and a clean version needs causal masking
   (`rnd/successor-prefix-attention`).

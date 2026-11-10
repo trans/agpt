@@ -33,7 +33,8 @@ To reproduce a run:
 | Adam pd=0, 100 ep, exact / truncated | 12.084 / 12.054 | 12.105 / 12.110 | `adam-pd0-exact-100ep`, `cadence-pd0-100ep` | the fix doesn't matter at pd=0 |
 | L-BFGS on the trie, exact, 25 Adam ep + 600 passes | 5.019 | 4.481 | `lbfgs-trie-exact-pd1-ep25-600` | 3 backtracks; still descending |
 | Same, truncated gradient | 5.407 | 4.888 | `lbfgs-trie-pd1-ep25-600` | 264 of 600 evaluations backtracked |
-| d128/L6, phase-conditioned RoPE, 512 ep | 4.497 | 3.92 | `rnd/sampled-node-phase-rope` | 2026-06-05: before the race fix, truncated gradient |
+| d128/L6, phase-conditioned RoPE, 512 ep | 4.497 | 3.92 | `rnd/sampled-node-phase-rope` | 2026-06-05: before the race fix, truncated gradient; the RoPE shift is a no-op, so this is strided-minibatch training (2026-11-10) |
+| d64/L2 phase-weighted 8 ep, phase + depth / depth-only RoPE | 10.170 / 10.175 | 10.132 / 10.137 | `rnd/sampled-node-phase-rope` `20261110T1146*` / `T1148*` | 2026-11-10 identity control; post-fix trainer, `anc_grad_exact: false` |
 
 At equal traversals (125 / 225 / 325 / 425 / 625), Adam-625 leads L-BFGS by
 about 5–6% at every point (Exp 8 table).

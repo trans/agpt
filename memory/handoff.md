@@ -71,8 +71,10 @@ The user named item 1 on 2026-11-10. No order is agreed for the rest.
 - What explains AGPT's remaining gap to vanilla minibatch attention? Not the
   units' target correlation: at equal steps they tie shuffled minibatches
   (orientation grouping control). Step count is the plainest candidate.
-- Is the phase-tree gain positional? @imm's survey says the phase cancels in
-  Q·K ([open-lines.md](open-lines.md) §3a).
+- Is the phase-tree gain positional? **No (control, 2026-11-10):** the shift
+  cancels in Q·K, and depth positions score the same. The phase modes are
+  strided minibatches of 1/64 of the windows per epoch. Whether minibatching
+  explains their d128/L6 gain over static is open ([open-lines.md](open-lines.md) §3a).
 - Should canonical baselines trained before the 2026-09-24 race fix be re-run?
   **Open: the user's call** (gradient-population README).
 - How far one corpus pass gets is still unmeasured (item 04 of the site's

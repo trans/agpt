@@ -110,14 +110,21 @@ and @imm (see [air-projects.md](air-projects.md)).
     mass or log-mass tied (`rnd/rope-position-substitution`).
   - **The chord bias was probed only on ancestor keys,** which share the
     query's position trivially (`rnd/harmonic-filter-diagnostic`).
-  - **The phase-tree gain is probably not positional.** Checked 2026-11-10:
-    `src/cudax/forward_stages_v2.cuh:81-82` rotates Q and K with the same
-    `d_rope_positions`, so a phase applied to a whole unit cancels in Q·K.
-    The 4-epoch control in `rnd/sampled-node-phase-rope` agrees (phase sweep
-    12.7244 vs fixed offset 12.7277). Not checked: whether ancestor keys
-    cached under another phase break the cancellation. That result also
-    predates the race fix (`27ee367`), and no long phase-sweep control was run
-    at d128/L6.
+  - **The phase-tree gain is not positional. Settled 2026-11-10** by a
+    control the user chose ("D") from the RoPE review. One phase serves the
+    whole epoch, and the KV cache is zeroed at each epoch start, so cached
+    ancestor keys share the phase and the shift cancels in Q·K. The new flag
+    `experimental.rope_phase_positions: false` drops the shift and keeps the
+    phase weights. Paired d64/L2 8-epoch runs scored rolling byte PPL 10.170
+    with the shift and 10.175 without, with per-epoch losses equal to about
+    1e-3 (`rnd/sampled-node-phase-rope`, "Control" section). What the phase
+    modes change is the loss weights. Each epoch trains on the windows
+    starting in one residue class mod 64, so 64 epochs make one pass in 64
+    strided minibatches, and `phase-conditioned` also takes its targets from
+    that minibatch. **Open:** whether minibatching explains the d128/L6 gain
+    over static (4.50 vs 4.71, unmatched, pre-race-fix). The test would be a
+    post-fix d128/L6 pair, static vs phase-weighted with depth positions, on
+    the same schedule; nobody has decided to run it.
   - **Never built:** shared-key RoPE
     (`notes/seq-len-extension/shared_key_rope.md`), the user's H1 matched
     filter (`harmonic-filter-plan.md`, 2026-05-25), chord forms C and D
@@ -160,7 +167,8 @@ and @imm (see [air-projects.md](air-projects.md)).
 - **KN order 7 on the canonical split:** two records disagree, 4.114 against
   4.19 ([measurements.md](measurements.md)).
 - **The best d128/L6 result** (phase-conditioned RoPE, 4.497 rolling) predates
-  both the race fix and the exact backward. A rerun would give the current
+  both the race fix and the exact backward. Its gain comes from strided
+  minibatch loss weights, not position (§3a, 2026-11-10). A rerun would give the current
   headline at that size. This is a suggestion; nobody has decided it.
 
 ## 6. Planned, not started
