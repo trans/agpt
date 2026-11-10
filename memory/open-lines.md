@@ -132,6 +132,16 @@ and @imm (see [air-projects.md](air-projects.md)).
   - **The open question:** can one key standing for many occurrences, scored
     bilinearly with relative offsets kept, carry anything attention uses
     beyond the plain relative offset?
+- **Step 1, the superposed tail (2026-11-10): inconclusive, and closed in
+  this form.** The test (`rnd/superposed-tail-rope`) added a linear,
+  character-keyed channel over the text older than the 16-character window.
+  It went almost unused, but its control (plain softmax windows of 32 and 64)
+  also showed no gain. The runs were undertrained (~20M scored targets
+  against vanilla's ~170M), so the test had no power. The user called it
+  worthless (2026-11-10): ordinary models are known to gain from 64
+  characters, and this had been tested before. **Lesson:** check the record
+  with the user before building a test, and treat a control that fails to
+  reproduce a known effect as a broken setup.
 - **imm's data point:** in imm a query has one real position, so H1 is well
   defined there. Recurrence statistics suggest a per-type chord buys reach,
   not compression of repeats already in view.

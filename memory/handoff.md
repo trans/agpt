@@ -53,9 +53,11 @@
 
 The user named item 1 on 2026-11-10. No order is agreed for the rest.
 
-1. **Multi-positional (superposed) RoPE.** Look back at the earlier `rnd/`
-   work first ([open-lines.md](open-lines.md) §3a lists it, with @imm's
-   survey). The other direction the user named, a Möbius prior plus imm's
+1. **Multi-positional (superposed) RoPE.** The review is done, and the
+   phase control settled that phase RoPE isn't positional. Step 1 (the
+   superposed tail, `rnd/superposed-tail-rope`) was inconclusive (the runs
+   were undertrained), and the user judged the test worthless, 2026-11-10.
+   No next step agreed. The other direction the user named, a Möbius prior plus imm's
    residual models, belongs to @mobius and @imm.
 2. **The orientation proviso checks** ([open-lines.md](open-lines.md) §1),
    whenever the result is built on.

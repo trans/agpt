@@ -34,6 +34,8 @@ To reproduce a run:
 | L-BFGS on the trie, exact, 25 Adam ep + 600 passes | 5.019 | 4.481 | `lbfgs-trie-exact-pd1-ep25-600` | 3 backtracks; still descending |
 | Same, truncated gradient | 5.407 | 4.888 | `lbfgs-trie-pd1-ep25-600` | 264 of 600 evaluations backtracked |
 | d128/L6, phase-conditioned RoPE, 512 ep | 4.497 | 3.92 | `rnd/sampled-node-phase-rope` | 2026-06-05: before the race fix, truncated gradient; the RoPE shift is a no-op, so this is strided-minibatch training (2026-11-10) |
+| Superposed tail, d64/L2 no trie, 20k steps: none / fourier / wavelet / decay (seed 42) | diag. NLL 1.3583 / 1.3598 / 1.3609 / 1.3468 | — | `rnd/superposed-tail-rope` `20261110T182838-sweep20k` | diagnostic full-window NLL, not lm-eval; seed 43: 1.3521 / 1.3526 / 1.3559 / 1.3545 |
+| Same baseline, softmax window 16 / 32 / 64, t ≥ 256 (seeds 42, 43) | diag. NLL 1.3578, 1.3523 / 1.3467, 1.3511 / 1.3574, 1.3504 | — | `20261110T190338-window-control20k` | undertrained (~20M targets): NOT evidence about context length; the control failed |
 | d64/L2 phase-weighted 8 ep, phase + depth / depth-only RoPE | 10.170 / 10.175 | 10.132 / 10.137 | `rnd/sampled-node-phase-rope` `20261110T1146*` / `T1148*` | 2026-11-10 identity control; post-fix trainer, `anc_grad_exact: false` |
 
 At equal traversals (125 / 225 / 325 / 425 / 625), Adam-625 leads L-BFGS by
