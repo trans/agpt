@@ -42,9 +42,17 @@ only where a source says so.
 
 ## Research direction
 
-- **Context-tree orientation is to be run to ground.** The user asked on
-  2026-10-03 that it not be settled on one GRU run (see
-  [open-lines.md](open-lines.md)).
+- **Context-tree orientation is called: a minor breakthrough, with a
+  proviso.** On 2026-10-03 the user asked that it not be settled on one GRU
+  run. On 2026-11-10 they called it, labelled it a minor breakthrough, and
+  attached a proviso to double-check and polish it. The double-check list is
+  in `rnd/context-tree-orientation/README.md` ("Proviso"). Their reading:
+  the prefix trie was the right choice from the start, for reasons nobody had
+  seen, and further gains need something past the tree, though they suspect
+  something is still being missed.
+- **Next directions (the user, 2026-11-10):** a Möbius prior with imm's
+  residual models (the @mobius and @imm projects), and, for this project,
+  multi-positional (superposed) RoPE ([open-lines.md](open-lines.md) §3a).
 - **The precondition branch was archived, not merged** (`df75f96`,
   2026-06-02).
 

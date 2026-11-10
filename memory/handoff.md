@@ -1,6 +1,6 @@
 # Handoff: where AGPT stands
 
-*Updated 2026-11-07*
+*Updated 2026-11-10*
 
 ## Where we were
 
@@ -31,9 +31,13 @@
   (`bd680ff`), every `rnd/` README got validated front matter (`eaf4c6c`,
   `c81ab8f`), and the static site and its experiment archive were built
   (`e1da9b7`).
-- Last session (2026-10-03): the context-tree orientation test (`cac6c86`,
-  `7ef76d6`). It was negative for a GRU at depth 8, and the user asked for it
-  to be run to ground rather than settled on one run.
+- 2026-10-03: the context-tree orientation test (`cac6c86`, `7ef76d6`). The
+  user asked for it to be run to ground.
+- 2026-11-10: a no-trie grouping control settled the mechanism, and the user
+  called the strand a **minor breakthrough**, with a proviso to double-check
+  and polish. The finding: the prefix trie's pd=1 units group by the least
+  predictive character and train like shuffled minibatches, while suffix-tree
+  units are target-sorted (`rnd/context-tree-orientation`, Conclusion).
 
 ## Latest results
 
@@ -47,23 +51,28 @@
 
 ## What's next
 
-No order has been agreed with the user, except item 1.
+The user named item 1 on 2026-11-10. No order is agreed for the rest.
 
-1. **Context-tree orientation:** run it to ground (the user asked for this on
-   2026-10-03). The plan is in `todo/context-tree-orientation.md` under "Next
-   session". Per-machine memory marked it as the thing to offer at the start of
-   the next session.
-2. **v2 trainer speed:** correctness is done; the kernel work has not started.
+1. **Multi-positional (superposed) RoPE.** Look back at the earlier `rnd/`
+   work first ([open-lines.md](open-lines.md) §3a lists it, with @imm's
+   survey). The other direction the user named, a Möbius prior plus imm's
+   residual models, belongs to @mobius and @imm.
+2. **The orientation proviso checks** ([open-lines.md](open-lines.md) §1),
+   whenever the result is built on.
+3. **v2 trainer speed:** correctness is done; the kernel work has not started.
    Resume point and acceptance tests: [open-lines.md](open-lines.md).
-3. **Curvature that keeps partitioned cadence:** per-subtree L-BFGS histories,
+4. **Curvature that keeps partitioned cadence:** per-subtree L-BFGS histories,
    or stochastic quasi-Newton ([open-lines.md](open-lines.md)).
 
 ## Open questions
 
 - Does a curvature method beat partitioned Adam at equal compute in any regime
   (larger models, partitioned histories)?
-- Is the suffix tree's pd=1 penalty caused by class-sorted units, and does it
-  exist with no tree at all? (These are the mechanism tests in the todo.)
+- What explains AGPT's remaining gap to vanilla minibatch attention? Not the
+  units' target correlation: at equal steps they tie shuffled minibatches
+  (orientation grouping control). Step count is the plainest candidate.
+- Is the phase-tree gain positional? @imm's survey says the phase cancels in
+  Q·K ([open-lines.md](open-lines.md) §3a).
 - Should canonical baselines trained before the 2026-09-24 race fix be re-run?
   **Open: the user's call** (gradient-population README).
 - How far one corpus pass gets is still unmeasured (item 04 of the site's

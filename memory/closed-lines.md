@@ -1,6 +1,6 @@
 # Closed lines and negative results: don't retry as-is
 
-*Updated 2026-11-07*
+*Updated 2026-11-10*
 
 Each entry gets one line. The record is the experiment's README (its front
 matter `answer`). "As-is" means the version that was tested. Where a source
@@ -24,9 +24,11 @@ names a way back in, it is given.
 
 ## Tree structure and cadence
 
-- **Suffix-tree (context-tree) orientation with a GRU at depth 8**
-  (2026-10-03): negative. It stays open for an attention f_θ and for the
-  mechanism tests (open-lines §1).
+- **Suffix-tree (context-tree) orientation for partitioned training:**
+  called on 2026-11-10 by the user. Its units are target-sorted batches, and
+  the prefix trie's are not, which is the strand's positive finding (a minor
+  breakthrough). The proviso checks (seeds, attention f_θ, v2 unit order,
+  depth 16, canonical eval) are in the README.
 - **Stochastic and hybrid cadence:**
   - pd1 followed by stochastic refinement made everything worse
     (`rnd/hybrid-agpt`);

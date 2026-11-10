@@ -1,30 +1,34 @@
 # Open lines of research
 
-*Updated 2026-11-07*
+*Updated 2026-11-10*
 
 Each line has a state, where its plan lives, and what it needs next.
 
 ## 1. Context-tree orientation (suffix tree instead of the prefix trie)
 
-**Open.** The experiment's front matter says `concluded`/`negative` for the one
-GRU test. The todo and the user (2026-10-03) say to run it to ground.
+**Called on 2026-11-10 by the user: a minor breakthrough, with a proviso to
+double-check and polish.** The prefix trie is the right orientation, because
+its pd=1 units group by the least predictive character and train like shuffled
+minibatches. Suffix-tree units are target-sorted. Record and numbers:
+`rnd/context-tree-orientation/README.md` (Conclusion; Grouping control).
 
-- **Plan:** `todo/context-tree-orientation.md`, "Next session", in this order:
-  1. Mechanism tests: mixed units, interference between units, and a no-trie
-     control with minibatches sorted by last character, by first character,
-     and at random.
-  2. An attention f_θ in both orientations.
-  3. 3 seeds, a warmup-cosine LR, depth 16, pd=2/3.
-  4. Re-read the history: `--shuffle-order` helped about 2% at pd>1 in
-     `rnd/cap-folding`.
-  5. Canonical eval.
-- **Tool:** `src/tools/agpt_context_tree_coherence.py` (PyTorch; exact
-  level-by-level backward, checked against autograd).
-- **Caveats on the first runs:** one seed, a constant LR of 3e-3, depth 8, and
-  a diagnostic held-out metric. Any canonical claim needs an HF wrapper that
-  re-encodes the context newest-first at each position.
-- **Baseline for the recurrent A/B:** GRU AGPT on the prefix trie (tag
-  `exp/linear-recurrence-final`).
+- **Proviso checks, not yet done** (the README's list, in order):
+  1. seeds for the random and 2×2 cells;
+  2. an attention f_θ (cheapest: the no-trie control with attention over the
+     window);
+  3. v2's fixed unit order (`experimental.unit_order_seed` defaults to −1);
+  4. depth 16, pd=2/3, warmup-cosine;
+  5. canonical eval;
+  6. interference between unit steps.
+- **Open puzzle from the control:** shuffled minibatches at a constant 3e-3 got
+  worse after epoch 100 (train 1.846 → 1.893 at epoch 300), while
+  start-position-labelled random batches did not. One seed each; the
+  cosine-schedule runs avoid it.
+- **Tools:**
+  - `src/tools/agpt_context_tree_coherence.py`: the trees, with an exact
+    level-by-level backward;
+  - `src/tools/agpt_unit_grouping_control.py`: the no-trie grouping control,
+    with node and event groupings and `--schedule cosine`.
 
 ## 2. Curvature that keeps partitioned cadence
 
@@ -78,6 +82,52 @@ kernel work as research (2026-09-28).
 - Prefix-shared attention kernels exist only for inference (cascade-style or
   radix attention). No standard training kernel computes the gradient into
   ancestors.
+
+## 3a. Multi-positional (superposed) RoPE — next direction
+
+**Open, not started.** The user named it on 2026-11-10 as this project's next
+direction, once the orientation strand closed. The other direction they named,
+a Möbius count prior plus imm's neural residual models, belongs to @mobius
+and @imm (see [air-projects.md](air-projects.md)).
+
+- **Look back first (the user, 2026-11-10):** past `rnd/` experiments touched
+  this, so review them before designing anything new. Found by grepping the
+  front matter on 2026-11-10:
+  - `rope-position-substitution` (positive, 2026-05-22)
+  - `dist-rope-smoke` (negative, 2026-05-25)
+  - `harmonic-filter-diagnostic` (n/a, 2026-05-25)
+  - `harmonic-bias-prototype` (negative, 2026-05-29)
+  - `sampled-node-phase-rope` (positive, 2026-06-05)
+  - `seq-len-decouple` (negative, 2026-05-11): shared-key bookkeeping
+  - the head-split occurrence-position result, which exists only in commit
+    `81ed16f`'s message
+  - design notes in `notes/seq-len-extension/`
+- **Survey of what agpt already tried:** @imm sent one on 2026-11-10
+  (`mail/received/20261110-094438Z-@imm--survey-of-agpt-s-multi-positional-rope-line-a4a30c40.md`).
+  Read it before planning. Its main points, all @imm's unless marked:
+  - **Things that collapse a node's occurrences into one summary broke RoPE**
+    (`rnd/dist-rope-smoke`: 18–30% worse train loss). Substituting depth with
+    mass or log-mass tied (`rnd/rope-position-substitution`).
+  - **The chord bias was probed only on ancestor keys,** which share the
+    query's position trivially (`rnd/harmonic-filter-diagnostic`).
+  - **The phase-tree gain is probably not positional.** Checked 2026-11-10:
+    `src/cudax/forward_stages_v2.cuh:81-82` rotates Q and K with the same
+    `d_rope_positions`, so a phase applied to a whole unit cancels in Q·K.
+    The 4-epoch control in `rnd/sampled-node-phase-rope` agrees (phase sweep
+    12.7244 vs fixed offset 12.7277). Not checked: whether ancestor keys
+    cached under another phase break the cancellation. That result also
+    predates the race fix (`27ee367`), and no long phase-sweep control was run
+    at d128/L6.
+  - **Never built:** shared-key RoPE
+    (`notes/seq-len-extension/shared_key_rope.md`), the user's H1 matched
+    filter (`harmonic-filter-plan.md`, 2026-05-25), chord forms C and D
+    (`chord-position-encoding-design.md`), sliding-tree RoPE.
+  - **The open question:** can one key standing for many occurrences, scored
+    bilinearly with relative offsets kept, carry anything attention uses
+    beyond the plain relative offset?
+- **imm's data point:** in imm a query has one real position, so H1 is well
+  defined there. Recurrence statistics suggest a per-type chord buys reach,
+  not compression of repeats already in view.
 
 ## 4. Coherence-driven cadence, leftovers
 

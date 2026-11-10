@@ -1,6 +1,6 @@
 # What AGPT's equivalences do and don't buy
 
-*Updated 2026-11-07*
+*Updated 2026-11-10*
 
 These lessons came from the optimizer and equivalence work. Check a new idea
 against them before writing any code.
@@ -45,13 +45,17 @@ against them before writing any code.
   - The May 2026 verdict that L-BFGS "can't work" was about one history
     shared across partitions, whose curvature pairs mix different subtrees'
     losses. It does not apply to full-pass L-BFGS (`7444685`).
-- **Partition units must be mixed.**
-  - Suffix-tree pd=1 units each hold one target class, so they behave like
-    class-sorted minibatches (context-tree, 2026-10-03).
-  - Prefix-trie units are grouped by the least predictive character and stay
-    mixed.
-  - Check any new partitioning's gradient cosine within units against its
-    cosine across units.
+- **Partition units must be mixed in their targets.**
+  - Suffix-tree pd=1 units group contexts by the newest character, so each is
+    a target-sorted batch. Their target skew (mean KL of a unit's targets from
+    the corpus's) is 0.86 nats (context-tree, 2026-10-03 and 2026-11-10).
+  - Prefix-trie units group by the oldest, least predictive character (skew
+    0.09). At an equal number of steps they train as well as shuffled
+    minibatches. This is why AGPT's partitioned training has worked.
+  - With the tree removed, the grouping alone costs about two thirds of the
+    suffix tree's pd=1 gap.
+  - Check any new partitioning's target skew, and its gradient cosine within
+    units against across units.
 - **Under full-batch training, the tree is bookkeeping.**
   - For a given f_θ, the exact gradient is the same whichever tree computes
     it.

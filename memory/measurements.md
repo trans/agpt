@@ -1,6 +1,6 @@
 # Measurements worth keeping
 
-*Updated 2026-11-07*
+*Updated 2026-11-10*
 
 ## Common setup and how to reproduce
 
@@ -104,3 +104,19 @@ These were run at the L-BFGS-600 checkpoint with the fp32 cache and TF32 off.
   - Each model takes about 8 minutes.
   - The run directories under `rnd/context-tree-orientation/` hold the
     summaries.
+- **Unit grouping without the tree** (2026-11-10, same GRU and table, 65
+  steps per epoch, diagnostic held-out NLL):
+
+  | Grouping | Target skew (KL, nats) | Constant 3e-3, 500 epochs | Cosine, 100 epochs |
+  |---|---:|---:|---:|
+  | prefix-trie units (oldest char) | 0.090 | 1.628 / 1.632 (2 seeds) | 1.704 |
+  | suffix-tree units (newest char) | 0.861 | 1.759 | 1.880 |
+  | shuffled minibatches | 0.0002 | unstable after epoch 100 (1.694 → 1.738 at 300) | 1.714 |
+  | newest-first GRU, prefix units | | 1.681 | |
+  | newest-first GRU, suffix units (= October pd=1) | | 1.838 | |
+
+  - Tool: `src/tools/agpt_unit_grouping_control.py --out DIR --cells
+    fwd/first,fwd/last,fwd/window --epochs 500` (add `--schedule cosine
+    --warmup-epochs 2 --epochs 100` for the cosine column).
+  - Speed: about 2–5 s per epoch for node groupings and 8–14 s for window
+    groupings, on a GPU shared with other jobs.
