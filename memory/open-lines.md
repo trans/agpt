@@ -151,13 +151,26 @@ and @imm (see [air-projects.md](air-projects.md)).
   - Summing keeps the mean of the occurrence cloud on the RoPE torus. Softmax
     needs all its cumulants, and hard max needs every occurrence.
   - Measured on a regular d64/L2 model with 124-character windows: heads are
-    sharp (window max weight 0.84, logit range 14), and matching their
-    attention takes moment order 8 (p90 KL 0.012) to 24 (p99 KL < 1e-3).
-    That is 2.7e5 to 8.7e8 coefficients per character, against ≤ 108
-    occurrences.
-  - **Settled:** superposed keys can serve only a linear readout, and trained
-    heads aren't linear. What survives is shared-key RoPE (compressing
-    compute) or exact merging (the trie).
+    sharp (window max weight 0.84, logit range 14), and a polynomial readout
+    of their attention takes moment order 8 (p90 KL 0.012) to 16 (p99 KL
+    < 1e-3, Chebyshev; 24 with centred Taylor). That is 2.7e5 to 3.9e7
+    coefficients per character, against ≤ 108 occurrences.
+  - **Revised the same day, at the user's request:** the first version said
+    superposed keys serve "only a linear readout". Too strong. At infinite
+    precision the sum is lossless (Lindemann–Weierstrass), which is the
+    user's intuition, exactly. At finite precision a nonlinear decoder is
+    bounded by compressed sensing: stable recovery needs ~k log(L/k)
+    measurements, so the state is never smaller than the occurrence list.
+    Where it would compress (history ≳ 1,000 chars), it can't decode.
+  - **Settled:** no cheap readout of a superposed RoPE state reproduces a
+    sharp softmax. What survives: shared-key RoPE (compressing compute),
+    exact merging (the trie), and a **polynomial positional kernel**
+    (note §5). With w(Δ) = |Σ_j b_j λ_j^Δ|², softmax over every older
+    occurrence is exact and recurrent in layer 1, with J complex states per
+    symbol (the superposed-tail state's size), at a positional resolution of
+    ~L/J. **Derived and checked numerically, not tested in training.** A
+    test would need a budget at which the window-64 control shows the known
+    gain.
 - **imm's data point:** in imm a query has one real position, so H1 is well
   defined there. Recurrence statistics suggest a per-type chord buys reach,
   not compression of repeats already in view.

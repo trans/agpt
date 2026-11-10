@@ -60,7 +60,9 @@ The user named item 1 on 2026-11-10. No order is agreed for the rest.
    The softmax limit of superposition is now derived and measured
    (`notes/seq-len-extension/superposition-softmax-limit.md`): superposed
    keys can't stand in for softmax over occurrences at the sharpness trained
-   heads use. No next step agreed. The other direction the user named, a Möbius prior plus imm's
+   heads use. Revised the same day: the sum is lossless, the limit is
+   decoding it (compressed sensing), and an exact polynomial-kernel family
+   exists (note §5, untested). No next step agreed. The other direction the user named, a Möbius prior plus imm's
    residual models, belongs to @mobius and @imm.
 2. **The orientation proviso checks** ([open-lines.md](open-lines.md) §1),
    whenever the result is built on.
