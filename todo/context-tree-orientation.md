@@ -2,15 +2,22 @@
 
 ## Status
 
-Mostly closed. Idea from Thomas, 2026-10-03.
+**Called on 2026-11-10: a minor breakthrough, with a proviso to double-check
+and polish.** Idea from Thomas, 2026-10-03; Thomas called it.
 
-Tested 2026-10-03 (`rnd/context-tree-orientation`), GRU at depth 8: negative.
-Diagnostic held-out PPL is 4.75 prefix vs 5.09 suffix at pd=0 (2000 epochs), and
-5.09 vs 6.29 at pd=1 (500 epochs). The residual readout helps at pd=0 (4.96)
-but breaks at pd=1 (9.22). Suffix-tree pd=1 units each hold one target class,
-so partitioned steps act like class-sorted minibatches. The prefix trie's
-grouping by the least predictive character is what keeps its units mixed.
-Open: an attention f_θ at pd=0 only.
+The suffix tree loses, and the reason is the finding: the prefix trie we have
+always used is the right orientation for partitioned training. Its pd=1 units
+group contexts by the oldest, least predictive character, so they train as
+well as shuffled minibatches. Suffix-tree units group by the newest, most
+predictive character and are target-sorted batches. A no-trie control
+(2026-11-10) shows the grouping alone causes about two thirds of the suffix
+tree's pd=1 penalty. Results, the conclusion and the proviso checks are in
+`rnd/context-tree-orientation/README.md`.
+
+From the plan below: step 1 (mechanism) is done with the no-trie grouping
+control (sorted by last char, by first char, shuffled, and by start position)
+but not the interference measurement. Steps 2–5 are the proviso list in the
+README.
 
 ## The observation
 
