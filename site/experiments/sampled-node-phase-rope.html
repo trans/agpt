@@ -33,12 +33,12 @@
         <h1>Sampled-node phase RoPE</h1>
         <p class="experiment-question">Can presenting trie paths at RoPE positions/phases that match where their prefixes occur in the corpus improve the depth-16 CUDAX AGPT recipe?</p>
         <div class="badge-row"><span class="badge badge-kind">experiment</span><span class="badge badge-status">concluded</span><span class="badge badge-outcome outcome-positive">positive</span><span class="badge badge-family">attention</span><span class="badge badge-eval">eval: canonical</span></div>
-<p class="run-history"><strong>Run history:</strong> 37 of 37 predate the 2026-09-24 CUDA kernel race fix; 37 of 37 predate the 2026-09-28 exact ancestor backward.</p>
-        <div class="experiment-dates"><span>Opened <time datetime="2026-06-05">2026-06-05</time></span><span>Updated <time datetime="2026-06-05">2026-06-05</time></span></div>
+<p class="run-history"><strong>Run history:</strong> 37 of 39 predate the 2026-09-24 CUDA kernel race fix; 37 of 39 predate the 2026-09-28 exact ancestor backward.</p>
+        <div class="experiment-dates"><span>Opened <time datetime="2026-06-05">2026-06-05</time></span><span>Updated <time datetime="2026-11-10">2026-11-10</time></span></div>
       </div>
     </section>
     <div class="shell experiment-main">
-      <section class="answer-panel" aria-labelledby="answer-heading"><span id="answer-heading" class="micro-label">THE ANSWER SO FAR</span><p>Yes. Phase-weighted and phase-conditioned training with unwrapped RoPE positions beat the static d128/L6 baseline (rolling byte PPL 4.71) and kept improving through 512 epochs. The best run was d128/L6 phase-conditioned direct with shuffled phase order: rolling byte PPL 4.50, fixed-window PPL 3.92 at epoch 512 on the multi-chunk held-out split. The early wrapped and sampled-unit-phase variants did not help.</p></section>
+      <section class="answer-panel" aria-labelledby="answer-heading"><span id="answer-heading" class="micro-label">THE ANSWER SO FAR</span><p>The recipe helped, but not through position. Phase-weighted and phase-conditioned training beat the static d128/L6 baseline (rolling byte PPL 4.71) and kept improving through 512 epochs; the best run, phase-conditioned direct with shuffled phase order, reached rolling byte PPL 4.50 and fixed-window PPL 3.92 at epoch 512 on the multi-chunk held-out split (all before the 2026-09-24 race fix). A 2026-11-10 control showed the RoPE phase shift does nothing: one shift per epoch cancels in Q·K, and d64/L2 at 8 epochs scored rolling byte PPL 10.170 with it and 10.175 without. What the phase modes change is the loss weights. Each epoch trains on the windows that start in one residue class mod 64, so 64 epochs make one pass over the data in 64 strided minibatches.</p></section>
 <section class="headline-grid" aria-label="Headline results"><div class="headline-item">
           <span class="headline-label">d128/L6 phase-conditioned direct, shuffled phase order, 512 epochs</span>
           <strong>4.4974</strong>
@@ -56,15 +56,109 @@
           <span class="headline-extra"><a href="https://github.com/trans/agpt/tree/main/rnd/sampled-node-phase-rope/20260603T112551-d64l2-depth16-pd1-adam-lr0015-512ep-phase-weighted-unwrapped">Run record ↗</a><span class="badge badge-caveat" title="This result predates the 2026-09-24 CUDA kernel race fix.">pre-race-fix</span><span class="badge badge-caveat" title="This result predates the 2026-09-28 exact ancestor backward.">truncated-ancestor-gradient</span></span>
         </div></section>
       <section class="experiment-meta" aria-label="Experiment connections">
-        <div><span class="micro-label">TOPICS</span><div class="meta-links"><a class="tag-link" href="index.html?tag=position">position</a><a class="tag-link" href="index.html?tag=rope">rope</a><a class="tag-link" href="index.html?tag=targets">targets</a></div></div>
-        <div><span class="micro-label">RELATED</span><div class="meta-links"><a href="baseline-calibration-v2-static-sampled.html">baseline-calibration-v2-static-sampled <span aria-hidden="true">↗</span></a><a href="kenlm-baseline.html">kenlm-baseline <span aria-hidden="true">↗</span></a><a href="rope-position-substitution.html">rope-position-substitution <span aria-hidden="true">↗</span></a></div></div>
+        <div><span class="micro-label">TOPICS</span><div class="meta-links"><a class="tag-link" href="index.html?tag=position">position</a><a class="tag-link" href="index.html?tag=rope">rope</a><a class="tag-link" href="index.html?tag=targets">targets</a><a class="tag-link" href="index.html?tag=minibatch">minibatch</a></div></div>
+        <div><span class="micro-label">RELATED</span><div class="meta-links"><a href="baseline-calibration-v2-static-sampled.html">baseline-calibration-v2-static-sampled <span aria-hidden="true">↗</span></a><a href="kenlm-baseline.html">kenlm-baseline <span aria-hidden="true">↗</span></a><a href="rope-position-substitution.html">rope-position-substitution <span aria-hidden="true">↗</span></a><a href="context-tree-orientation.html">context-tree-orientation <span aria-hidden="true">↗</span></a></div></div>
         <div><span class="micro-label">SUPERSEDED BY</span><div class="meta-links"><span class="empty-value">None listed</span></div></div>
         <div><span class="micro-label">CODE</span><div class="meta-links"><a href="https://github.com/trans/agpt/tree/main/rnd/sampled-node-phase-rope">Main branch ↗</a></div></div>
       </section>
       <div class="record-heading"><div><span class="section-number">THE FULL RECORD</span><h2>Experiment notes</h2></div><a href="https://github.com/trans/agpt/tree/main/rnd/sampled-node-phase-rope">Open directory on GitHub ↗</a></div>
       <article class="experiment-body"><h2 id="sampled-node-phase-rope">sampled-node-phase-rope</h2>
-<p><strong>Status:</strong> concluded, positive (reviewed 2026-09-28; this line previously read &quot;active&quot;). The answer is in the front matter above.</p>
+<p><strong>Status:</strong> concluded, positive (reviewed 2026-09-28; this line previously read &quot;active&quot;). The answer is in the front matter above. <strong>Mechanism revised 2026-11-10:</strong> the gain is not positional. See <a href="#control-the-phase-shift-is-a-no-op-2026-11-10">Control: the phase shift is a no-op</a> before reading the June interpretation below.</p>
 <p>Trainer note: post-fix</p>
+<h3 id="control-the-phase-shift-is-a-no-op-2026-11-10">Control: the phase shift is a no-op (2026-11-10)</h3>
+<p><strong>Why it should be.</strong> Every phase mode picks one phase φ per epoch.
+<code>sample_prefix_start_unit_phase_v2</code> (<code>src/cudax/position_sampling_v2.cuh:413-434</code>)
+ignores the node and unit, so every query and key in the epoch sits at
+φ + depth. The KV cache is zeroed at the start of each epoch
+(<code>src/cudax/agpt_train_v2.cu:2183</code>), so cached ancestor keys share that φ too.
+Q and K are rotated with the same positions (<code>src/cudax/forward_stages_v2.cuh:81-82</code>),
+and a RoPE score depends only on the difference of the two positions. So a
+shift shared by the whole epoch cancels in Q·K. In exact arithmetic the
+unwrapped phase presentation is the depth presentation.</p>
+<p><strong>The control.</strong> The new flag <code>experimental.rope_phase_positions</code> (default
+<code>true</code>, the old behaviour) presents RoPE at plain depth when <code>false</code>. The
+phase's loss weights and targets are kept. There were two runs, identical
+except for the flag: d64/L2, <code>phase-weighted</code>, 8 epochs, Adam lr 0.0015,
+<code>anc_grad_exact: false</code> in both. Their configs are
+<code>configs/phase-control/identity-d64l2-8ep-{phase,depth}-positions.yml</code>.</p>
+<table>
+<thead>
+<tr>
+<th style="text-align:right">Epoch</th>
+<th style="text-align:right">rolling byte PPL, phase + depth</th>
+<th style="text-align:right">rolling byte PPL, depth only</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align:right">1</td>
+<td style="text-align:right">16.2022</td>
+<td style="text-align:right">16.2100</td>
+</tr>
+<tr>
+<td style="text-align:right">2</td>
+<td style="text-align:right">13.0474</td>
+<td style="text-align:right">13.0483</td>
+</tr>
+<tr>
+<td style="text-align:right">4</td>
+<td style="text-align:right">11.1134</td>
+<td style="text-align:right">11.1281</td>
+</tr>
+<tr>
+<td style="text-align:right">8</td>
+<td style="text-align:right">10.1702</td>
+<td style="text-align:right">10.1751</td>
+</tr>
+</tbody>
+</table>
+<p>At epoch 8 the fixed-token PPL is 10.1324 against 10.1368, and the training
+mean loss is 2.309116 against 2.309462. The gaps are floating-point rounding
+from rotating by larger angles. The June 4-epoch control showed the same
+thing (phase sweep 12.7244 against fixed offset 12.7277).</p>
+<p>Runs:</p>
+<ul>
+<li><code>20261110T114605-d64l2-depth16-pd1-adam-lr0015-8ep-phase-weighted-phase-posit</code></li>
+<li><code>20261110T114847-d64l2-depth16-pd1-adam-lr0015-8ep-phase-weighted-depth-posit</code></li>
+</ul>
+<p><strong>What the phase modes actually change: the loss weights.</strong> <code>phase-weighted</code>
+sets each node's weight to <code>prefix_position_mass_for_presentation_start_v2</code>
+(<code>src/cudax/chunk_metadata_v2.cuh:253-264</code>, <code>position_sampling_v2.cuh:450-464</code>).
+That is the number of the node's occurrences whose endpoint falls in phase bin
+(φ + depth) mod 64, which means the occurrences that <em>start</em> at a position
+≡ φ (mod 64). Every node on a window's path shares that start, so one epoch
+trains on the windows starting in one residue class mod 64. That is a strided
+1/64 sample of the corpus, the same sample for every node, and the 64 phases
+partition the full mass. A 64-epoch cycle is therefore one pass over the data
+in 64 minibatches, and 512 epochs are about 8 passes. The variants differ as
+follows:</p>
+<ul>
+<li><strong><code>phase-conditioned</code></strong> also takes its targets from that residue class, so
+each of its epochs is the exact AGPT loss on the minibatch.</li>
+<li><strong><code>phase-weighted</code></strong> pairs minibatch weights with global targets.</li>
+<li><strong><code>phase_order: shuffle</code></strong> shuffles the minibatch order.</li>
+</ul>
+<p><strong>Reading.</strong> The line's gain over static is best read as a minibatch effect,
+not a positional one. The gain was 4.50 and 4.52 against 4.71 rolling at
+d128/L6, all before the race fix. The static run peaked near epoch 128 and then
+overfit, while the phase runs kept improving through 512 epochs. That is what
+splitting each full-batch pass into 64 noisy steps would do.
+<a href="context-tree-orientation.html"><code>rnd/context-tree-orientation</code></a> also found step count, not sample correlation,
+to be the likelier cause of AGPT's gap to vanilla minibatch training.</p>
+<p><strong>Still open:</strong></p>
+<ul>
+<li><strong>That minibatching causes the gain is untested.</strong> The static and phase
+runs were not matched: they used different schedules and peaked at
+different epochs, and both predate the 2026-09-24 race fix (<code>27ee367</code>). The
+test is a post-fix d128/L6 pair, static against <code>phase-weighted</code> with
+<code>rope_phase_positions: false</code>, on the same schedule. A strided-minibatch arm
+with other strides (not 64) would separate &quot;minibatch&quot; from &quot;this
+particular stride&quot;.</li>
+<li><strong>The trainer still turns off <code>anc_grad_exact</code> for every non-depth mode</strong>
+(<code>agpt_train_v2.cu:1932</code>). With <code>rope_phase_positions: false</code> the positions
+are depth positions. Whether the exact ancestor backward then also handles
+the phase weights has not been checked.</li>
+</ul>
 <h3 id="question">Question</h3>
 <p>Can sampled corpus-position / phase information improve the depth-16 CUDAX
 AGPT recipe by presenting trie paths at RoPE positions that match where their
@@ -407,7 +501,8 @@ larger-model static best (<code>fixed_token_ppl=4.1705</code>, byte PPL <code>4.
 showed that phase-aware training could keep improving past the point where the
 static d128/L6 run had already peaked. That made <code>phase-weighted</code> the first
 clear evidence that the phase signal was useful, not just a presentation
-artifact.</p>
+artifact. (2026-11-10: the presentation part turned out to be a no-op;
+what helped is the per-epoch sampling of loss weights. See the control above.)</p>
 <p>The later d128/L6 <code>phase-conditioned direct</code> runs are now the numerical best,
 with shuffled phase order improving both fixed-token and standard chunked
 rolling byte PPL. This should be read as a follow-up on the phase-weighted
@@ -1046,6 +1141,11 @@ structure that saturates quickly, or whether larger corpora expose enough
 stable phase-conditioned continuation structure to justify richer sparse
 phase-conditioned targets.</p>
 <h3 id="interpretation">Interpretation</h3>
+<blockquote>
+<p><strong>2026-11-10:</strong> written in June, before the <a href="#control-the-phase-shift-is-a-no-op-2026-11-10">control</a>.
+Read &quot;phase signal&quot; and &quot;phase-aware presentation&quot; below as &quot;phase-sampled loss
+weights&quot;: the RoPE shift itself cancels in Q·K.</p>
+</blockquote>
 <ul>
 <li>Phase-aware presentation did eventually improve the d64/L2 line, but the
 useful variant was not the first sampled-unit-phase or wrapped presentation.</li>
