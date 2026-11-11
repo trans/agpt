@@ -96,8 +96,12 @@ occurrence's score before summing. The geometry makes the cost exact.
   torus points are the cloud's Fourier transform at all signed combinations
   ±ω_{j1} ± … ± ω_{jk}. That is Jacobi–Anger. Those atoms are still
   exponentials, so each order follows the same recurrence. With J = 8, the
-  orders ≤ m need D(8, m) complex coefficients per symbol (a Delannoy number):
-  17, 145, 3,649 and 265,729 at m = 1, 2, 4 and 8.
+  orders ≤ m need the cloud's coefficient at D(8, m) combination frequencies
+  for each vocabulary symbol (a Delannoy number): 17, 145, 3,649 and 265,729
+  at m = 1, 2, 4 and 8. The coefficient at −n is the conjugate of the one at
+  n, so about half of them are independent complex numbers. RoPE uses the
+  same frequencies in every head, so a layer's heads share these states; only
+  the readout is per head.
 
 So a polynomial readout of exact softmax over superposed occurrences is an
 infinite tower of superposed states. That is the "no resolution limit" case.
@@ -133,8 +137,9 @@ model destroys those digits, and gradients can't use them.
   far fewer numbers than the D(J, m) of a polynomial readout. But it
   reconstructs the occurrence list, so up to the log factor its state is
   never smaller than that list of k positions.
-- **Where the state compresses, it can't decode.** One head's state is
-  V × 2J = 65 × 16 = 1,040 real numbers, whatever the history length. It
+- **Where the state compresses, it can't decode.** The layer's first-order
+  state, shared by its heads, is V × 2J = 65 × 16 = 1,040 real numbers,
+  whatever the history length. It
   holds fewer numbers than the text it summarizes only once the history
   passes ~1,000 characters. By then the average symbol has ~16 occurrences,
   and k ln(L/k) ≈ 16 × ln 64 ≈ 67 is well past 16 (with the bound's constant
@@ -221,8 +226,22 @@ Take a regular d64/L2 model trained on 124-character windows, keep its
 - **Matching their attention distribution takes order 8** for p90 KL 0.012
   nats (centred Taylor estimator). **It takes order 16** for p99 KL below
   1e-3 with Chebyshev interpolation, and order 24 with centred Taylor.
-- **That costs 2.7e5 to 3.9e7 coefficients per character,** against at most
-  108 occurrences.
+- **That costs D(8, m) = 2.7e5 to 3.9e7 combination frequencies per
+  vocabulary symbol,** about half of them independent complex numbers. The
+  window holds at most 108 occurrences of all symbols together. For the
+  whole layer at order 16, that is about 1.3e9 independent complex numbers
+  (10 GB in complex64, 21 GB in complex128), shared by the heads.
+- **It is also far slower than attention.** At order 16, each query's
+  readout runs over about 5e9 terms (1.3e9 coefficients × 4 heads), each a
+  few complex multiplies, and reads the whole 10 GB state. Direct attention
+  over the 108 occurrences is 108 × 4 heads × 16 = 6,912 multiply-adds.
+  Within a window, every coefficient is a linear function of the 108-slot
+  record of which symbol sits at each offset. So the readout equals
+  Σ_Δ P(s(Δ)) over the occupied offsets, and the fastest exact way to
+  compute it is to attend over the occurrences directly, with exp replaced
+  by the polynomial P. The tower pays for itself only when the history is
+  longer than the tower is large: more than ~1.3e9 positions, about a
+  thousand times the Tiny Shakespeare corpus.
 - **Chebyshev helps less than one might hope.** Below order 10 it is worse
   than centred Taylor, because its interval is the score's whole range over
   the offsets, fixed in advance and wide.

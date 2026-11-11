@@ -12,8 +12,9 @@ answer: >-
   against 2.77 uniform, median largest older-offset score 14). Reproducing their attention
   distribution needs moment order 8 for p90 KL 0.012 nats, and order 16 for p99 KL below 1e-3
   with the better of two estimators (Chebyshev interpolation; centred Taylor needs 24). That is
-  265,729 to about 3.9e7 complex coefficients per character, where the occurrences it would
-  replace number at most 108. A nonlinear decoder can do far better than a polynomial, but by
+  265,729 to about 3.9e7 combination frequencies per vocabulary symbol (about half of them
+  independent complex numbers, shared by the layer's heads), where the occurrences it would
+  replace number at most 108 for all symbols together. A nonlinear decoder can do far better than a polynomial, but by
   the compressed-sensing lower bound it can't use a state smaller than the occurrence list
   itself.
 opened: 2026-11-10
@@ -108,10 +109,10 @@ KL(exact ‖ order-m), p50 / p90 / p99, in nats:
 
 **Chebyshev against centred Taylor.** For the regular model, Chebyshev
 reaches p99 KL below 1e-3 at order 16 instead of 24: about two thirds of the
-order, and 3.9e7 coefficients instead of 8.7e8. Below order 10 it is worse.
-Its interval is fixed in advance and wide, and a uniform-error polynomial
-undershoots near the bottom of the interval, while the centred estimator
-adapts to each group's mean. The p99 values of several hundred nats on the
+order, and 3.9e7 combination frequencies per symbol instead of 8.7e8. Below
+order 10 it is worse. Its interval is fixed in advance and wide, and a
+uniform-error polynomial undershoots near the bottom of the interval, while
+the centred estimator adapts to each group's mean. The p99 values of several hundred nats on the
 depth-124 model can only come from estimates clamped at 1e-300, so there the
 polynomial went non-positive for groups that carry real mass.
 
@@ -123,15 +124,22 @@ That is the predicted cost of sharpness. Full tables are in each run's
 
 **The cost of order m.** Order m needs the cloud's Fourier coefficients at
 every signed combination ±ω_{j1} ± … ± ω_{jk} with k ≤ m. With 8 frequencies
-per head that is the Delannoy number D(8, m) of complex coefficients per
-character:
+per head, that is D(8, m) combination frequencies (a Delannoy number) for
+each vocabulary symbol. The coefficient at −n is the conjugate of the one at
+n, so about (D + 1)/2 of them are independent complex numbers. RoPE uses the same
+frequencies in every head, so the layer's 4 heads share these states; only
+the readout differs per head.
 
 | m | 1 | 2 | 4 | 8 | 12 | 16 | 24 |
 |---|---|---|---|---|---|---|---|
-| D(8, m) | 17 | 145 | 3,649 | 265,729 | 4,673,345 | 39,490,049 | 872,893,441 |
+| D(8, m) per symbol | 17 | 145 | 3,649 | 265,729 | 4,673,345 | 39,490,049 | 872,893,441 |
+| Independent complex numbers, whole layer (65 symbols) | 585 | 4,745 | 118,625 | 8.6e6 | 1.5e8 | 1.3e9 | 2.8e10 |
 
-Offsets 16–123 hold at most 108 occurrences in total. Storing them, which is
-ordinary attention over a 124-character window, takes 108 entries.
+Offsets 16–123 hold at most 108 occurrences, of all symbols together.
+Storing them, which is ordinary attention over a 124-character window, takes
+108 entries. At order 16 the layer's state is about 10 GB in complex64, and
+each query's readout runs over about 5e9 terms. Direct attention over the
+108 occurrences is 6,912 multiply-adds (note §7).
 
 ## Reading
 
@@ -140,8 +148,9 @@ ordinary attention over a 124-character window, takes 108 entries.
   and the AGPT depth-16 heads 0.86. Their scores against older occurrences
   reach a median of 14.
 - **A polynomial readout of softmax over superposed occurrences needs order
-  8–16.** That is 10^5 to 4×10^7 coefficients per character, against at most
-  108 occurrences. At this sharpness, a polynomial readout expands the
+  8–16.** That is 10^5 to 4×10^7 combination frequencies per vocabulary
+  symbol, against at most 108 occurrences of all symbols together. At this
+  sharpness, a polynomial readout expands the
   representation instead of compressing it. The only polynomial readout that
   compresses is the linear one (m = 1, 17 coefficients), and trained heads
   are far from linear: the m = 2 error is already 0.13 nats at p90.
@@ -162,7 +171,8 @@ ordinary attention over a 124-character window, takes 108 entries.
 
 - **The estimators aren't optimal for KL.** The best polynomial
   needs order 16 at most for p99 KL below 1e-3, and possibly less. Even
-  order 8 costs 265,729 coefficients against 108 occurrences, so the
+  order 8 costs 265,729 combination frequencies per symbol against 108
+  occurrences, so the
   conclusion doesn't depend on which polynomial is optimal.
 - Layer 1 only. In deeper layers, keys depend on context and can't be
   superposed exactly at any order.
