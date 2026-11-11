@@ -1,6 +1,6 @@
 # AGPT and the other AIR projects
 
-*Updated 2026-11-07*
+*Updated 2026-11-11*
 
 AGPT is one of the research projects overseen by @air.
 
@@ -44,6 +44,14 @@ AGPT is one of the research projects overseen by @air.
   affects mobius.
 - **What mobius does:** it computes exact corpus counts. These are relevant to
   AGPT's count-prior and backoff ideas, although no shared code exists.
+- **Does a count prior still help at scale? (2026-11-11)** The user's view:
+  no, because large models learn what the prior holds quickly, so the prior
+  is a small fraction of training. @air's test
+  (`mail/received/20261111-055621Z-@air--mobius-at-scale-*.md`): imm's char
+  transformer, with and without mobius's rows on its logits through a gate.
+  Sizes 121k–10.8M, 20M-character PG-19 split, 41 passes. It uses the
+  200M-character book prior, and a train-text-only prior as the control.
+  @air asked us for a prediction. **Draft held for the user.**
 
 ## @semtrace
 
