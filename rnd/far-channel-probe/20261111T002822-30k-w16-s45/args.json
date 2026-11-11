@@ -1,0 +1,29 @@
+{
+  "arm": "w16",
+  "steps": 30000,
+  "batch_size": 16,
+  "block": 512,
+  "lr": 0.0015,
+  "warmup": 500,
+  "min_lr_frac": 0.1,
+  "seed": 45,
+  "rope_base": 10000.0,
+  "d_model": 64,
+  "n_heads": 4,
+  "n_layers": 2,
+  "d_ff": 256,
+  "eval_every": 2000,
+  "eval_batch": 32,
+  "threads": 2,
+  "out": "rnd/far-channel-probe/20261111T002822-30k-w16-s45",
+  "git_sha": "27a789754ab415d7c1c2cb4f6199aecfcd9e4ef1",
+  "tools_dirty": false,
+  "atoms": null,
+  "train_chars": 1059634,
+  "params": 108481,
+  "checks": {
+    "change_at_offsets_143_up_max_abs": 0.0,
+    "change_at_offsets_31_142_max_abs": 0.0,
+    "far_recurrent_vs_parallel_max_rel_err": null
+  }
+}
