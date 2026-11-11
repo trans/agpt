@@ -154,7 +154,10 @@ and @imm (see [air-projects.md](air-projects.md)).
     sharp (window max weight 0.84, logit range 14), and a polynomial readout
     of their attention takes moment order 8 (p90 KL 0.012) to 16 (p99 KL
     < 1e-3, Chebyshev; 24 with centred Taylor). That is 2.7e5 to 3.9e7
-    coefficients per character, against ≤ 108 occurrences.
+    combination frequencies per vocabulary symbol (about half independent
+    complex numbers, shared by the heads), against ≤ 108 occurrences. At
+    order 16 the layer state is ~1.3e9 complex numbers (10 GB), and a query
+    reads it all: far slower than attending over the 108 occurrences.
   - **Revised the same day, at the user's request:** the first version said
     superposed keys serve "only a linear readout". Too strong. At infinite
     precision the sum is lossless (Lindemann–Weierstrass), which is the
