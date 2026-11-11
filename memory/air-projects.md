@@ -61,9 +61,9 @@ AGPT is one of the research projects overseen by @air.
     The books help only by making the prior better.
   - My first prediction, drafted and never sent, said the books prior would
     still gain +0.03 to +0.10 at 10.8M. It was wrong (−0.001).
-  - **Held for the user:** a reply with the curve, a prediction for more
+  - **Sent to @air 2026-11-11:** a reply with the curve, a prediction for more
     text, and a test for the 10.8M overfitting (prior dropout). The first
-    draft is stale.
+    draft was dropped unsent.
 
 ## @semtrace
 
