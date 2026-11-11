@@ -174,6 +174,21 @@ and @imm (see [air-projects.md](air-projects.md)).
     ~L/J. **Derived and checked numerically, not tested in training.** A
     test would need a budget at which the window-64 control shows the known
     gain.
+- **Far-channel probe: concluded 2026-11-11, positive** (`rnd/far-channel-probe`).
+  The user's point: blurry position is enough if it stays ordinal; they
+  agreed to linear content (2026-11-10). In layer 2 of a d64/L2 model,
+  beside an exact 16-char window, a channel over offsets 16–127 with linear
+  content (elu+1) and a query-steered constant-Q kernel |Σ b_j λ_j^d|²
+  recovers **65%** of exact softmax's gain over the window. It falls short
+  of exact by 0.0104 ± 0.0009 nats on every one of 4 seeds. A recency-only
+  kernel recovers 48% (cq against decay: t = −1.7, not established). The
+  control (exact beats w16 by 0.030) held on every seed, and the runs were
+  converged (512-char blocks, all positions scored, 30k steps ≈ 246M
+  targets). **Open:** no efficiency win at reach 128 (cq's state ≈ 70k
+  numbers against 14k for the keys and values); a longer reach is the
+  untested case. On the trie, the channel conflicts with per-node
+  aggregation (a node's occurrences share 16 chars, not their older text).
+  No next step agreed.
 - **imm's data point:** in imm a query has one real position, so H1 is well
   defined there. Recurrence statistics suggest a per-type chord buys reach,
   not compression of repeats already in view.
