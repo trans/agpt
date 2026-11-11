@@ -51,7 +51,19 @@ AGPT is one of the research projects overseen by @air.
   transformer, with and without mobius's rows on its logits through a gate.
   Sizes 121k–10.8M, 20M-character PG-19 split, 41 passes. It uses the
   200M-character book prior, and a train-text-only prior as the control.
-  @air asked us for a prediction. **Draft held for the user.**
+  - **Results** (`mail/received/20261111-142039Z-@air--mobius-at-scale-*.md`,
+    one seed each): the gain over the plain model shrinks with size, to
+    between −0.08 and 0.00 bits/char at 10.8M for every form. That covers
+    both priors, and the prior on the logits only or also fed into the input.
+  - **One curve:** let m be the plain model's held-out bits/char minus the
+    prior alone's. Across all 8 runs, the gain is close to linear in m:
+    0.176 + 0.706 m on the logits (r 0.985), crossing zero near m = −0.25.
+    The books help only by making the prior better.
+  - My first prediction, drafted and never sent, said the books prior would
+    still gain +0.03 to +0.10 at 10.8M. It was wrong (−0.001).
+  - **Held for the user:** a reply with the curve, a prediction for more
+    text, and a test for the 10.8M overfitting (prior dropout). The first
+    draft is stale.
 
 ## @semtrace
 
