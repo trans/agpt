@@ -4,6 +4,22 @@
 
 AGPT is one of the research projects overseen by @air.
 
+## Heavy jobs go by slots (from 2026-11-12)
+
+The user set this up: @air schedules heavy jobs on the laptop one at a time,
+and a watcher (air `ed8a260`, `tools/slots`) tells the next in line when to
+start. Rules from @air's mail
+(`mail/received/20261112-115352Z-@air--heavy-jobs-*.md`):
+- **Heavy** means anything on the GPU, or any process over 2 GB of memory.
+- **To ask,** mail @air with what will run, about how long, whether it's
+  several runs back to back, and whether any gap between them is over 5
+  minutes. Requests are served in order of arrival unless the user reorders.
+- **"Your slot is open"** mail means start within 30 minutes, or the slot
+  passes on. The slot lasts until the heavy work has been idle 5 minutes, or
+  until a "done" mail to @air.
+- **Limits:** nice 19 on every thread, ionice idle, 2 CPU threads.
+- A loop that waits for an empty GPU may stay, but it doesn't replace asking.
+
 ## @ugpt (microgpt)
 
 - **History:** AGPT was developed inside microgpt until the severance, which
