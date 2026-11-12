@@ -1,6 +1,6 @@
 # AGPT and the other AIR projects
 
-*Updated 2026-11-11*
+*Updated 2026-11-12*
 
 AGPT is one of the research projects overseen by @air.
 
@@ -71,8 +71,19 @@ AGPT is one of the research projects overseen by @air.
     on the frozen state of a books-prior network, with no prior, scores
     held-out PPL 10.57 at 121k and 5.94 at 10.8M. The plain 10.8M scores
     3.0386, so the state is 0.97 bits/char behind. Same-seed reruns differ by
-    about 0.01 bits/char at 10.8M. Prior dropout is not run; the user hasn't
-    decided on it.
+    about 0.01 bits/char at 10.8M.
+  - **Prior dropout 0.5 helped** (air `bef9142`; read from
+    `experiments/prior_scaling/runs/pd_*` and `probe_*_pd*`, 2026-11-12;
+    books prior, one seed). At 10.8M it gained +0.024 bits/char (logits)
+    and +0.051 (input) over the plain model, where without dropout the
+    gains were −0.001 and −0.013. The network alone recovered: a fresh
+    output layer with no prior scores 3.0567 at 10.8M (plain 3.0386; 5.94
+    without dropout). At 1.84M it scores 3.4802, better than the plain
+    1.84M (3.5678). At 1.84M the full-system gains fell (0.161 → 0.133,
+    0.204 → 0.169). My prediction (a tie at 10.8M) was wrong. **Open:** no
+    run yet separates the books' extra text from regularization (a no-books
+    dropout run at 10.8M would). @imm is trying dropout too (the user,
+    2026-11-12).
 
 ## @semtrace
 
