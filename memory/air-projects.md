@@ -64,6 +64,15 @@ AGPT is one of the research projects overseen by @air.
   - **Sent to @air 2026-11-11:** a reply with the curve, a prediction for more
     text, and a test for the 10.8M overfitting (prior dropout). The first
     draft was dropped unsent.
+  - **With the prior taken away (@air, 2026-11-12,**
+    `mail/received/20261112-013330Z-@air--the-prior-taken-away-*.md`): the
+    user asked whether the network had learned what the prior offers. It
+    hadn't: it learned only what the prior gets wrong. A fresh output layer
+    on the frozen state of a books-prior network, with no prior, scores
+    held-out PPL 10.57 at 121k and 5.94 at 10.8M. The plain 10.8M scores
+    3.0386, so the state is 0.97 bits/char behind. Same-seed reruns differ by
+    about 0.01 bits/char at 10.8M. Prior dropout is not run; the user hasn't
+    decided on it.
 
 ## @semtrace
 
