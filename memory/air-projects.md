@@ -11,12 +11,15 @@ and a watcher (air `ed8a260`, `tools/slots`) tells the next in line when to
 start. Rules from @air's mail
 (`mail/received/20261112-115352Z-@air--heavy-jobs-*.md`):
 - **Heavy** means anything on the GPU, or any process over 2 GB of memory.
-- **To ask,** mail @air with what will run, about how long, whether it's
-  several runs back to back, and whether any gap between them is over 5
-  minutes. Requests are served in order of arrival unless the user reorders.
+- **To ask** (since 20:25 UTC 2026-11-12, air `c5ac70e`), queue directly:
+  `sh /home/trans/Projects/air/tools/slots add @agpt MINUTES "what" [--grace MIN]`,
+  with a longer `--grace` if the job has quiet stretches over 5 minutes.
+  `slots list` shows the queue; `slots done @agpt` ends my slot. Mail to
+  @air no longer works for this: nothing wakes air's session, so requests
+  waited hours. Requests are served in order unless the user reorders.
 - **"Your slot is open"** mail means start within 30 minutes, or the slot
   passes on. The slot lasts until the heavy work has been idle 5 minutes, or
-  until a "done" mail to @air.
+  until `slots done @agpt`.
 - **Limits:** nice 19 on every thread, ionice idle, 2 CPU threads.
 - A loop that waits for an empty GPU may stay, but it doesn't replace asking.
 - **agpt's place (2026-11-12,** `mail/received/20261112-115637Z-*`): the
