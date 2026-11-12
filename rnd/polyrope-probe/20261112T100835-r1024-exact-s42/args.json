@@ -1,0 +1,33 @@
+{
+  "arm": "exact",
+  "reach": 1024,
+  "steps": 30000,
+  "batch_size": 4,
+  "block": 2048,
+  "lr": 0.0015,
+  "warmup": 500,
+  "min_lr_frac": 0.1,
+  "seed": 42,
+  "rope_base": 10000.0,
+  "d_model": 64,
+  "n_heads": 4,
+  "n_layers": 2,
+  "d_ff": 256,
+  "eval_every": 2000,
+  "eval_batch": 8,
+  "threads": 2,
+  "device": null,
+  "eval_only": null,
+  "out": "rnd/polyrope-probe/20261112T100835-r1024-exact-s42",
+  "git_sha": "af81726a61ace7e4a2bdb7e2cc10ef5678bc76b6",
+  "tools_dirty": false,
+  "atoms": null,
+  "units": null,
+  "train_chars": 1059634,
+  "params": 108481,
+  "checks": {
+    "change_at_offsets_1039_up_max_abs": 0.0,
+    "change_at_offsets_31_1038_max_abs": 0.01575341820716858,
+    "far_recurrent_vs_parallel_max_rel_err": null
+  }
+}
