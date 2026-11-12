@@ -202,12 +202,26 @@ and @imm (see [air-projects.md](air-projects.md)).
     That is the compressed-sensing bound in
     `notes/seq-len-extension/superposition-softmax-limit.md` §4.
   - **Relation to the far channel:** the window form is the far channel
-    with one-hot content instead of learned content. Its state is V × K
-    complex numbers per layer, shared by heads, and fixed whatever W is
-    (65 × 8 ≈ 1k reals for characters). `cq` needs about 70k per layer at
-    any reach. So the window form is cheap exactly where the far channel
-    was slow. It reads only a positionally weighted bag of symbols, though.
-  - **Untested, not agreed.**
+    with one-hot content instead of learned content. Its state is fixed
+    whatever W is. With the |Σ_j b_j λ_j^d|² reader over K = 8 atoms it
+    needs the pair moments H_v(λ_j λ̄_k): K² = 64 reals per symbol, so
+    65 × 64 ≈ 4.2k reals for characters. (An earlier version of this note
+    said 65 × 8 ≈ 1k; that holds only for a reader linear in the atoms.)
+    `cq` needs about 70k per layer at any reach. So the window form is cheap
+    exactly where the far channel was slow. It reads only a positionally
+    weighted bag of symbols, though.
+  - **Probe (the user asked for it 2026-11-12):** `src/tools/agpt_polyrope_probe.py`
+    (`af81726`), arms in `rnd/polyrope-probe/`. **Controls done, seed 42,
+    2026-11-12** (score on targets with ≥ 1,040 preceding chars, nats/char):
+    `w16` 1.3519; `exact` at reach 1,024 1.3137. The far-channel probe's
+    reach-128 checkpoints rescored on the same targets: `w16` 1.3515 mean
+    of 4 seeds (s42 1.3440), `exact` 1.3224 mean (s42 1.3200). So 129–1,023
+    is worth 0.006–0.009 to exact attention when trained for it. Cutting the
+    reach-1,024 model's attention at eval (CPU, `rescore/exact-r1024-s42-at*`)
+    costs 0.0021 at 512, 0.0076 at 256, 0.0161 at 128; the last exceeds the
+    trained gap because the cut model was trained to use those keys.
+    **Open:** whether to run the channel arms. The headroom beyond 128 is
+    about a single seed's noise, so one seed per arm can't show reach.
 - **imm's data point:** in imm a query has one real position, so H1 is well
   defined there. Recurrence statistics suggest a per-type chord buys reach,
   not compression of repeats already in view.
