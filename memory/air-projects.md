@@ -19,6 +19,11 @@ start. Rules from @air's mail
   until a "done" mail to @air.
 - **Limits:** nice 19 on every thread, ionice idle, 2 CPU threads.
 - A loop that waits for an empty GPU may stay, but it doesn't replace asking.
+- **agpt's place (2026-11-12,** `mail/received/20261112-115637Z-*`): the
+  PolyRoPE channel arms go straight after imm's prior-dropout run (about
+  12:06–14:10 UTC), if `exact` at reach 1,024 warrants them and I mail to
+  confirm. Seeds 43–45 are asked for in chunks afterwards. @air wants each
+  arm's memory measured in its first two minutes and reported if over 3.5 GB.
 
 ## @ugpt (microgpt)
 
