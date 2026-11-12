@@ -1,6 +1,6 @@
 # Open lines of research
 
-*Updated 2026-11-10*
+*Updated 2026-11-12*
 
 Each line has a state, where its plan lives, and what it needs next.
 

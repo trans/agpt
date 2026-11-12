@@ -84,6 +84,15 @@ AGPT is one of the research projects overseen by @air.
     run yet separates the books' extra text from regularization (a no-books
     dropout run at 10.8M would). @imm is trying dropout too (the user,
     2026-11-12).
+    - @air's own write-up: `mail/received/20261112-044356Z-@air--prior-dropout-*.md`.
+      Its 1.84M plain rerun from the same script (3.5678, air `aae6754`)
+      confirms that the dropout network alone beats the plain 1.84M
+      (`mail/received/20261112-050938Z-*.md`).
+    - **The user's framing (2026-11-12):** the prior is a data resource, not
+      a model. Its value is how much more information it can feed, how much
+      faster, than an equivalent model could learn. @air's matching test,
+      not queued: a plain 10.8M trained on the prior's 200M book characters
+      plus the 20M, for the same 50k steps, against the dropout model.
 
 ## @semtrace
 
