@@ -189,6 +189,25 @@ and @imm (see [air-projects.md](air-projects.md)).
   untested case. On the trie, the channel conflicts with per-node
   aggregation (a node's occurrences share 16 chars, not their older text).
   No next step agreed.
+- **PolyRoPE, the user's design (passed on by @mobius 2026-11-12,**
+  `mail/received/20261112-094401Z-@mobius--the-user-s-polyrope-*.md`; the
+  design doc itself is in mobius's Intake).
+  - **The form the user means:** after @mobius's test of the corpus form,
+    the user chose a window. Each symbol v gets
+    H_v(ω) = Σ_{p in the last W} e^{iω(t−p)}, which is rotated, added to and
+    dropped from at each step.
+  - **The corpus form is measured and set aside.** A signature over the
+    whole corpus mixes every distant pair into each frequency; bigrams at
+    K = 1,024 have 20% median error, at 330× the table's storage (@mobius).
+    That is the compressed-sensing bound in
+    `notes/seq-len-extension/superposition-softmax-limit.md` §4.
+  - **Relation to the far channel:** the window form is the far channel
+    with one-hot content instead of learned content. Its state is V × K
+    complex numbers per layer, shared by heads, and fixed whatever W is
+    (65 × 8 ≈ 1k reals for characters). `cq` needs about 70k per layer at
+    any reach. So the window form is cheap exactly where the far channel
+    was slow. It reads only a positionally weighted bag of symbols, though.
+  - **Untested, not agreed.**
 - **imm's data point:** in imm a query has one real position, so H1 is well
   defined there. Recurrence statistics suggest a per-type chord buys reach,
   not compression of repeats already in view.
