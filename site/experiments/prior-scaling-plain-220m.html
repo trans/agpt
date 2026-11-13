@@ -80,10 +80,10 @@ unchanged (last change air <code>7c46036</code>; imm's <code>transformer_baselin
 <code>transformer_baseline.py</code>. Arguments are those of air's <code>s10.8m_none</code>:
 6 layers, 6 heads, width 384, block 256, dropout 0.2, batch 64, 50k
 iterations, lr 1e-3 to 1e-4, warmup 100, weight decay 0.1, seed 1337
-(<code>run.sh</code>). The output's <code>model</code> field names a gated prior, but that is
+(<a href="https://github.com/trans/agpt/blob/main/rnd/prior-scaling-plain-220m/run.sh"><code>run.sh</code></a>). The output's <code>model</code> field names a gated prior, but that is
 a fixed string in the script; <code>prior=none</code> is in the log.</li>
 <li><strong>Config:</strong> air's <code>pg19split20m_cfg.json</code> with only <code>run_id</code> and
-<code>train_input</code> changed (<code>config.json</code>).</li>
+<code>train_input</code> changed (<a href="https://github.com/trans/agpt/blob/main/rnd/prior-scaling-plain-220m/config.json"><code>config.json</code></a>).</li>
 <li><strong>Training text:</strong> 219,949,702 characters, the first 199,949,702 of
 mobius's <code>data/pg19/imm-split-20m/books.txt</code> followed by imm's
 <code>train_corpus.txt</code> (20M). Those are its first 500 books, all from PG-19's
@@ -233,7 +233,7 @@ table. <code>eval: legacy</code> in agpt's terms.</li>
 <li><code>s10.8m_none_books220m.pt</code> (the final weights) is local and not committed.</li>
 </ul>
 <h3 id="files">Files</h3>
-<p><code>config.json</code>, <code>run.sh</code>, <code>s10.8m_none_books220m.json</code> (the result, with the
+<p><a href="https://github.com/trans/agpt/blob/main/rnd/prior-scaling-plain-220m/config.json"><code>config.json</code></a>, <a href="https://github.com/trans/agpt/blob/main/rnd/prior-scaling-plain-220m/run.sh"><code>run.sh</code></a>, <a href="https://github.com/trans/agpt/blob/main/rnd/prior-scaling-plain-220m/s10.8m_none_books220m.json"><code>s10.8m_none_books220m.json</code></a> (the result, with the
 curve), <code>s10.8m_none_books220m.log</code>. Run in a slot from @air's queue
 (<code>tools/slots</code>), at nice 19, idle I/O priority, 2 CPU threads.</p>
 </article>

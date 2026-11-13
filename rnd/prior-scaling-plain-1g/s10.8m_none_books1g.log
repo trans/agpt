@@ -1,0 +1,123 @@
+params=10756992 (transformer 10756992) train_chars=1019779493 heldout_chars=250000 device=cuda dtype=torch.bfloat16 prior=none
+step=0 heldout_ppl=94.4674 scored=249999 sec=1
+step=0 train_loss=4.5775 lr=9.90e-06
+step=500 train_loss=1.8752 lr=1.00e-03
+step=1000 train_loss=1.5825 lr=9.99e-04
+step=1500 train_loss=1.4722 lr=9.98e-04
+step=2000 train_loss=1.3914 lr=9.97e-04
+step=2500 heldout_ppl=3.8082 scored=249999 sec=188
+step=2500 train_loss=1.3590 lr=9.95e-04
+step=3000 train_loss=1.3986 lr=9.93e-04
+step=3500 train_loss=1.3616 lr=9.90e-04
+step=4000 train_loss=1.3570 lr=9.87e-04
+step=4500 train_loss=1.3188 lr=9.83e-04
+step=5000 heldout_ppl=3.5007 scored=249999 sec=375
+step=5000 train_loss=1.2800 lr=9.79e-04
+step=5500 train_loss=1.2830 lr=9.74e-04
+step=6000 train_loss=1.2436 lr=9.69e-04
+step=6500 train_loss=1.3118 lr=9.64e-04
+step=7000 train_loss=1.3230 lr=9.58e-04
+step=7500 heldout_ppl=3.3464 scored=249999 sec=562
+step=7500 train_loss=1.2834 lr=9.52e-04
+step=8000 train_loss=1.2322 lr=9.45e-04
+step=8500 train_loss=1.2942 lr=9.39e-04
+step=9000 train_loss=1.2549 lr=9.31e-04
+step=9500 train_loss=1.2417 lr=9.23e-04
+step=10000 heldout_ppl=3.2704 scored=249999 sec=749
+step=10000 train_loss=1.2556 lr=9.15e-04
+step=10500 train_loss=1.2350 lr=9.07e-04
+step=11000 train_loss=1.2807 lr=8.98e-04
+step=11500 train_loss=1.2191 lr=8.89e-04
+step=12000 train_loss=1.2363 lr=8.80e-04
+step=12500 heldout_ppl=3.2273 scored=249999 sec=936
+step=12500 train_loss=1.2391 lr=8.70e-04
+step=13000 train_loss=1.2217 lr=8.60e-04
+step=13500 train_loss=1.2382 lr=8.49e-04
+step=14000 train_loss=1.2337 lr=8.38e-04
+step=14500 train_loss=1.2249 lr=8.27e-04
+step=15000 heldout_ppl=3.1806 scored=249999 sec=1123
+step=15000 train_loss=1.1956 lr=8.16e-04
+step=15500 train_loss=1.2321 lr=8.05e-04
+step=16000 train_loss=1.2709 lr=7.93e-04
+step=16500 train_loss=1.2233 lr=7.81e-04
+step=17000 train_loss=1.2589 lr=7.68e-04
+step=17500 heldout_ppl=3.1480 scored=249999 sec=1310
+step=17500 train_loss=1.2207 lr=7.56e-04
+step=18000 train_loss=1.2191 lr=7.43e-04
+step=18500 train_loss=1.1997 lr=7.30e-04
+step=19000 train_loss=1.2066 lr=7.17e-04
+step=19500 train_loss=1.2199 lr=7.04e-04
+step=20000 heldout_ppl=3.1162 scored=249999 sec=1497
+step=20000 train_loss=1.2114 lr=6.91e-04
+step=20500 train_loss=1.2225 lr=6.77e-04
+step=21000 train_loss=1.1977 lr=6.64e-04
+step=21500 train_loss=1.1725 lr=6.50e-04
+step=22000 train_loss=1.1859 lr=6.36e-04
+step=22500 heldout_ppl=3.1022 scored=249999 sec=1683
+step=22500 train_loss=1.1854 lr=6.22e-04
+step=23000 train_loss=1.1601 lr=6.08e-04
+step=23500 train_loss=1.1689 lr=5.94e-04
+step=24000 train_loss=1.1935 lr=5.80e-04
+step=24500 train_loss=1.1846 lr=5.66e-04
+step=25000 heldout_ppl=3.0656 scored=249999 sec=1870
+step=25000 train_loss=1.1688 lr=5.51e-04
+step=25500 train_loss=1.1519 lr=5.37e-04
+step=26000 train_loss=1.1895 lr=5.23e-04
+step=26500 train_loss=1.1623 lr=5.09e-04
+step=27000 train_loss=1.2004 lr=4.95e-04
+step=27500 heldout_ppl=3.0515 scored=249999 sec=2057
+step=27500 train_loss=1.1547 lr=4.81e-04
+step=28000 train_loss=1.1772 lr=4.67e-04
+step=28500 train_loss=1.1616 lr=4.53e-04
+step=29000 train_loss=1.1589 lr=4.39e-04
+step=29500 train_loss=1.1304 lr=4.26e-04
+step=30000 heldout_ppl=3.0263 scored=249999 sec=2244
+step=30000 train_loss=1.1622 lr=4.12e-04
+step=30500 train_loss=1.1708 lr=3.99e-04
+step=31000 train_loss=1.1366 lr=3.85e-04
+step=31500 train_loss=1.1890 lr=3.72e-04
+step=32000 train_loss=1.1503 lr=3.59e-04
+step=32500 heldout_ppl=3.0055 scored=249999 sec=2431
+step=32500 train_loss=1.1894 lr=3.47e-04
+step=33000 train_loss=1.1401 lr=3.34e-04
+step=33500 train_loss=1.1370 lr=3.22e-04
+step=34000 train_loss=1.1560 lr=3.10e-04
+step=34500 train_loss=1.1388 lr=2.98e-04
+step=35000 heldout_ppl=2.9837 scored=249999 sec=2618
+step=35000 train_loss=1.1896 lr=2.86e-04
+step=35500 train_loss=1.1174 lr=2.75e-04
+step=36000 train_loss=1.1418 lr=2.64e-04
+step=36500 train_loss=1.1196 lr=2.53e-04
+step=37000 train_loss=1.1566 lr=2.42e-04
+step=37500 heldout_ppl=2.9634 scored=249999 sec=2810
+step=37500 train_loss=1.1414 lr=2.32e-04
+step=38000 train_loss=1.1448 lr=2.22e-04
+step=38500 train_loss=1.1538 lr=2.13e-04
+step=39000 train_loss=1.1513 lr=2.04e-04
+step=39500 train_loss=1.1464 lr=1.95e-04
+step=40000 heldout_ppl=2.9483 scored=249999 sec=3002
+step=40000 train_loss=1.1488 lr=1.86e-04
+step=40500 train_loss=1.1176 lr=1.78e-04
+step=41000 train_loss=1.1327 lr=1.70e-04
+step=41500 train_loss=1.1382 lr=1.63e-04
+step=42000 train_loss=1.1433 lr=1.56e-04
+step=42500 heldout_ppl=2.9304 scored=249999 sec=3191
+step=42500 train_loss=1.1182 lr=1.49e-04
+step=43000 train_loss=1.1330 lr=1.43e-04
+step=43500 train_loss=1.1306 lr=1.37e-04
+step=44000 train_loss=1.1161 lr=1.32e-04
+step=44500 train_loss=1.1077 lr=1.27e-04
+step=45000 heldout_ppl=2.9226 scored=249999 sec=3379
+step=45000 train_loss=1.1377 lr=1.22e-04
+step=45500 train_loss=1.1470 lr=1.18e-04
+step=46000 train_loss=1.1153 lr=1.14e-04
+step=46500 train_loss=1.1372 lr=1.11e-04
+step=47000 train_loss=1.1283 lr=1.08e-04
+step=47500 heldout_ppl=2.9155 scored=249999 sec=3565
+step=47500 train_loss=1.0979 lr=1.06e-04
+step=48000 train_loss=1.1337 lr=1.04e-04
+step=48500 train_loss=1.1214 lr=1.02e-04
+step=49000 train_loss=1.1104 lr=1.01e-04
+step=49500 train_loss=1.1431 lr=1.00e-04
+step=50000 heldout_ppl=2.9058 scored=249999 sec=3752
+result: heldout_ppl=2.9058 best=2.9058@50000 -> rnd/prior-scaling-plain-1g/s10.8m_none_books1g.json

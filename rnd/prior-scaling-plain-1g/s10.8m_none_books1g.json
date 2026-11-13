@@ -1,0 +1,166 @@
+{
+  "model": "char transformer (imm transformer_baseline.CharGPT) + gated count prior on the logits",
+  "config": {
+    "config": "rnd/prior-scaling-plain-1g/config.json",
+    "output": "rnd/prior-scaling-plain-1g/s10.8m_none_books1g.json",
+    "prior": "none",
+    "prior_input": false,
+    "prior_dropout": 0.0,
+    "layers": 6,
+    "heads": 6,
+    "width": 384,
+    "block": 256,
+    "dropout": 0.2,
+    "batch": 64,
+    "iters": 50000,
+    "lr": 0.001,
+    "min_lr": 0.0001,
+    "warmup": 100,
+    "weight_decay": 0.1,
+    "eval_every": 2500,
+    "seed": 1337,
+    "device": "cuda",
+    "save": "rnd/prior-scaling-plain-1g/s10.8m_none_books1g.pt"
+  },
+  "transformer_baseline_commit": "43057d9",
+  "params": 10756992,
+  "transformer_params": 10756992,
+  "split": {
+    "train_input": "/home/trans/.cache/tmp/claude/claude-1000/-home-trans-air-agpt/9e0ccc86-85c9-431a-8ca2-f0b99a2c7583/scratchpad/train_books1g_plus_20m.txt",
+    "eval_input": "data/pg19/imm-split-20m/heldout_corpus.txt",
+    "eval_chars": 250000
+  },
+  "heldout_ppl": 2.905769568272041,
+  "heldout_bits_per_char": 1.5389202997042588,
+  "best_heldout_ppl": 2.905769568272041,
+  "best_step": 50000,
+  "protocol": "every held-out character after the first, up to block characters of context",
+  "curve": [
+    {
+      "step": 0,
+      "heldout_ppl": 94.46742060816192,
+      "mean_gate": null,
+      "sec": 1.444314158987254
+    },
+    {
+      "step": 2500,
+      "heldout_ppl": 3.8081937793818312,
+      "mean_gate": null,
+      "sec": 187.98704125802033
+    },
+    {
+      "step": 5000,
+      "heldout_ppl": 3.5007228507027643,
+      "mean_gate": null,
+      "sec": 374.950271111913
+    },
+    {
+      "step": 7500,
+      "heldout_ppl": 3.34640967605922,
+      "mean_gate": null,
+      "sec": 561.7831046150532
+    },
+    {
+      "step": 10000,
+      "heldout_ppl": 3.2703522582524944,
+      "mean_gate": null,
+      "sec": 748.7907883860171
+    },
+    {
+      "step": 12500,
+      "heldout_ppl": 3.227297409618297,
+      "mean_gate": null,
+      "sec": 935.7511885350104
+    },
+    {
+      "step": 15000,
+      "heldout_ppl": 3.1806442347715076,
+      "mean_gate": null,
+      "sec": 1122.631673232885
+    },
+    {
+      "step": 17500,
+      "heldout_ppl": 3.1479657815764623,
+      "mean_gate": null,
+      "sec": 1309.6003010380082
+    },
+    {
+      "step": 20000,
+      "heldout_ppl": 3.1161928177181695,
+      "mean_gate": null,
+      "sec": 1496.507690608967
+    },
+    {
+      "step": 22500,
+      "heldout_ppl": 3.102234776383694,
+      "mean_gate": null,
+      "sec": 1683.3221947809216
+    },
+    {
+      "step": 25000,
+      "heldout_ppl": 3.0656222704382143,
+      "mean_gate": null,
+      "sec": 1870.1513408790343
+    },
+    {
+      "step": 27500,
+      "heldout_ppl": 3.051512656593236,
+      "mean_gate": null,
+      "sec": 2056.922637115
+    },
+    {
+      "step": 30000,
+      "heldout_ppl": 3.0263407719060007,
+      "mean_gate": null,
+      "sec": 2243.824426790001
+    },
+    {
+      "step": 32500,
+      "heldout_ppl": 3.0054663171497293,
+      "mean_gate": null,
+      "sec": 2430.895729243988
+    },
+    {
+      "step": 35000,
+      "heldout_ppl": 2.9836708625652912,
+      "mean_gate": null,
+      "sec": 2617.914901425829
+    },
+    {
+      "step": 37500,
+      "heldout_ppl": 2.9633918070432514,
+      "mean_gate": null,
+      "sec": 2809.8944699109998
+    },
+    {
+      "step": 40000,
+      "heldout_ppl": 2.9483276644969276,
+      "mean_gate": null,
+      "sec": 3002.2209824279416
+    },
+    {
+      "step": 42500,
+      "heldout_ppl": 2.9304133991454804,
+      "mean_gate": null,
+      "sec": 3190.7545321409125
+    },
+    {
+      "step": 45000,
+      "heldout_ppl": 2.9225873241082834,
+      "mean_gate": null,
+      "sec": 3378.526325838873
+    },
+    {
+      "step": 47500,
+      "heldout_ppl": 2.9155473092463655,
+      "mean_gate": null,
+      "sec": 3565.361640438903
+    },
+    {
+      "step": 50000,
+      "heldout_ppl": 2.905769568272041,
+      "mean_gate": null,
+      "sec": 3752.332233175868
+    }
+  ]
+}
