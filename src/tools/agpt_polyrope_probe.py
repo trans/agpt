@@ -96,6 +96,23 @@ def read(path):
     return Path(path).read_text(encoding='utf-8', errors='replace')
 
 
+def encoder(vocab):
+    """Text -> ids. Byte lookup when every symbol is one byte (Shakespeare, the
+    PG-19 split); the same ids as the per-character dict, without a 20M-entry list."""
+    if max(map(ord, vocab)) < 256:
+        lut = torch.full((256,), -1, dtype=torch.long)
+        for c, i in vocab.items():
+            lut[ord(c)] = i
+
+        def enc(s):
+            ids = lut[torch.frombuffer(bytearray(s.encode('latin-1')), dtype=torch.uint8).long()]
+            if (ids < 0).any():
+                raise SystemExit('text has a character outside the vocabulary')
+            return ids
+        return enc
+    return lambda s: torch.tensor([vocab[c] for c in s], dtype=torch.long)
+
+
 LETTER, SPACE, PUNCT, APOS, SPACE_CHAR = range(5)
 
 
@@ -459,6 +476,11 @@ def main():
     ap.add_argument('--threads', type=int, default=2)
     ap.add_argument('--device', default=None)
     ap.add_argument('--eval-only', default=None, help='score this checkpoint (state dict) and exit')
+    ap.add_argument('--data', default=str(SPLIT),
+                    help='split directory: train_corpus.txt and heldout_chunks/chunk_*.txt')
+    ap.add_argument('--vocab-file', default='data/input.txt', help='the vocabulary is its set of characters')
+    ap.add_argument('--piece-chars', type=int, default=0,
+                    help='the training text is pieces of this many chars from different books (0: one text)')
     ap.add_argument('--out', required=True)
     args = ap.parse_args()
     torch.set_num_threads(args.threads)
@@ -478,22 +500,31 @@ def main():
         raise SystemExit('reach must exceed the window')
     if args.block <= CTX_MIN:
         raise SystemExit(f'block must exceed {CTX_MIN}, the evaluation context')
-    vocab = build_vocab('data/input.txt')
+    data = Path(args.data)
+    vocab = build_vocab(args.vocab_file)
     V = len(vocab)
-    train_text = read(SPLIT / 'train_corpus.txt')
-    chunk_texts = [read(p) for p in sorted((SPLIT / 'heldout_chunks').glob('chunk_*.txt'))]
-    enc = lambda s: torch.tensor([vocab[c] for c in s], dtype=torch.long)
+    train_text = read(data / 'train_corpus.txt')
+    chunk_texts = [read(p) for p in sorted((data / 'heldout_chunks').glob('chunk_*.txt'))]
+    enc = encoder(vocab)
     x_train = enc(train_text)
-    units, unit_counts = unit_table(train_text)
     if args.arm == 'unit':
+        units, unit_counts = unit_table(train_text)
         none_id = UNIT_CAPACITY
         sym_of = lambda s: unit_symbols(s, units, none_id)
+        s_train = sym_of(train_text)
     else:
         sym_of = enc                       # characters (the char arm reads them; others ignore)
-    s_train = sym_of(train_text)
+        s_train = x_train
+    del train_text
     chunks = [(enc(s), sym_of(s)) for s in chunk_texts]
     T = args.block
     N = x_train.numel()
+    P = args.piece_chars or N              # training blocks never cross a piece boundary
+    if N % P or P <= T + 1:
+        raise SystemExit(f'--piece-chars {P} must divide the {N} training chars and exceed the block')
+    eval_desc = (f'diagnostic: multi-chunk held-out ({len(chunks)} x {len(chunk_texts[0])} chars, '
+                 f'{data}), each target once, with >= {CTX_MIN} preceding chars where the chunk has them; '
+                 'by_context buckets are the target position in its chunk; NOT lm-eval byte PPL')
 
     model = PolyLM(V, args.d_model, args.n_heads, args.n_layers, args.d_ff, T,
                    args.rope_base, args.arm, args.reach, UNIT_CAPACITY, dev)
@@ -575,7 +606,11 @@ def main():
     for step in range(args.steps):
         for gp in opt.param_groups:
             gp['lr'] = lr_at(step)
-        s = torch.randint(0, N - T - 1, (args.batch_size,), generator=rng).to(dev)
+        if P == N:
+            s = torch.randint(0, N - T - 1, (args.batch_size,), generator=rng).to(dev)
+        else:
+            piece = torch.randint(0, N // P, (args.batch_size,), generator=rng)
+            s = (piece * P + torch.randint(0, P - T - 1, (args.batch_size,), generator=rng)).to(dev)
         idx = s[:, None] + ar[None, :]
         xb, sb = x_dev[idx], s_dev[idx]
         logits = model(xb[:, :T], sb[:, :T])
@@ -597,9 +632,7 @@ def main():
     final = curve[-1]
     metrics = {
         'arm': args.arm, 'reach': args.reach, 'seed': args.seed, 'steps': args.steps,
-        'eval': 'diagnostic: multi-chunk held-out (10 x 5576), each target once, with >= 1040 preceding chars '
-                'where the chunk has them; by_context buckets are the target position in its chunk; '
-                'NOT lm-eval byte PPL',
+        'eval': eval_desc,
         'heldout_nll': final['heldout_nll'], 'heldout_ppl': final['heldout_ppl'],
         'by_context': final['by_context'], 'curve': curve,
         'gate': far.gate.tolist() if far is not None else None,
