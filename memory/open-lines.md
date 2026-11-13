@@ -231,7 +231,17 @@ and @imm (see [air-projects.md](air-projects.md)).
     (128). At d64/L2 and 30k steps, nothing beyond 128 is left for a far
     channel to recover, on either corpus. **Open:** whether the headroom
     grows with model size, which is the only case where the channel arms
-    could pay. No channel arm has run.
+    could pay. No channel arm has run. Write-up: `rnd/polyrope-probe/README.md`
+    (main `4074ae2`).
+  - **What has and hasn't been tested (the user asked, 2026-11-13):** only
+    the channel approach ran (far-channel probe, and this probe's controls).
+    The design's original, corpus-level notion was tested only in its
+    Phase 1 form, by mobius (bigrams from corpus signatures, failed on
+    storage). Phases 5–7 (signatures as embeddings, structural queries,
+    vocabulary-only training) are untested. For characters the notion can
+    be tested exactly, without spectra: corpus displacement counts R_ab(d)
+    (96² × 1,024 ≈ 9.4M on PG-19) as an attention bias, which is mobius's
+    proposed distance co-occurrence. Not agreed.
 - **imm's data point:** in imm a query has one real position, so H1 is well
   defined there. Recurrence statistics suggest a per-type chord buys reach,
   not compression of repeats already in view.
