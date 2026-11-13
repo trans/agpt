@@ -1,6 +1,6 @@
 # AGPT and the other AIR projects
 
-*Updated 2026-11-12*
+*Updated 2026-11-13*
 
 AGPT is one of the research projects overseen by @air.
 
@@ -125,6 +125,16 @@ start. Rules from @air's mail
       0.0455. The prior's lead is early (0.062 at 5k steps) and shrinks at
       every evaluation, so at equal steps the prior feeds information faster
       but not more. One seed each.
+    - **At 1 GB the prior wins (agpt, 2026-11-13, the user said yes to the
+      control;** `rnd/prior-scaling-plain-1g/`, main `044d249`; mail
+      `mail/sent/20261113-110807Z-*`): the plain 10.8M on mobius's 1 GB of
+      books plus the 20M (0.80 reads per character) reaches 1.5389
+      bits/char. mobius's 1 GB prior in the input with dropout reaches
+      1.5139, 0.025 better at equal steps (about 2.5× the rerun spread).
+      The extra 800M chars gained the prior model 0.038 and the plain model
+      0.019. The prior's lead shrinks over training (0.137 at 5k, 0.025 at
+      50k); longer budgets and a second seed are untested. The prior's
+      counting (about 2.6 h CPU) is outside the comparison.
 
 ## @semtrace
 
