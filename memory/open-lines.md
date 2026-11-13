@@ -220,8 +220,18 @@ and @imm (see [air-projects.md](air-projects.md)).
     reach-1,024 model's attention at eval (CPU, `rescore/exact-r1024-s42-at*`)
     costs 0.0021 at 512, 0.0076 at 256, 0.0161 at 128; the last exceeds the
     trained gap because the cut model was trained to use those keys.
-    **Open:** whether to run the channel arms. The headroom beyond 128 is
-    about a single seed's noise, so one seed per arm can't show reach.
+    The headroom beyond 128 is about a single seed's noise, so the user
+    chose (2026-11-12) to measure it on PG-19 before any channel arm.
+  - **PG-19 headroom (seed 42, 2026-11-13,** main `e21bf38`; imm's 20M
+    split, blocks kept inside one 25k-char book piece, 50 held-out pieces,
+    ~198k targets with ≥ 1,040 preceding chars): `w16` 1.4893, `exact` at
+    reach 128 1.4274, at 1,024 1.4249. So 17–128 is worth 0.062 (twice
+    Shakespeare's) and 129–1,023 only 0.0025, steady at −0.002 over the last
+    10k steps. The eval-time cuts cost 0.0010 (512), 0.0038 (256), 0.0087
+    (128). At d64/L2 and 30k steps, nothing beyond 128 is left for a far
+    channel to recover, on either corpus. **Open:** whether the headroom
+    grows with model size, which is the only case where the channel arms
+    could pay. No channel arm has run.
 - **imm's data point:** in imm a query has one real position, so H1 is well
   defined there. Recurrence statistics suggest a per-type chord buys reach,
   not compression of repeats already in view.
