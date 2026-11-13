@@ -114,9 +114,17 @@ start. Rules from @air's mail
       (`mail/received/20261112-050938Z-*.md`).
     - **The user's framing (2026-11-12):** the prior is a data resource, not
       a model. Its value is how much more information it can feed, how much
-      faster, than an equivalent model could learn. @air's matching test,
-      not queued: a plain 10.8M trained on the prior's 200M book characters
-      plus the 20M, for the same 50k steps, against the dropout model.
+      faster, than an equivalent model could learn. @air's matching test:
+      a plain 10.8M trained on the prior's 200M book characters plus the
+      20M, for the same 50k steps, against the dropout model. **Done by agpt
+      at the user's request (2026-11-13,** `rnd/prior-scaling-plain-220m/`,
+      main `e1a5a33`; mail `mail/sent/20261113-083731Z-*`): 2.9442 PPL
+      (1.5579 bits/char). It ties with the prior in the input plus dropout
+      (2.9326, 0.0057 bits/char ahead, inside the noise), beats the prior on
+      the logits plus dropout (2.9890) by 0.022, and beats the plain 20M by
+      0.0455. The prior's lead is early (0.062 at 5k steps) and shrinks at
+      every evaluation, so at equal steps the prior feeds information faster
+      but not more. One seed each.
 
 ## @semtrace
 
