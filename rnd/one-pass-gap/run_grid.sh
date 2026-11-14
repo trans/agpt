@@ -13,7 +13,7 @@ just build-agpt-train-v2 build-agpt-experiment > $D/build.log 2>&1 || { echo "bu
 [ $# -gt 0 ] || set -- $D/configs/*-e1-*.yml $D/configs/*-e2-*.yml $D/configs/*-e4-*.yml $D/configs/*-e8-*.yml
 for c in "$@"; do
   case $(basename $c) in
-    agpt-*) T=v2 ;;
+    agpt-*|pd*) T=v2 ;;
     mb*)    T=src/tools/agpt_minibatch_train.py ;;
     *)      echo "skip $c"; continue ;;
   esac

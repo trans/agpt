@@ -282,6 +282,7 @@ static bool yaml_is_known_experimental_field_v2(const std::string& path) {
         "experimental.position_data_dir",
         "experimental.partition_depth_map",
         "experimental.unit_order_seed",
+        "experimental.train_crown",
         "experimental.anc_grad_exact",
         "experimental.pos_sample_seed",
         "experimental.successor_prefix_table",
@@ -767,6 +768,11 @@ static bool apply_yaml_config_v2(const char* config_path,
     }
 
     if (!yaml_get_int_v2(doc, "train.partition_depth", cfg.partition_depth)) return false;
+    if (!yaml_get_bool_v2(doc, "experimental.train_crown", cfg.train_crown)) return false;
+    if (cfg.train_crown && !yaml_cfg.partition_depth_map.empty()) {
+        std::fprintf(stderr, "agpt_train_v2: experimental.train_crown is not supported with experimental.partition_depth_map\n");
+        return false;
+    }
     if (!yaml_get_int_v2(doc, "train.chunk_queries", cfg.chunk_queries)) return false;
     if (!yaml_get_int_sequence_v2(doc, "train.checkpoint_epochs", yaml_cfg.checkpoint_epochs)) return false;
     if (!yaml_get_bool_v2(doc, "train.anc_grad", cfg.anc_grad)) return false;

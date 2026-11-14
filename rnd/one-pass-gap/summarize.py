@@ -15,7 +15,11 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 ARMS = {"agpt": "AGPT pd=1 (65 steps/pass)", "mb": "minibatch 128 (8,279 steps/pass)",
-        "mbL": "minibatch 16,302 (65 steps/pass)"}
+        "mbL": "minibatch 16,302 (65 steps/pass)",
+        "pd2c": "AGPT pd=2 + crown (1,463 steps/pass)", "pd3c": "AGPT pd=3 + crown (12,675 steps/pass)",
+        "pd3cs": "AGPT pd=3 + crown, shuffled (12,675 steps/pass)",
+        "pd4c": "AGPT pd=4 + crown (58,721 steps/pass)",
+        "mb724": "minibatch 724 (1,464 steps/pass)", "mb84": "minibatch 84 (12,615 steps/pass)"}
 
 
 def load():
@@ -23,7 +27,7 @@ def load():
     for rj in sorted(HERE.glob("*/result.json")):
         r = json.loads(rj.read_text())
         # run ids are slugified (lower case), so the arm comes from config.yml's run_slug
-        m = re.match(r"\d{8}T\d{6}-(agpt|mbl|mb)-e(\d+)-", r["run_id"])
+        m = re.match(r"\d{8}T\d{6}-([a-z0-9]+)-e(\d+)-", r["run_id"])
         if not m or not r.get("metrics"):
             continue
         cfg = yaml.safe_load((rj.parent / "config.yml").read_text())

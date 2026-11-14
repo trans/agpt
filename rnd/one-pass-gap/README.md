@@ -28,8 +28,9 @@ related: [gradient-population, context-tree-orientation, vanilla-attn-torch, par
 
 # one-pass-gap
 
-**Status:** concluded (2026-11-14). The user asked for it after we found the
-work had drifted off AGPT's main path. It is item 04 of the site's next
+**Status:** first grid concluded (2026-11-14); the follow-up below (AGPT at
+minibatch cadence) is set up and waiting for a GPU slot. The user asked for
+the experiment after we found the work had drifted off AGPT's main path. It is item 04 of the site's next
 tests ("Measure the one-pass gap"), never done before. 48 runs in slot 30
 (08:32–09:38 UTC), 64 minutes in all.
 
@@ -174,6 +175,51 @@ at a constant rate, 4.45 after 10 passes (June, no `result.json`).
    train targets shallower than pd (`gradient-population` Exp 2 reading),
    which ruins the rolling metric, so the shallow targets need training
    first (for example one pd=1-style pass over the depth-<pd stubs).
+
+## Follow-up: AGPT at minibatch cadence (2026-11-14, set up, not yet run)
+
+The user chose next test 2 ("Sure do pd=3. The main issue is the number of
+updates."). One pass of pd=1 is 65 updates; pd=3 cuts the trie into one
+unit per depth-3 node, more updates per pass than minibatch training
+takes.
+
+**The fix it needs.** A pd≥2 plan trains each anchor's subtree, with the
+anchor's ancestors as context only, so the targets of every node whose
+edge ends above depth pd were never trained. v2 now prints a
+`plan-coverage` line. On the canonical trie, without the fix:
+
+- pd=2 leaves 62 nodes untrained, 6.25% of the events;
+- pd=3 leaves 1,194 nodes, 12.43%;
+- pd=4 leaves 8,738 nodes, 18.41%.
+
+The new option `experimental.train_crown` makes each such crown node a
+unit of its own, with its ancestors as context. With it, every one of the
+1,528,495 radix nodes is trained exactly once per pass at pd=2, 3 and 4, as
+at pd=1.
+
+| pd | Anchored units | Crown units | Updates per pass |
+|---:|---:|---:|---:|
+| 1 | 65 | 0 | 65 |
+| 2 | 1,401 | 62 | 1,463 |
+| 3 | 11,481 | 1,194 | 12,675 |
+| 4 | 49,983 | 8,738 | 58,721 |
+
+**Arms** (same model, weights, schedule and evaluation as above; configs from
+`make_configs.py`):
+
+- `pd3c`: pd=3 + crown, units in radix-id order (v2's default; crown
+  units fall among the anchored ones), 1, 2 and 4 passes.
+- `pd3cs`: the same, shuffled each pass (`experimental.unit_order_seed: 1`),
+  1, 2 and 4 passes.
+- `pd2c`, `pd4c`: pd=2 and pd=4 + crown, one pass.
+- `mb84`, `mb724`: minibatch training with as many updates per pass as
+  pd=3 (84 windows, 12,615 updates) and pd=2 (724 windows, 1,464 updates),
+  one pass. AGPT against random batches at equal updates, as `mbL` was
+  for pd=1.
+- Learning rates 0.0015–0.012 (pd=3, pd=4, `mb84`) and 0.003–0.024 (pd=2,
+  `mb724`).
+
+40 runs. The plan check ran on the CPU (`--mode plan`, no GPU visible).
 
 ## Caveats
 

@@ -344,6 +344,8 @@ every other section is relaxed inside `experimental`:** trainers emit
 | `experimental.loss_depth_min` / `experimental.loss_depth_max` | int pair | absent | v2 | Optional inclusive query-depth filter for direct CE loss. Queries outside the range remain in the attention/context graph but get zero loss weight. Set both to `16` for cap-only depth-16 training. |
 | `experimental.dropout_node_keep_prob` | float | 1.0 | v2 | Structural target-node dropout. Nodes remain in the attention/context graph, but own query/loss rows are randomly zero-weighted when dropped. |
 | `experimental.dropout_seed` | int | 1 | v2 | Seed for structural target-node dropout. |
+| `experimental.train_crown` | bool | `false` | v2 | At `train.partition_depth` ≥ 2, also train each node whose edge ends above the partition depth as a unit of its own, with its ancestors as context. Without it those shallow targets (depth < pd) are only ever context-only ancestors and never trained. The trainer prints a `plan-coverage` line: with this on, every radix node is trained exactly once per pass. Not supported with `experimental.partition_depth_map`. |
+| `experimental.unit_order_seed` | int | `-1` | v2 | ≥ 0: shuffle the training units' order each epoch with this seed. −1 trains them in plan order every epoch. |
 | `experimental.entropy_gate_min_scale` | float | 1.0 | v2 | Loss-weight gate for target entropy. `1.0` disables; lower values damp low-entropy rows while preserving high-entropy endpoint rows. |
 | `experimental.entropy_grad_min_scale` | float | 1.0 | v2 | Gradient-only entropy gate. `1.0` disables; lower values damp node gradients using endpoint target entropy while leaving reported loss weights unchanged. |
 

@@ -1834,7 +1834,28 @@ int main(int argc, char** argv) {
         std::printf("  partition_depth_map: %s (%d roots mapped, default pd=%d) -> %d training units\n",
                     yaml_cfg.partition_depth_map.c_str(), mapped, cfg.partition_depth, training_plan.unit_count);
     } else {
-        training_plan = agpt_v2::build_training_plan_for_partition_depth(trie, cfg.partition_depth);
+        training_plan = agpt_v2::build_training_plan_for_partition_depth(trie, cfg.partition_depth,
+                                                                        cfg.train_crown);
+        if (cfg.train_crown) {
+            int crown_units = 0;
+            for (int u = 0; u < training_plan.unit_count; u++) {
+                const agpt_v2::TrainingUnit& tu = training_plan.units[u];
+                int a = tu.anchor_id;
+                if (a > 0 && trie.edge_first_char_depths[a] + trie.edge_lens[a] - 1 < cfg.partition_depth) crown_units++;
+            }
+            std::printf("  train_crown: pd=%d -> %d training units (%d anchored at depth %d, %d crown)\n",
+                        cfg.partition_depth, training_plan.unit_count,
+                        training_plan.unit_count - crown_units, cfg.partition_depth, crown_units);
+        }
+    }
+    if (!cfg.lightning_enabled) {
+        agpt_v2::TrainingPlanCoverageV2 cov = agpt_v2::training_plan_coverage_v2(trie, training_plan);
+        std::printf("  plan-coverage: units=%d radix nodes trained once=%d never=%d more-than-once=%d; "
+                    "events never trained=%lld of %lld (%.2f%%), trained more than once=%lld\n",
+                    training_plan.unit_count, cov.nodes_once, cov.nodes_never, cov.nodes_multiple,
+                    cov.events_never, cov.events_total,
+                    cov.events_total > 0 ? 100.0 * (double)cov.events_never / (double)cov.events_total : 0.0,
+                    cov.events_multiple);
     }
     agpt_v2::ExecutionPlan plan = agpt_v2::build_execution_plan(trie, training_plan, cfg.chunk_queries);
     agpt_v2::ChunkPlanList largest_chunks = {};

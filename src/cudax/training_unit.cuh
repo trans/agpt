@@ -436,19 +436,57 @@ static inline TrainingUnit build_descendant_partition_unit_v2(const RadixTrieStr
     return unit;
 }
 
+// Crown unit (experimental.train_crown, rnd/one-pass-gap): one node whose edge
+// ends above the partition depth, trained alone with its ancestors as
+// context. Without these a pd>=2 plan never trains the crown's targets: they
+// appear only as context-only ancestors of the anchors below them.
+static inline TrainingUnit build_crown_unit_v2(const RadixTrieStructure& trie, int node, int unit_index) {
+    TrainingUnit unit;
+    unit.kind = TrainingUnitKind::PartitionGroup;
+    unit.unit_index = unit_index;
+    unit.root_child_id = find_root_child(trie, node);
+    unit.anchor_id = node;
+
+    std::vector<int> nodes;
+    std::vector<unsigned char> context_flags;
+    std::vector<int> path;
+    for (int cur = node; cur > 0 && cur < trie.radix_count; cur = trie.parents[cur]) path.push_back(cur);
+    for (int i = (int)path.size() - 1; i >= 0; i--) {
+        append_training_node_v2(trie, path[(size_t)i], nodes, context_flags,
+                                unit.query_count, unit.compact_char_count,
+                                unit.max_endpoint_depth,
+                                /*context_only=*/i > 0);
+    }
+
+    unit.node_count = (int)nodes.size();
+    unit.radix_ids = (int*)std::malloc((size_t)(unit.node_count > 0 ? unit.node_count : 1) * sizeof(int));
+    unit.context_only = (unsigned char*)std::malloc((size_t)(unit.node_count > 0 ? unit.node_count : 1) * sizeof(unsigned char));
+    if (unit.node_count > 0) {
+        std::memcpy(unit.radix_ids, nodes.data(), (size_t)unit.node_count * sizeof(int));
+        std::memcpy(unit.context_only, context_flags.data(), (size_t)unit.node_count * sizeof(unsigned char));
+        sort_training_unit_radix_ids_by_endpoint_depth(trie, unit);
+    }
+    return unit;
+}
+
 static inline TrainingPlan build_pdn_descendant_training_plan_v2(const RadixTrieStructure& trie,
-                                                                 int partition_depth) {
+                                                                 int partition_depth,
+                                                                 bool train_crown = false) {
     TrainingPlan plan;
     if (partition_depth <= 1) return build_pd1_training_plan(trie);
 
     LightningChildIndexV2 child_index = build_lightning_child_index_v2(trie);
-    std::vector<int> anchors;
+    // Units in radix-id order: anchors (edge spans the partition depth) and,
+    // with train_crown, crown nodes (edge ends above it).
+    std::vector<std::pair<int, bool>> anchors;  // (node, is_crown)
     anchors.reserve((size_t)trie.radix_count / 4);
     for (int r = 1; r < trie.radix_count; r++) {
         int first_depth = trie.edge_first_char_depths[r];
         int endpoint_depth = first_depth + trie.edge_lens[r] - 1;
         if (first_depth <= partition_depth && endpoint_depth >= partition_depth) {
-            anchors.push_back(r);
+            anchors.push_back({r, false});
+        } else if (train_crown && endpoint_depth < partition_depth) {
+            anchors.push_back({r, true});
         }
     }
 
@@ -456,9 +494,51 @@ static inline TrainingPlan build_pdn_descendant_training_plan_v2(const RadixTrie
     plan.units = (TrainingUnit*)std::calloc((size_t)(plan.unit_count > 0 ? plan.unit_count : 1),
                                             sizeof(TrainingUnit));
     for (int i = 0; i < plan.unit_count; i++) {
-        plan.units[i] = build_descendant_partition_unit_v2(trie, child_index, anchors[(size_t)i], i);
+        const auto& a = anchors[(size_t)i];
+        plan.units[i] = a.second ? build_crown_unit_v2(trie, a.first, i)
+                                 : build_descendant_partition_unit_v2(trie, child_index, a.first, i);
     }
     return plan;
+}
+
+// How many units train each radix node per pass (context-only rows don't
+// count). A plan that matches one pass of the corpus trains every node once.
+struct TrainingPlanCoverageV2 {
+    int nodes_once = 0;
+    int nodes_never = 0;
+    int nodes_multiple = 0;
+    long long events_total = 0;  // sum over nodes of edge_len * edge_mass
+    long long events_never = 0;
+    long long events_multiple = 0;
+};
+
+static inline TrainingPlanCoverageV2 training_plan_coverage_v2(const RadixTrieStructure& trie,
+                                                               const TrainingPlan& plan) {
+    TrainingPlanCoverageV2 cov;
+    std::vector<int> trained((size_t)trie.radix_count, 0);
+    for (int u = 0; u < plan.unit_count; u++) {
+        const TrainingUnit& unit = plan.units[u];
+        for (int i = 0; i < unit.node_count; i++) {
+            if (unit.context_only && unit.context_only[i]) continue;
+            int r = unit.radix_ids[i];
+            if (r > 0 && r < trie.radix_count) trained[(size_t)r]++;
+        }
+    }
+    for (int r = 1; r < trie.radix_count; r++) {
+        long long ev = (long long)trie.edge_lens[r] * (long long)(trie.edge_mass[r] > 0 ? trie.edge_mass[r] : 1);
+        cov.events_total += ev;
+        int t = trained[(size_t)r];
+        if (t == 1) {
+            cov.nodes_once++;
+        } else if (t == 0) {
+            cov.nodes_never++;
+            cov.events_never += ev;
+        } else {
+            cov.nodes_multiple++;
+            cov.events_multiple += ev;
+        }
+    }
+    return cov;
 }
 
 // Mixed-depth partition plan (rnd/gradient-population, coherence-driven
@@ -495,10 +575,11 @@ static inline TrainingPlan build_mixed_partition_plan_v2(const RadixTrieStructur
 }
 
 static inline TrainingPlan build_training_plan_for_partition_depth(const RadixTrieStructure& trie,
-                                                                   int partition_depth) {
+                                                                   int partition_depth,
+                                                                   bool train_crown = false) {
     if (partition_depth == 0) return build_pd0_training_plan(trie);
     if (partition_depth == 1) return build_pd1_training_plan(trie);
-    return build_pdn_descendant_training_plan_v2(trie, partition_depth);
+    return build_pdn_descendant_training_plan_v2(trie, partition_depth, train_crown);
 }
 
 static inline TrainingUnit build_lightning_sample_unit_v2(const RadixTrieStructure& trie,

@@ -49,6 +49,10 @@ struct TrainerConfig {
 
     int epochs = 0;
     int partition_depth = 1;
+    // experimental.train_crown (rnd/one-pass-gap): at pd>=2, also train each
+    // node whose edge ends above the partition depth as a unit of its own.
+    // Off, those shallow targets are only ever context-only ancestors.
+    bool train_crown = false;
     int chunk_queries = 0;
 
     float lr = 0.0f;
