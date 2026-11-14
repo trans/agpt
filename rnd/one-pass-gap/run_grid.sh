@@ -14,7 +14,7 @@ just build-agpt-train-v2 build-agpt-experiment > $D/build.log 2>&1 || { echo "bu
 for c in "$@"; do
   case $(basename $c) in
     agpt-*|pd*) T=v2 ;;
-    mb*)    T=src/tools/agpt_minibatch_train.py ;;
+    mb*|cv*|tp*|tq*) T=src/tools/agpt_minibatch_train.py ;;
     *)      echo "skip $c"; continue ;;
   esac
   bin/agpt_experiment --config $c --trainer $T > $D/last_run.log 2>&1

@@ -1,0 +1,178 @@
+"""Event-level AGPT step plans, replayed by the minibatch trainer
+(rnd/one-pass-gap, trie-plan arms).
+
+An event is (window start i, context length L): the prediction of token i+L
+from tokens i..i+L-1, for 0 <= i < n_starts and 1 <= L <= T. A depth-T trie
+holds the same events, each node carrying its occurrences. A trie unit is a
+set of events, and its gradient is the sum of the events' instance gradients
+(AGPT's per-unit SGD-equivalence). So training on a plan's steps through
+ordinary windows gives the updates the trie trainer would give for that plan,
+by a different route: each step's windows go through autograd with a loss mask
+selecting the step's events, instead of through the trie.
+
+Plans:
+
+- pd(k): bin/agpt_train_v2's partition_depth k plan with experimental.train_crown.
+  One unit per radix node whose edge spans depth k (the node's whole subtree,
+  including any shallower part of its edge), and one per radix node whose edge
+  ends above depth k. One unit per step, in a new random order each pass.
+- packed(P, n_steps): adaptive pieces packed into equal steps. A window's events
+  at depth >= p go to the piece of its p-character prefix, where p is the
+  shallowest depth whose subtree holds at most P events; its shallower events go
+  to the node of their own context, split by occurrence into near-equal chunks
+  of at most P events. Pieces and chunks are packed at random into n_steps steps
+  of equal event counts, repacked each pass.
+
+plan_cost() counts the positions a trie trainer would compute for one pass of
+a plan: in each step, every distinct context the step's events read (each
+event's context and all its prefixes), once per step.
+"""
+from __future__ import annotations
+
+import numpy as np
+
+_HB = np.uint64(0x9E3779B97F4A7C15)
+_C_PIECE = np.uint64(0xD6E8FEB86659FD93)
+_C_CROWN = np.uint64(0xA0761D6478BD642F)
+_C_NODE = np.uint64(0xE7037ED1A0B428DB)
+_C_CHUNK = np.uint64(0x8EBC6AF09C88C6E3)
+_C_COST = np.uint64(0x589965CC75374CC3)
+
+
+def prefix_keys(tok: np.ndarray, n_starts: int, T: int) -> np.ndarray:
+    """keys[d-1, i] = 64-bit hash of tok[i:i+d], d = 1..T."""
+    keys = np.empty((T, n_starts), dtype=np.uint64)
+    h = np.zeros(n_starts, dtype=np.uint64)
+    t = tok.astype(np.uint64) + np.uint64(1)
+    for d in range(T):
+        h = h * _HB + t[d:d + n_starts]
+        keys[d] = h
+    return keys
+
+
+def occurrences(keys: np.ndarray) -> np.ndarray:
+    """occ[d-1, i] = number of window starts whose first d tokens equal window i's."""
+    occ = np.empty(keys.shape, dtype=np.int32)
+    for d in range(keys.shape[0]):
+        _, inv, cnt = np.unique(keys[d], return_inverse=True, return_counts=True)
+        occ[d] = cnt[inv]
+    return occ
+
+
+def n_children(keys: np.ndarray, d: int) -> np.ndarray:
+    """Per window, how many distinct next tokens follow its depth-d context."""
+    _, idx = np.unique(keys[d], return_index=True)
+    parents = keys[d - 1][idx]
+    pu, pc = np.unique(parents, return_counts=True)
+    return pc[np.searchsorted(pu, keys[d - 1])]
+
+
+def pd_unit_tags(keys: np.ndarray, k: int) -> np.ndarray:
+    """[n_starts, T] unit tag of every event under v2's pd=k + train_crown plan."""
+    T, n = keys.shape
+    tags = np.empty((n, T), dtype=np.uint64)
+    piece = keys[k - 1] * _C_PIECE + np.uint64(k)
+    tags[:, k - 1:] = piece[:, None]
+    # Depth L < k: the event belongs to the radix node whose edge holds depth L.
+    # That edge ends at the first depth >= L where the context branches; if it
+    # runs on to depth k, the node is an anchor and the event is in its piece.
+    end_tag = piece
+    for L in range(k - 1, 0, -1):
+        crown = keys[L - 1] * _C_CROWN + np.uint64(L)
+        end_tag = np.where(n_children(keys, L) >= 2, crown, end_tag)
+        tags[:, L - 1] = end_tag
+    return tags
+
+
+def packed_unit_tags(keys: np.ndarray, occ: np.ndarray, piece_max: int,
+                     rng: np.random.Generator) -> tuple[np.ndarray, np.ndarray]:
+    """[n_starts, T] unit tags for the packed plan's pieces and node chunks,
+    and each window's piece depth p (T+1: no piece, every event a node event)."""
+    T, n = keys.shape
+    p = np.full(n, T + 1, dtype=np.int32)
+    for d in range(T, 0, -1):
+        p = np.where(occ[d - 1].astype(np.int64) * (T - d + 1) <= piece_max, d, p)
+    rows = np.arange(n)
+    pd_idx = np.minimum(p, T) - 1
+    piece = keys[pd_idx, rows] * _C_PIECE + p.astype(np.uint64)
+    tags = np.empty((n, T), dtype=np.uint64)
+    for L in range(1, T + 1):
+        col = piece.copy()
+        node = np.nonzero(L < p)[0]
+        if node.size:
+            kk = keys[L - 1][node]
+            order = np.lexsort((rng.random(node.size), kk))
+            ks = kk[order]
+            first = np.r_[0, np.nonzero(ks[1:] != ks[:-1])[0] + 1]
+            size = np.diff(np.r_[first, ks.size])
+            rank = np.arange(ks.size) - np.repeat(first, size)
+            nchunks = np.repeat((size + piece_max - 1) // piece_max, size)
+            chunk = np.empty(node.size, dtype=np.uint64)
+            chunk[order] = (rank % nchunks).astype(np.uint64)
+            col[node] = kk * _C_NODE + np.uint64(L) + chunk * _C_CHUNK
+        tags[:, L - 1] = col
+    return tags, p
+
+
+def units_from_tags(tags: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """unit index of every event (flat, row-major [i, L]) and each unit's event count."""
+    _, inv = np.unique(tags.ravel(), return_inverse=True)
+    inv = inv.astype(np.int32)
+    return inv, np.bincount(inv)
+
+
+def shuffled_steps(n_units: int, rng: np.random.Generator) -> np.ndarray:
+    """One unit per step, in random order: step index of each unit."""
+    step = np.empty(n_units, dtype=np.int32)
+    step[rng.permutation(n_units)] = np.arange(n_units, dtype=np.int32)
+    return step
+
+
+def packed_steps(sizes: np.ndarray, n_steps: int, rng: np.random.Generator) -> tuple[np.ndarray, int]:
+    """Units in random order, cut into n_steps runs of equal events (a unit goes
+    to the step holding its midpoint). Empty steps are dropped."""
+    perm = rng.permutation(sizes.size)
+    s = sizes[perm].astype(np.float64)
+    mid = np.cumsum(s) - s / 2
+    per = s.sum() / n_steps
+    raw = np.minimum((mid / per).astype(np.int64), n_steps - 1)
+    used, dense = np.unique(raw, return_inverse=True)
+    step = np.empty(sizes.size, dtype=np.int32)
+    step[perm] = dense.astype(np.int32)
+    return step, used.size
+
+
+def step_windows(unit_of_event: np.ndarray, step_of_unit: np.ndarray, n: int, T: int):
+    """Reduce events to (step, window) pairs sorted by step then window:
+    returns step, window start, bitmask of the window's event depths (bit L-1)."""
+    s = step_of_unit[unit_of_event]
+    key = s.astype(np.int64) * n + (np.arange(s.size, dtype=np.int64) // T)
+    order = np.argsort(key, kind="stable")
+    ks = key[order]
+    bits = np.left_shift(1, (order % T).astype(np.int32)).astype(np.int32)
+    del key
+    first = np.r_[0, np.nonzero(ks[1:] != ks[:-1])[0] + 1]
+    sw_bits = np.bitwise_or.reduceat(bits, first)
+    sw_key = ks[first]
+    return (sw_key // n).astype(np.int32), (sw_key % n).astype(np.int64), sw_bits
+
+
+def bit_length(bits: np.ndarray) -> np.ndarray:
+    return np.floor(np.log2(np.maximum(bits, 1))).astype(np.int32) + 1
+
+
+def plan_cost(keys: np.ndarray, sw_step: np.ndarray, sw_i: np.ndarray, sw_bits: np.ndarray) -> int:
+    """Positions a trie trainer computes for this pass: distinct contexts per step."""
+    lmax = bit_length(sw_bits)
+    total = 0
+    for L in range(1, keys.shape[0] + 1):
+        m = lmax >= L
+        t = keys[L - 1][sw_i[m]] * _C_COST + sw_step[m].astype(np.uint64)
+        total += int(np.unique(t).size)
+    return total
+
+
+def describe(sizes: np.ndarray) -> str:
+    q = np.percentile(sizes, [10, 50, 90, 99])
+    return (f"n={sizes.size} mean={sizes.mean():.0f} p10={q[0]:.0f} median={q[1]:.0f} "
+            f"p90={q[2]:.0f} p99={q[3]:.0f} max={sizes.max()} cv={sizes.std() / sizes.mean():.3f}")

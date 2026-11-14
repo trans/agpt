@@ -38,6 +38,20 @@ Config keys read:
                                   order each epoch. Replaces minibatch_size: random
                                   batches with an AGPT plan's unit sizes. Windows past
                                   one epoch's worth come from a second permutation.)
+    experimental.window_stride   (conventional epochs: windows start every `stride`
+                                  characters from a random offset drawn each epoch,
+                                  so stride = seq_len trains each target once per
+                                  epoch, as ordinary LM training does. Default 1:
+                                  every window start.)
+    experimental.trie_plan       (replay an AGPT plan, see trie_plan.py: `pd` or
+                                  `packed`. Each step trains exactly its plan step's
+                                  events: the step's windows run through the model
+                                  (cut to 4, 8 or seq_len tokens by their deepest
+                                  event) with a loss mask, mean over the events.)
+    experimental.trie_plan_depth      (pd: the partition depth)
+    experimental.trie_plan_piece_max  (packed: most events in a piece or node chunk)
+    experimental.trie_plan_steps      (packed: steps per pass)
+    experimental.trie_plan_seed       (unit order / packing / chunking seed, default 1)
 """
 
 from __future__ import annotations
@@ -58,7 +72,67 @@ if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
 from agpt_ppl import AGPTModel, MGPT_MAGIC, build_vocab, load_model  # noqa: E402
 
-KNOWN_EXPERIMENTAL = {"minibatch_size", "micro_batch", "device", "max_corpus_chars", "step_events_file"}
+KNOWN_EXPERIMENTAL = {"minibatch_size", "micro_batch", "device", "max_corpus_chars", "step_events_file",
+                      "window_stride", "trie_plan", "trie_plan_depth", "trie_plan_piece_max",
+                      "trie_plan_steps", "trie_plan_seed"}
+TOKEN_CAP = 131072  # tokens per forward/backward in trie-plan steps (memory bound only)
+
+
+class TriePlanner:
+    """Builds one pass's steps of an AGPT plan over the training windows."""
+
+    def __init__(self, exp, tokens, n_starts, T):
+        import numpy as np
+        import trie_plan as tp
+        self.np, self.tp, self.T, self.n = np, tp, T, n_starts
+        self.kind = exp["trie_plan"]
+        if self.kind not in ("pd", "packed"):
+            sys.exit(f"agpt_minibatch_train: trie_plan {self.kind!r} not supported (pd | packed)")
+        self.rng = np.random.default_rng(int(exp.get("trie_plan_seed", 1)))
+        t0 = time.perf_counter()
+        tok = tokens.numpy()
+        keys = tp.prefix_keys(tok, n_starts, T)
+        self.keys = keys
+        if self.kind == "pd":
+            self.depth = int(exp["trie_plan_depth"])
+            tags = tp.pd_unit_tags(keys, self.depth)
+            self.desc = f"pd={self.depth} + crown, one unit per step, shuffled each pass"
+        else:
+            self.piece_max = int(exp["trie_plan_piece_max"])
+            self.n_steps_req = int(exp["trie_plan_steps"])
+            occ = tp.occurrences(keys)
+            tags, p = tp.packed_unit_tags(keys, occ, self.piece_max, self.rng)
+            del occ
+            self.desc = (f"packed: pieces and node chunks of <= {self.piece_max} events "
+                         f"(piece depth median {int(np.median(p))}), {self.n_steps_req} equal steps, repacked each pass")
+        self.unit_of_event, self.unit_sizes = tp.units_from_tags(tags)
+        del tags
+        self.build_seconds = time.perf_counter() - t0
+        self.blens = sorted({min(4, T), min(8, T), T})
+
+    @property
+    def steps_per_epoch(self):
+        return self.unit_sizes.size if self.kind == "pd" else self.n_steps_req
+
+    def epoch(self, with_cost):
+        np, tp = self.np, self.tp
+        if self.kind == "pd":
+            step_of_unit = tp.shuffled_steps(self.unit_sizes.size, self.rng)
+            n_steps = self.unit_sizes.size
+        else:
+            step_of_unit, n_steps = tp.packed_steps(self.unit_sizes, self.n_steps_req, self.rng)
+        sw_step, sw_i, sw_bits = tp.step_windows(self.unit_of_event, step_of_unit, self.n, self.T)
+        cost = tp.plan_cost(self.keys, sw_step, sw_i, sw_bits) if with_cost else None
+        lmax = tp.bit_length(sw_bits)
+        bucket = np.searchsorted(np.array(self.blens), lmax).astype(np.int64)
+        order = np.lexsort((sw_i, bucket, sw_step))
+        sw_step, sw_i, sw_bits, bucket = sw_step[order], sw_i[order], sw_bits[order], bucket[order]
+        nb = len(self.blens)
+        counts = np.bincount(sw_step.astype(np.int64) * nb + bucket, minlength=n_steps * nb)
+        off = np.r_[0, np.cumsum(counts)].tolist()
+        step_events = np.bincount(sw_step, weights=np.bitwise_count(sw_bits), minlength=n_steps)
+        return dict(n_steps=n_steps, sw_i=sw_i, sw_bits=sw_bits, off=off, step_events=step_events.tolist(),
+                    cost=cost, pairs=int(sw_i.size), sizes=step_events)
 
 
 def random_state_dict(d_model, n_heads, n_layers, d_ff, vocab_size, seed):
@@ -191,6 +265,13 @@ def main():
         batch = int(step_sizes.max())
     else:
         batch = int(exp.get("minibatch_size", 128))
+    stride = int(exp.get("window_stride", 1))
+    if stride < 1:
+        sys.exit("agpt_minibatch_train: window_stride must be >= 1")
+    if exp.get("trie_plan") and (step_sizes is not None or "minibatch_size" in exp or stride != 1):
+        sys.exit("agpt_minibatch_train: trie_plan replaces minibatch_size, step_events_file and window_stride")
+    if stride != 1 and step_sizes is not None:
+        sys.exit("agpt_minibatch_train: give window_stride or step_events_file, not both")
     micro = min(batch, int(exp.get("micro_batch") or batch))
     device = torch.device(exp.get("device") or ("cuda" if torch.cuda.is_available() else "cpu"))
     save_path = mcfg["save_file"]
@@ -222,7 +303,14 @@ def main():
     torch.manual_seed(seed)
     model = AGPTModel(mc, sd, device="cpu").to(device)
     opt = torch.optim.Adam(model.parameters(), lr=lr, betas=(beta1, beta2), eps=eps)
-    steps_per_epoch = len(step_sizes) if step_sizes is not None else (n_starts + batch - 1) // batch
+    planner = TriePlanner(exp, tokens, n_starts, T) if exp.get("trie_plan") else None
+    n_windows = n_starts // stride if stride > 1 else n_starts
+    if planner is not None:
+        steps_per_epoch = planner.steps_per_epoch
+    elif step_sizes is not None:
+        steps_per_epoch = len(step_sizes)
+    else:
+        steps_per_epoch = (n_windows + batch - 1) // batch
     total_steps = epochs * steps_per_epoch
     warmup_steps = warmup_epochs * steps_per_epoch
 
@@ -237,17 +325,79 @@ def main():
         print(f"  step_events_file {exp['step_events_file']}: {len(step_sizes)} steps per epoch, "
               f"{int(step_sizes.sum())} windows per epoch (median {int(step_sizes.median())}, max {batch}), "
               f"shuffled each epoch", flush=True)
+    if stride > 1:
+        print(f"  window_stride {stride}: {n_windows} windows per epoch from a random offset each epoch, "
+              f"targets_per_epoch={n_windows * T}", flush=True)
+    if planner is not None:
+        print(f"  trie_plan {planner.desc}: {planner.unit_sizes.size} units "
+              f"({planner.tp.describe(planner.unit_sizes)}), built in {planner.build_seconds:.1f}s", flush=True)
 
     tokens_dev = tokens.to(device)
     offsets = torch.arange(T + 1, device=device).view(1, T + 1)
     rng = torch.Generator().manual_seed(seed)
     step = 0
     train_wall = 0.0
+    pos = torch.arange(T, device=device, dtype=torch.int32).view(1, T)
     for epoch in range(1, epochs + 1):
+        if planner is not None:
+            tb = time.perf_counter()
+            plan = planner.epoch(with_cost=(epoch == 1))
+            sizes_np = plan["sizes"]
+            print(f"  trie_plan epoch {epoch}: {plan['n_steps']} steps ({planner.tp.describe(sizes_np.astype(int))}), "
+                  f"{plan['pairs']} step-window pairs"
+                  + (f", trie positions per pass {plan['cost']}" if plan["cost"] is not None else "")
+                  + f", built in {time.perf_counter() - tb:.1f}s", flush=True)
+            sw_i = torch.from_numpy(plan["sw_i"]).to(device)
+            sw_bits = torch.from_numpy(plan["sw_bits"]).to(device)
+            off, step_events, nb = plan["off"], plan["step_events"], len(planner.blens)
+            if device.type == "cuda":
+                torch.cuda.synchronize()
+            t0 = time.perf_counter()
+            loss_sum = torch.zeros((), device=device)
+            model.train()
+            for s in range(plan["n_steps"]):
+                cur = scheduled_lr(lr, sched_name, min_ratio, step, total_steps, warmup_steps)
+                for g in opt.param_groups:
+                    g["lr"] = cur
+                opt.zero_grad(set_to_none=True)
+                E = step_events[s]
+                for b, Lb in enumerate(planner.blens):
+                    a, z = off[s * nb + b], off[s * nb + b + 1]
+                    cap = max(1, TOKEN_CAP // Lb)
+                    for j in range(a, z, cap):
+                        ii = sw_i[j:min(z, j + cap)]
+                        chunks = tokens_dev[ii.view(-1, 1) + offsets[:, :Lb + 1]]
+                        logits = model(chunks[:, :Lb])
+                        ce = F.cross_entropy(logits.reshape(-1, V), chunks[:, 1:].reshape(-1),
+                                             reduction="none").view(-1, Lb)
+                        m = ((sw_bits[j:min(z, j + cap)].view(-1, 1) >> pos[:, :Lb]) & 1).to(ce.dtype)
+                        ls = (ce * m).sum()
+                        (ls / E).backward()
+                        loss_sum += ls.detach()
+                opt.step()
+                step += 1
+            if device.type == "cuda":
+                torch.cuda.synchronize()
+            dt = time.perf_counter() - t0
+            train_wall += dt
+            nll = loss_sum.item() / float(sizes_np.sum())
+            del sw_i, sw_bits, plan
+            print(f"  epoch {epoch} train_nll={nll:.6f} train_ppl={math.exp(nll):.4f} steps={step} "
+                  f"lr_end={cur:.6g} wall={dt:.2f}s", flush=True)
+            if epoch in checkpoints:
+                p = epoch_checkpoint_path(save_path, epoch)
+                save_model(p, mc, model)
+                print(f"  train-epoch-checkpoint: epoch={epoch} train_wall_seconds={train_wall:.6f} path={p}",
+                      flush=True)
+            continue
         if device.type == "cuda":
             torch.cuda.synchronize()
         t0 = time.perf_counter()
-        perm = torch.randperm(n_starts, generator=rng)
+        if stride > 1:
+            o = int(torch.randint(stride, (1,), generator=rng))
+            perm = o + stride * torch.randperm(n_windows, generator=rng)
+        else:
+            perm = torch.randperm(n_starts, generator=rng)
         if step_sizes is not None:
             sizes = step_sizes[torch.randperm(len(step_sizes), generator=rng)]
             need = int(sizes.sum())
@@ -255,7 +405,7 @@ def main():
                 perm = torch.cat([perm, torch.randperm(n_starts, generator=rng)])
             bounds = torch.cat([torch.zeros(1, dtype=torch.long), sizes.cumsum(0)]).tolist()
         else:
-            bounds = list(range(0, n_starts, batch)) + [n_starts]
+            bounds = list(range(0, n_windows, batch)) + [n_windows]
         perm = perm.to(device)
         loss_sum = torch.zeros((), device=device)
         model.train()

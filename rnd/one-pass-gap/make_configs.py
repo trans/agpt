@@ -34,6 +34,22 @@ the same number of updates per pass as pd=2 and pd=3:
   weights every event equally (the default event mean weights every unit
   equally, whatever its size).
 
+Second follow-up (2026-11-14), both through the minibatch trainer:
+
+- cv:    conventional epochs (experimental.window_stride 16: non-overlapping
+         windows from a random offset each epoch, each target once per epoch),
+         128 windows per step, 518 steps per epoch. A pass above is 16 such
+         epochs of events; an AGPT depth-16 pass computes as many positions as
+         ~8.4 of them.
+- tp3:   replay of v2's pd=3 + crown plan (experimental.trie_plan pd, depth 3):
+         exactly v2's 12,675 units, one per step, shuffled each pass. The
+         control: it should reproduce pd3cs (7.81) if the replay is faithful.
+- tqP:   packed plans (experimental.trie_plan packed): pieces (the shallowest
+         subtrees with <= P events) and chunks of heavier nodes' own events,
+         packed at random into 12,675 equal steps. P = 1338, 335, 84 keeps 97%,
+         88%, 65% of the trie's sharing (trie positions per pass 9.18M, 9.90M,
+         11.71M, against 8.90M for one trie step and 16.95M with none).
+
 Each budget is its own run, so every run anneals its own schedule.
 Usage: python3 rnd/one-pass-gap/make_configs.py
 """
@@ -61,6 +77,27 @@ CADENCE = {"pd2c": ({1: [0.0015] + HI}, 2, False), "pd3c": ({1: PD3_E1}, 3, Fals
            "pd3css": ({1: [0.00075, 0.0015, 0.003, 0.006]}, 3, True),
            # random batches with pd=3's unit sizes (pd3_unit_events.txt), shuffled each pass
            "mbu3": ({1: [0.00075, 0.0015, 0.003, 0.006]}, 0, True)}
+
+# Second follow-up arms: {budget: lrs} and the experimental keys.
+NEXT = {
+    "cv": ({1: [0.003, 0.006, 0.012, 0.024], 2: [0.003, 0.006, 0.012, 0.024], 4: [0.003, 0.006, 0.012],
+            8: [0.003, 0.006, 0.012], 16: [0.006]},
+           "  minibatch_size: 128\n  window_stride: 16\n"),
+    "tp3": ({1: [0.00075, 0.0015, 0.003]}, "  trie_plan: pd\n  trie_plan_depth: 3\n"),
+    "tq1338": ({1: [0.0015, 0.003, 0.006]},
+               "  trie_plan: packed\n  trie_plan_piece_max: 1338\n  trie_plan_steps: 12675\n"),
+    "tq335": ({1: [0.0015, 0.003, 0.006, 0.012]},
+              "  trie_plan: packed\n  trie_plan_piece_max: 335\n  trie_plan_steps: 12675\n"),
+    "tq84": ({1: [0.0015, 0.003, 0.006, 0.012]},
+             "  trie_plan: packed\n  trie_plan_piece_max: 84\n  trie_plan_steps: 12675\n"),
+}
+NEXT_DESC = {
+    "cv": "conventional epochs (non-overlapping windows from a random offset each epoch, 128 per step)",
+    "tp3": "replay of AGPT's pd=3 + crown plan (12,675 units, one per step, shuffled)",
+    "tq1338": "packed AGPT plan: pieces <= 1338 events in 12,675 equal steps",
+    "tq335": "packed AGPT plan: pieces <= 335 events in 12,675 equal steps",
+    "tq84": "packed AGPT plan: pieces <= 84 events in 12,675 equal steps",
+}
 
 COMMON = """corpus:
   path: data/.splits/4fa9aec1db6b3aea/train_corpus.txt
@@ -159,6 +196,19 @@ def main():
                             f"{epochs} pass(es), lr {lr:g} warmup-cosine per step")
                     body = COMMON.format(trie="", epochs=epochs, lr=lr, train_extra="",
                                          experimental=f"  minibatch_size: {size}\n  device: cuda\n")
+                text = (f'---\ndescription: "{desc}"\nexperiment: one-pass-gap\n'
+                        f"run_slug: {slug}\n{body}")
+                (OUT / f"{slug}.yml").write_text(text)
+                n += 1
+    for arm, (grid, exp) in NEXT.items():
+        for epochs, lrs in grid.items():
+            for lr in lrs:
+                slug = f"{arm}-e{epochs}-lr{lr:g}"
+                unit = "epoch(s)" if arm == "cv" else "pass(es)"
+                desc = (f"one-pass gap, next: {NEXT_DESC[arm]}, {epochs} {unit}, "
+                        f"Adam lr {lr:g} warmup-cosine per step")
+                body = COMMON.format(trie="", epochs=epochs, lr=lr, train_extra="",
+                                     experimental=exp + "  device: cuda\n")
                 text = (f'---\ndescription: "{desc}"\nexperiment: one-pass-gap\n'
                         f"run_slug: {slug}\n{body}")
                 (OUT / f"{slug}.yml").write_text(text)

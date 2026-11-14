@@ -22,7 +22,12 @@ ARMS = {"agpt": "AGPT pd=1 (65 steps/pass)", "mb": "minibatch 128 (8,279 steps/p
         "mb724": "minibatch 724 (1,464 steps/pass)", "mb84": "minibatch 84 (12,615 steps/pass)",
         "pd1s": "AGPT pd=1, fire_norm sum (65 steps/pass)",
         "pd3css": "AGPT pd=3 + crown, shuffled, fire_norm sum (12,675 steps/pass)",
-        "mbu3": "random batches with pd=3's unit sizes (12,675 steps/pass)"}
+        "mbu3": "random batches with pd=3's unit sizes (12,675 steps/pass)",
+        "cv": "conventional epochs, 128 windows (518 steps/epoch; 'passes' = epochs)",
+        "tp3": "replay of AGPT pd=3 + crown plan, shuffled (12,675 steps/pass)",
+        "tq1338": "packed AGPT plan, pieces <= 1338 (12,675 equal steps, 97% sharing)",
+        "tq335": "packed AGPT plan, pieces <= 335 (12,675 equal steps, 88% sharing)",
+        "tq84": "packed AGPT plan, pieces <= 84 (12,675 equal steps, 65% sharing)"}
 
 
 def load():
