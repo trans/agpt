@@ -24,6 +24,11 @@ the same number of updates per pass as pd=2 and pd=3:
 - pd4c:  pd=4 + crown, 58,721 units per pass.
 - mb724: 724 windows per step, 1,464 updates per pass (matches pd2c).
 - mb84:  84 windows per step, 12,615 updates per pass (matches pd3c).
+- mbu3:  random windows in batches with pd=3's 12,675 unit sizes
+  (pd3_unit_events.txt: each unit's trained events, from the pd3cs lr 0.0015
+  run's log; a step takes max(1, round(events / 16)) windows), in a new
+  random order each pass. Against pd3cs it isolates the trie's grouping;
+  against mb84 (same steps, equal sizes) it isolates the unequal sizes.
 - pd1s, pd3css: pd=1 and shuffled pd=3 + crown with train.fire_norm: sum,
   every unit's summed gradient divided by one constant, so that a pass
   weights every event equally (the default event mean weights every unit
@@ -53,7 +58,9 @@ CADENCE = {"pd2c": ({1: [0.0015] + HI}, 2, False), "pd3c": ({1: PD3_E1}, 3, Fals
            # train.fire_norm: sum (every unit's summed gradient over one constant, so a
            # pass weights every event equally instead of every unit equally)
            "pd1s": ({1: HI, 8: [0.003, 0.006, 0.012]}, 1, False),
-           "pd3css": ({1: [0.00075, 0.0015, 0.003, 0.006]}, 3, True)}
+           "pd3css": ({1: [0.00075, 0.0015, 0.003, 0.006]}, 3, True),
+           # random batches with pd=3's unit sizes (pd3_unit_events.txt), shuffled each pass
+           "mbu3": ({1: [0.00075, 0.0015, 0.003, 0.006]}, 0, True)}
 
 COMMON = """corpus:
   path: data/.splits/4fa9aec1db6b3aea/train_corpus.txt
@@ -141,6 +148,12 @@ def main():
                         extra += "  fire_norm: sum\n"
                     body = COMMON.format(trie=TRIE, epochs=epochs, lr=lr, train_extra=extra,
                                          experimental=exp)
+                elif arm == "mbu3":
+                    desc = (f"one-pass gap, cadence: minibatch Adam over random windows in batches with AGPT pd=3's "
+                            f"12,675 unit sizes (shuffled each pass), {epochs} pass(es), lr {lr:g} warmup-cosine per step")
+                    body = COMMON.format(trie="", epochs=epochs, lr=lr, train_extra="",
+                                         experimental="  step_events_file: rnd/one-pass-gap/pd3_unit_events.txt\n"
+                                                      "  micro_batch: 2048\n  device: cuda\n")
                 else:
                     desc = (f"one-pass gap, cadence: ordinary minibatch Adam ({size} windows of 16 per step), "
                             f"{epochs} pass(es), lr {lr:g} warmup-cosine per step")

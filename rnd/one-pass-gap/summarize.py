@@ -21,7 +21,8 @@ ARMS = {"agpt": "AGPT pd=1 (65 steps/pass)", "mb": "minibatch 128 (8,279 steps/p
         "pd4c": "AGPT pd=4 + crown (58,721 steps/pass)",
         "mb724": "minibatch 724 (1,464 steps/pass)", "mb84": "minibatch 84 (12,615 steps/pass)",
         "pd1s": "AGPT pd=1, fire_norm sum (65 steps/pass)",
-        "pd3css": "AGPT pd=3 + crown, shuffled, fire_norm sum (12,675 steps/pass)"}
+        "pd3css": "AGPT pd=3 + crown, shuffled, fire_norm sum (12,675 steps/pass)",
+        "mbu3": "random batches with pd=3's unit sizes (12,675 steps/pass)"}
 
 
 def load():

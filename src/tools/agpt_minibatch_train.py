@@ -32,6 +32,12 @@ Config keys read:
                                   smaller values accumulate the same mean gradient)
     experimental.device          (default: cuda if available)
     experimental.max_corpus_chars (smoke tests only: train on a prefix)
+    experimental.step_events_file (one integer per line, the target events of one
+                                  step; each step takes max(1, round(events / seq_len))
+                                  random windows, and the steps run in a new random
+                                  order each epoch. Replaces minibatch_size: random
+                                  batches with an AGPT plan's unit sizes. Windows past
+                                  one epoch's worth come from a second permutation.)
 """
 
 from __future__ import annotations
@@ -52,7 +58,7 @@ if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
 from agpt_ppl import AGPTModel, MGPT_MAGIC, build_vocab, load_model  # noqa: E402
 
-KNOWN_EXPERIMENTAL = {"minibatch_size", "micro_batch", "device", "max_corpus_chars"}
+KNOWN_EXPERIMENTAL = {"minibatch_size", "micro_batch", "device", "max_corpus_chars", "step_events_file"}
 
 
 def random_state_dict(d_model, n_heads, n_layers, d_ff, vocab_size, seed):
@@ -176,7 +182,15 @@ def main():
     warmup_epochs = int(sched.get("warmup_epochs", 0))
     min_ratio = float(sched.get("min_lr_ratio", 0.0))
     checkpoints = sorted(set(tcfg.get("checkpoint_epochs") or []))
-    batch = int(exp.get("minibatch_size", 128))
+    step_sizes = None
+    if exp.get("step_events_file"):
+        if "minibatch_size" in exp:
+            sys.exit("agpt_minibatch_train: give minibatch_size or step_events_file, not both")
+        ev = [int(x) for x in Path(exp["step_events_file"]).read_text().split()]
+        step_sizes = torch.tensor([max(1, round(e / int(tcfg["seq_len"]))) for e in ev], dtype=torch.long)
+        batch = int(step_sizes.max())
+    else:
+        batch = int(exp.get("minibatch_size", 128))
     micro = min(batch, int(exp.get("micro_batch") or batch))
     device = torch.device(exp.get("device") or ("cuda" if torch.cuda.is_available() else "cpu"))
     save_path = mcfg["save_file"]
@@ -208,7 +222,7 @@ def main():
     torch.manual_seed(seed)
     model = AGPTModel(mc, sd, device="cpu").to(device)
     opt = torch.optim.Adam(model.parameters(), lr=lr, betas=(beta1, beta2), eps=eps)
-    steps_per_epoch = (n_starts + batch - 1) // batch
+    steps_per_epoch = len(step_sizes) if step_sizes is not None else (n_starts + batch - 1) // batch
     total_steps = epochs * steps_per_epoch
     warmup_steps = warmup_epochs * steps_per_epoch
 
@@ -219,6 +233,10 @@ def main():
     print(f"  epochs={epochs} minibatch={batch} steps_per_epoch={steps_per_epoch} total_steps={total_steps} "
           f"micro_batch={micro} lr={lr} schedule={sched_name} warmup_epochs={warmup_epochs} min_lr_ratio={min_ratio} "
           f"betas=({beta1}, {beta2}) eps={eps} seed={seed} device={device}", flush=True)
+    if step_sizes is not None:
+        print(f"  step_events_file {exp['step_events_file']}: {len(step_sizes)} steps per epoch, "
+              f"{int(step_sizes.sum())} windows per epoch (median {int(step_sizes.median())}, max {batch}), "
+              f"shuffled each epoch", flush=True)
 
     tokens_dev = tokens.to(device)
     offsets = torch.arange(T + 1, device=device).view(1, T + 1)
@@ -229,11 +247,20 @@ def main():
         if device.type == "cuda":
             torch.cuda.synchronize()
         t0 = time.perf_counter()
-        perm = torch.randperm(n_starts, generator=rng).to(device)
+        perm = torch.randperm(n_starts, generator=rng)
+        if step_sizes is not None:
+            sizes = step_sizes[torch.randperm(len(step_sizes), generator=rng)]
+            need = int(sizes.sum())
+            while perm.numel() < need:
+                perm = torch.cat([perm, torch.randperm(n_starts, generator=rng)])
+            bounds = torch.cat([torch.zeros(1, dtype=torch.long), sizes.cumsum(0)]).tolist()
+        else:
+            bounds = list(range(0, n_starts, batch)) + [n_starts]
+        perm = perm.to(device)
         loss_sum = torch.zeros((), device=device)
         model.train()
-        for i in range(0, n_starts, batch):
-            starts = perm[i:i + batch]
+        for i0, i1 in zip(bounds[:-1], bounds[1:]):
+            starts = perm[i0:i1]
             nb = starts.numel()
             cur = scheduled_lr(lr, sched_name, min_ratio, step, total_steps, warmup_steps)
             for g in opt.param_groups:
@@ -252,7 +279,7 @@ def main():
             torch.cuda.synchronize()
         dt = time.perf_counter() - t0
         train_wall += dt
-        nll = loss_sum.item() / n_starts
+        nll = loss_sum.item() / bounds[-1]
         print(f"  epoch {epoch} train_nll={nll:.6f} train_ppl={math.exp(nll):.4f} steps={step} "
               f"lr_end={cur:.6g} wall={dt:.2f}s", flush=True)
         if epoch in checkpoints:
