@@ -18,9 +18,27 @@
   random-batch control gives 12.56 after one pass: update count is most of
   the gap, but AGPT's steps are worth about a third of the control's (8.71
   against 5.67 after 8 passes).
-- **Next, offered to the user, not chosen:** separate unit sizes, v2's fixed
-  unit order and first-character grouping (about 15 min of GPU), and pd=3
-  at one pass with the shallow targets trained (the direct one-epoch test).
+- **AGPT at minibatch cadence** (the user chose pd=3 on 2026-11-14, saying
+  "the main issue is the number of updates"; 47 runs, `bd3acc9`):
+  - One pass, crown trained: pd=2 9.65 (1,463 updates), pd=3 7.81
+    (12,675, shuffled; 8.00 in radix-id order), pd=4 6.74 (58,721, 185 s a
+    pass).
+  - Random equal batches at the same counts: 5.18 (724 windows) and 4.83
+    (84 windows).
+  - Updates help, but past about 1,500 per pass what each step holds
+    matters more than how many there are.
+  - At pd=3, step count and mean step size both match `mb84`. Random
+    windows in batches of pd=3's unit sizes score 6.33, so the 0.48-nat
+    gap is about half unequal sizes and half the trie's prefix grouping.
+  - `fire_norm: sum` is worse (8.53 at pd=3; 23.4 against 15.7 at pd=1
+    after one pass).
+- **New v2 options:** `experimental.train_crown` (`b1019b3`) trains the
+  depth<pd nodes that pd≥2 plans skipped (12.4% of events at pd=3), and v2
+  prints `plan-coverage`. `train.fire_norm: sum` (`e59b10c`). The minibatch
+  trainer gained `experimental.step_events_file` (`21ec506`).
+- **Next, offered, not chosen:** equal-mass units (split heavy subtrees,
+  pack light ones) for the size half; mapping the grouping half against
+  the compute that prefix sharing saves.
 - `src/tools/agpt_minibatch_train.py` (`84054bc`) is the minibatch baseline
   as an orchestrator custom trainer, so baselines get `result.json` too.
 
@@ -100,17 +118,19 @@ The user named item 1 on 2026-11-10. No order is agreed for the rest.
 
 - Does a curvature method beat partitioned Adam at equal compute in any regime
   (larger models, partitioned histories)?
-- What explains AGPT's remaining gap to vanilla minibatch attention? Not the
-  units' target correlation: at equal steps they tie shuffled minibatches
-  (orientation grouping control). Step count is the plainest candidate.
+- What explains AGPT's remaining gap to vanilla minibatch attention? At pd=1,
+  mostly the step count (65 per pass). At pd=3, with more steps than
+  minibatch training, about half is unequal unit sizes and half the
+  grouping by a shared 3-character prefix (one-pass-gap follow-up,
+  2026-11-14). The orientation control's tie at pd=1 with a GRU does not
+  carry over.
 - Is the phase-tree gain positional? **No (control, 2026-11-10):** the shift
   cancels in Q·K, and depth positions score the same. The phase modes are
   strided minibatches of 1/64 of the windows per epoch. Whether minibatching
   explains their d128/L6 gain over static is open ([open-lines.md](open-lines.md) §3a).
 - Should canonical baselines trained before the 2026-09-24 race fix be re-run?
   **Open: the user's call** (gradient-population README).
-- How far one corpus pass gets is still unmeasured (item 04 of the site's
-  "next" list).
+- How far one corpus pass gets: measured 2026-11-14 (`rnd/one-pass-gap`).
 
 ## Docs that lag the code (checked 2026-11-07)
 
