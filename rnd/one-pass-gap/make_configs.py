@@ -48,7 +48,7 @@ MICRO = {"mb": "", "mbL": "  micro_batch: 2048\n"}
 LO, HI = [0.0015, 0.003, 0.006, 0.012], [0.003, 0.006, 0.012, 0.024]
 PD3_E1 = [0.000375, 0.00075] + LO
 CADENCE = {"pd2c": ({1: [0.0015] + HI}, 2, False), "pd3c": ({1: PD3_E1}, 3, False),
-           "pd3cs": ({1: PD3_E1}, 3, True), "pd4c": ({1: [0.000375, 0.00075, 0.0015]}, 4, False),
+           "pd3cs": ({1: PD3_E1, 2: [0.00075, 0.0015], 4: [0.00075, 0.0015]}, 3, True), "pd4c": ({1: [0.000375, 0.00075, 0.0015]}, 4, False),
            "mb724": ({1: HI}, 724, False), "mb84": ({1: LO}, 84, False),
            # train.fire_norm: sum (every unit's summed gradient over one constant, so a
            # pass weights every event equally instead of every unit equally)
