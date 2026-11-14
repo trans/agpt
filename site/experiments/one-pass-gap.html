@@ -4,14 +4,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#101c1d">
-  <meta name="description" content="AGPT&#x27;s measuring stick is &quot;one epoch and done&quot;. How close does AGPT pd=1 get to a conventional training run in one pass over Tiny Shakespeare, and in 2, 4 and 8 passes, against ordinary minibatch Adam training of the same d64/L2 model from the same weights, at matched passes and wall time? And is AGPT&#x27;s deficit just its 65 updates per pass?">
+  <meta name="description" content="AGPT&#x27;s measuring stick is &quot;one epoch and done&quot;. How close does AGPT get to a conventional training run in one pass over Tiny Shakespeare, and in a few more, against ordinary minibatch Adam training of the same d64/L2 model from the same weights? Is AGPT&#x27;s deficit its update count: 65 per pass at pd=1, and more at pd=2–4 when the shallow targets are trained too?">
   <link rel="canonical" href="https://trans.github.io/agpt/experiments/one-pass-gap.html">
-  <meta property="og:title" content="The one-pass gap (AGPT pd=1 vs ordinary minibatch training, 1–8 passes) · AGPT">
-  <meta property="og:description" content="AGPT&#x27;s measuring stick is &quot;one epoch and done&quot;. How close does AGPT pd=1 get to a conventional training run in one pass over Tiny Shakespeare, and in 2, 4 and 8 passes, against ordinary minibatch Adam training of the same d64/L2 model from the same weights, at matched passes and wall time? And is AGPT&#x27;s deficit just its 65 updates per pass?">
+  <meta property="og:title" content="The one-pass gap (AGPT pd=1–4 vs ordinary minibatch training) · AGPT">
+  <meta property="og:description" content="AGPT&#x27;s measuring stick is &quot;one epoch and done&quot;. How close does AGPT get to a conventional training run in one pass over Tiny Shakespeare, and in a few more, against ordinary minibatch Adam training of the same d64/L2 model from the same weights? Is AGPT&#x27;s deficit its update count: 65 per pass at pd=1, and more at pd=2–4 when the shallow targets are trained too?">
   <meta property="og:url" content="https://trans.github.io/agpt/experiments/one-pass-gap.html">
   <meta property="og:image" content="https://trans.github.io/agpt/og-image.png">
   <meta property="og:type" content="website">
-  <title>The one-pass gap (AGPT pd=1 vs ordinary minibatch training, 1–8 passes) · AGPT</title>
+  <title>The one-pass gap (AGPT pd=1–4 vs ordinary minibatch training) · AGPT</title>
   <link rel="icon" href="../favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="../styles.css">
   <link rel="stylesheet" href="../experiments.css">
@@ -30,28 +30,29 @@
       <div class="shell">
         <a class="back-link" href="index.html">← All experiments</a>
         <span class="section-number">THE RESEARCH RECORD / one-pass-gap</span>
-        <h1>The one-pass gap (AGPT pd=1 vs ordinary minibatch training, 1–8 passes)</h1>
-        <p class="experiment-question">AGPT&#x27;s measuring stick is &quot;one epoch and done&quot;. How close does AGPT pd=1 get to a conventional training run in one pass over Tiny Shakespeare, and in 2, 4 and 8 passes, against ordinary minibatch Adam training of the same d64/L2 model from the same weights, at matched passes and wall time? And is AGPT&#x27;s deficit just its 65 updates per pass?</p>
+        <h1>The one-pass gap (AGPT pd=1–4 vs ordinary minibatch training)</h1>
+        <p class="experiment-question">AGPT&#x27;s measuring stick is &quot;one epoch and done&quot;. How close does AGPT get to a conventional training run in one pass over Tiny Shakespeare, and in a few more, against ordinary minibatch Adam training of the same d64/L2 model from the same weights? Is AGPT&#x27;s deficit its update count: 65 per pass at pd=1, and more at pd=2–4 when the shallow targets are trained too?</p>
         <div class="badge-row"><span class="badge badge-kind">experiment</span><span class="badge badge-status">concluded</span><span class="badge badge-outcome outcome-negative">negative</span><span class="badge badge-family">attention</span><span class="badge badge-eval">eval: canonical</span></div>
 
         <div class="experiment-dates"><span>Opened <time datetime="2026-11-14">2026-11-14</time></span><span>Updated <time datetime="2026-11-14">2026-11-14</time></span></div>
       </div>
     </section>
     <div class="shell experiment-main">
-      <section class="answer-panel" aria-labelledby="answer-heading"><span id="answer-heading" class="micro-label">THE ANSWER SO FAR</span><p>Far off. After one pass AGPT pd=1 scores rolling byte PPL 15.73 (best of four learning rates); ordinary minibatch training of the same model from the same weights scores 4.83 in 31 s, which already beats AGPT&#x27;s 100-pass run (5.225), and 4.66 after two passes, better than AGPT&#x27;s best on record (4.764 after 625 passes). After 8 passes AGPT reaches 8.71. Most of the gap is the update count (65 steps per pass against 8,279): random equal batches with AGPT&#x27;s 65 steps per pass score 12.56 after one pass. But AGPT trails that control at every budget, by a widening margin (5.67 against 8.71 after 8 passes), so AGPT&#x27;s steps are worth about a third of random-batch steps here. One seed; 48 runs.</p></section>
+      <section class="answer-panel" aria-labelledby="answer-heading"><span id="answer-heading" class="micro-label">THE ANSWER SO FAR</span><p>Far off, and the update count is only part of it. After one pass AGPT pd=1 scores rolling byte PPL 15.73; minibatch training scores 4.83 in 31 s, already better than AGPT&#x27;s 100-pass run, and 4.66 after two passes, better than AGPT&#x27;s best on record (4.764 after 625). More updates help AGPT a lot: one pass at pd=2 (1,463 updates) scores 9.65, pd=3 (12,675) 7.81 and pd=4 (58,721) 6.74. But random equal batches with the same update counts score 12.56, 5.18 and 4.83, and pd=4 takes 185 s a pass. At pd=3 the steps also match in average size; half the gap (0.27 of 0.48 nats) is the units&#x27; unequal sizes (random windows in batches of pd=3&#x27;s sizes score 6.33), and half is the trie&#x27;s grouping of each step by a shared prefix. Weighting units by mass (fire_norm sum) is worse (8.53). One seed; 95 runs.</p></section>
 
       <section class="experiment-meta" aria-label="Experiment connections">
-        <div><span class="micro-label">TOPICS</span><div class="meta-links"><a class="tag-link" href="index.html?tag=one-pass">one-pass</a><a class="tag-link" href="index.html?tag=baseline">baseline</a><a class="tag-link" href="index.html?tag=cadence">cadence</a><a class="tag-link" href="index.html?tag=optimizer">optimizer</a></div></div>
+        <div><span class="micro-label">TOPICS</span><div class="meta-links"><a class="tag-link" href="index.html?tag=one-pass">one-pass</a><a class="tag-link" href="index.html?tag=baseline">baseline</a><a class="tag-link" href="index.html?tag=cadence">cadence</a><a class="tag-link" href="index.html?tag=optimizer">optimizer</a><a class="tag-link" href="index.html?tag=partition-depth">partition-depth</a></div></div>
         <div><span class="micro-label">RELATED</span><div class="meta-links"><a href="gradient-population.html">gradient-population <span aria-hidden="true">↗</span></a><a href="context-tree-orientation.html">context-tree-orientation <span aria-hidden="true">↗</span></a><a href="vanilla-attn-torch.html">vanilla-attn-torch <span aria-hidden="true">↗</span></a><a href="partition-depth.html">partition-depth <span aria-hidden="true">↗</span></a></div></div>
         <div><span class="micro-label">SUPERSEDED BY</span><div class="meta-links"><span class="empty-value">None listed</span></div></div>
         <div><span class="micro-label">CODE</span><div class="meta-links"><a href="https://github.com/trans/agpt/tree/main/rnd/one-pass-gap">Main branch ↗</a></div></div>
       </section>
       <div class="record-heading"><div><span class="section-number">THE FULL RECORD</span><h2>Experiment notes</h2></div><a href="https://github.com/trans/agpt/tree/main/rnd/one-pass-gap">Open directory on GitHub ↗</a></div>
       <article class="experiment-body"><h2 id="one-pass-gap">one-pass-gap</h2>
-<p><strong>Status:</strong> concluded (2026-11-14). The user asked for it after we found the
-work had drifted off AGPT's main path. It is item 04 of the site's next
-tests (&quot;Measure the one-pass gap&quot;), never done before. 48 runs in slot 30
-(08:32–09:38 UTC), 64 minutes in all.</p>
+<p><strong>Status:</strong> concluded (2026-11-14). The user asked for the experiment
+after we found the work had drifted off AGPT's main path. It is item 04 of
+the site's next tests (&quot;Measure the one-pass gap&quot;), never done before. The
+first grid was 48 runs in slot 30 (08:32–09:38 UTC). The follow-up, AGPT at
+minibatch cadence, was 47 runs in slot 33 (17:50–18:54 UTC).</p>
 <h3 id="question">Question</h3>
 <p>AGPT's goal is a model that learns enough from one pass over a corpus to
 match a conventional training run, in less time. The record has AGPT's
@@ -213,12 +214,226 @@ random groups with the units' sizes; and v2 with
 <code>experimental.unit_order_seed</code> set. The fixed-order first-character
 arm should reproduce AGPT's numbers, which would also check that AGPT
 pd=1 is grouped SGD in practice.</li>
-<li><strong>AGPT at minibatch cadence:</strong> pd=3 has about 11,500 units per pass,
-more than minibatch training's 8,279, so one pass of it is the direct
-test of one epoch and done with exact subtree steps. pd≥2 plans never
-train targets shallower than pd (<code>gradient-population</code> Exp 2 reading),
-which ruins the rolling metric, so the shallow targets need training
-first (for example one pd=1-style pass over the depth-&lt;pd stubs).</li>
+<li><strong>AGPT at minibatch cadence:</strong> done, in the follow-up below.</li>
+</ol>
+<h3 id="follow-up-agpt-at-minibatch-cadence-2026-11-14">Follow-up: AGPT at minibatch cadence (2026-11-14)</h3>
+<p>The user chose next test 2 (&quot;Sure do pd=3. The main issue is the number of
+updates.&quot;). One pass of pd=1 is 65 updates. pd=3 cuts the trie into one
+unit per depth-3 node, which gives more updates per pass than minibatch
+training takes. 47 runs in slot 33 (17:50–18:54 UTC).</p>
+<p><strong>The fix it needs.</strong> A pd≥2 plan trains each anchor's subtree, with the
+anchor's ancestors as context only, so the targets of every node whose
+edge ends above depth pd were never trained. v2 now prints a
+<code>plan-coverage</code> line. On the canonical trie, without the fix:</p>
+<ul>
+<li>pd=2 leaves 62 nodes untrained, 6.25% of the events;</li>
+<li>pd=3 leaves 1,194 nodes, 12.43%;</li>
+<li>pd=4 leaves 8,738 nodes, 18.41%.</li>
+</ul>
+<p>The new option <code>experimental.train_crown</code> (<code>b1019b3</code>) makes each such
+crown node a unit of its own, with its ancestors as context. With it,
+every one of the 1,528,495 radix nodes is trained exactly once per pass at
+pd=2, 3 and 4, as at pd=1 (checked on the CPU with <code>--mode plan</code>, and in
+each run's <code>train.log</code>).</p>
+<table>
+<thead>
+<tr>
+<th style="text-align:right">pd</th>
+<th style="text-align:right">Anchored units</th>
+<th style="text-align:right">Crown units</th>
+<th style="text-align:right">Updates per pass</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align:right">1</td>
+<td style="text-align:right">65</td>
+<td style="text-align:right">0</td>
+<td style="text-align:right">65</td>
+</tr>
+<tr>
+<td style="text-align:right">2</td>
+<td style="text-align:right">1,401</td>
+<td style="text-align:right">62</td>
+<td style="text-align:right">1,463</td>
+</tr>
+<tr>
+<td style="text-align:right">3</td>
+<td style="text-align:right">11,481</td>
+<td style="text-align:right">1,194</td>
+<td style="text-align:right">12,675</td>
+</tr>
+<tr>
+<td style="text-align:right">4</td>
+<td style="text-align:right">49,983</td>
+<td style="text-align:right">8,738</td>
+<td style="text-align:right">58,721</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Arms.</strong> Same model, weights, schedule and evaluation as above; configs
+from <a href="https://github.com/trans/agpt/blob/main/rnd/one-pass-gap/make_configs.py"><code>make_configs.py</code></a>:</p>
+<ul>
+<li><code>pd2c</code>, <code>pd3c</code>, <code>pd4c</code>: AGPT at pd=2, 3 and 4 with crown units, in
+radix-id order (v2's default; crown units fall among the anchored ones).</li>
+<li><code>pd3cs</code>: pd=3, shuffled each pass (<code>experimental.unit_order_seed: 1</code>),
+at 1, 2 and 4 passes.</li>
+<li><code>mb724</code>, <code>mb84</code>: minibatch training with as many updates per pass as
+pd=2 (724 windows, 1,464 updates) and pd=3 (84 windows, 12,615
+updates). <code>mb84</code>'s batches hold 1,344 events, and pd=3's units 1,338 on
+average.</li>
+<li><code>mbu3</code>: random windows in batches with pd=3's 12,675 unit sizes, in a
+new order each pass (<code>experimental.step_events_file</code>, <code>21ec506</code>). The
+sizes are each unit's trained events from the <code>pd3cs</code> lr 0.0015 log
+(<code>pd3_unit_events.txt</code>); a step takes max(1, round(events / 16))
+windows.</li>
+<li><code>pd1s</code>, <code>pd3css</code>: pd=1, and shuffled pd=3, with <code>train.fire_norm: sum</code>
+(<code>e59b10c</code>). v2's default divides each unit's gradient by its own
+event count, so the updates of a pass add up to Σ_u mean_u(g) and weight
+every unit equally, whatever its size. <code>sum</code> divides every unit by one
+constant, so a pass weights every event equally, as the corpus loss
+does.</li>
+</ul>
+<p>pd=3's best one-pass rate came out at 0.0015, the bottom of its first grid
+(0.0015–0.012), so the grid was extended down to 0.000375 before the rest
+ran. All one-pass bests below are inside their grids except <code>pd1s</code>.</p>
+<h4 id="results-1">Results</h4>
+<p>One pass, best learning rate per arm, rolling byte PPL (fixed-window PPL
+in brackets) and training seconds:</p>
+<table>
+<thead>
+<tr>
+<th style="text-align:right">Updates per pass</th>
+<th>AGPT</th>
+<th>Random equal batches</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align:right">65</td>
+<td>pd=1: 15.73 (15.66), 8 s</td>
+<td>16,302 windows: 12.56 (12.50), 11 s</td>
+</tr>
+<tr>
+<td style="text-align:right">~1,460</td>
+<td>pd=2: 9.65 (9.22), lr 0.003, 15 s</td>
+<td>724 windows: 5.18 (4.66), lr 0.006, 11 s</td>
+</tr>
+<tr>
+<td style="text-align:right">8,279</td>
+<td></td>
+<td>128 windows: <strong>4.83</strong> (4.29), 31 s</td>
+</tr>
+<tr>
+<td style="text-align:right">~12,650</td>
+<td>pd=3 shuffled: 7.81 (7.20), lr 0.0015, 53 s; radix-id order: 8.00 (7.31), 54 s</td>
+<td>84 windows: <strong>4.83</strong> (4.29), lr 0.006, 45 s</td>
+</tr>
+<tr>
+<td style="text-align:right">58,721</td>
+<td>pd=4: 6.74 (5.90), lr 0.00075, 185 s</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<p>What makes pd=3's steps weaker. All four arms take about 12,650 steps per
+pass, with about 1,340 events per step on average:</p>
+<table>
+<thead>
+<tr>
+<th>Arm</th>
+<th>Step sizes</th>
+<th>What a step holds</th>
+<th style="text-align:right">Rolling (fixed)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>mb84</code></td>
+<td>equal, 84 windows</td>
+<td>random windows</td>
+<td style="text-align:right">4.83 (4.29)</td>
+</tr>
+<tr>
+<td><code>mbu3</code></td>
+<td>pd=3's unit sizes</td>
+<td>random windows</td>
+<td style="text-align:right">6.33 (5.87)</td>
+</tr>
+<tr>
+<td><code>pd3cs</code></td>
+<td>pd=3's unit sizes</td>
+<td>one depth-3 subtree (or crown node)</td>
+<td style="text-align:right">7.81 (7.20)</td>
+</tr>
+<tr>
+<td><code>pd3css</code></td>
+<td>pd=3's, summed, not averaged</td>
+<td>one depth-3 subtree</td>
+<td style="text-align:right">8.53 (8.16)</td>
+</tr>
+</tbody>
+</table>
+<p>More passes of shuffled pd=3: 7.81 after one pass, 6.98 after two (lr
+0.0015, 108 s) and 6.29 after four (lr 0.0015, 216 s). Minibatch training
+with 128 windows scores 4.83, 4.66 and 4.58 after the same numbers of
+passes. With <code>fire_norm: sum</code>, pd=1 scores 23.37 after one pass against
+15.73 (the four rates gave 23.4–28.0, not in order of rate). After eight
+passes it scores 8.85 against 8.71.</p>
+<h4 id="reading-1">Reading</h4>
+<ul>
+<li><strong>More updates help AGPT a lot, but they don't close the gap.</strong> One pass
+falls from 15.7 at 65 updates to 9.65 at 1,463, 7.81 at 12,675 and 6.74
+at 58,721. Random equal batches reach 5.18 with 1,464 updates and 4.83
+from 8,279 on. AGPT is far behind at every matched count. pd=4, with 40
+times <code>mb724</code>'s updates, still trails it (6.74 against 5.18).</li>
+<li><strong>At pd=3 the gap is in what each step holds.</strong> The step count is
+matched, and so is the average step size, so the gap of 0.48 nats
+(ln 7.81 − ln 4.83) comes from the steps' contents. It splits about in
+half:
+<ul>
+<li><strong>Unequal sizes cost 0.27 nats</strong> (4.83 → 6.33, random windows in
+batches of pd=3's sizes). pd=3's median unit holds 168 events, 2,005
+units hold fewer than 24, and the largest holds 212,674, 1.25% of a
+pass. Under the event-mean rule, Adam gives every one of them a
+step of about the same size.</li>
+<li><strong>The trie's grouping costs another 0.21 nats</strong> (6.33 → 7.81), against
+random windows in batches of the same sizes. This is the cost of
+giving each step only contexts that share their first three
+characters. The context-tree orientation control found no such cost
+at pd=1 with a GRU (first-character groups against random groups of
+the same sizes); at pd=3 with attention the cost is there.</li>
+</ul>
+</li>
+<li><strong>Weighting the units by their mass makes it worse.</strong> <code>fire_norm: sum</code>
+scores 8.53 against 7.81 at pd=3. Under Adam, summed gradients give the
+few big units most of the movement and the thousands of small ones
+almost none, which cuts the number of updates that count. The size
+problem calls for units of equal size, not reweighted gradients.</li>
+<li><strong>Order matters little:</strong> shuffled 7.81, radix-id order 8.00.</li>
+<li><strong>Deeper partitions also cost time.</strong> With the exact ancestor gradient, a
+pd=3 pass takes 53 s and a pd=4 pass 185 s, against 31 s (128 windows)
+and 45 s (84 windows) for a minibatch pass. So at these depths AGPT is
+slower per pass as well as worse.</li>
+<li><strong>Answer to the user's point:</strong> the number of updates is necessary. AGPT
+improves steadily with it, and at pd=1 it is most of the gap. But
+beyond about 1,500 updates per pass, the composition of each update
+matters more than how many there are.</li>
+</ul>
+<h4 id="next-not-run">Next (not run)</h4>
+<ol>
+<li><strong>Equal-mass units:</strong> a plan whose units hold about the same number of
+events (1–2k). It would split heavy subtrees deeper and pack light
+sibling subtrees together. This aims at the size half; <code>mbu3</code> against
+<code>mb84</code> bounds what it can gain (0.27 nats at pd=3). Packing subtrees
+from different roots into one unit would also attack the grouping half,
+at the price of some context compute: each packed subtree brings its own
+ancestors.</li>
+<li><strong>The grouping half is the price of prefix sharing.</strong> A unit shares
+computation because its contexts share a prefix, and that same prefix
+is what correlates its events. Measuring the grouping cost against the
+compute saved, as the partition depth and packing vary, would map the
+trade-off AGPT has to win.</li>
 </ol>
 <h3 id="caveats">Caveats</h3>
 <ul>
@@ -235,6 +450,20 @@ trie; a pass is about 6.6 s) and about 2 s for the minibatch trainer
 configs were committed (<code>84054bc</code>) before the runs, but untracked files
 (this README's summary script, the grid's output) and, for the four
 lr 0.012 runs, the edited <a href="https://github.com/trans/agpt/blob/main/rnd/one-pass-gap/make_configs.py"><code>make_configs.py</code></a> were in the tree.</li>
+<li>Follow-up runs are dirty for the same reasons: untracked weight files
+elsewhere in <a href="https://github.com/trans/agpt/blob/main/rnd/one-pass-gap/rnd"><code>rnd/</code></a>, the grid's logs, and configs written between
+commits. The trainer code is the commit each <code>meta.json</code> names: each
+restart of the grid rebuilt both binaries after a commit, and the one
+build that came before later edits (18:02:32 UTC, for the runs naming
+<code>b1019b3</code>) finished a minute before the first of them.</li>
+<li>Follow-up: one seed. The 2- and 4-pass pd=3 runs tried two rates each,
+and 0.0015, the higher, won both, so more passes may do somewhat better
+at a higher rate. <code>pd1s</code>'s best one-pass rate is the bottom of its grid.</li>
+<li><code>mbu3</code> matches pd=3's step sizes, not its mix of depths: a window gives
+one target at each depth 1–16, while a pd=3 unit's targets sit at the
+depths of its subtree. Rounding to whole windows gives 1,060,418 windows
+per pass, 801 more than one epoch; the extra ones come from a second
+random permutation.</li>
 </ul>
 </article>
       <div class="record-end"><a href="https://github.com/trans/agpt/tree/main/rnd/one-pass-gap">View the experiment directory on GitHub ↗</a><a href="index.html">Browse all experiments →</a></div>

@@ -1,0 +1,34 @@
+{
+  "run_id": "20261114T180234-pd3c-e1-lr0-00075",
+  "experiment": "one-pass-gap",
+  "wall_seconds": 75.416984607,
+  "train_wall_seconds": 53.107556648,
+  "convert_wall_seconds": 3.517759361,
+  "eval_wall_seconds": 14.861797831,
+  "started_utc": "2026-11-14T18:02:34Z",
+  "ended_utc": "2026-11-14T18:03:49Z",
+  "trainer": "v2",
+  "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+  "eval": {
+    "split": "multi-chunk-heldout",
+    "source_path": null,
+    "source_sha256": null,
+    "chunks_dir": "data/.splits/4fa9aec1db6b3aea/heldout_chunks",
+    "benchmark": null,
+    "task_name": "pd3c-e1-lr0-00075_holdout"
+  },
+  "metrics": {
+    "lm_eval_rolling_word_perplexity": 96260.97048500784,
+    "lm_eval_rolling_byte_perplexity": 8.158432984145676,
+    "lm_eval_rolling_bits_per_byte": 3.0282920758364154,
+    "agpt_fixed_token_perplexity": 7.577041695791805
+  },
+  "checkpoint_sha": "606dc3661a68ed5155dab801ba9083c07f95020f8b193b573c64ab7bf861c0e6",
+  "checkpoint_results": null,
+  "experimental_used": {
+    "v2": [
+      "anc_grad_exact",
+      "train_crown"
+    ]
+  }
+}
