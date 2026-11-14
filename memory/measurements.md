@@ -1,6 +1,6 @@
 # Measurements worth keeping
 
-*Updated 2026-11-10*
+*Updated 2026-11-14*
 
 ## Common setup and how to reproduce
 
@@ -28,6 +28,7 @@ To reproduce a run:
 | What | Rolling | Fixed | Config or record | Notes |
 |---|---:|---:|---|---|
 | Adam pd=1, exact gradient, 625 ep | **4.764** | **4.208** | `adam-pd1-exact-625ep` | best d64/L2 on record |
+| One pass, best of 4 lrs: AGPT pd=1 / minibatch 128 / minibatch 16,302 (65 steps) | 15.734 / **4.826** / 12.562 | 15.657 / 4.293 / 12.496 | `rnd/one-pass-gap` | 2026-11-14; same seed weights, warmup-cosine per step; 8 passes: 8.710 / 4.526 / 5.669 |
 | Adam pd=1, exact, 100 ep | 5.225 | 4.684 | `adam-pd1-exact-100ep` | 654 s train |
 | Adam pd=1, truncated, 100 ep | 5.348 | 4.810 | `cadence-pd1-100ep` | 570 s train |
 | Adam pd=0, 100 ep, exact / truncated | 12.084 / 12.054 | 12.105 / 12.110 | `adam-pd0-exact-100ep`, `cadence-pd0-100ep` | the fix doesn't matter at pd=0 |

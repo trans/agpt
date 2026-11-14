@@ -1,8 +1,30 @@
 # Handoff: where AGPT stands
 
-*Updated 2026-11-10*
+*Updated 2026-11-14*
 
-## Where we were
+## Back on the main path (2026-11-14)
+
+- **The drift:** from 2026-11-10 to 2026-11-13 no work used the trie. The
+  superposed-RoPE, far-channel and PolyRoPE probes were plain windowed
+  transformers (PolyRoPE concluded inconclusive, `4074ae2`), and the 220M
+  and 1 GB plain runs were controls for @air's count-prior study
+  (`e1a5a33`, `044d249`). The user asked on 2026-11-14 whether we had
+  drifted, and set the rule for what follows: small, fast comparisons,
+  bigger runs only to demonstrate (decisions.md).
+- **The one-pass gap, measured** (`rnd/one-pass-gap`, `f547847`, 48 runs,
+  canonical eval): AGPT pd=1 after one pass 15.73; minibatch training of
+  the same model from the same weights 4.83 after one pass (31 s), 4.66
+  after two, better than AGPT's 625-pass best (4.764). The 65-steps-per-pass
+  random-batch control gives 12.56 after one pass: update count is most of
+  the gap, but AGPT's steps are worth about a third of the control's (8.71
+  against 5.67 after 8 passes).
+- **Next, offered to the user, not chosen:** separate unit sizes, v2's fixed
+  unit order and first-character grouping (about 15 min of GPU), and pd=3
+  at one pass with the shallow targets trained (the direct one-epoch test).
+- `src/tools/agpt_minibatch_train.py` (`84054bc`) is the minibatch baseline
+  as an orchestrator custom trainer, so baselines get `result.json` too.
+
+## Where we were (as of 2026-11-10)
 
 - The last research commit on `main` is `7ef76d6` (2026-10-03). Nothing landed
   between then and the `.ai/` setup (`a6f3c84`, 2026-11-07), and the main
