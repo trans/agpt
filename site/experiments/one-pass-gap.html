@@ -32,13 +32,13 @@
         <span class="section-number">THE RESEARCH RECORD / one-pass-gap</span>
         <h1>The one-pass gap (AGPT pd=1 vs ordinary minibatch training, 1–8 passes)</h1>
         <p class="experiment-question">AGPT&#x27;s measuring stick is &quot;one epoch and done&quot;. How close does AGPT pd=1 get to a conventional training run in one pass over Tiny Shakespeare, and in 2, 4 and 8 passes, against ordinary minibatch Adam training of the same d64/L2 model from the same weights, at matched passes and wall time? And is AGPT&#x27;s deficit just its 65 updates per pass?</p>
-        <div class="badge-row"><span class="badge badge-kind">experiment</span><span class="badge badge-status">planned</span><span class="badge badge-outcome outcome-n-a">n/a</span><span class="badge badge-family">attention</span><span class="badge badge-eval">eval: canonical</span></div>
+        <div class="badge-row"><span class="badge badge-kind">experiment</span><span class="badge badge-status">concluded</span><span class="badge badge-outcome outcome-negative">negative</span><span class="badge badge-family">attention</span><span class="badge badge-eval">eval: canonical</span></div>
 
         <div class="experiment-dates"><span>Opened <time datetime="2026-11-14">2026-11-14</time></span><span>Updated <time datetime="2026-11-14">2026-11-14</time></span></div>
       </div>
     </section>
     <div class="shell experiment-main">
-      <section class="answer-panel" aria-labelledby="answer-heading"><span id="answer-heading" class="micro-label">THE ANSWER SO FAR</span><p>Not run yet. Planned 2026-11-14: 44 short runs through the orchestrator (AGPT pd=1, minibatch 128, and minibatch 16,302 = 65 updates per pass), each budget its own cosine schedule, with a learning-rate sweep per budget.</p></section>
+      <section class="answer-panel" aria-labelledby="answer-heading"><span id="answer-heading" class="micro-label">THE ANSWER SO FAR</span><p>Far off. After one pass AGPT pd=1 scores rolling byte PPL 15.73 (best of four learning rates); ordinary minibatch training of the same model from the same weights scores 4.83 in 31 s, which already beats AGPT&#x27;s 100-pass run (5.225), and 4.66 after two passes, better than AGPT&#x27;s best on record (4.764 after 625 passes). After 8 passes AGPT reaches 8.71. Most of the gap is the update count (65 steps per pass against 8,279): random equal batches with AGPT&#x27;s 65 steps per pass score 12.56 after one pass. But AGPT trails that control at every budget, by a widening margin (5.67 against 8.71 after 8 passes), so AGPT&#x27;s steps are worth about a third of random-batch steps here. One seed; 48 runs.</p></section>
 
       <section class="experiment-meta" aria-label="Experiment connections">
         <div><span class="micro-label">TOPICS</span><div class="meta-links"><a class="tag-link" href="index.html?tag=one-pass">one-pass</a><a class="tag-link" href="index.html?tag=baseline">baseline</a><a class="tag-link" href="index.html?tag=cadence">cadence</a><a class="tag-link" href="index.html?tag=optimizer">optimizer</a></div></div>
@@ -48,9 +48,10 @@
       </section>
       <div class="record-heading"><div><span class="section-number">THE FULL RECORD</span><h2>Experiment notes</h2></div><a href="https://github.com/trans/agpt/tree/main/rnd/one-pass-gap">Open directory on GitHub ↗</a></div>
       <article class="experiment-body"><h2 id="one-pass-gap">one-pass-gap</h2>
-<p><strong>Status:</strong> planned (2026-11-14). The user asked for it after we found the
+<p><strong>Status:</strong> concluded (2026-11-14). The user asked for it after we found the
 work had drifted off AGPT's main path. It is item 04 of the site's next
-tests (&quot;Measure the one-pass gap&quot;), never done before.</p>
+tests (&quot;Measure the one-pass gap&quot;), never done before. 48 runs in slot 30
+(08:32–09:38 UTC), 64 minutes in all.</p>
 <h3 id="question">Question</h3>
 <p>AGPT's goal is a model that learns enough from one pass over a corpus to
 match a conventional training run, in less time. The record has AGPT's
@@ -86,7 +87,7 @@ visits every window start once per epoch with 16 targets per window.</li>
 <li><strong>AGPT arm (<code>agpt-*</code>):</strong> <code>bin/agpt_train_v2</code>, depth-16 trie, pd=1, exact
 ancestor gradient: the 625-pass record config with only the budget and
 learning rate changed.</li>
-<li><strong>Minibatch arms (<code>mb-*</code>, <code>mbL-*</code>):</strong> <code>src/tools/agpt_minibatch_train.py</code>
+<li><strong>Minibatch arms (<code>mb-*</code>, <code>mbL-*</code>):</strong> <a href="https://github.com/trans/agpt/blob/main/src/tools/agpt_minibatch_train.py"><code>src/tools/agpt_minibatch_train.py</code></a>
 (new, a port of the June trainer to an orchestrator custom trainer).
 <code>mb</code>: 128 windows per step. <code>mbL</code>: 16,302 windows per step,
 accumulated over micro-batches of 2,048 (same mean gradient).</li>
@@ -98,14 +99,14 @@ v2's <code>scheduled_lr</code> step for step.</li>
 finishes its own schedule; intermediate checkpoints of a longer cosine
 run would not be the same thing.</li>
 <li><strong>Learning rates:</strong> AGPT and <code>mbL</code> at 0.003, 0.006, 0.012, 0.024; <code>mb</code>
-at 0.0015, 0.003, 0.006. A best value at the edge of a grid means
-extending it before reading the result.</li>
+at 0.0015, 0.003, 0.006, and 0.012 added after 0.006 came out best at
+every budget. Every best value below is inside its grid.</li>
 <li><strong>Evaluation:</strong> the orchestrator's canonical lm-eval rolling byte PPL on
 the multi-chunk held-out split, plus its fixed-window PPL. Training
 seconds come from each <code>result.json</code>.</li>
 <li><strong>Cost:</strong> 44 runs, about an hour of GPU in one slot, most of it the 45
-epochs of the <code>mb</code> arm. <code>make_configs.py</code> writes <a href="https://github.com/trans/agpt/tree/main/rnd/one-pass-gap/configs"><code>configs/</code></a>;
-<code>run_grid.sh</code> rebuilds the binaries and runs them, one-pass runs first.</li>
+epochs of the <code>mb</code> arm. <a href="https://github.com/trans/agpt/blob/main/rnd/one-pass-gap/make_configs.py"><code>make_configs.py</code></a> writes <a href="https://github.com/trans/agpt/tree/main/rnd/one-pass-gap/configs"><code>configs/</code></a>;
+<a href="https://github.com/trans/agpt/blob/main/rnd/one-pass-gap/run_grid.sh"><code>run_grid.sh</code></a> rebuilds the binaries and runs them, one-pass runs first.</li>
 </ul>
 <h3 id="checks-done-before-the-run-2026-11-14-cpu">Checks done before the run (2026-11-14, CPU)</h3>
 <ul>
@@ -119,14 +120,121 @@ cosine requires.</li>
 the same training loss to 1e-5 and weights within 7e-4 (Adam amplifies
 rounding in near-zero gradients; the total change was 0.064).</li>
 </ul>
-<h3 id="caveats-known-in-advance">Caveats known in advance</h3>
+<h3 id="results">Results</h3>
+<p>Canonical rolling byte PPL on the multi-chunk held-out split (fixed-window
+PPL in brackets), best learning rate per arm and budget, and training
+seconds from <code>result.json</code>. <code>python3 rnd/one-pass-gap/summarize.py --markdown</code> prints every run.</p>
+<table>
+<thead>
+<tr>
+<th style="text-align:right">Passes</th>
+<th style="text-align:right">AGPT pd=1 (65 steps/pass)</th>
+<th style="text-align:right">minibatch 16,302 (65 steps/pass)</th>
+<th style="text-align:right">minibatch 128 (8,279 steps/pass)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align:right">1</td>
+<td style="text-align:right">15.734 (15.657), lr 0.012, 8 s</td>
+<td style="text-align:right">12.562 (12.496), lr 0.006, 11 s</td>
+<td style="text-align:right"><strong>4.826</strong> (4.293), lr 0.006, 31 s</td>
+</tr>
+<tr>
+<td style="text-align:right">2</td>
+<td style="text-align:right">12.307 (12.181), lr 0.012, 14 s</td>
+<td style="text-align:right">9.242 (8.939), lr 0.012, 19 s</td>
+<td style="text-align:right"><strong>4.659</strong> (4.113), lr 0.006, 60 s</td>
+</tr>
+<tr>
+<td style="text-align:right">4</td>
+<td style="text-align:right">10.335 (10.178), lr 0.006, 27 s</td>
+<td style="text-align:right">7.015 (6.560), lr 0.012, 36 s</td>
+<td style="text-align:right"><strong>4.582</strong> (4.029), lr 0.006, 116 s</td>
+</tr>
+<tr>
+<td style="text-align:right">8</td>
+<td style="text-align:right">8.710 (8.462), lr 0.006, 54 s</td>
+<td style="text-align:right">5.669 (5.169), lr 0.012, 71 s</td>
+<td style="text-align:right"><strong>4.526</strong> (3.973), lr 0.006, 266 s</td>
+</tr>
+</tbody>
+</table>
+<p>For reference, from the record on the same split and model: AGPT pd=1
+with the exact gradient, lr 0.0015, 100 passes 5.225 (654 s) and 625
+passes 4.764 (<code>gradient-population</code>); minibatch training from random init
+at a constant rate, 4.45 after 10 passes (June, no <code>result.json</code>).</p>
+<h3 id="reading">Reading</h3>
+<ul>
+<li><strong>AGPT is nowhere near one epoch and done at pd=1.</strong> One pass gives
+15.7, against 4.83 for one pass of minibatch training. Minibatch
+training beats AGPT's 100-pass result in one pass and its best result
+ever (625 passes, about 70 minutes) in two passes (60 s).</li>
+<li><strong>Equal wall time doesn't rescue it.</strong> An AGPT pass is about 4× cheaper
+here (7 s against 31 s), but AGPT after 54 s (8 passes) is at 8.71,
+where minibatch training was at 4.83 after 31 s.</li>
+<li><strong>The update count explains most of the gap.</strong> With AGPT's 65 steps per
+pass, random equal batches score 12.6 after one pass, much nearer to
+AGPT's 15.7 than to minibatch training's 4.8. Each step there averages
+16,302 windows, so it is close to the exact full-batch gradient, and
+65 such steps can't train the model in one pass however exact they
+are.</li>
+<li><strong>But AGPT's 65 steps are worth less than 65 random batches,</strong> and
+the shortfall grows with training: 15.7 against 12.6 after one pass,
+8.71 against 5.67 after eight. AGPT after 8 passes (520 steps) sits
+between the control's 2 and 4 passes (130 and 260 steps), so its steps
+are worth about a third of the control's. Three things differ and are
+not yet separated:
+<ol>
+<li><strong>Unit sizes:</strong> AGPT's 65 units are the root characters' subtrees,
+from the space-rooted one down to a handful of events, and Adam
+takes a full-size step on each. The control's batches are equal.</li>
+<li><strong>Order:</strong> v2 trains the units in the same fixed order every pass
+(<code>experimental.unit_order_seed</code> defaults to −1), so each pass ends on
+the same rare letters at the bottom of the cosine. The control
+shuffles.</li>
+<li><strong>Grouping:</strong> each unit holds the contexts that start with one
+character. The context-tree orientation control found that grouping
+costs nothing for a GRU against random groups of the same unequal
+sizes in shuffled order, so it is the least likely of the three, but
+it is untested with attention.</li>
+</ol>
+</li>
+<li><strong>Learning rates:</strong> AGPT's best rate falls from 0.012 to 0.006 as the
+budget grows, and 0.006 is best for minibatch training at every budget
+(the 625-pass record used 0.0015). The control's best is 0.006–0.012.</li>
+</ul>
+<h3 id="next-tests-not-run">Next tests (not run)</h3>
+<ol>
+<li><strong>What makes AGPT's steps weaker</strong> (about 15 minutes of GPU): the
+minibatch trainer grouping windows by their first character, which is
+AGPT pd=1's units in minibatch form, in v2's fixed order and shuffled;
+random groups with the units' sizes; and v2 with
+<code>experimental.unit_order_seed</code> set. The fixed-order first-character
+arm should reproduce AGPT's numbers, which would also check that AGPT
+pd=1 is grouped SGD in practice.</li>
+<li><strong>AGPT at minibatch cadence:</strong> pd=3 has about 11,500 units per pass,
+more than minibatch training's 8,279, so one pass of it is the direct
+test of one epoch and done with exact subtree steps. pd≥2 plans never
+train targets shallower than pd (<code>gradient-population</code> Exp 2 reading),
+which ruins the rolling metric, so the shallow targets need training
+first (for example one pd=1-style pass over the depth-&lt;pd stubs).</li>
+</ol>
+<h3 id="caveats">Caveats</h3>
 <ul>
 <li>One seed. The seed weights are the AGPT record's; in June they slowed
 minibatch training compared with random init.</li>
 <li>AGPT's 65 pd=1 units differ in size (by root character); <code>mbL</code>'s 65
 steps are equal random batches.</li>
 <li>Equal passes is not equal compute: training seconds are reported for
-each run so the comparison can be read either way.</li>
+each run so the comparison can be read either way. They time the
+trainer process, start-up included: about 1 s for AGPT (loading the
+trie; a pass is about 6.6 s) and about 2 s for the minibatch trainer
+(starting PyTorch, reading the corpus; a pass is 28.6 s).</li>
+<li>Each run's <code>meta.json</code> says <code>git_dirty: true</code>: the trainer and the
+configs were committed (<code>84054bc</code>) before the runs, but untracked files
+(this README's summary script, the grid's output) and, for the four
+lr 0.012 runs, the edited <a href="https://github.com/trans/agpt/blob/main/rnd/one-pass-gap/make_configs.py"><code>make_configs.py</code></a> were in the tree.</li>
 </ul>
 </article>
       <div class="record-end"><a href="https://github.com/trans/agpt/tree/main/rnd/one-pass-gap">View the experiment directory on GitHub ↗</a><a href="index.html">Browse all experiments →</a></div>

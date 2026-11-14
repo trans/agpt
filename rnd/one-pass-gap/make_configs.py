@@ -20,7 +20,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 OUT = HERE / "configs"
 BUDGETS = [1, 2, 4, 8]
-LRS = {"agpt": [0.003, 0.006, 0.012, 0.024], "mb": [0.0015, 0.003, 0.006],
+LRS = {"agpt": [0.003, 0.006, 0.012, 0.024], "mb": [0.0015, 0.003, 0.006, 0.012],
        "mbL": [0.003, 0.006, 0.012, 0.024]}
 MINIBATCH = {"mb": 128, "mbL": 16302}
 MICRO = {"mb": "", "mbL": "  micro_batch: 2048\n"}

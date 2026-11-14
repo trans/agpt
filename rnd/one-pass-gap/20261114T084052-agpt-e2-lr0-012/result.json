@@ -1,0 +1,33 @@
+{
+  "run_id": "20261114T084052-agpt-e2-lr0-012",
+  "experiment": "one-pass-gap",
+  "wall_seconds": 34.441256825,
+  "train_wall_seconds": 14.000710662,
+  "convert_wall_seconds": 3.308496852,
+  "eval_wall_seconds": 13.236121845,
+  "started_utc": "2026-11-14T08:40:52Z",
+  "ended_utc": "2026-11-14T08:41:27Z",
+  "trainer": "v2",
+  "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+  "eval": {
+    "split": "multi-chunk-heldout",
+    "source_path": null,
+    "source_sha256": null,
+    "chunks_dir": "data/.splits/4fa9aec1db6b3aea/heldout_chunks",
+    "benchmark": null,
+    "task_name": "agpt-e2-lr0-012_holdout"
+  },
+  "metrics": {
+    "lm_eval_rolling_word_perplexity": 911098.3160223698,
+    "lm_eval_rolling_byte_perplexity": 12.307344970577132,
+    "lm_eval_rolling_bits_per_byte": 3.621447661672151,
+    "agpt_fixed_token_perplexity": 12.181032758196679
+  },
+  "checkpoint_sha": "593eef8dd8f7e042216800a86c9bc8699c411208c3b9788cd114d0556e358552",
+  "checkpoint_results": null,
+  "experimental_used": {
+    "v2": [
+      "anc_grad_exact"
+    ]
+  }
+}
