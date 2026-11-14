@@ -1,6 +1,6 @@
 # Decisions and conventions in force
 
-*Updated 2026-11-07*
+*Updated 2026-11-14*
 
 These are settled unless marked otherwise. The person who decided is named
 only where a source says so.
@@ -53,6 +53,13 @@ only where a source says so.
 - **Next directions (the user, 2026-11-10):** a Möbius prior with imm's
   residual models (the @mobius and @imm projects), and, for this project,
   multi-positional (superposed) RoPE ([open-lines.md](open-lines.md) §3a).
+- **Small, fast comparisons first (the user, 2026-11-14).** Compare model
+  designs with few parameters on a small corpus, so comparison runs and
+  tuning take minutes. Read scale from the learning curves. Run a larger
+  model only to demonstrate something that already looks significant at
+  small scale. This followed the 220M and 1 GB plain-transformer runs of
+  2026-11-13 (about an hour each), which the user judged too much time on
+  ever-larger models.
 - **The precondition branch was archived, not merged** (`df75f96`,
   2026-06-02).
 
