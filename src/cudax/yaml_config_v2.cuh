@@ -956,8 +956,17 @@ static bool apply_yaml_config_v2(const char* config_path,
     int unused_int = 0;
     if (!yaml_get_int_v2(doc, "trie.prune_min_mass", unused_int)) return false;
     if (!yaml_get_int_v2(doc, "trie.prune_min_depth", unused_int)) return false;
-    if (!yaml_reject_non_default_str_v2(doc, "train.fire_norm", "mass",
-                                        "CUDAX currently normalizes by weighted event mass")) return false;
+    {
+        std::string fire_norm = "mass";
+        if (!yaml_expect_string_v2(doc, "train.fire_norm", fire_norm, false)) return false;
+        if (fire_norm == "sum") {
+            cfg.fire_norm_sum = true;
+        } else if (fire_norm != "mass") {
+            std::fprintf(stderr, "agpt_train_v2: YAML train.fire_norm must be mass or sum, got %s\n",
+                         fire_norm.c_str());
+            return false;
+        }
+    }
     if (!yaml_reject_non_default_float_v2(doc, "train.entropy_lambda", 0.0f,
                                           "entropy regularization is not wired in CUDAX yet")) return false;
     if (!yaml_reject_non_default_bool_v2(doc, "train.ce_only", false,

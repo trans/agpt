@@ -238,7 +238,7 @@ split caches, tries are content-hashed and cached at
 | `train.checkpoint_epochs` | list<int> | absent | v2, orch | Optional epoch checkpoints for static v2 training. Checkpoints are saved beside `model.save_file` using the save-file stem, e.g. `checkpoint.epoch_000004.model`; orchestrated runs evaluate each checkpoint and record `checkpoint_results` in `result.json`, including cumulative `train_wall_seconds` when the trainer reports it. |
 | `train.anc_grad` | bool | true | v1, v2 | Descendant→ancestor gradient flow. |
 | `train.mass_weight` | enum | `linear` | v1, v2 | `off` \| `linear` \| `sqrt` \| `log` \| `inv-log` \| `inv-linear`. Per-event loss weighting. |
-| `train.fire_norm` | enum | `mass` | v1, v2 | `events` \| `mass` \| `weight` \| `none`. Per-fire gradient divisor. |
+| `train.fire_norm` | enum | `mass` | v1, v2 | Per-fire gradient divisor. v1: `events` \| `mass` \| `weight` \| `none`. v2: `mass` (each unit's event mean, so a pass weights every unit equally) \| `sum` (every unit's summed gradient over one constant, the plan's mean event weight per unit, so a pass weights every event equally, as the corpus loss does; train-epoch mode only). |
 | `train.entropy_lambda` | float | 0.0 | v1, v2 | Entropy regularizer weight. |
 | `train.ce_only` | bool | false | v1, v2 | Force endpoint queries to single-target CE. |
 

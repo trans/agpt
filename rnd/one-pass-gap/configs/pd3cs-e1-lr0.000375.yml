@@ -1,7 +1,7 @@
 ---
-description: "one-pass gap, cadence: AGPT pd=3 + crown units (depth-16 trie, exact ancestor gradient, radix-id order), 2 pass(es), Adam lr 0.012 warmup-cosine per step"
+description: "one-pass gap, cadence: AGPT pd=3 + crown units (depth-16 trie, exact ancestor gradient, shuffled each pass), 1 pass(es), Adam lr 0.000375 warmup-cosine per step"
 experiment: one-pass-gap
-run_slug: pd3c-e2-lr0.012
+run_slug: pd3cs-e1-lr0.000375
 corpus:
   path: data/.splits/4fa9aec1db6b3aea/train_corpus.txt
   heldout: data/.splits/4fa9aec1db6b3aea/heldout_corpus.txt
@@ -16,12 +16,12 @@ model:
 train:
   budget:
     unit: epochs
-    value: 2
+    value: 1
   seed: 42
   quiet: true
   optimizer:
     name: adam
-    lr: 0.012
+    lr: 0.000375
     beta: 0.999
     momentum_beta: 0.9
   lr_schedule:
@@ -40,3 +40,4 @@ eval:
 experimental:
   anc_grad_exact: true
   train_crown: true
+  unit_order_seed: 1

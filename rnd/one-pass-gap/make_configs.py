@@ -20,9 +20,14 @@ the same number of updates per pass as pd=2 and pd=3:
 - pd2c:  pd=2 + crown, 1,463 units per pass, radix-id order.
 - pd3c:  pd=3 + crown, 12,675 units per pass, radix-id order.
 - pd3cs: the same, shuffled each pass (experimental.unit_order_seed 1).
+  (2- and 4-pass budgets are added once the one-pass rates are known.)
 - pd4c:  pd=4 + crown, 58,721 units per pass.
 - mb724: 724 windows per step, 1,464 updates per pass (matches pd2c).
 - mb84:  84 windows per step, 12,615 updates per pass (matches pd3c).
+- pd1s, pd3css: pd=1 and shuffled pd=3 + crown with train.fire_norm: sum,
+  every unit's summed gradient divided by one constant, so that a pass
+  weights every event equally (the default event mean weights every unit
+  equally, whatever its size).
 
 Each budget is its own run, so every run anneals its own schedule.
 Usage: python3 rnd/one-pass-gap/make_configs.py
@@ -37,11 +42,18 @@ LRS = {"agpt": [0.003, 0.006, 0.012, 0.024], "mb": [0.0015, 0.003, 0.006, 0.012]
 MINIBATCH = {"mb": 128, "mbL": 16302}
 MICRO = {"mb": "", "mbL": "  micro_batch: 2048\n"}
 
-# Follow-up arms: (budgets, lrs, partition depth or minibatch size, shuffled order)
+# Follow-up arms: ({budget: lrs}, partition depth or minibatch size, shuffled order).
+# pd=3's best one-pass rate was 0.0015, the bottom of the first grid, so its
+# grid was extended downwards (and pd=4's started lower) before the rest ran.
 LO, HI = [0.0015, 0.003, 0.006, 0.012], [0.003, 0.006, 0.012, 0.024]
-CADENCE = {"pd2c": ([1], HI, 2, False), "pd3c": ([1, 2, 4], LO, 3, False),
-           "pd3cs": ([1, 2, 4], LO, 3, True), "pd4c": ([1], LO, 4, False),
-           "mb724": ([1], HI, 724, False), "mb84": ([1], LO, 84, False)}
+PD3_E1 = [0.000375, 0.00075] + LO
+CADENCE = {"pd2c": ({1: [0.0015] + HI}, 2, False), "pd3c": ({1: PD3_E1}, 3, False),
+           "pd3cs": ({1: PD3_E1}, 3, True), "pd4c": ({1: [0.000375, 0.00075, 0.0015]}, 4, False),
+           "mb724": ({1: HI}, 724, False), "mb84": ({1: LO}, 84, False),
+           # train.fire_norm: sum (every unit's summed gradient over one constant, so a
+           # pass weights every event equally instead of every unit equally)
+           "pd1s": ({1: HI, 8: [0.003, 0.006, 0.012]}, 1, False),
+           "pd3css": ({1: [0.00075, 0.0015, 0.003, 0.006]}, 3, True)}
 
 COMMON = """corpus:
   path: data/.splits/4fa9aec1db6b3aea/train_corpus.txt
@@ -107,20 +119,27 @@ def main():
                         f"run_slug: {slug}\n{body}")
                 (OUT / f"{slug}.yml").write_text(text)
                 n += 1
-    for arm, (budgets, lrs, size, shuffled) in CADENCE.items():
-        for epochs in budgets:
+    for arm, (grid, size, shuffled) in CADENCE.items():
+        for epochs, lrs in grid.items():
             for lr in lrs:
                 slug = f"{arm}-e{epochs}-lr{lr:g}"
                 if arm.startswith("pd"):
                     order = "shuffled each pass" if shuffled else "radix-id order"
                     desc = (f"one-pass gap, cadence: AGPT pd={size} + crown units (depth-16 trie, exact "
                             f"ancestor gradient, {order}), {epochs} pass(es), Adam lr {lr:g} warmup-cosine per step")
-                    exp = "  anc_grad_exact: true\n  train_crown: true\n"
+                    fire_sum = arm in ("pd1s", "pd3css")
+                    crown = size >= 2
+                    if fire_sum:
+                        desc = desc.replace(" + crown units (", " + crown units, fire_norm sum (") if crown else (
+                            f"one-pass gap, cadence: AGPT pd=1 (depth-16 trie, exact ancestor gradient), fire_norm sum, "
+                            f"{epochs} pass(es), Adam lr {lr:g} warmup-cosine per step")
+                    exp = "  anc_grad_exact: true\n" + ("  train_crown: true\n" if crown else "")
                     if shuffled:
                         exp += "  unit_order_seed: 1\n"
-                    body = COMMON.format(trie=TRIE, epochs=epochs, lr=lr,
-                                         train_extra=AGPT_TRAIN.replace("partition_depth: 1",
-                                                                        f"partition_depth: {size}"),
+                    extra = AGPT_TRAIN.replace("partition_depth: 1", f"partition_depth: {size}")
+                    if fire_sum:
+                        extra += "  fire_norm: sum\n"
+                    body = COMMON.format(trie=TRIE, epochs=epochs, lr=lr, train_extra=extra,
                                          experimental=exp)
                 else:
                     desc = (f"one-pass gap, cadence: ordinary minibatch Adam ({size} windows of 16 per step), "

@@ -1,7 +1,7 @@
 ---
-description: "one-pass gap, cadence: AGPT pd=3 + crown units (depth-16 trie, exact ancestor gradient, shuffled each pass), 2 pass(es), Adam lr 0.006 warmup-cosine per step"
+description: "one-pass gap, cadence: AGPT pd=1 (depth-16 trie, exact ancestor gradient), fire_norm sum, 8 pass(es), Adam lr 0.006 warmup-cosine per step"
 experiment: one-pass-gap
-run_slug: pd3cs-e2-lr0.006
+run_slug: pd1s-e8-lr0.006
 corpus:
   path: data/.splits/4fa9aec1db6b3aea/train_corpus.txt
   heldout: data/.splits/4fa9aec1db6b3aea/heldout_corpus.txt
@@ -16,7 +16,7 @@ model:
 train:
   budget:
     unit: epochs
-    value: 2
+    value: 8
   seed: 42
   quiet: true
   optimizer:
@@ -28,9 +28,10 @@ train:
     name: warmup-cosine
     warmup_epochs: 0
   max_depth: 16
-  partition_depth: 3
+  partition_depth: 1
   chunk_queries: 50000
   anc_grad: true
+  fire_norm: sum
   seq_len: 16
 eval:
   split: tail-heldout
@@ -39,5 +40,3 @@ eval:
   device: cpu
 experimental:
   anc_grad_exact: true
-  train_crown: true
-  unit_order_seed: 1

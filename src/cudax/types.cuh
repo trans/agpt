@@ -53,6 +53,12 @@ struct TrainerConfig {
     // node whose edge ends above the partition depth as a unit of its own.
     // Off, those shallow targets are only ever context-only ancestors.
     bool train_crown = false;
+    // train.fire_norm. false ("mass", the default): each unit's gradient is
+    // its event mean, so a pass weights every unit equally whatever its size.
+    // true ("sum"): every unit's summed gradient is divided by one constant
+    // (the plan's mean events per unit), so a pass weights every event
+    // equally, as the corpus loss does. Train-epoch Adam/SGD path only.
+    bool fire_norm_sum = false;
     int chunk_queries = 0;
 
     float lr = 0.0f;

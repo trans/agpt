@@ -1945,6 +1945,10 @@ int main(int argc, char** argv) {
             std::printf("  checkpoint_epochs: ignored because model.save_file is not set\n");
         }
     }
+    if (cfg.fire_norm_sum && mode != V2Mode::TrainEpoch && mode != V2Mode::Plan) {
+        std::fprintf(stderr, "agpt_train_v2: train.fire_norm: sum is only wired in train-epoch mode\n");
+        return 1;
+    }
     if (!cfg.anc_grad) {
         cfg.anc_grad_exact = false;  // nothing to make exact
     } else if (cfg.anc_grad_exact) {
@@ -2164,6 +2168,29 @@ int main(int argc, char** argv) {
                 long long warmup_unit_steps = (long long)cfg.warmup_epochs * (long long)units_to_run * (long long)repeats_per_sample;
                 if (total_unit_steps < 1) total_unit_steps = 1;
                 const bool lbfgs_mode = (cfg.optimizer == agpt_v2::OptimizerKind::LBFGS);
+                // train.fire_norm: sum divides every unit's summed gradient by the
+                // plan's mean trainable event weight per unit (not each unit's own).
+                double fire_sum_divisor = 0.0;
+                if (cfg.fire_norm_sum && !lbfgs_mode) {
+                    if (cfg.lightning_enabled) {
+                        std::fprintf(stderr, "agpt_train_v2: train.fire_norm: sum is not supported with lightning sampling\n");
+                        return 1;
+                    }
+                    double plan_weight = 0.0;
+                    for (int u = 0; u < training_plan.unit_count; u++) {
+                        const agpt_v2::TrainingUnit& tu = training_plan.units[u];
+                        for (int i = 0; i < tu.node_count; i++) {
+                            if (tu.context_only && tu.context_only[i]) continue;
+                            int r = tu.radix_ids[i];
+                            int m = trie.edge_mass[r] > 0 ? trie.edge_mass[r] : 1;
+                            plan_weight += (double)trie.edge_lens[r] *
+                                           (double)agpt_v2::query_mass_weight_from_count_v2(cfg, (float)m);
+                        }
+                    }
+                    fire_sum_divisor = training_plan.unit_count > 0 ? plan_weight / (double)training_plan.unit_count : 1.0;
+                    std::printf("  fire_norm: sum (each unit's gradient / %.1f, the plan's mean event weight per unit; %.0f in all)\n",
+                                fire_sum_divisor, plan_weight);
+                }
                 LbfgsStateV2 lbfgs{};
                 if (lbfgs_mode) {
                     lbfgs_init_v2(lbfgs, model.total_floats, cfg.lbfgs_history);
@@ -2363,7 +2390,8 @@ int main(int argc, char** argv) {
                             if (lbfgs_mode) {
                                 lbfgs_axpy_v2(runtime.cublas, 1.0f, runtime.d_grads, lbfgs.d_acc, model.total_floats);
                             } else {
-                                scale_gradients_for_fire(runtime.cublas, runtime.d_grads, model.total_floats, unit_events);
+                                scale_gradients_for_fire(runtime.cublas, runtime.d_grads, model.total_floats,
+                                                         fire_sum_divisor > 0.0 ? fire_sum_divisor : unit_events);
                             }
                             double unit_mean = unit_events > 0.0 ? (unit_loss_sum / unit_events) : 0.0;
                             if (grad_dump.enabled && !lbfgs_mode) {
