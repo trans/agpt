@@ -87,10 +87,18 @@
   called it "deferred AGPT". I sent corrections (the prior runs use the
   input and the logits, fixed in `5f243e4`; one misread sentence; a stale
   quote) and the follow-up 2 numbers, reply in `mail/sent/`.
-- **Next, chosen by the user (2026-11-15):** the raw-trie-target arm.
-  Ordinary minibatch training, where each position's target is the trie's
-  next-character distribution for its context. This is AGPT's node loss at
-  minibatch cadence: same expected gradient, lower variance, no steps lost.
+- **Trie targets at minibatch cadence** (chosen by the user 2026-11-15;
+  follow-up 3, 21 runs, `9456c87`): ordinary minibatch training with each
+  position's target the trie's next-character distribution for its
+  context. That's AGPT's node loss without its schedule: same expected
+  gradient (checked to 1.8e-15), lower variance. In the same batches as
+  one-hot training it gains about 0.025 nats at 1–8 conventional epochs
+  (6.94 → 6.77, 5.12 → 5.00), worth 1.13–1.37× the training, and
+  0.014–0.017 at 16 epochs. It costs ~10% per epoch in this
+  implementation. I predicted ~1.5× from the measured noise cut
+  (19–38%); early steps are less noise-limited than that. Bound: only
+  repeated contexts change (about half the events at T=16, fewer at
+  longer T). **Open: the user's call** on what follows.
 - `src/tools/agpt_minibatch_train.py` (`84054bc`) is the minibatch baseline
   as an orchestrator custom trainer, so baselines get `result.json` too.
 
