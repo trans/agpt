@@ -98,7 +98,16 @@
   implementation. I predicted ~1.5× from the measured noise cut
   (19–38%); early steps are less noise-limited than that. Bound: only
   repeated contexts change (about half the events at T=16, fewer at
-  longer T). **Open: the user's call** on what follows.
+  longer T).
+- **Follow-up 4, trie targets at longer windows** (asked by the user
+  2026-11-15): T = 32, 64, 128 at 2048 targets per step (518 steps per
+  epoch), e1 and e4, lr .003/.006/.012, one-hot vs trie, 36 configs
+  (`a712cad`; set-up and prediction in the README, `851de5d`). Prediction
+  from the noise cut at the seed weights (8.0%, 3.4%, 1.6%): about 0.011,
+  0.005, 0.002 nats. **Waiting** for slot 43, queued behind @air's slot 44,
+  a pause the user asked for on 2026-11-15 (no jobs over 2 GB outside the
+  slots until @air says it's over). Run order in the session scratchpad;
+  otherwise `run_grid.sh` with the cv32/cvt32/... configs, e1 before e4.
 - `src/tools/agpt_minibatch_train.py` (`84054bc`) is the minibatch baseline
   as an orchestrator custom trainer, so baselines get `result.json` too.
 
