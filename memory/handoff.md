@@ -134,6 +134,16 @@
   The user judged this a significant finding, the core problem identified
   (2026-11-15). Still separate: the prefix-grouping cost at equal mass
   (packed 97%, 6.34 vs 4.83).
+- **Follow-up 6** (`76dafea`, slot 47, 24 runs): equal-mass packed plans at
+  pd=1's 65 steps. All sharing kept, equal mass: 14.01 vs AGPT 15.73 (half
+  of 0.225 nats to `mbL` 12.56). More pieces per step at fixed steps: 13.41
+  (166/step, 99.8% sharing), 13.12 (1,191, 98.4%), 12.66 (8,989, 83.7%).
+  `mbu1` (random windows, pd=1 sizes) 13.54: prefix grouping costs 0.150
+  after one pass, like the GRU early. Random batches of 16k windows keep
+  52.6% of the sharing themselves. No root lag. Sharing and variety go
+  together only in big steps (few updates). Next proposed to the user:
+  Adam momentum (`momentum_beta` 0.99) on v2 units, then SAG (stored unit
+  gradients) at pd=2. **Open: the user's choice.**
 - `src/tools/agpt_minibatch_train.py` (`84054bc`) is the minibatch baseline
   as an orchestrator custom trainer, so baselines get `result.json` too.
 
