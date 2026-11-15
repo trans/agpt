@@ -128,7 +128,12 @@
   pass however common (space: 1 step vs 121 in equal random batches at
   pd=3); packed chunks restore frequency weight, so it's weight, not
   within-step variety. ~0.03 of pd=3's 0.48 nats. pd=1 has no reference
-  (less trained than any random run). **Open: the user's response.**
+  (less trained than any random run). Mass-weighted units (`fire_norm: sum`,
+  `bd9d1fe`) cut the root lag to +0.08 but score worse overall (8.53): Adam
+  can't weight one step against another, so equal-mass steps are the fix.
+  The user judged this a significant finding, the core problem identified
+  (2026-11-15). Still separate: the prefix-grouping cost at equal mass
+  (packed 97%, 6.34 vs 4.83).
 - `src/tools/agpt_minibatch_train.py` (`84054bc`) is the minibatch baseline
   as an orchestrator custom trainer, so baselines get `result.json` too.
 
