@@ -458,9 +458,11 @@ each `cvt` or `mbt` run sees the same batches in the same order as the
 **Checks done before the run (CPU):**
 
 - The target table (`trie_plan.context_targets`: 8,902,737 contexts,
-  8,396,412 of them seen once, 9,937,989 context–next pairs) matches a
-  brute-force count for 300 random events. A context seen once keeps its
-  own one-hot target.
+  9,937,989 context–next pairs) matches a brute-force count for 300 random
+  events. 8,396,412 of the contexts are always followed by the same
+  character and so keep a one-hot target; 7,919,695 of those are seen only
+  once. (The train logs call the 8,396,412 "seen once"; that label was
+  wrong.)
 - Over every event the soft and one-hot full-batch gradients agree to
   1.8e-15 (float64, a 6,000-character slice). The objective is unchanged.
 - With the option off, all three default modes write byte-identical
@@ -513,16 +515,59 @@ Rate by rate, 20 of the 21 pairs improve. The exception is `mbt` at
   and 8 epochs. So the trie targets keep about a quarter of their gain at
   one epoch and 70% at eight.
 - **It reaches only contexts that repeat.** 8.40M of the 8.90M contexts
-  are seen once and keep their one-hot targets. The events whose targets
-  change are those with contexts shorter than about 12 characters, about
-  half the events at T=16. At longer context lengths that share falls
-  (the same bound as the trie's compute saving in follow-up 2), so the
-  gain would shrink.
+  are always followed by the same character and keep one-hot targets. The
+  events whose targets change are those with contexts shorter than about
+  12 characters, about half the events at T=16. At longer context lengths
+  that share falls (the same bound as the trie's compute saving in
+  follow-up 2), so the gain should shrink; follow-up 4 measures it.
 - **For comparison:** the 1 GB count prior in the 10.8M PG-19 model's
   input and logits gained 0.025 bits/char (0.017 nats) at 50k steps
   (`prior-scaling-plain-1g`). The `count-backoff-gate` sidecar, smoothed
   counts as targets, cost 0.23 nats (6.70 against 5.30). Raw counts keep
   the objective; smoothed ones change it.
+
+## Follow-up 4: trie targets at longer windows (2026-11-15)
+
+Follow-up 3's gain comes from contexts that repeat, and almost none do past
+about 12 characters. This follow-up asks how much of the gain survives at
+longer windows. The user asked for it on 2026-11-15.
+
+**Arms.** `cv{T}` and `cvt{T}`: follow-up 3's conventional epochs, one-hot
+and trie targets, at seq_len T = 32, 64 and 128. Every step takes 2,048
+targets (64, 32 or 16 windows), so every T takes 518 steps an epoch, as
+T=16 does with 128 windows. 1 and 4 epochs at lr 0.003, 0.006 and 0.012,
+paired as before. Both eval metrics follow the model's window: rolling
+PPL in windows of T, fixed-window PPL with T characters of context. So
+numbers compare across arms at one T, not across T.
+
+**Code** (`a712cad`). The target table now lists only contexts seen at
+two or more window starts; a context seen once takes its own next
+character. At T=16 its rows are bitwise identical to the old table's (50
+batches of 128), at T=64 they match a brute-force count (300 random
+events), and at T=128 it builds in 10 s with 1.8 GB peak memory.
+
+**Checks done before the run (CPU).** The share of events whose context
+repeats, and the gradient-noise cut per 2,048-target batch at the seed
+weights (64 random batches each):
+
+| T | Events with a repeated context | Noise cut at seed |
+|---:|---:|---:|
+| 16 | ~53% | 18.9% (31.8% after one epoch) |
+| 32 | 27% | 8.0% |
+| 64 | 14% | 3.4% |
+| 128 | 7% | 1.6% |
+
+By depth, 99% of contexts repeat at 4 characters, 58% at 8, 16% at 12, 5%
+at 16 and 1% at 24. The noise cut falls faster than the repeated share,
+because the shallow targets that change are a shrinking part of a longer
+window's gradient. The eval shifts too: rolling PPL weights every context
+length from 1 to T equally, so contexts shorter than 12 characters are
+about 70% of the T=16 score and 9% of the T=128 score.
+
+**Prediction, made before the run:** if the gain scales with the noise
+cut at the seed weights, it is about 0.011 nats at T=32, 0.005 at T=64 and
+0.002 at T=128 (against 0.025 at T=16). The last two are near or below
+what a paired single-seed comparison resolves.
 
 ## Caveats
 
