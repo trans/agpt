@@ -88,21 +88,21 @@ TOKEN_CAP = 131072  # tokens per forward/backward in trie-plan steps (memory bou
 class TrieTargets:
     """The trie's next-token distribution for every event's context, on the device.
 
-    dist(starts) gives, for windows starting at `starts`, a [windows * T, V]
+    dist(starts, nxt) gives, for windows starting at `starts`, a [windows * T, V]
     tensor (window-major, like the logits) whose row for event (i, L) is
     n(c, .) / n(c), c = tokens[i:i+L], counted over every event of the
     corpus. Summed over the occurrences of c, the one-hot targets equal
     n(c) times this row, so for any sample of events the soft loss has the
     hard loss's expected gradient: AGPT's node loss, at minibatch cadence.
+    `nxt` is the events' own next tokens (the one-hot targets, flattened the
+    same way): a context seen once has its own next token as its row.
     """
 
     def __init__(self, tokens, n_starts, T, V, device):
         import trie_plan as tp
         t0 = time.perf_counter()
-        ctx, indptr, child, count = tp.context_targets(tokens.numpy(), n_starts, T, V)
-        self.n_ctx = indptr.size - 1
-        self.n_pairs = child.size
-        self.n_single = int((indptr[1:] - indptr[:-1] == 1).sum())
+        ctx, indptr, child, count, self.n_ctx, self.n_single = tp.context_targets(tokens.numpy(), n_starts, T, V)
+        self.n_pairs = child.size + self.n_single
         self.ctx = torch.from_numpy(ctx).to(device)
         self.indptr = torch.from_numpy(indptr).to(device)
         self.child = torch.from_numpy(child).to(device)
@@ -110,15 +110,18 @@ class TrieTargets:
         self.V, self.device = V, device
         self.build_seconds = time.perf_counter() - t0
 
-    def dist(self, starts, dtype=torch.float32):
+    def dist(self, starts, nxt, dtype=torch.float32):
         ids = self.ctx[:, starts].t().reshape(-1).long()
-        a = self.indptr[ids]
-        lens = self.indptr[ids + 1] - a
         n = ids.numel()
-        row = torch.repeat_interleave(torch.arange(n, device=self.device), lens)
-        first = torch.cumsum(lens, 0) - lens
-        pidx = a[row] + torch.arange(row.numel(), device=self.device) - first[row]
         out = torch.zeros(n, self.V, device=self.device, dtype=dtype)
+        once = torch.nonzero(ids < 0).squeeze(1)
+        out[once, nxt[once]] = 1
+        rr = torch.nonzero(ids >= 0).squeeze(1)
+        a = self.indptr[ids[rr]]
+        lens = self.indptr[ids[rr] + 1] - a
+        row = torch.repeat_interleave(rr, lens)
+        first = torch.repeat_interleave(torch.cumsum(lens, 0) - lens, lens)
+        pidx = torch.repeat_interleave(a, lens) + torch.arange(row.numel(), device=self.device) - first
         out.index_put_((row, self.child[pidx].long()), self.count[pidx].to(dtype))
         return out / out.sum(-1, keepdim=True)
 
@@ -477,10 +480,11 @@ def main():
                     (loss * (part.numel() / nb)).backward()
                 else:
                     logp = F.log_softmax(logits.reshape(-1, V), dim=-1)
-                    soft = -(targets.dist(part, logp.dtype) * logp).sum(-1).mean()
+                    y = chunks[:, 1:].reshape(-1)
+                    soft = -(targets.dist(part, y, logp.dtype) * logp).sum(-1).mean()
                     (soft * (part.numel() / nb)).backward()
                     soft_sum += soft.detach() * part.numel()
-                    loss = F.nll_loss(logp.detach(), chunks[:, 1:].reshape(-1))
+                    loss = F.nll_loss(logp.detach(), y)
                 loss_sum += loss.detach() * part.numel()
             opt.step()
             step += 1

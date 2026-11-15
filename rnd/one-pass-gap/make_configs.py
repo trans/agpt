@@ -50,6 +50,14 @@ Second follow-up (2026-11-14), both through the minibatch trainer:
          88%, 65% of the trie's sharing (trie positions per pass 9.18M, 9.90M,
          11.71M, against 8.90M for one trie step and 16.95M with none).
 
+Fourth follow-up (2026-11-15), longer windows: conventional epochs with
+one-hot and with trie targets at seq_len T = 32, 64, 128, with 2048 targets
+per step (2048 / T windows), so every window length takes 518 steps per
+epoch, as T = 16 does with 128 windows:
+
+- cv{T}:  conventional epochs, one-hot targets.
+- cvt{T}: the same with trie targets.
+
 Each budget is its own run, so every run anneals its own schedule.
 Usage: python3 rnd/one-pass-gap/make_configs.py
 """
@@ -105,6 +113,10 @@ NEXT_DESC = {
            "distribution for its context)",
     "mbt": "minibatch 128 over every window start with trie targets",
 }
+
+# Fourth follow-up: window length T -> ({budget: lrs}), both arms.
+LONG = {T: {1: [0.003, 0.006, 0.012], 4: [0.003, 0.006, 0.012]} for T in (32, 64, 128)}
+LONG_TARGETS = 2048
 
 COMMON = """corpus:
   path: data/.splits/4fa9aec1db6b3aea/train_corpus.txt
@@ -220,6 +232,24 @@ def main():
                         f"run_slug: {slug}\n{body}")
                 (OUT / f"{slug}.yml").write_text(text)
                 n += 1
+    for T, grid in LONG.items():
+        windows = LONG_TARGETS // T
+        for arm in (f"cv{T}", f"cvt{T}"):
+            tt = arm.startswith("cvt")
+            what = "with trie targets" if tt else "with one-hot targets"
+            exp = f"  minibatch_size: {windows}\n  window_stride: {T}\n" + ("  trie_targets: true\n" if tt else "")
+            for epochs, lrs in grid.items():
+                for lr in lrs:
+                    slug = f"{arm}-e{epochs}-lr{lr:g}"
+                    desc = (f"one-pass gap, longer windows: conventional epochs at seq_len {T} {what} "
+                            f"({windows} windows of {T} per step), {epochs} epoch(s), Adam lr {lr:g} warmup-cosine per step")
+                    body = COMMON.format(trie="", epochs=epochs, lr=lr, train_extra="",
+                                         experimental=exp + "  device: cuda\n")
+                    body = body.replace("  seq_len: 16\n", f"  seq_len: {T}\n")
+                    text = (f'---\ndescription: "{desc}"\nexperiment: one-pass-gap\n'
+                            f"run_slug: {slug}\n{body}")
+                    (OUT / f"{slug}.yml").write_text(text)
+                    n += 1
     print(f"wrote {n} configs to {OUT}")
 
 

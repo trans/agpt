@@ -175,32 +175,41 @@ def plan_cost(keys: np.ndarray, sw_step: np.ndarray, sw_i: np.ndarray, sw_bits: 
 def context_targets(tok: np.ndarray, n_starts: int, T: int, V: int):
     """The trie's next-token counts for every event's context.
 
-    Returns ctx [T, n_starts] int32, the context id of event (i, L) at
-    ctx[L-1, i], and a CSR table over context ids: indptr int64, child uint8,
-    count int32, listing for each context every token that follows it at
-    some event (j, L) and how often. These are the trie nodes' child counts:
-    the node of context c has n(c, a) = count of child a. A context seen once
-    lists one child, its own target, with count 1.
+    Returns ctx [T, n_starts] int32, at ctx[L-1, i] the id of event (i, L)'s
+    context if it occurs at two or more window starts, else -1; a CSR table
+    over those repeated contexts' ids (indptr int64, child uint8, count int32)
+    listing for each every token that follows it at some event (j, L) and how
+    often, which are the trie node's child counts n(c, a); and the number of
+    distinct contexts and of those seen once. A context seen once is followed
+    by its own event's next token only, so it needs no entry.
     """
     if V > 256:
         raise ValueError(f"context_targets: vocab {V} does not fit uint8")
-    keys = prefix_keys(tok, n_starts, T)
     t = tok.astype(np.int64)
+    tk = tok.astype(np.uint64) + np.uint64(1)
+    h = np.zeros(n_starts, dtype=np.uint64)   # prefix_keys' hash, one depth at a time
     ctx = np.empty((T, n_starts), dtype=np.int32)
     per_ctx, child, count = [], [], []
-    base = 0
+    base = n_all = n_single = 0
     for L in range(1, T + 1):
-        _, inv = np.unique(keys[L - 1], return_inverse=True)
-        nctx = int(inv.max()) + 1
-        ctx[L - 1] = inv + base
-        pk = inv.astype(np.int64) * V + t[L:L + n_starts]
-        up, pc = np.unique(pk, return_counts=True)
-        per_ctx.append(np.bincount(up // V, minlength=nctx))
+        h = h * _HB + tk[L - 1:L - 1 + n_starts]
+        _, inv, cnt = np.unique(h, return_inverse=True, return_counts=True)
+        rep = cnt >= 2
+        nrep = int(rep.sum())
+        n_all += cnt.size
+        n_single += cnt.size - nrep
+        rid = np.full(cnt.size, -1, dtype=np.int64)
+        rid[rep] = base + np.arange(nrep)
+        r = rid[inv]
+        ctx[L - 1] = r
+        w = np.nonzero(r >= 0)[0]
+        up, pc = np.unique(r[w] * V + t[w + L], return_counts=True)
+        per_ctx.append(np.bincount(up // V - base, minlength=nrep))
         child.append((up % V).astype(np.uint8))
         count.append(pc.astype(np.int32))
-        base += nctx
+        base += nrep
     indptr = np.r_[0, np.cumsum(np.concatenate(per_ctx))].astype(np.int64)
-    return ctx, indptr, np.concatenate(child), np.concatenate(count)
+    return ctx, indptr, np.concatenate(child), np.concatenate(count), n_all, n_single
 
 
 def describe(sizes: np.ndarray) -> str:

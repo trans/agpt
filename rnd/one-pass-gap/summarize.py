@@ -30,6 +30,9 @@ ARMS = {"agpt": "AGPT pd=1 (65 steps/pass)", "mb": "minibatch 128 (8,279 steps/p
         "tq84": "packed AGPT plan, pieces <= 84 (12,675 equal steps, 65% sharing)",
         "cvt": "conventional epochs with trie targets (518 steps/epoch; 'passes' = epochs)",
         "mbt": "minibatch 128 with trie targets (8,279 steps/pass)"}
+for _T in (32, 64, 128):
+    ARMS[f"cv{_T}"] = f"conventional epochs at seq_len {_T}, {2048 // _T} windows (518 steps/epoch)"
+    ARMS[f"cvt{_T}"] = f"conventional epochs at seq_len {_T} with trie targets, {2048 // _T} windows (518 steps/epoch)"
 
 
 def load():
