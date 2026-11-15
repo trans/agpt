@@ -38,14 +38,14 @@
       </div>
     </section>
     <div class="shell experiment-main">
-      <section class="answer-panel" aria-labelledby="answer-heading"><span id="answer-heading" class="micro-label">THE ANSWER SO FAR</span><p>Yes, at equal network steps, on one seed each. The plain 10.8M trained on the 1.02G characters reaches held-out 2.9058 PPL (1.5389 bits/char). The 10.8M with the 1 GB prior in its input and prior dropout 0.5 (mobius, rnd/unit-lattice) reaches 2.8559 (1.5139), 0.025 bits/char better, about 2.5 times the ~0.01 rerun noise. At 200M the same comparison was a tie (0.006). Going from 200M to 1 GB of books gained the prior model 0.038 and the plain model 0.019. The prior&#x27;s lead shrinks over training (0.137 at 5k steps, 0.040 at 15k, 0.025 at 50k) but is not gone. The prior&#x27;s counting (about 2.6 h of CPU) is not in the comparison.</p></section>
+      <section class="answer-panel" aria-labelledby="answer-heading"><span id="answer-heading" class="micro-label">THE ANSWER SO FAR</span><p>Yes, at equal network steps, on one seed each. The plain 10.8M trained on the 1.02G characters reaches held-out 2.9058 PPL (1.5389 bits/char). The 10.8M with the 1 GB prior in its input and on its logits, prior dropout 0.5 (mobius, rnd/unit-lattice) reaches 2.8559 (1.5139), 0.025 bits/char better, about 2.5 times the ~0.01 rerun noise. At 200M the same comparison was a tie (0.006). Going from 200M to 1 GB of books gained the prior model 0.038 and the plain model 0.019. The prior&#x27;s lead shrinks over training (0.137 at 5k steps, 0.040 at 15k, 0.025 at 50k) but is not gone. The prior&#x27;s counting (about 2.6 h of CPU) is not in the comparison.</p></section>
 <section class="headline-grid" aria-label="Headline results"><div class="headline-item">
           <span class="headline-label">plain 10.8M char transformer, 1 GB of books + 20M split, 50k steps, seed 1337</span>
           <strong>2.9058</strong>
           <span class="headline-metric">held-out PPL (air&#x27;s protocol, 250k chars of PG-19 test books)</span>
           <span class="headline-extra"><a href="https://github.com/trans/agpt/tree/main/rnd/prior-scaling-plain-1g/s10.8m_none_books1g">Run record ↗</a><span class="badge badge-caveat" title="Uses a historical evaluation protocol; compare only within that protocol.">legacy-eval</span></span>
         </div><div class="headline-item">
-          <span class="headline-label">10.8M + 1 GB books prior in the input, prior dropout 0.5 (mobius) minus the plain 10.8M on 1 GB + 20M</span>
+          <span class="headline-label">10.8M + 1 GB books prior in the input and on the logits, prior dropout 0.5 (mobius) minus the plain 10.8M on 1 GB + 20M</span>
           <strong>0.025</strong>
           <span class="headline-metric">held-out bits/char advantage at 50k steps</span>
           <span class="headline-extra"><span class="badge badge-caveat" title="Uses a historical evaluation protocol; compare only within that protocol.">legacy-eval</span></span>
@@ -136,12 +136,12 @@ steps, final evaluation. Rows marked air are in air's
 <td style="text-align:right"><strong>2.9058 (1.5389)</strong></td>
 </tr>
 <tr>
-<td>200M books prior, input, prior dropout 0.5 (air <code>pd_s10.8m_prior_in</code>)</td>
+<td>200M books prior, input and logits, prior dropout 0.5 (air <code>pd_s10.8m_prior_in</code>)</td>
 <td>20M</td>
 <td style="text-align:right">2.9326 (1.5522)</td>
 </tr>
 <tr>
-<td>1 GB books prior, input, prior dropout 0.5 (mobius)</td>
+<td>1 GB books prior, input and logits, prior dropout 0.5 (mobius)</td>
 <td>20M</td>
 <td style="text-align:right">2.8559 (1.5139)</td>
 </tr>

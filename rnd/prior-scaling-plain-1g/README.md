@@ -11,7 +11,7 @@ question: >-
 answer: >-
   Yes, at equal network steps, on one seed each. The plain 10.8M trained on the 1.02G characters
   reaches held-out 2.9058 PPL (1.5389 bits/char). The 10.8M with the 1 GB prior in its input and
-  prior dropout 0.5 (mobius, rnd/unit-lattice) reaches 2.8559 (1.5139), 0.025 bits/char better,
+  on its logits, prior dropout 0.5 (mobius, rnd/unit-lattice) reaches 2.8559 (1.5139), 0.025 bits/char better,
   about 2.5 times the ~0.01 rerun noise. At 200M the same comparison was a tie (0.006). Going from
   200M to 1 GB of books gained the prior model 0.038 and the plain model 0.019. The prior's lead
   shrinks over training (0.137 at 5k steps, 0.040 at 15k, 0.025 at 50k) but is not gone. The
@@ -27,7 +27,7 @@ headline:
   metric: held-out PPL (air's protocol, 250k chars of PG-19 test books)
   value: 2.9058
   run: s10.8m_none_books1g
-- label: 10.8M + 1 GB books prior in the input, prior dropout 0.5 (mobius) minus the plain 10.8M on 1 GB + 20M
+- label: 10.8M + 1 GB books prior in the input and on the logits, prior dropout 0.5 (mobius) minus the plain 10.8M on 1 GB + 20M
   metric: held-out bits/char advantage at 50k steps
   value: 0.0250
 related: [prior-scaling-plain-220m, polyrope-probe, gutenberg-prior-residual]
@@ -98,8 +98,8 @@ steps, final evaluation. Rows marked air are in air's
 | plain (air `s10.8m_none`) | 20M | 3.0386 (1.6034) |
 | plain (agpt, `prior-scaling-plain-220m`) | 200M books + 20M | 2.9442 (1.5579) |
 | **plain (this run, `s10.8m_none_books1g`)** | **1 GB books + 20M** | **2.9058 (1.5389)** |
-| 200M books prior, input, prior dropout 0.5 (air `pd_s10.8m_prior_in`) | 20M | 2.9326 (1.5522) |
-| 1 GB books prior, input, prior dropout 0.5 (mobius) | 20M | 2.8559 (1.5139) |
+| 200M books prior, input and logits, prior dropout 0.5 (air `pd_s10.8m_prior_in`) | 20M | 2.9326 (1.5522) |
+| 1 GB books prior, input and logits, prior dropout 0.5 (mobius) | 20M | 2.8559 (1.5139) |
 | 200M prior + document lattice rows (mobius) | 20M | 2.8557 (1.5138) |
 | 1 GB prior + document lattice rows (mobius) | 20M | 2.8521 (1.5120) |
 
