@@ -58,6 +58,14 @@ epoch, as T = 16 does with 128 windows:
 - cv{T}:  conventional epochs, one-hot targets.
 - cvt{T}: the same with trie targets.
 
+Fifth follow-up (2026-11-15), exact emulation, through the minibatch trainer:
+
+- tp1x: v2's pd=1 plan (`agpt`), its 65 units in v2's order (the units.tsv
+        of a frozen v2 gradient dump, v2_units/pd1.tsv), over the trie's
+        windows (one per character, the tail wrapped to the front).
+- tp3x: the same for pd=3 + crown shuffled (`pd3cs`), v2's epoch-1 order
+        (v2_units/pd3s.tsv).
+
 Each budget is its own run, so every run anneals its own schedule.
 Usage: python3 rnd/one-pass-gap/make_configs.py
 """
@@ -95,6 +103,13 @@ NEXT = {
              8: [0.003, 0.006, 0.012], 16: [0.003, 0.006, 0.012]},
             "  minibatch_size: 128\n  window_stride: 16\n  trie_targets: true\n"),
     "mbt": ({1: [0.003, 0.006, 0.012]}, "  minibatch_size: 128\n  trie_targets: true\n"),
+    # Follow-up 5: exact replays, v2's units in v2's order over v2's (tail-wrapped) events
+    "tp1x": ({1: [0.003, 0.006, 0.012, 0.024]},
+             "  trie_plan: pd\n  trie_plan_depth: 1\n  trie_plan_order_file: rnd/one-pass-gap/v2_units/pd1.tsv\n"
+             "  wrap_tail: true\n  log_step_loss: true\n"),
+    "tp3x": ({1: [0.00075, 0.0015, 0.003]},
+             "  trie_plan: pd\n  trie_plan_depth: 3\n  trie_plan_order_file: rnd/one-pass-gap/v2_units/pd3s.tsv\n"
+             "  wrap_tail: true\n  log_step_loss: true\n"),
     "tp3": ({1: [0.00075, 0.0015, 0.003]}, "  trie_plan: pd\n  trie_plan_depth: 3\n"),
     "tq1338": ({1: [0.0015, 0.003, 0.006]},
                "  trie_plan: packed\n  trie_plan_piece_max: 1338\n  trie_plan_steps: 12675\n"),
@@ -112,6 +127,9 @@ NEXT_DESC = {
     "cvt": "conventional epochs with trie targets (each position's target is the trie's next-character "
            "distribution for its context)",
     "mbt": "minibatch 128 over every window start with trie targets",
+    "tp1x": "exact replay of AGPT pd=1 (v2's 65 units in v2's order, over the trie's tail-wrapped windows)",
+    "tp3x": "exact replay of AGPT pd=3 + crown, shuffled (v2's 12,675 units in v2's epoch-1 order, "
+            "over the trie's tail-wrapped windows)",
 }
 
 # Fourth follow-up: window length T -> ({budget: lrs}), both arms.

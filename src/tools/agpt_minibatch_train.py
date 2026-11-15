@@ -59,6 +59,16 @@ Config keys read:
                                   a context seen once keeps its one-hot target. Not
                                   with trie_plan. train_nll still reports the
                                   one-hot loss.)
+    experimental.wrap_tail       (true: a window starts at every character and reads past
+                                  the end from the front, as the cached tries do, boundary
+                                  mode tail-wrap-front-v1. Default: only windows that fit.)
+    experimental.trie_plan_order_file (pd only: the units.tsv of a v2 gradient dump
+                                  (AGPT_GRAD_DUMP_DIR); every pass takes the units in its
+                                  row order instead of a shuffle, so the replay takes v2's
+                                  steps in v2's order. Each row must name a unit of the
+                                  plan with the same event count.)
+    experimental.log_step_loss   (trie_plan only: print every step's event-mean loss, as
+                                  v2 prints every unit's.)
 """
 
 from __future__ import annotations
@@ -81,7 +91,8 @@ from agpt_ppl import AGPTModel, MGPT_MAGIC, build_vocab, load_model  # noqa: E40
 
 KNOWN_EXPERIMENTAL = {"minibatch_size", "micro_batch", "device", "max_corpus_chars", "step_events_file",
                       "window_stride", "trie_plan", "trie_plan_depth", "trie_plan_piece_max",
-                      "trie_plan_steps", "trie_plan_seed", "trie_targets"}
+                      "trie_plan_steps", "trie_plan_seed", "trie_targets", "wrap_tail",
+                      "trie_plan_order_file", "log_step_loss"}
 TOKEN_CAP = 131072  # tokens per forward/backward in trie-plan steps (memory bound only)
 
 
@@ -141,6 +152,9 @@ class TriePlanner:
         tok = tokens.numpy()
         keys = tp.prefix_keys(tok, n_starts, T)
         self.keys = keys
+        self.fixed_order = None
+        if exp.get("trie_plan_order_file") and self.kind != "pd":
+            sys.exit("agpt_minibatch_train: trie_plan_order_file is for trie_plan pd")
         if self.kind == "pd":
             self.depth = int(exp["trie_plan_depth"])
             tags = tp.pd_unit_tags(keys, self.depth)
@@ -155,6 +169,15 @@ class TriePlanner:
                          f"(piece depth median {int(np.median(p))}), {self.n_steps_req} equal steps, repacked each pass")
         self.unit_of_event, self.unit_sizes = tp.units_from_tags(tags)
         del tags
+        if exp.get("trie_plan_order_file"):
+            import csv
+            import hashlib
+            path = Path(exp["trie_plan_order_file"])
+            rows = list(csv.DictReader(path.open(), delimiter="\t"))
+            self.fixed_order = tp.order_from_dump(keys, self.unit_of_event, self.unit_sizes, rows, self.depth)
+            sha = hashlib.sha256(path.read_bytes()).hexdigest()
+            self.desc = (f"pd={self.depth} + crown, one unit per step, every pass in the order of {path} "
+                         f"(sha256 {sha})")
         self.build_seconds = time.perf_counter() - t0
         self.blens = sorted({min(4, T), min(8, T), T})
 
@@ -164,7 +187,10 @@ class TriePlanner:
 
     def epoch(self, with_cost):
         np, tp = self.np, self.tp
-        if self.kind == "pd":
+        if self.fixed_order is not None:
+            step_of_unit = self.fixed_order
+            n_steps = self.unit_sizes.size
+        elif self.kind == "pd":
             step_of_unit = tp.shuffled_steps(self.unit_sizes.size, self.rng)
             n_steps = self.unit_sizes.size
         else:
@@ -322,6 +348,9 @@ def main():
         sys.exit("agpt_minibatch_train: give window_stride or step_events_file, not both")
     if exp.get("trie_targets") and exp.get("trie_plan"):
         sys.exit("agpt_minibatch_train: trie_targets is for minibatch training, not trie_plan")
+    log_steps = bool(exp.get("log_step_loss"))
+    if log_steps and not exp.get("trie_plan"):
+        sys.exit("agpt_minibatch_train: log_step_loss is for trie_plan runs")
     micro = min(batch, int(exp.get("micro_batch") or batch))
     device = torch.device(exp.get("device") or ("cuda" if torch.cuda.is_available() else "cpu"))
     save_path = mcfg["save_file"]
@@ -332,9 +361,16 @@ def main():
     if exp.get("max_corpus_chars"):
         text = text[: int(exp["max_corpus_chars"])]
     tokens = torch.tensor([char_to_id.get(c, 0) for c in text], dtype=torch.long)
-    n_starts = tokens.numel() - T - 1
-    if n_starts <= 0:
-        sys.exit(f"agpt_minibatch_train: corpus too short ({tokens.numel()} chars) for seq_len {T}")
+    n_chars = tokens.numel()
+    if exp.get("wrap_tail"):
+        # The trie's boundary_mode tail-wrap-front-v1: a window starts at every
+        # character, and past the end it reads on from the front.
+        tokens = torch.cat([tokens, tokens[:T]])
+        n_starts = n_chars
+    else:
+        n_starts = n_chars - T - 1
+    if n_starts <= 0 or n_chars <= T:
+        sys.exit(f"agpt_minibatch_train: corpus too short ({n_chars} chars) for seq_len {T}")
 
     if mcfg.get("init_file"):
         mc, sd = load_model(mcfg["init_file"])
@@ -367,8 +403,9 @@ def main():
 
     print(f"agpt_minibatch_train: {init_desc}; d={mc['d_model']} L={mc['n_layers']} h={mc['n_heads']} "
           f"ff={mc['d_ff']} V={V} seq_len={T} params={sum(p.numel() for p in model.parameters())}", flush=True)
-    print(f"  corpus {corpus['path']} chars={tokens.numel()} window_starts={n_starts} "
-          f"targets_per_epoch={n_starts * T}", flush=True)
+    print(f"  corpus {corpus['path']} chars={n_chars} window_starts={n_starts} "
+          f"targets_per_epoch={n_starts * T}" + (" (tail wrapped to the front)" if exp.get("wrap_tail") else ""),
+          flush=True)
     print(f"  epochs={epochs} minibatch={batch} steps_per_epoch={steps_per_epoch} total_steps={total_steps} "
           f"micro_batch={micro} lr={lr} schedule={sched_name} warmup_epochs={warmup_epochs} min_lr_ratio={min_ratio} "
           f"betas=({beta1}, {beta2}) eps={eps} seed={seed} device={device}", flush=True)
@@ -415,6 +452,7 @@ def main():
                     g["lr"] = cur
                 opt.zero_grad(set_to_none=True)
                 E = step_events[s]
+                step_loss = torch.zeros((), device=device, dtype=torch.float64)
                 for b, Lb in enumerate(planner.blens):
                     a, z = off[s * nb + b], off[s * nb + b + 1]
                     cap = max(1, TOKEN_CAP // Lb)
@@ -428,7 +466,11 @@ def main():
                         ls = (ce * m).sum()
                         (ls / E).backward()
                         loss_sum += ls.detach()
+                        step_loss += ls.detach().double()
                 opt.step()
+                if log_steps:
+                    print(f"    step {step + 1} events={E:.0f} mean_loss={step_loss.item() / E:.6f} lr={cur:.6g}",
+                          flush=True)
                 step += 1
             if device.type == "cuda":
                 torch.cuda.synchronize()

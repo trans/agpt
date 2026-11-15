@@ -212,6 +212,50 @@ def context_targets(tok: np.ndarray, n_starts: int, T: int, V: int):
     return ctx, indptr, np.concatenate(child), np.concatenate(count), n_all, n_single
 
 
+def hash_path(path) -> np.uint64:
+    """prefix_keys' hash of one token path."""
+    h = np.uint64(0)
+    with np.errstate(over="ignore"):
+        for t in path:
+            h = h * _HB + np.uint64(int(t) + 1)
+    return h
+
+
+def order_from_dump(keys: np.ndarray, unit_of_event: np.ndarray, unit_sizes: np.ndarray, rows, k: int) -> np.ndarray:
+    """Step index of every pd=k unit in the order of a v2 grad dump's units.tsv rows.
+
+    A row names its unit by the token path to its anchor, cut at depth k,
+    and the anchor's edge depths. A crown unit (edge ending above depth k)
+    holds depth `anchor_endpoint_depth` of the windows with that path; a
+    piece holds depth k of the windows with its k-character prefix. Each
+    row's unit is found through one such event, and every unit must be
+    found exactly once with the row's trained_events."""
+    T, n = keys.shape
+    order = {}
+    step = np.full(unit_sizes.size, -1, dtype=np.int32)
+    for r, row in enumerate(rows):
+        path = [int(x) for x in row["context_tokens"].split(",")]
+        L = min(int(row["anchor_endpoint_depth"]), k)
+        if len(path) != L:
+            raise ValueError(f"row {r}: path length {len(path)} != probe depth {L}")
+        if L not in order:
+            order[L] = np.argsort(keys[L - 1], kind="stable")
+        o = order[L]
+        h = hash_path(path)
+        j = np.searchsorted(keys[L - 1][o], h)
+        if j >= n or keys[L - 1][o[j]] != h:
+            raise ValueError(f"row {r}: no window has path {path}")
+        u = unit_of_event[int(o[j]) * T + L - 1]
+        if step[u] >= 0:
+            raise ValueError(f"row {r}: unit {u} already placed at step {step[u]}")
+        if int(unit_sizes[u]) != round(float(row["trained_events"])):
+            raise ValueError(f"row {r}: unit {u} has {unit_sizes[u]} events, the dump {row['trained_events']}")
+        step[u] = r
+    if (step < 0).any():
+        raise ValueError(f"{int((step < 0).sum())} units not in the dump")
+    return step
+
+
 def describe(sizes: np.ndarray) -> str:
     q = np.percentile(sizes, [10, 50, 90, 99])
     return (f"n={sizes.size} mean={sizes.mean():.0f} p10={q[0]:.0f} median={q[1]:.0f} "
