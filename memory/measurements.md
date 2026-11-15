@@ -33,6 +33,8 @@ To reproduce a run:
 | Conventional epochs (non-overlapping windows, 128 per step, 518 steps/epoch): 1 / 2 / 4 / 8 / 16 epochs | 6.940 / 6.036 / 5.476 / 5.125 / 4.854 | 6.509 / 5.558 / 4.972 / 4.587 / 4.319 | `rnd/one-pass-gap` `cv` | 2026-11-15, `bf32854`; lr 0.006 best at every budget; 1.06M positions/epoch, so 8 epochs ≈ one pd=3 pass (8.93M), 16 = one every-start pass |
 | One pass, 12,675 steps, plans replayed in the minibatch trainer: pd=3 / packed P=1338 / 335 / 84 (equal steps) | 7.762 / 6.341 / 5.864 / 5.387 | 7.179 / 5.836 / 5.377 / 4.859 | `rnd/one-pass-gap` `tp3` `tq*` | 2026-11-15; sharing kept 100 / 97 / 88 / 65% (random batches 12%: 4.827); trie positions/pass 8.93M / 9.18M / 9.90M / 11.71M |
 | Trie targets (each position's target = the trie's next-char distribution), same batches as one-hot: conventional 1 / 2 / 4 / 8 / 16 epochs; every-start pass | 6.770 / 5.879 / 5.342 / 5.001 / 4.772; 4.760 | 6.315 / 5.381 / 4.824 / 4.470 / 4.241; 4.229 | `rnd/one-pass-gap` `cvt` `mbt` | 2026-11-15, `2ffa5d9`; one-hot partners 6.940 / 6.036 / 5.476 / 5.125 / 4.854; 4.826; gain ~0.025 nats at 1–8 epochs = 1.13–1.37× the training; 20 of 21 rate pairs improve |
+| Trie targets at longer windows (2048 targets/step, 518 steps/epoch), one-hot → trie, best lr .006: T=32 / 64 / 128, 1 epoch; 4 epochs | 6.746→6.655 / 6.941→6.832 / 7.107→7.088; 5.069→5.057 / 4.965→4.926 / 5.033→4.982 | — | `rnd/one-pass-gap` `cv{T}` `cvt{T}` | 2026-11-15, `a712cad`; mean paired gain 0.014 / 0.013 / 0.001 nats (T=16: 0.023); pairs improving 6/6, 6/6, 3/6; not comparable across T (eval follows the window) |
+| Exact replays of v2 (v2's units, order and tail-wrapped events, PyTorch fp32): pd=1 lr .003/.006/.012/.024; pd=3+crown shuffled lr .00075/.0015/.003 | 18.514 / 16.384 / **15.716** / 17.531; 8.155 / **7.795** / 7.981 | — | `rnd/one-pass-gap` `tp1x` `tp3x` | 2026-11-15, `99b3387`; v2's own: 18.512 / 16.372 / 15.734 / 17.567; 8.125 / 7.813 / 8.009 (old own-order replay `tp3`: 7.936 / 7.762 / 8.317) |
 | Adam pd=1, exact, 100 ep | 5.225 | 4.684 | `adam-pd1-exact-100ep` | 654 s train |
 | Adam pd=1, truncated, 100 ep | 5.348 | 4.810 | `cadence-pd1-100ep` | 570 s train |
 | Adam pd=0, 100 ep, exact / truncated | 12.084 / 12.054 | 12.105 / 12.110 | `adam-pd0-exact-100ep`, `cadence-pd0-100ep` | the fix doesn't matter at pd=0 |
@@ -80,6 +82,20 @@ These were run at the L-BFGS-600 checkpoint with the fp32 cache and TF32 off.
   (exact − truncated).
 - **The old truncated gradient there:** 35° off the true gradient and 21% too
   short.
+
+## Gradient vs a standard transformer (follow-up 5, `agpt_unit_grad_compare.py`)
+
+Frozen v2 dumps against float64 PyTorch, per unit (median / worst relative
+error), 2026-11-15; summaries in `rnd/one-pass-gap/grad_compare.json`.
+
+- **fp32 cache, TF32 off: exact to rounding.** pd=1 6.7e-6 / 5.7e-5 at the
+  seed and 5.9e-5 / 7.7e-4 trained (`cv` e16); pd=3 (300 units) 4.4e-7 /
+  1.3e-3 and 1.4e-6 / 9.5e-4. Float32 PyTorch itself: 6.1e-6 / 3.5e-4 and
+  3.5e-5 / 1.1e-3 (pd=1).
+- **Normal build (bf16 cache, TF32):** pd=1 5.7e-3 / 4.0e-2 at the seed,
+  4.3e-2 / 0.17 trained (whole pass 7.8e-2, cos 0.997); pd=3 trained 3.0e-2
+  / 0.67, cos down to 0.765 in small shallow units (layer-1 Q/K mostly
+  noise). bf16 cache alone 6.7e-2 on the whole pd=1 pass, TF32 alone 5.0e-2.
 
 ## Diagnostics (not canonical)
 

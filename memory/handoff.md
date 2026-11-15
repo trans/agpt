@@ -100,26 +100,31 @@
   repeated contexts change (about half the events at T=16, fewer at
   longer T).
 - **Follow-up 4, trie targets at longer windows** (asked by the user
-  2026-11-15): T = 32, 64, 128 at 2048 targets per step (518 steps per
-  epoch), e1 and e4, lr .003/.006/.012, one-hot vs trie, 36 configs
-  (`a712cad`; set-up and prediction in the README, `851de5d`). Prediction
-  from the noise cut at the seed weights (8.0%, 3.4%, 1.6%): about 0.011,
-  0.005, 0.002 nats.
+  2026-11-15; 36 runs, slot 45, `ab47026`): at 2048 targets per step the
+  paired gain is ~0.014 nats at T=32 and ~0.013 at T=64 (6/6 pairs each),
+  none at T=128 (3/6). Predicted 0.011 / 0.005 / 0.002. Bounded like the
+  trie's compute saving: ~8.7 changed targets per window whatever T.
 - **Follow-up 5, exact emulation** (the user, via @air, 2026-11-15: the
   equivalence is exact, so a standard transformer emulating AGPT's run
-  should match it; compare gradients at frozen weights). Before this,
-  only v2's gradient against v2's own loss had been checked (Exp 8, FD
-  1.0000). The old replays differ from v2's runs in unit order (own shuffle)
-  and in 272 events: the cached trie wraps the corpus tail to the front
-  (tail-wrap-front-v1). Built in `99b3387`: `agpt_unit_grad_compare.py`
-  (v2 dump vs float64 PyTorch per unit and per tensor), trainer options
-  `wrap_tail`, `trie_plan_order_file`, `log_step_loss`, arms tp1x/tp3x.
-- **Waiting** for slot 45 (replaced 43), behind @air's slot 44, a pause the
-  user asked for on 2026-11-15 (no jobs over 2 GB outside the slots until
-  @air says it's over). In the slot: `sh rnd/one-pass-gap/run_emulation.sh
-  DUMP_DIR` (8 dumps, order check, tp1x, the 36 longer-window runs, tp3x).
-  Afterwards on CPU: the compare tool on each dump (pd=1 references are
-  cached in the session scratchpad).
+  should match; compare gradients at frozen weights). **Done, `ab47026`.**
+  With the fp32 cache and TF32 off, v2's per-unit gradients match float64
+  PyTorch to rounding (as float32 PyTorch does). Exact replays (v2's units,
+  v2's order, the trie's tail-wrapped events: `wrap_tail`,
+  `trie_plan_order_file`) reproduce v2 within 0.4% (pd=1 15.72 vs 15.73,
+  pd=3 7.80 vs 7.81). The old replay's neighbouring-rate gaps came from its
+  own unit order. **The normal v2 build is not exact:** bf16 K/V cache and
+  TF32 put 1–4% into unit gradients (8% on the trained whole-pass pd=1
+  gradient, 67% in some small shallow units); every AGPT run on record used
+  it. Open: whether it matters for long runs or L-BFGS; the kvfp32 build's
+  speed is unmeasured.
+- **The user's contrast reading** (2026-11-15): prefix-shared steps give no
+  contrast at the root, so root learning would lag. Measured by context
+  length (`depth_loss.py`): grouped runs lag random equal-step batches
+  least at 1–2 characters and most from ~5 on. Each context gets one update
+  per pass in a pd plan; random batches update shallow contexts nearly
+  every step but deep ones once too, so it is the deep contexts' step
+  company (subtree siblings), not update count, that costs. Reported to the
+  user; **open: their response.**
 - `src/tools/agpt_minibatch_train.py` (`84054bc`) is the minibatch baseline
   as an orchestrator custom trainer, so baselines get `result.json` too.
 
