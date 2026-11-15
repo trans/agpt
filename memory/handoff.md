@@ -118,13 +118,17 @@
   it. Open: whether it matters for long runs or L-BFGS; the kvfp32 build's
   speed is unmeasured.
 - **The user's contrast reading** (2026-11-15): prefix-shared steps give no
-  contrast at the root, so root learning would lag. Measured by context
-  length (`depth_loss.py`): grouped runs lag random equal-step batches
-  least at 1–2 characters and most from ~5 on. Each context gets one update
-  per pass in a pd plan; random batches update shallow contexts nearly
-  every step but deep ones once too, so it is the deep contexts' step
-  company (subtree siblings), not update count, that costs. Reported to the
-  user; **open: their response.**
+  contrast at the root, so root learning would lag. First reported wrong:
+  at equal steps the gap grows with context length, but a random
+  conventional epoch trails `mb84` in the same shape (any run behind is
+  behind at long contexts). **Corrected in `87dd07f`** (`depth_matched.py`,
+  random-batch runs at the same loss over contexts 5–16): AGPT pd=2/3/4 lag
+  at 1 char by +0.26/+0.32/+0.63, match from 4 on; packed plans and `mbu3`
+  don't. Cause: a unit's mean step gives each shallow context one step per
+  pass however common (space: 1 step vs 121 in equal random batches at
+  pd=3); packed chunks restore frequency weight, so it's weight, not
+  within-step variety. ~0.03 of pd=3's 0.48 nats. pd=1 has no reference
+  (less trained than any random run). **Open: the user's response.**
 - `src/tools/agpt_minibatch_train.py` (`84054bc`) is the minibatch baseline
   as an orchestrator custom trainer, so baselines get `result.json` too.
 
