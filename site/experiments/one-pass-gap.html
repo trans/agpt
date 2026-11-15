@@ -4,10 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#101c1d">
-  <meta name="description" content="AGPT&#x27;s measuring stick is &quot;one epoch and done&quot;. How close does AGPT get to a conventional training run in one pass over Tiny Shakespeare, and in a few more, against ordinary minibatch Adam training of the same d64/L2 model from the same weights? Is AGPT&#x27;s deficit its update count: 65 per pass at pd=1, and more at pd=2–4 when the shallow targets are trained too? How does AGPT compare with conventional epochs, and how much of the trie&#x27;s prefix sharing can a plan keep before the grouping it needs costs more than the sharing saves?">
+  <meta name="description" content="AGPT&#x27;s measuring stick is &quot;one epoch and done&quot;. How close does AGPT get to a conventional training run in one pass over Tiny Shakespeare, and in a few more, against ordinary minibatch Adam training of the same d64/L2 model from the same weights? Is AGPT&#x27;s deficit its update count: 65 per pass at pd=1, and more at pd=2–4 when the shallow targets are trained too? How does AGPT compare with conventional epochs, and how much of the trie&#x27;s prefix sharing can a plan keep before the grouping it needs costs more than the sharing saves? And do AGPT&#x27;s statistics help without its schedule, as trie targets in ordinary minibatch training?">
   <link rel="canonical" href="https://trans.github.io/agpt/experiments/one-pass-gap.html">
   <meta property="og:title" content="The one-pass gap (AGPT pd=1–4 vs ordinary minibatch training) · AGPT">
-  <meta property="og:description" content="AGPT&#x27;s measuring stick is &quot;one epoch and done&quot;. How close does AGPT get to a conventional training run in one pass over Tiny Shakespeare, and in a few more, against ordinary minibatch Adam training of the same d64/L2 model from the same weights? Is AGPT&#x27;s deficit its update count: 65 per pass at pd=1, and more at pd=2–4 when the shallow targets are trained too? How does AGPT compare with conventional epochs, and how much of the trie&#x27;s prefix sharing can a plan keep before the grouping it needs costs more than the sharing saves?">
+  <meta property="og:description" content="AGPT&#x27;s measuring stick is &quot;one epoch and done&quot;. How close does AGPT get to a conventional training run in one pass over Tiny Shakespeare, and in a few more, against ordinary minibatch Adam training of the same d64/L2 model from the same weights? Is AGPT&#x27;s deficit its update count: 65 per pass at pd=1, and more at pd=2–4 when the shallow targets are trained too? How does AGPT compare with conventional epochs, and how much of the trie&#x27;s prefix sharing can a plan keep before the grouping it needs costs more than the sharing saves? And do AGPT&#x27;s statistics help without its schedule, as trie targets in ordinary minibatch training?">
   <meta property="og:url" content="https://trans.github.io/agpt/experiments/one-pass-gap.html">
   <meta property="og:image" content="https://trans.github.io/agpt/og-image.png">
   <meta property="og:type" content="website">
@@ -31,14 +31,14 @@
         <a class="back-link" href="index.html">← All experiments</a>
         <span class="section-number">THE RESEARCH RECORD / one-pass-gap</span>
         <h1>The one-pass gap (AGPT pd=1–4 vs ordinary minibatch training)</h1>
-        <p class="experiment-question">AGPT&#x27;s measuring stick is &quot;one epoch and done&quot;. How close does AGPT get to a conventional training run in one pass over Tiny Shakespeare, and in a few more, against ordinary minibatch Adam training of the same d64/L2 model from the same weights? Is AGPT&#x27;s deficit its update count: 65 per pass at pd=1, and more at pd=2–4 when the shallow targets are trained too? How does AGPT compare with conventional epochs, and how much of the trie&#x27;s prefix sharing can a plan keep before the grouping it needs costs more than the sharing saves?</p>
+        <p class="experiment-question">AGPT&#x27;s measuring stick is &quot;one epoch and done&quot;. How close does AGPT get to a conventional training run in one pass over Tiny Shakespeare, and in a few more, against ordinary minibatch Adam training of the same d64/L2 model from the same weights? Is AGPT&#x27;s deficit its update count: 65 per pass at pd=1, and more at pd=2–4 when the shallow targets are trained too? How does AGPT compare with conventional epochs, and how much of the trie&#x27;s prefix sharing can a plan keep before the grouping it needs costs more than the sharing saves? And do AGPT&#x27;s statistics help without its schedule, as trie targets in ordinary minibatch training?</p>
         <div class="badge-row"><span class="badge badge-kind">experiment</span><span class="badge badge-status">concluded</span><span class="badge badge-outcome outcome-negative">negative</span><span class="badge badge-family">attention</span><span class="badge badge-eval">eval: canonical</span></div>
 
         <div class="experiment-dates"><span>Opened <time datetime="2026-11-14">2026-11-14</time></span><span>Updated <time datetime="2026-11-15">2026-11-15</time></span></div>
       </div>
     </section>
     <div class="shell experiment-main">
-      <section class="answer-panel" aria-labelledby="answer-heading"><span id="answer-heading" class="micro-label">THE ANSWER SO FAR</span><p>Far off, and the update count is only part of it. After one pass AGPT pd=1 scores rolling byte PPL 15.73; minibatch training scores 4.83 in 31 s, already better than AGPT&#x27;s 100-pass run, and 4.66 after two passes, better than AGPT&#x27;s best on record (4.764 after 625). More updates help AGPT a lot: one pass at pd=2 (1,463 updates) scores 9.65, pd=3 (12,675) 7.81 and pd=4 (58,721) 6.74. But random equal batches with the same update counts score 12.56, 5.18 and 4.83, and pd=4 takes 185 s a pass. At pd=3 the steps also match in average size; half the gap (0.27 of 0.48 nats) is the units&#x27; unequal sizes (random windows in batches of pd=3&#x27;s sizes score 6.33), and half is the trie&#x27;s grouping of each step by a shared prefix. Weighting units by mass (fire_norm sum) is worse (8.53). A conventional epoch, each character a target once (518 updates, 2 s), scores 6.94, better than a pd=3 pass, which computes 8.4 times as many positions; 8 conventional epochs, about a pd=3 pass&#x27;s compute, score 5.12. In equal steps, the more of the trie&#x27;s sharing a plan keeps, the worse it scores: 4.83 with 12% (random batches), 5.39 with 65%, 5.86 with 88%, 6.34 with 97%. Keeping 65% costs 0.11 nats, more than all of the sharing could save at this context length (about 0.05 nats at equal compute). One seed; 124 runs.</p></section>
+      <section class="answer-panel" aria-labelledby="answer-heading"><span id="answer-heading" class="micro-label">THE ANSWER SO FAR</span><p>Far off, and the update count is only part of it. After one pass AGPT pd=1 scores rolling byte PPL 15.73; minibatch training scores 4.83 in 31 s, already better than AGPT&#x27;s 100-pass run, and 4.66 after two passes, better than AGPT&#x27;s best on record (4.764 after 625). More updates help AGPT a lot: one pass at pd=2 (1,463 updates) scores 9.65, pd=3 (12,675) 7.81 and pd=4 (58,721) 6.74. But random equal batches with the same update counts score 12.56, 5.18 and 4.83, and pd=4 takes 185 s a pass. At pd=3 the steps also match in average size; half the gap (0.27 of 0.48 nats) is the units&#x27; unequal sizes (random windows in batches of pd=3&#x27;s sizes score 6.33), and half is the trie&#x27;s grouping of each step by a shared prefix. Weighting units by mass (fire_norm sum) is worse (8.53). A conventional epoch, each character a target once (518 updates, 2 s), scores 6.94, better than a pd=3 pass, which computes 8.4 times as many positions; 8 conventional epochs, about a pd=3 pass&#x27;s compute, score 5.12. In equal steps, the more of the trie&#x27;s sharing a plan keeps, the worse it scores: 4.83 with 12% (random batches), 5.39 with 65%, 5.86 with 88%, 6.34 with 97%. Keeping 65% costs 0.11 nats, more than all of the sharing could save at this context length (about 0.05 nats at equal compute). AGPT&#x27;s statistics do help without its schedule. With the trie&#x27;s next-character distribution as each position&#x27;s target, in the same batches, conventional training gains about 0.025 nats at 1–8 epochs (6.94 → 6.77 after one, 5.12 → 5.00 after eight), worth 1.13–1.37× the training, and 0.014–0.017 nats at 16 epochs. One seed; 145 runs.</p></section>
 
       <section class="experiment-meta" aria-label="Experiment connections">
         <div><span class="micro-label">TOPICS</span><div class="meta-links"><a class="tag-link" href="index.html?tag=one-pass">one-pass</a><a class="tag-link" href="index.html?tag=baseline">baseline</a><a class="tag-link" href="index.html?tag=cadence">cadence</a><a class="tag-link" href="index.html?tag=optimizer">optimizer</a><a class="tag-link" href="index.html?tag=partition-depth">partition-depth</a></div></div>
@@ -54,7 +54,8 @@ the site's next tests (&quot;Measure the one-pass gap&quot;), never done before.
 first grid was 48 runs in slot 30 (08:32–09:38 UTC). The follow-up, AGPT at
 minibatch cadence, was 47 runs in slot 33 (17:50–18:54 UTC). Follow-up 2,
 conventional epochs and AGPT's plans in the minibatch trainer, was 29 runs
-in slot 39 (2026-11-15, 01:29–02:07 UTC).</p>
+in slot 39 (2026-11-15, 01:29–02:07 UTC). Follow-up 3, trie targets in
+ordinary minibatch training, was 21 runs in slot 41 (02:56–03:11 UTC).</p>
 <h3 id="question">Question</h3>
 <p>AGPT's goal is a model that learns enough from one pass over a corpus to
 match a conventional training run, in less time. The record has AGPT's
@@ -620,6 +621,135 @@ prefix in common. At longer context lengths the saving is a smaller
 share of the cost (1.32× at T=32, 1.06× at T=128), so the 0.05-nat
 ceiling shrinks.</li>
 </ul>
+<h3 id="follow-up-3-trie-targets-at-minibatch-cadence-2026-11-15">Follow-up 3: trie targets at minibatch cadence (2026-11-15)</h3>
+<p>Follow-up 2 found that the trie loses as a training schedule. AGPT has a
+second part, its statistics. Each node's loss is n(c) · H(n(c, ·)/n(c),
+q_θ(· | c)), the cross-entropy against the full distribution of characters
+that follow context c in the corpus. This arm keeps ordinary minibatch
+training and replaces each position's one-hot target with that
+distribution (<code>experimental.trie_targets</code>, <code>2ffa5d9</code>). Summed over a
+context's occurrences, the one-hot targets equal n(c) times the
+distribution. So the expected gradient is unchanged, the variance is
+lower, and no steps are lost: AGPT's node loss without AGPT's schedule.
+The user chose it on 2026-11-15. 21 runs in slot 41 (02:56–03:11 UTC).</p>
+<p><strong>Arms.</strong> <code>cvt</code>: the conventional epochs of follow-up 2 with trie
+targets, at 1, 2, 4, 8 and 16 epochs. <code>mbt</code>: one pass over every window
+start (<code>mb</code>) with trie targets. <code>cv</code> at 16 epochs gained two rates (0.003,
+0.012) to match. The trie targets don't touch the random generator, so
+each <code>cvt</code> or <code>mbt</code> run sees the same batches in the same order as the
+<code>cv</code> or <code>mb</code> run at its rate. The pairs differ only in their targets.</p>
+<p><strong>Checks done before the run (CPU):</strong></p>
+<ul>
+<li>The target table (<code>trie_plan.context_targets</code>: 8,902,737 contexts,
+8,396,412 of them seen once, 9,937,989 context–next pairs) matches a
+brute-force count for 300 random events. A context seen once keeps its
+own one-hot target.</li>
+<li>Over every event the soft and one-hot full-batch gradients agree to
+1.8e-15 (float64, a 6,000-character slice). The objective is unchanged.</li>
+<li>With the option off, all three default modes write byte-identical
+models.</li>
+<li>Gradient noise of a 128-window batch, measured from 64 random batches:
+trie targets cut it by 19% at the seed weights, 31% after one
+conventional epoch and 38% after sixteen. A rough critical-batch
+estimate (noise over squared mean gradient) is about 13 windows at the
+seed weights and thousands after the first epoch, so batch 128 is
+noise-limited for most of training. From that I predicted the targets
+would be worth about 1.5× the training (one epoch near 6.4).</li>
+</ul>
+<h4 id="results-3">Results</h4>
+<p>Best rate 0.006 in every arm and budget, rolling byte PPL (fixed-window PPL
+in brackets). &quot;Worth&quot; is the training that one-hot targets need to match,
+interpolated in log PPL between doublings:</p>
+<table>
+<thead>
+<tr>
+<th style="text-align:right">Epochs</th>
+<th style="text-align:right">One-hot (<code>cv</code>)</th>
+<th style="text-align:right">Trie targets (<code>cvt</code>)</th>
+<th style="text-align:right">Gain</th>
+<th style="text-align:right">Worth</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align:right">1</td>
+<td style="text-align:right">6.940 (6.509)</td>
+<td style="text-align:right"><strong>6.770</strong> (6.315)</td>
+<td style="text-align:right">0.025 nats</td>
+<td style="text-align:right">1.13×</td>
+</tr>
+<tr>
+<td style="text-align:right">2</td>
+<td style="text-align:right">6.036 (5.558)</td>
+<td style="text-align:right"><strong>5.879</strong> (5.381)</td>
+<td style="text-align:right">0.026 nats</td>
+<td style="text-align:right">1.21×</td>
+</tr>
+<tr>
+<td style="text-align:right">4</td>
+<td style="text-align:right">5.476 (4.972)</td>
+<td style="text-align:right"><strong>5.342</strong> (4.824)</td>
+<td style="text-align:right">0.025 nats</td>
+<td style="text-align:right">1.30×</td>
+</tr>
+<tr>
+<td style="text-align:right">8</td>
+<td style="text-align:right">5.125 (4.587)</td>
+<td style="text-align:right"><strong>5.001</strong> (4.470)</td>
+<td style="text-align:right">0.024 nats</td>
+<td style="text-align:right">1.37×</td>
+</tr>
+<tr>
+<td style="text-align:right">16</td>
+<td style="text-align:right">4.854 (4.319)</td>
+<td style="text-align:right"><strong>4.772</strong> (4.241)</td>
+<td style="text-align:right">0.017 nats</td>
+<td style="text-align:right"></td>
+</tr>
+<tr>
+<td style="text-align:right">Every window start, 1 pass (<code>mb</code>, <code>mbt</code>)</td>
+<td style="text-align:right">4.826 (4.293)</td>
+<td style="text-align:right"><strong>4.760</strong> (4.229)</td>
+<td style="text-align:right">0.014 nats</td>
+<td style="text-align:right">1.31×</td>
+</tr>
+</tbody>
+</table>
+<p>Rate by rate, 20 of the 21 pairs improve. The exception is <code>mbt</code> at
+0.012 (5.077 → 5.096).</p>
+<h4 id="reading-3">Reading</h4>
+<ul>
+<li><strong>AGPT's statistics help even though its schedule doesn't.</strong> With the
+same steps and the same batches, the trie's targets give about 0.025
+nats from 1 to 8 epochs. That is worth 1.13× the training at one epoch,
+rising to 1.37× at eight.</li>
+<li><strong>The gain is smaller than predicted, and smallest early.</strong> The
+prediction was about 1.5× from the start; one epoch gives 1.13×. Early
+steps are not noise-limited: at the seed weights the mean gradient
+dominates, and the targets cut the noise there by only 19%. The relative
+worth grows as training becomes noise-limited (31–38% less noise).</li>
+<li><strong>The gain in nats shrinks with longer training</strong> (0.017 at 16 epochs,
+0.014 for the every-start pass). The objective's optimum is the same, so
+with enough training the gain should go away. It is a speed-up, not a
+better model.</li>
+<li><strong>Cost:</strong> in this implementation, building each step's targets adds
+about 10% to an epoch (1.97 s against 1.80 s), and the table takes 2–3 s
+per run. At equal training seconds, building excluded, one-hot targets
+get 1.1× the epochs and score about 6.82, 5.96, 5.43 and 5.09 at 1, 2, 4
+and 8 epochs. So the trie targets keep about a quarter of their gain at
+one epoch and 70% at eight.</li>
+<li><strong>It reaches only contexts that repeat.</strong> 8.40M of the 8.90M contexts
+are seen once and keep their one-hot targets. The events whose targets
+change are those with contexts shorter than about 12 characters, about
+half the events at T=16. At longer context lengths that share falls
+(the same bound as the trie's compute saving in follow-up 2), so the
+gain would shrink.</li>
+<li><strong>For comparison:</strong> the 1 GB count prior in the 10.8M PG-19 model's
+input and logits gained 0.025 bits/char (0.017 nats) at 50k steps
+(<code>prior-scaling-plain-1g</code>). The <code>count-backoff-gate</code> sidecar, smoothed
+counts as targets, cost 0.23 nats (6.70 against 5.30). Raw counts keep
+the objective; smoothed ones change it.</li>
+</ul>
 <h3 id="caveats">Caveats</h3>
 <ul>
 <li>One seed. The seed weights are the AGPT record's; in June they slowed
@@ -656,9 +786,11 @@ budget.</li>
 plan (6–17 s). The replay trainer computes whole windows for every
 step, so its times say nothing about what a trie trainer would take.
 Positions per pass are the cost measure for the plans.</li>
-<li>Follow-up 2 runs say <code>git_dirty: true</code> because of untracked files only
+<li>Follow-up 3: one seed, but paired: each trie-target run has the same
+initial weights and the same batches as its one-hot partner.</li>
+<li>Follow-up 2 and 3 runs say <code>git_dirty: true</code> because of untracked files only
 (weight files elsewhere in <a href="https://github.com/trans/agpt/blob/main/rnd/one-pass-gap/rnd"><code>rnd/</code></a>, the grid logs). The tracked tree was
-<code>bf32854</code> exactly.</li>
+the commit each <code>meta.json</code> names (<code>bf32854</code>, <code>2ffa5d9</code>).</li>
 </ul>
 </article>
       <div class="record-end"><a href="https://github.com/trans/agpt/tree/main/rnd/one-pass-gap">View the experiment directory on GitHub ↗</a><a href="index.html">Browse all experiments →</a></div>

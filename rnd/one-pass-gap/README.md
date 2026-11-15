@@ -9,7 +9,8 @@ question: >-
   Adam training of the same d64/L2 model from the same weights? Is AGPT's deficit its update
   count: 65 per pass at pd=1, and more at pd=2–4 when the shallow targets are trained too?
   How does AGPT compare with conventional epochs, and how much of the trie's prefix sharing can
-  a plan keep before the grouping it needs costs more than the sharing saves?
+  a plan keep before the grouping it needs costs more than the sharing saves? And do AGPT's
+  statistics help without its schedule, as trie targets in ordinary minibatch training?
 answer: >-
   Far off, and the update count is only part of it. After one pass AGPT pd=1 scores rolling byte
   PPL 15.73; minibatch training scores 4.83 in 31 s, already better than AGPT's 100-pass run, and
@@ -24,8 +25,11 @@ answer: >-
   positions; 8 conventional epochs, about a pd=3 pass's compute, score 5.12. In equal steps, the
   more of the trie's sharing a plan keeps, the worse it scores: 4.83 with 12% (random batches),
   5.39 with 65%, 5.86 with 88%, 6.34 with 97%. Keeping 65% costs 0.11 nats, more than all of the
-  sharing could save at this context length (about 0.05 nats at equal compute). One seed; 124
-  runs.
+  sharing could save at this context length (about 0.05 nats at equal compute). AGPT's statistics
+  do help without its schedule. With the trie's next-character distribution as each position's
+  target, in the same batches, conventional training gains about 0.025 nats at 1–8 epochs (6.94 →
+  6.77 after one, 5.12 → 5.00 after eight), worth 1.13–1.37× the training, and 0.014–0.017 nats at
+  16 epochs. One seed; 145 runs.
 opened: 2026-11-14
 updated: 2026-11-15
 code: main
@@ -43,7 +47,8 @@ the site's next tests ("Measure the one-pass gap"), never done before. The
 first grid was 48 runs in slot 30 (08:32–09:38 UTC). The follow-up, AGPT at
 minibatch cadence, was 47 runs in slot 33 (17:50–18:54 UTC). Follow-up 2,
 conventional epochs and AGPT's plans in the minibatch trainer, was 29 runs
-in slot 39 (2026-11-15, 01:29–02:07 UTC).
+in slot 39 (2026-11-15, 01:29–02:07 UTC). Follow-up 3, trie targets in
+ordinary minibatch training, was 21 runs in slot 41 (02:56–03:11 UTC).
 
 ## Question
 
@@ -430,6 +435,95 @@ Median piece depth: 5, 6 and 7 characters for P = 1,338, 335 and 84.
   share of the cost (1.32× at T=32, 1.06× at T=128), so the 0.05-nat
   ceiling shrinks.
 
+## Follow-up 3: trie targets at minibatch cadence (2026-11-15)
+
+Follow-up 2 found that the trie loses as a training schedule. AGPT has a
+second part, its statistics. Each node's loss is n(c) · H(n(c, ·)/n(c),
+q_θ(· | c)), the cross-entropy against the full distribution of characters
+that follow context c in the corpus. This arm keeps ordinary minibatch
+training and replaces each position's one-hot target with that
+distribution (`experimental.trie_targets`, `2ffa5d9`). Summed over a
+context's occurrences, the one-hot targets equal n(c) times the
+distribution. So the expected gradient is unchanged, the variance is
+lower, and no steps are lost: AGPT's node loss without AGPT's schedule.
+The user chose it on 2026-11-15. 21 runs in slot 41 (02:56–03:11 UTC).
+
+**Arms.** `cvt`: the conventional epochs of follow-up 2 with trie
+targets, at 1, 2, 4, 8 and 16 epochs. `mbt`: one pass over every window
+start (`mb`) with trie targets. `cv` at 16 epochs gained two rates (0.003,
+0.012) to match. The trie targets don't touch the random generator, so
+each `cvt` or `mbt` run sees the same batches in the same order as the
+`cv` or `mb` run at its rate. The pairs differ only in their targets.
+
+**Checks done before the run (CPU):**
+
+- The target table (`trie_plan.context_targets`: 8,902,737 contexts,
+  8,396,412 of them seen once, 9,937,989 context–next pairs) matches a
+  brute-force count for 300 random events. A context seen once keeps its
+  own one-hot target.
+- Over every event the soft and one-hot full-batch gradients agree to
+  1.8e-15 (float64, a 6,000-character slice). The objective is unchanged.
+- With the option off, all three default modes write byte-identical
+  models.
+- Gradient noise of a 128-window batch, measured from 64 random batches:
+  trie targets cut it by 19% at the seed weights, 31% after one
+  conventional epoch and 38% after sixteen. A rough critical-batch
+  estimate (noise over squared mean gradient) is about 13 windows at the
+  seed weights and thousands after the first epoch, so batch 128 is
+  noise-limited for most of training. From that I predicted the targets
+  would be worth about 1.5× the training (one epoch near 6.4).
+
+### Results
+
+Best rate 0.006 in every arm and budget, rolling byte PPL (fixed-window PPL
+in brackets). "Worth" is the training that one-hot targets need to match,
+interpolated in log PPL between doublings:
+
+| Epochs | One-hot (`cv`) | Trie targets (`cvt`) | Gain | Worth |
+|---:|---:|---:|---:|---:|
+| 1 | 6.940 (6.509) | **6.770** (6.315) | 0.025 nats | 1.13× |
+| 2 | 6.036 (5.558) | **5.879** (5.381) | 0.026 nats | 1.21× |
+| 4 | 5.476 (4.972) | **5.342** (4.824) | 0.025 nats | 1.30× |
+| 8 | 5.125 (4.587) | **5.001** (4.470) | 0.024 nats | 1.37× |
+| 16 | 4.854 (4.319) | **4.772** (4.241) | 0.017 nats | |
+| Every window start, 1 pass (`mb`, `mbt`) | 4.826 (4.293) | **4.760** (4.229) | 0.014 nats | 1.31× |
+
+Rate by rate, 20 of the 21 pairs improve. The exception is `mbt` at
+0.012 (5.077 → 5.096).
+
+### Reading
+
+- **AGPT's statistics help even though its schedule doesn't.** With the
+  same steps and the same batches, the trie's targets give about 0.025
+  nats from 1 to 8 epochs. That is worth 1.13× the training at one epoch,
+  rising to 1.37× at eight.
+- **The gain is smaller than predicted, and smallest early.** The
+  prediction was about 1.5× from the start; one epoch gives 1.13×. Early
+  steps are not noise-limited: at the seed weights the mean gradient
+  dominates, and the targets cut the noise there by only 19%. The relative
+  worth grows as training becomes noise-limited (31–38% less noise).
+- **The gain in nats shrinks with longer training** (0.017 at 16 epochs,
+  0.014 for the every-start pass). The objective's optimum is the same, so
+  with enough training the gain should go away. It is a speed-up, not a
+  better model.
+- **Cost:** in this implementation, building each step's targets adds
+  about 10% to an epoch (1.97 s against 1.80 s), and the table takes 2–3 s
+  per run. At equal training seconds, building excluded, one-hot targets
+  get 1.1× the epochs and score about 6.82, 5.96, 5.43 and 5.09 at 1, 2, 4
+  and 8 epochs. So the trie targets keep about a quarter of their gain at
+  one epoch and 70% at eight.
+- **It reaches only contexts that repeat.** 8.40M of the 8.90M contexts
+  are seen once and keep their one-hot targets. The events whose targets
+  change are those with contexts shorter than about 12 characters, about
+  half the events at T=16. At longer context lengths that share falls
+  (the same bound as the trie's compute saving in follow-up 2), so the
+  gain would shrink.
+- **For comparison:** the 1 GB count prior in the 10.8M PG-19 model's
+  input and logits gained 0.025 bits/char (0.017 nats) at 50k steps
+  (`prior-scaling-plain-1g`). The `count-backoff-gate` sidecar, smoothed
+  counts as targets, cost 0.23 nats (6.70 against 5.30). Raw counts keep
+  the objective; smoothed ones change it.
+
 ## Caveats
 
 - One seed. The seed weights are the AGPT record's; in June they slowed
@@ -466,6 +560,8 @@ Median piece depth: 5, 6 and 7 characters for P = 1,338, 335 and 84.
   plan (6–17 s). The replay trainer computes whole windows for every
   step, so its times say nothing about what a trie trainer would take.
   Positions per pass are the cost measure for the plans.
-- Follow-up 2 runs say `git_dirty: true` because of untracked files only
+- Follow-up 3: one seed, but paired: each trie-target run has the same
+  initial weights and the same batches as its one-hot partner.
+- Follow-up 2 and 3 runs say `git_dirty: true` because of untracked files only
   (weight files elsewhere in `rnd/`, the grid logs). The tracked tree was
-  `bf32854` exactly.
+  the commit each `meta.json` names (`bf32854`, `2ffa5d9`).
