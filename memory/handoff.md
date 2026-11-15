@@ -79,6 +79,18 @@
     used smoothed targets and hurt; raw ones don't change the objective.
     It only touches positions within ~d* of a window start.
   - **Open: the user's call** on where AGPT goes from here.
+- **@air's cross-project writeup, "The trie as data, not as a training
+  schedule"** (mail `49514c7d`, 2026-11-15): the trie's counts are the
+  gradient's only data term, so a count prior is the cacheable part of
+  the gradient. It pays as input data (agpt's 1 GB control: 0.025
+  bits/char at 50k steps) and loses as a schedule (one-pass-gap). The user
+  called it "deferred AGPT". I sent corrections (the prior runs use the
+  input and the logits, fixed in `5f243e4`; one misread sentence; a stale
+  quote) and the follow-up 2 numbers, reply in `mail/sent/`.
+- **Next, chosen by the user (2026-11-15):** the raw-trie-target arm.
+  Ordinary minibatch training, where each position's target is the trie's
+  next-character distribution for its context. This is AGPT's node loss at
+  minibatch cadence: same expected gradient, lower variance, no steps lost.
 - `src/tools/agpt_minibatch_train.py` (`84054bc`) is the minibatch baseline
   as an orchestrator custom trainer, so baselines get `result.json` too.
 
