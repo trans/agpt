@@ -9,8 +9,9 @@ question: >-
   Adam training of the same d64/L2 model from the same weights? Is AGPT's deficit its update
   count: 65 per pass at pd=1, and more at pd=2–4 when the shallow targets are trained too?
   How does AGPT compare with conventional epochs, and how much of the trie's prefix sharing can
-  a plan keep before the grouping it needs costs more than the sharing saves? And do AGPT's
-  statistics help without its schedule, as trie targets in ordinary minibatch training?
+  a plan keep before the grouping it needs costs more than the sharing saves? Do AGPT's
+  statistics help without its schedule, as trie targets in ordinary minibatch training, and at
+  longer windows? And does a standard transformer trained on AGPT's exact steps reproduce AGPT?
 answer: >-
   Far off, and the update count is only part of it. After one pass AGPT pd=1 scores rolling byte
   PPL 15.73; minibatch training scores 4.83 in 31 s, already better than AGPT's 100-pass run, and
@@ -29,7 +30,13 @@ answer: >-
   do help without its schedule. With the trie's next-character distribution as each position's
   target, in the same batches, conventional training gains about 0.025 nats at 1–8 epochs (6.94 →
   6.77 after one, 5.12 → 5.00 after eight), worth 1.13–1.37× the training, and 0.014–0.017 nats at
-  16 epochs. One seed; 145 runs.
+  16 epochs. The gain halves at 32–64-character windows (about 0.013 nats) and is gone at 128:
+  contexts stop repeating at about 12 characters. AGPT's equivalence holds: with an fp32 cache and
+  TF32 off, v2's per-unit gradients match a float64 PyTorch transformer as closely as float32
+  PyTorch does, and replays with v2's units, order and events reproduce its runs within 0.4%
+  (pd=1 15.72 against 15.73, pd=3 7.80 against 7.81). The normal v2 build's bf16 cache and TF32
+  put 1–4% errors into its unit gradients, up to 67% in some small units. What grouping costs is
+  learning from contexts longer than a few characters. One seed; 188 runs.
 opened: 2026-11-14
 updated: 2026-11-15
 code: main
@@ -49,6 +56,9 @@ minibatch cadence, was 47 runs in slot 33 (17:50–18:54 UTC). Follow-up 2,
 conventional epochs and AGPT's plans in the minibatch trainer, was 29 runs
 in slot 39 (2026-11-15, 01:29–02:07 UTC). Follow-up 3, trie targets in
 ordinary minibatch training, was 21 runs in slot 41 (02:56–03:11 UTC).
+Follow-ups 4 (trie targets at longer windows, 36 runs) and 5 (AGPT emulated
+exactly by a standard transformer: frozen-weight gradient comparisons and 7
+replays) ran in slot 45 (07:50–08:35 UTC).
 
 ## Question
 
@@ -569,6 +579,204 @@ cut at the seed weights, it is about 0.011 nats at T=32, 0.005 at T=64 and
 0.002 at T=128 (against 0.025 at T=16). The last two are near or below
 what a paired single-seed comparison resolves.
 
+### Results
+
+36 runs in slot 45 (2026-11-15, 07:50–08:35 UTC, with follow-up 5).
+Best rate 0.006 in every arm. Rolling byte PPL, one-hot → trie targets; the
+gain in nats; and, over the three rates at each budget, the mean paired
+gain and how many pairs improve. T=16 is follow-up 3's.
+
+| T | 1 epoch | Gain | 4 epochs | Gain | Mean paired gain | Pairs improving |
+|---:|---:|---:|---:|---:|---:|---:|
+| 16 | 6.940 → **6.770** | 0.025 | 5.476 → **5.342** | 0.025 | 0.023 | 6 of 6 |
+| 32 | 6.746 → **6.655** | 0.014 | 5.069 → **5.057** | 0.002 | 0.014 | 6 of 6 |
+| 64 | 6.941 → **6.832** | 0.016 | 4.965 → **4.926** | 0.008 | 0.013 | 6 of 6 |
+| 128 | 7.107 → **7.088** | 0.003 | 5.033 → **4.982** | 0.010 | 0.001 | 3 of 6 |
+
+The noise cut after one conventional epoch, measured afterwards from the
+`cv{T}` checkpoints as before: 31.8%, 15.3%, 7.8% and 4.1% at T = 16, 32, 64
+and 128, about twice the seed-weight figures each time.
+
+### Reading
+
+- **The gain shrinks with the window, as expected, but more slowly than
+  predicted.** About 0.014 nats at T=32 and 0.013 at T=64, roughly half of
+  T=16's, and every pair improves. At T=128 it is gone: the pairs split 3
+  to 3 and the mean is 0.001. The prediction (0.011, 0.005, 0.002) was
+  right at the ends and low at T=64 by more than half, which in one seed
+  may be noise.
+- **So it is bounded the way the trie's compute saving is.** Contexts
+  stop repeating at about 12 characters whatever the window, so the
+  targets that change are a fixed number per window (about 8.7 of them),
+  and their share of the training falls as 1/T. At ordinary LM context
+  lengths (hundreds or thousands of tokens) the gain from exact counts is
+  nil. To matter there, statistics would have to cover far more context
+  than an exact trie does.
+- **Cost:** the per-epoch overhead of building targets is 2–24% here,
+  plus a fixed 2–6 s in the first epoch, so the gain at T ≥ 64 does not
+  pay for its time in this implementation.
+- Numbers compare across arms at one T, not across T: both eval metrics
+  follow the window.
+
+## Follow-up 5: AGPT emulated exactly by a standard transformer (2026-11-15)
+
+The user's point (2026-11-15, passed on by @air): AGPT's equivalence is
+exact, so a standard transformer emulating AGPT's run should give
+essentially the same results; if it doesn't, something is wrong. The check
+they suggested: freeze the weights, compute the same batch's gradient both
+ways, compare relative error and cosine.
+
+The record had checked v2's gradient only against finite differences of
+v2's own loss (`gradient-population`, Experiment 8), which shows its
+backward matches its forward, and had `tp3`'s outcome-level match to
+`pd3cs` at the best rate. Neither compared v2 with a standard transformer,
+and the replays were not v2's runs step for step:
+
+- **Order.** The replay shuffled units with its own generator, so `tp3`
+  and `pd3cs` take the same 12,675 units in different orders.
+- **272 events.** The cached trie wraps the corpus tail to the front
+  (`boundary_mode: tail-wrap-front-v1`): a window starts at every
+  character, 1,059,634 × 16 = 16,954,144 events, which is v2's count. The
+  replay took only windows that fit, 272 events fewer. With the wrap, the
+  window counts reproduce all 65 of v2's pd=1 unit sizes; without it, 14
+  differ.
+
+v2's Adam is the standard update (`adam_bulk_kernel`, `src/cuda/kernels.cu`),
+and the minibatch trainer already copied v2's learning-rate schedule.
+
+**Built** (`99b3387`): `src/tools/agpt_unit_grad_compare.py`, which
+recomputes each unit of a frozen v2 gradient dump (`AGPT_GRAD_DUMP_DIR`) in
+the PyTorch model over the same events, in float64, and reports relative
+error and cosine per unit, per tensor and for the whole pass, with a
+float32 PyTorch gradient as the rounding floor of an ordinary
+implementation. Trainer options `wrap_tail` (v2's events),
+`trie_plan_order_file` (v2's units in v2's order, from a dump's
+`units.tsv`, checked unit by unit against the plan's event counts) and
+`log_step_loss`. Arms `tp1x` (pd=1) and `tp3x` (pd=3 + crown, shuffled),
+run with v2's orders in `v2_units/`. The dumps' unit order is the order
+the original runs trained in: both sequences match their `train.log`s
+unit for unit.
+
+The work ran in slot 45 (`run_emulation.sh`, then `extra_dumps.sh`):
+twelve frozen dumps, 7 replay runs. Comparisons on CPU afterwards;
+`grad_compare.json` has every summary.
+
+### Gradients at frozen weights
+
+Relative error of v2's per-unit gradient against float64 PyTorch: median
+and worst unit, and the lowest cosine. Weights: the seed, and after 16
+conventional epochs (`cv` e16, rolling PPL 4.85). pd=1: all 65 units; pd=3:
+300 of 12,675 (the 5 largest and a size-stratified sample), crown units
+included. The normal build (bf16 K/V cache, TF32 matmuls) is the one every
+AGPT run on record used.
+
+| Plan, weights | Normal build | fp32 cache, TF32 off | float32 PyTorch |
+|---|---|---|---|
+| pd=1, seed | 5.7e-3 / 4.0e-2, cos ≥ 0.9992 | 6.7e-6 / 5.7e-5, cos ≥ 0.999999998 | 6.1e-6 / 3.5e-4 |
+| pd=1, trained | 4.3e-2 / 0.17, cos ≥ 0.986 | 5.9e-5 / 7.7e-4, cos ≥ 0.9999997 | 3.5e-5 / 1.1e-3 |
+| pd=3, seed | 1.5e-2 / 0.10, cos ≥ 0.995 | 4.4e-7 / 1.3e-3, cos ≥ 0.9999992 | 6.5e-7 / 1.1e-3 |
+| pd=3, trained | 3.0e-2 / 0.67, cos ≥ 0.765 | 1.4e-6 / 9.5e-4, cos ≥ 0.9999996 | 1.8e-6 / 3.6e-2 |
+
+The whole pd=1 pass (event-weighted over the 65 units): 2.0e-6 at the seed
+and 2.7e-4 trained in full precision; 1.9e-3 and 7.8e-2 (cos 0.997) in the
+normal build. Unit losses agree to 9e-7 in full precision and to 8e-3 in
+the normal build. Every compared unit's event count matched the dump.
+
+Separating the two roundings at the trained point:
+
+| v2 build | pd=1 whole pass | pd=1 median unit | pd=3 median / worst unit |
+|---|---:|---:|---:|
+| bf16 cache, TF32 | 7.8e-2 | 4.3e-2 | 3.0e-2 / 0.67 |
+| bf16 cache, TF32 off | 6.7e-2 | 3.9e-2 | 2.5e-2 / 0.67 |
+| fp32 cache, TF32 | 5.0e-2 | 1.9e-2 | 1.1e-2 / 0.28 |
+| fp32 cache, TF32 off | 2.7e-4 | 5.9e-5 | 1.4e-6 / 9.5e-4 |
+
+The worst units are small shallow ones with large gradients (row 11,492:
+depth 2, 122 events, gradient norm 5.2, cosine 0.765). There the layer-1
+query and key gradients are 175% off: in a sharp attention the score
+gradient is a small difference of near-equal terms, and bf16 keys and
+values leave mostly rounding in it.
+
+### Exact replays
+
+Rolling byte PPL after one pass, v2 against the exact replay (`tp1x`,
+`tp3x`), and the earlier replay in its own order (`tp3`):
+
+| Plan | lr | AGPT (v2) | Exact replay | Replay, own order |
+|---|---:|---:|---:|---:|
+| pd=1 | 0.003 | 18.512 | 18.514 | |
+| pd=1 | 0.006 | 16.372 | 16.384 | |
+| pd=1 | 0.012 | **15.734** | **15.716** | |
+| pd=1 | 0.024 | 17.567 | 17.531 | |
+| pd=3 + crown, shuffled | 0.00075 | 8.125 | 8.155 | 7.936 |
+| pd=3 + crown, shuffled | 0.0015 | **7.813** | **7.795** | 7.762 |
+| pd=3 + crown, shuffled | 0.003 | 8.009 | 7.981 | 8.317 |
+
+Step by step (`step_losses.py`): the pd=1 losses agree to 1e-4 at the first
+step (the normal build's forward rounding) and stay within 7e-3 (2e-2 at
+lr 0.024). The pd=3 runs drift apart as chaotic runs do: the median gap is
+1e-3 over the first 100 steps and 2–4e-2 after 1,000. Single small units
+differ by up to 3 nats once the trajectories have parted, but the last
+1,000 steps average within 0.007 of each other.
+
+### Where the grouped runs fall behind
+
+The user read these results (the math holds, so the schedule is what
+costs) as learning by contrast. A step whose windows share a prefix has no
+contrast at the root, so the root region would change slowly while the
+leaves are updated often. If so, against random batches
+with the same steps, the grouped runs should lag most at short contexts.
+Held-out loss by context length (`depth_loss.py`, every window start in
+the held-out chunks, best-rate run of each arm), gap in nats to the
+random-batch run with the same step count:
+
+| Run (steps per pass) | vs | 1 char | 2 | 3 | 4 | 5 | 8 | 16 |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| AGPT pd=3 + crown, shuffled (12,675) | `mb84` | 0.40 | 0.27 | 0.40 | 0.48 | 0.51 | 0.51 | 0.52 |
+| packed, 97% sharing (12,675) | `mb84` | 0.08 | 0.13 | 0.21 | 0.28 | 0.30 | 0.31 | 0.31 |
+| packed, 88% sharing (12,675) | `mb84` | 0.03 | 0.09 | 0.14 | 0.20 | 0.22 | 0.22 | 0.23 |
+| packed, 65% sharing (12,675) | `mb84` | 0.02 | 0.06 | 0.07 | 0.11 | 0.13 | 0.12 | 0.13 |
+| random, pd=3's sizes (12,675) | `mb84` | 0.06 | 0.10 | 0.18 | 0.28 | 0.31 | 0.31 | 0.31 |
+| AGPT pd=1 (65) | `mbL` | 0.17 | 0.22 | 0.23 | 0.24 | 0.23 | 0.23 | 0.23 |
+
+The gap is smallest at contexts of 1–2 characters and largest from about
+5 on, and the extra sharing (65% → 97%) adds 0.06 nats at one character
+and 0.18 from five on. So what grouping by prefix costs is learning from
+longer contexts, not from short ones. Counting updates makes the same
+point. In a pd=3 plan each context, shallow or deep, is trained in exactly
+one step per pass. Random batches train a shallow context in nearly every
+step but a deep context, which mostly occurs once, in one step too. The
+shallow contexts lose the most updates to grouping and lag least; the
+deep ones lose none and lag most. What differs for a deep context is the
+company it keeps in its one step: its subtree's siblings, all continuing
+the same prefix, against a cross-section of the corpus. So the contrast
+that matters is between distant parts of the context space within a step,
+which a grouped step lacks, much as a class-sorted batch does. The
+grouping that gives the trie its sharing is what removes it.
+Unequal sizes alone (random windows in pd=3's step sizes) cost about as
+much as 97% sharing does at equal sizes, also mostly at longer contexts.
+
+### Reading
+
+- **The equivalence holds.** In full precision v2's gradients match a
+  standard transformer's to rounding, as closely as PyTorch's own float32
+  does, at both weight points and both plans. Replays with v2's units, order and
+  events reproduce v2's runs to within 0.4% at every rate. AGPT's math is
+  not what costs it the one-pass gap: the schedule is, which events share
+  a step.
+- **The normal v2 build is not exact.** bf16 keys and values and TF32
+  matmuls each put errors of 1–4% into its per-unit gradients (0.2% on the
+  whole pass at the seed, 8% trained), and up to 67% in some small shallow
+  units. In one pass that does not change the outcome (the true-float32
+  replays match), but every AGPT run on record used this build. It may
+  matter for long runs and for curvature methods, which need accurate
+  gradients.
+- **The old replay's gaps at neighbouring rates were the order.** In v2's
+  order the replay is within 0.4%; in its own order it was 2–4% off (7.94
+  against 8.13, 8.32 against 8.01). Runs that differ only in unit order
+  differ by a few percent, so one seed resolves differences between plans
+  only above that.
+
 ## Caveats
 
 - One seed. The seed weights are the AGPT record's; in June they slowed
@@ -610,3 +818,15 @@ what a paired single-seed comparison resolves.
 - Follow-up 2 and 3 runs say `git_dirty: true` because of untracked files only
   (weight files elsewhere in `rnd/`, the grid logs). The tracked tree was
   the commit each `meta.json` names (`bf32854`, `2ffa5d9`).
+- Follow-up 4: one seed, paired like follow-up 3, three rates and two
+  budgets per window length. The T=64 gain is above the prediction by more
+  than half; whether T=32 and T=64 really differ is within one seed's noise.
+- Follow-up 5: the pd=3 comparisons cover 300 of 12,675 units, at two
+  weight points. The dumps and comparisons are diagnostics outside the
+  orchestrator (`grad_compare.json`, built from the tool's output); the
+  replays are orchestrator runs. The replays' training seconds include
+  logging every step's loss and building the plan, so they say nothing
+  about speed. The `v2_units/` orders were written in the slot before the
+  replays ran and committed after, so those runs' `meta.json` (`99b3387`,
+  `git_dirty: true`) predates them; each replay's `train.log` records its
+  order file's sha256, which matches the committed file.

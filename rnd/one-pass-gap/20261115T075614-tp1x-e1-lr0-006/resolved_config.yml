@@ -1,0 +1,40 @@
+---
+description: 'one-pass gap, next: exact replay of AGPT pd=1 (v2''s 65 units in v2''s
+  order, over the trie''s tail-wrapped windows), 1 pass(es), Adam lr 0.006 warmup-cosine
+  per step'
+experiment: one-pass-gap
+run_slug: tp1x-e1-lr0.006
+corpus:
+  path: data/.splits/4fa9aec1db6b3aea/train_corpus.txt
+  heldout: data/.splits/4fa9aec1db6b3aea/heldout_corpus.txt
+  vocab_source: data/input.txt
+model:
+  init_file: rnd/cudax-d16-linear-mass-rerun/seeds/shake-d64L2-h4-dff256-d16-seed42.model
+  save_file: rnd/one-pass-gap/20261115T075614-tp1x-e1-lr0-006/checkpoint.model
+train:
+  budget:
+    unit: epochs
+    value: 1
+  seed: 42
+  quiet: true
+  optimizer:
+    name: adam
+    lr: 0.006
+    beta: 0.999
+    momentum_beta: 0.9
+  lr_schedule:
+    name: warmup-cosine
+    warmup_epochs: 0
+    min_lr_ratio: 0.0
+  seq_len: 16
+eval:
+  train_sanity: false
+  batch_size: 1
+  device: cpu
+experimental:
+  trie_plan: pd
+  trie_plan_depth: 1
+  trie_plan_order_file: rnd/one-pass-gap/v2_units/pd1.tsv
+  wrap_tail: true
+  log_step_loss: true
+  device: cuda
