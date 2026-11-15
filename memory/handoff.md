@@ -1,6 +1,6 @@
 # Handoff: where AGPT stands
 
-*Updated 2026-11-14*
+*Updated 2026-11-15*
 
 ## Back on the main path (2026-11-14)
 
@@ -36,9 +36,49 @@
   depth<pd nodes that pd≥2 plans skipped (12.4% of events at pd=3), and v2
   prints `plan-coverage`. `train.fire_norm: sum` (`e59b10c`). The minibatch
   trainer gained `experimental.step_events_file` (`21ec506`).
-- **Next, offered, not chosen:** equal-mass units (split heavy subtrees,
-  pack light ones) for the size half; mapping the grouping half against
-  the compute that prefix sharing saves.
+- **Conventional epochs and AGPT's plans in the minibatch trainer**
+  (follow-up 2, 29 runs, 2026-11-15, `7c911d7`):
+  - Every "epoch" on record (v2, the minibatch tool, the old vanilla
+    trainer) is every window start with 16 targets each. A conventional
+    epoch (each character a target once, 518 steps, 2 s) scores 6.94,
+    better than a pd=3 pass (8.4× the positions, 24× the steps). Eight
+    epochs, about a pd=3 pass's compute, score 5.12; 16 epochs 4.85,
+    the same as one every-start pass (4.83).
+  - The pd=3 plan replayed event by event in PyTorch scores 7.76 against
+    v2's 7.81, so the gap is the plan, not v2.
+  - Packed plans with 12,675 equal steps: the more of the trie's sharing
+    a step keeps, the worse it scores (65% 5.39, 88% 5.86, 97% 6.34;
+    random 12% 4.83). No point on the curve beats conventional epochs
+    at equal positions. If the full sharing cost nothing it would be
+    worth about 0.05 nats at T=16; keeping 65% costs 0.11.
+- **The user's question after these results (2026-11-15): back to the
+  drawing board.** They asked how AGPT's one equivalence (gradient sharing
+  across repeated prefixes) can benefit any model in training or
+  inference, and if it can't, why. My analysis, given in the session and
+  not yet answered by the user:
+  - The equivalence regroups the loss by distinct context, so it saves
+    compute only where contexts repeat. Text stops repeating once a
+    context's block entropy reaches log2 N (about 10–12 characters
+    here). The saving is then a fixed number of positions per token,
+    whatever f_θ is, while the cost grows with context length.
+  - The aggregated gradient equals the sum of instance gradients at one
+    θ, not the path of N steps. Stability caps the step, and Adam
+    normalizes the factor N away, so an exact gradient is worth about
+    one step.
+  - Sharing needs a context's occurrences in the same step. With S steps
+    per pass that happens mostly for contexts with N(v) > S, so keeping
+    sharing means grouping, which correlates steps. That is why pd>1
+    turns into minibatching (the user's own observation).
+  - Where it does pay: workloads that are trees by construction (RL
+    group rollouts and preference pairs sharing a prompt, prefix caching
+    in serving, tree speculative decoding, beam and tree search), where
+    the shared part is already in one step. Those are known techniques.
+  - One cheap untested variant: conventional training with the trie's raw
+    next-token distribution as the target at each position (same expected
+    gradient, lower variance, no step loss). The count-backoff-gate test
+    used smoothed targets and hurt; raw ones don't change the objective.
+    It only touches positions within ~d* of a window start.
+  - **Open: the user's call** on where AGPT goes from here.
 - `src/tools/agpt_minibatch_train.py` (`84054bc`) is the minibatch baseline
   as an orchestrator custom trainer, so baselines get `result.json` too.
 
@@ -123,14 +163,16 @@ The user named item 1 on 2026-11-10. No order is agreed for the rest.
   minibatch training, about half is unequal unit sizes and half the
   grouping by a shared 3-character prefix (one-pass-gap follow-up,
   2026-11-14). The orientation control's tie at pd=1 with a GRU does not
-  carry over.
+  carry over. Follow-up 2 (2026-11-15): with equal step sizes the
+  grouping alone costs 0.27 nats, and the cost grows with the sharing a
+  plan keeps; even a conventional epoch beats a pd=3 pass.
 - Is the phase-tree gain positional? **No (control, 2026-11-10):** the shift
   cancels in Q·K, and depth positions score the same. The phase modes are
   strided minibatches of 1/64 of the windows per epoch. Whether minibatching
   explains their d128/L6 gain over static is open ([open-lines.md](open-lines.md) §3a).
 - Should canonical baselines trained before the 2026-09-24 race fix be re-run?
   **Open: the user's call** (gradient-population README).
-- How far one corpus pass gets: measured 2026-11-14 (`rnd/one-pass-gap`).
+- How far one corpus pass gets: measured 2026-11-14 and 2026-11-15 (`rnd/one-pass-gap`).
 
 ## Docs that lag the code (checked 2026-11-07)
 
