@@ -31,7 +31,13 @@ ARMS = {"agpt": "AGPT pd=1 (65 steps/pass)", "mb": "minibatch 128 (8,279 steps/p
         "cvt": "conventional epochs with trie targets (518 steps/epoch; 'passes' = epochs)",
         "mbt": "minibatch 128 with trie targets (8,279 steps/pass)",
         "tp1x": "exact replay of AGPT pd=1: v2's units, order and events (65 steps/pass)",
-        "tp3x": "exact replay of AGPT pd=3 + crown, shuffled: v2's units, order and events (12,675 steps/pass)"}
+        "tp3x": "exact replay of AGPT pd=3 + crown, shuffled: v2's units, order and events (12,675 steps/pass)",
+        "pk260833": "packed AGPT plan at pd=1's cadence, pieces <= 260,833 (65 equal steps)",
+        "pk65208": "packed AGPT plan at pd=1's cadence, pieces <= 65,208 (65 equal steps)",
+        "pk16302": "packed AGPT plan at pd=1's cadence, pieces <= 16,302 (65 equal steps)",
+        "pk1338": "packed AGPT plan at pd=1's cadence, pieces <= 1,338 (65 equal steps)",
+        "pk84": "packed AGPT plan at pd=1's cadence, pieces <= 84 (65 equal steps)",
+        "mbu1": "random windows in batches with pd=1's unit sizes (65 steps/pass)"}
 for _T in (32, 64, 128):
     ARMS[f"cv{_T}"] = f"conventional epochs at seq_len {_T}, {2048 // _T} windows (518 steps/epoch)"
     ARMS[f"cvt{_T}"] = f"conventional epochs at seq_len {_T} with trie targets, {2048 // _T} windows (518 steps/epoch)"

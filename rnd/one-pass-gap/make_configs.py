@@ -66,6 +66,14 @@ Fifth follow-up (2026-11-15), exact emulation, through the minibatch trainer:
 - tp3x: the same for pd=3 + crown shuffled (`pd3cs`), v2's epoch-1 order
         (v2_units/pd3s.tsv).
 
+Sixth follow-up (2026-11-15), equal-mass steps at pd=1's cadence (65 steps):
+
+- pkP:  packed plans with 65 equal steps of ~260,833 events, P = 260833 (one
+        step), 65208, 16302, 1338 and 84: ~1 to ~3,100 pieces per step, keeping
+        100% to 84% of the sharing (trie positions per pass 8.90M to 10.22M).
+- mbu1: random windows in batches with pd=1's 65 unit sizes
+        (pd1_unit_events.txt, from v2_units/pd1.tsv), shuffled each pass.
+
 Each budget is its own run, so every run anneals its own schedule.
 Usage: python3 rnd/one-pass-gap/make_configs.py
 """
@@ -117,6 +125,20 @@ NEXT = {
               "  trie_plan: packed\n  trie_plan_piece_max: 335\n  trie_plan_steps: 12675\n"),
     "tq84": ({1: [0.0015, 0.003, 0.006, 0.012]},
              "  trie_plan: packed\n  trie_plan_piece_max: 84\n  trie_plan_steps: 12675\n"),
+    # Follow-up 6: packed plans at pd=1's cadence (65 equal steps of ~260,833 events), from
+    # pieces as big as a step (P = 260833) down to P = 84, so ~1 to ~3,100 pieces per step
+    "pk260833": ({1: [0.003, 0.006, 0.012, 0.024]},
+              "  trie_plan: packed\n  trie_plan_piece_max: 260833\n  trie_plan_steps: 65\n"),
+    "pk65208": ({1: [0.003, 0.006, 0.012, 0.024]},
+              "  trie_plan: packed\n  trie_plan_piece_max: 65208\n  trie_plan_steps: 65\n"),
+    "pk16302": ({1: [0.003, 0.006, 0.012, 0.024]},
+              "  trie_plan: packed\n  trie_plan_piece_max: 16302\n  trie_plan_steps: 65\n"),
+    "pk1338": ({1: [0.003, 0.006, 0.012, 0.024]},
+              "  trie_plan: packed\n  trie_plan_piece_max: 1338\n  trie_plan_steps: 65\n"),
+    "pk84": ({1: [0.003, 0.006, 0.012, 0.024]},
+              "  trie_plan: packed\n  trie_plan_piece_max: 84\n  trie_plan_steps: 65\n"),
+    "mbu1": ({1: [0.003, 0.006, 0.012, 0.024]},
+             "  step_events_file: rnd/one-pass-gap/pd1_unit_events.txt\n  micro_batch: 2048\n"),
 }
 NEXT_DESC = {
     "cv": "conventional epochs (non-overlapping windows from a random offset each epoch, 128 per step)",
@@ -124,6 +146,12 @@ NEXT_DESC = {
     "tq1338": "packed AGPT plan: pieces <= 1338 events in 12,675 equal steps",
     "tq335": "packed AGPT plan: pieces <= 335 events in 12,675 equal steps",
     "tq84": "packed AGPT plan: pieces <= 84 events in 12,675 equal steps",
+    "pk260833": "packed AGPT plan at pd=1's cadence: pieces <= 260833 events in 65 equal steps",
+    "pk65208": "packed AGPT plan at pd=1's cadence: pieces <= 65208 events in 65 equal steps",
+    "pk16302": "packed AGPT plan at pd=1's cadence: pieces <= 16302 events in 65 equal steps",
+    "pk1338": "packed AGPT plan at pd=1's cadence: pieces <= 1338 events in 65 equal steps",
+    "pk84": "packed AGPT plan at pd=1's cadence: pieces <= 84 events in 65 equal steps",
+    "mbu1": "minibatch Adam over random windows in batches with AGPT pd=1's 65 unit sizes (shuffled each pass)",
     "cvt": "conventional epochs with trie targets (each position's target is the trie's next-character "
            "distribution for its context)",
     "mbt": "minibatch 128 over every window start with trie targets",
