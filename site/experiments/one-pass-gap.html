@@ -1181,7 +1181,7 @@ at long contexts, because a model learns short-context statistics first
 (the random-batch runs that reach 1.46–1.57 at contexts 5–16 all score
 2.47–2.48 at one character). An earlier version of this section read the rising gap as
 grouping costing long-context learning; that reading was wrong.</p>
-<p><strong>At equal loss the AGPT plans lag at the root.</strong> <code>depth_matched.py</code>
+<p><strong>At equal loss the AGPT plans lag at the root.</strong> <a href="https://github.com/trans/agpt/blob/main/rnd/one-pass-gap/depth_matched.py"><code>depth_matched.py</code></a>
 compares each one-pass run with the random-batch runs that reach the same
 loss at contexts 5–16: 20 runs of <code>mb</code>, <code>mb84</code>, <code>mb724</code>, <code>mbL</code> and <code>cv</code>,
 interpolated at the run's own loss there. Excess in nats at the best rate
@@ -1231,6 +1231,14 @@ lengths 1–16 equally:</p>
 <td style="text-align:right">+0.05</td>
 <td style="text-align:right">+0.02</td>
 <td style="text-align:right">+0.045</td>
+</tr>
+<tr>
+<td>AGPT pd=3 + crown, shuffled, <code>fire_norm: sum</code></td>
+<td style="text-align:right">+0.08</td>
+<td style="text-align:right">+0.03</td>
+<td style="text-align:right">+0.02</td>
+<td style="text-align:right">+0.01</td>
+<td style="text-align:right">+0.008</td>
 </tr>
 <tr>
 <td>AGPT pd=4 + crown</td>
@@ -1283,6 +1291,18 @@ steps' worth at P = 1,338, as random batches do (792), while keeping 97%
 of the sharing; their root lag is gone. Their chunks are still one
 context each, so what the root lacked was training weight, not variety
 within a step.</p>
+<p>The mass does weight each node, but only inside its unit: a unit's
+gradient is the sum of its events' gradients, and v2's default
+(<code>fire_norm: mass</code>) then divides it by the unit's own mass, which makes
+every unit's step the same size. For a crown unit, a single node, that
+division cancels its count entirely. Carrying the mass across units
+(<code>fire_norm: sum</code>) takes most of the root lag away (+0.08 at one
+character), but the run is worse overall (8.53 against 7.81, and 2.10
+against 1.97 at contexts 5–16): Adam scales each step by the recent size
+of the gradients, not by this step's, so the big units fill that scale
+and the thousands of small ones barely move. Mass can weight events
+within an Adam step but not one step against another. Steps of equal mass,
+as in the packed plans, avoid the choice.</p>
 <p>At pd=1 there is no crown: a 1-character context is 1/16 of its unit, and
 its whole unit carries the same reweighting (windows that start with a
 space are 15% of the events and get 1/65 of the steps), so it falls on
@@ -1367,7 +1387,7 @@ about speed. The <a href="https://github.com/trans/agpt/tree/main/rnd/one-pass-g
 replays ran and committed after, so those runs' <code>meta.json</code> (<code>99b3387</code>,
 <code>git_dirty: true</code>) predates them; each replay's <code>train.log</code> records its
 order file's sha256, which matches the committed file.</li>
-<li>Loss by context length (<a href="https://github.com/trans/agpt/blob/main/rnd/one-pass-gap/depth_loss.py"><code>depth_loss.py</code></a>, <code>depth_matched.py</code>) is a CPU
+<li>Loss by context length (<a href="https://github.com/trans/agpt/blob/main/rnd/one-pass-gap/depth_loss.py"><code>depth_loss.py</code></a>, <a href="https://github.com/trans/agpt/blob/main/rnd/one-pass-gap/depth_matched.py"><code>depth_matched.py</code></a>) is a CPU
 diagnostic on the runs' checkpoints, one seed. The matched-loss reference
 is linear interpolation between random-batch runs, with no run between
 1.69 and 1.87 at contexts 5–16 (where the pd=4 runs sit) or between 2.07

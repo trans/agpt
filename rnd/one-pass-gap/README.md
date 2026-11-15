@@ -762,6 +762,7 @@ lengths 1–16 equally:
 | AGPT pd=3 + crown, shuffled | +0.32 | +0.08 | +0.04 | +0.01 | +0.027 |
 | its exact replay (`tp3x`) | +0.33 | +0.10 | +0.06 | +0.01 | +0.031 |
 | AGPT pd=3 + crown, v2's order | +0.51 | +0.13 | +0.05 | +0.02 | +0.045 |
+| AGPT pd=3 + crown, shuffled, `fire_norm: sum` | +0.08 | +0.03 | +0.02 | +0.01 | +0.008 |
 | AGPT pd=4 + crown | +0.63 | +0.23 | +0.10 | +0.03 | +0.062 |
 | packed, 97% sharing | +0.04 | +0.04 | +0.05 | +0.02 | +0.009 |
 | packed, 65% sharing | +0.00 | +0.02 | +0.00 | +0.01 | +0.002 |
@@ -785,6 +786,19 @@ steps' worth at P = 1,338, as random batches do (792), while keeping 97%
 of the sharing; their root lag is gone. Their chunks are still one
 context each, so what the root lacked was training weight, not variety
 within a step.
+
+The mass does weight each node, but only inside its unit: a unit's
+gradient is the sum of its events' gradients, and v2's default
+(`fire_norm: mass`) then divides it by the unit's own mass, which makes
+every unit's step the same size. For a crown unit, a single node, that
+division cancels its count entirely. Carrying the mass across units
+(`fire_norm: sum`) takes most of the root lag away (+0.08 at one
+character), but the run is worse overall (8.53 against 7.81, and 2.10
+against 1.97 at contexts 5–16): Adam scales each step by the recent size
+of the gradients, not by this step's, so the big units fill that scale
+and the thousands of small ones barely move. Mass can weight events
+within an Adam step but not one step against another. Steps of equal mass,
+as in the packed plans, avoid the choice.
 
 At pd=1 there is no crown: a 1-character context is 1/16 of its unit, and
 its whole unit carries the same reweighting (windows that start with a
