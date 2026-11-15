@@ -104,10 +104,22 @@
   epoch), e1 and e4, lr .003/.006/.012, one-hot vs trie, 36 configs
   (`a712cad`; set-up and prediction in the README, `851de5d`). Prediction
   from the noise cut at the seed weights (8.0%, 3.4%, 1.6%): about 0.011,
-  0.005, 0.002 nats. **Waiting** for slot 43, queued behind @air's slot 44,
-  a pause the user asked for on 2026-11-15 (no jobs over 2 GB outside the
-  slots until @air says it's over). Run order in the session scratchpad;
-  otherwise `run_grid.sh` with the cv32/cvt32/... configs, e1 before e4.
+  0.005, 0.002 nats.
+- **Follow-up 5, exact emulation** (the user, via @air, 2026-11-15: the
+  equivalence is exact, so a standard transformer emulating AGPT's run
+  should match it; compare gradients at frozen weights). Before this,
+  only v2's gradient against v2's own loss had been checked (Exp 8, FD
+  1.0000). The old replays differ from v2's runs in unit order (own shuffle)
+  and in 272 events: the cached trie wraps the corpus tail to the front
+  (tail-wrap-front-v1). Built in `99b3387`: `agpt_unit_grad_compare.py`
+  (v2 dump vs float64 PyTorch per unit and per tensor), trainer options
+  `wrap_tail`, `trie_plan_order_file`, `log_step_loss`, arms tp1x/tp3x.
+- **Waiting** for slot 45 (replaced 43), behind @air's slot 44, a pause the
+  user asked for on 2026-11-15 (no jobs over 2 GB outside the slots until
+  @air says it's over). In the slot: `sh rnd/one-pass-gap/run_emulation.sh
+  DUMP_DIR` (8 dumps, order check, tp1x, the 36 longer-window runs, tp3x).
+  Afterwards on CPU: the compare tool on each dump (pd=1 references are
+  cached in the session scratchpad).
 - `src/tools/agpt_minibatch_train.py` (`84054bc`) is the minibatch baseline
   as an orchestrator custom trainer, so baselines get `result.json` too.
 
