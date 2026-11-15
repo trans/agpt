@@ -38,7 +38,7 @@
       </div>
     </section>
     <div class="shell experiment-main">
-      <section class="answer-panel" aria-labelledby="answer-heading"><span id="answer-heading" class="micro-label">THE ANSWER SO FAR</span><p>Far off, and the update count is only part of it. After one pass AGPT pd=1 scores rolling byte PPL 15.73; minibatch training scores 4.83 in 31 s, already better than AGPT&#x27;s 100-pass run, and 4.66 after two passes, better than AGPT&#x27;s best on record (4.764 after 625). More updates help AGPT a lot: one pass at pd=2 (1,463 updates) scores 9.65, pd=3 (12,675) 7.81 and pd=4 (58,721) 6.74. But random equal batches with the same update counts score 12.56, 5.18 and 4.83, and pd=4 takes 185 s a pass. At pd=3 the steps also match in average size; half the gap (0.27 of 0.48 nats) is the units&#x27; unequal sizes (random windows in batches of pd=3&#x27;s sizes score 6.33), and half is the trie&#x27;s grouping of each step by a shared prefix. Weighting units by mass (fire_norm sum) is worse (8.53). A conventional epoch, each character a target once (518 updates, 2 s), scores 6.94, better than a pd=3 pass, which computes 8.4 times as many positions; 8 conventional epochs, about a pd=3 pass&#x27;s compute, score 5.12. In equal steps, the more of the trie&#x27;s sharing a plan keeps, the worse it scores: 4.83 with 12% (random batches), 5.39 with 65%, 5.86 with 88%, 6.34 with 97%. Keeping 65% costs 0.11 nats, more than all of the sharing could save at this context length (about 0.05 nats at equal compute). AGPT&#x27;s statistics do help without its schedule. With the trie&#x27;s next-character distribution as each position&#x27;s target, in the same batches, conventional training gains about 0.025 nats at 1–8 epochs (6.94 → 6.77 after one, 5.12 → 5.00 after eight), worth 1.13–1.37× the training, and 0.014–0.017 nats at 16 epochs. The gain halves at 32–64-character windows (about 0.013 nats) and is gone at 128: contexts stop repeating at about 12 characters. AGPT&#x27;s equivalence holds: with an fp32 cache and TF32 off, v2&#x27;s per-unit gradients match a float64 PyTorch transformer as closely as float32 PyTorch does, and replays with v2&#x27;s units, order and events reproduce its runs within 0.4% (pd=1 15.72 against 15.73, pd=3 7.80 against 7.81). The normal v2 build&#x27;s bf16 cache and TF32 put 1–4% errors into its unit gradients, up to 67% in some small units. At equal loss AGPT&#x27;s plans lag random batches only at the shortest contexts (a unit&#x27;s step gives a context the same weight however common it is), about 0.03 of pd=3&#x27;s 0.48 nats. One seed; 188 runs.</p></section>
+      <section class="answer-panel" aria-labelledby="answer-heading"><span id="answer-heading" class="micro-label">THE ANSWER SO FAR</span><p>Far off, and the update count is only part of it. After one pass AGPT pd=1 scores rolling byte PPL 15.73; minibatch training scores 4.83 in 31 s, already better than AGPT&#x27;s 100-pass run, and 4.66 after two passes, better than AGPT&#x27;s best on record (4.764 after 625). More updates help AGPT a lot: one pass at pd=2 (1,463 updates) scores 9.65, pd=3 (12,675) 7.81 and pd=4 (58,721) 6.74. But random equal batches with the same update counts score 12.56, 5.18 and 4.83, and pd=4 takes 185 s a pass. At pd=3 the steps also match in average size; half the gap (0.27 of 0.48 nats) is the units&#x27; unequal sizes (random windows in batches of pd=3&#x27;s sizes score 6.33), and half is the trie&#x27;s grouping of each step by a shared prefix. Weighting units by mass (fire_norm sum) is worse (8.53). A conventional epoch, each character a target once (518 updates, 2 s), scores 6.94, better than a pd=3 pass, which computes 8.4 times as many positions; 8 conventional epochs, about a pd=3 pass&#x27;s compute, score 5.12. In equal steps, the more of the trie&#x27;s sharing a plan keeps, the worse it scores: 4.83 with 12% (random batches), 5.39 with 65%, 5.86 with 88%, 6.34 with 97%. Keeping 65% costs 0.11 nats, more than all of the sharing could save at this context length (about 0.05 nats at equal compute). AGPT&#x27;s statistics do help without its schedule. With the trie&#x27;s next-character distribution as each position&#x27;s target, in the same batches, conventional training gains about 0.025 nats at 1–8 epochs (6.94 → 6.77 after one, 5.12 → 5.00 after eight), worth 1.13–1.37× the training, and 0.014–0.017 nats at 16 epochs. The gain halves at 32–64-character windows (about 0.013 nats) and is gone at 128: contexts stop repeating at about 12 characters. AGPT&#x27;s equivalence holds: with an fp32 cache and TF32 off, v2&#x27;s per-unit gradients match a float64 PyTorch transformer as closely as float32 PyTorch does, and replays with v2&#x27;s units, order and events reproduce its runs within 0.4% (pd=1 15.72 against 15.73, pd=3 7.80 against 7.81). The normal v2 build&#x27;s bf16 cache and TF32 put 1–4% errors into its unit gradients, up to 67% in some small units. At equal loss AGPT&#x27;s plans lag random batches only at the shortest contexts (a unit&#x27;s step gives a context the same weight however common it is), about 0.03 of pd=3&#x27;s 0.48 nats. At pd=1&#x27;s 65 steps, steps of equal mass score 14.01 against AGPT&#x27;s 15.73 with all the sharing kept, and more, smaller pieces per step close most of the rest: 13.12 keeping 98% of the sharing, 12.66 keeping 84%, against 12.56 for random batches. Sharing and variety go together only in big steps. One seed; 212 runs.</p></section>
 
       <section class="experiment-meta" aria-label="Experiment connections">
         <div><span class="micro-label">TOPICS</span><div class="meta-links"><a class="tag-link" href="index.html?tag=one-pass">one-pass</a><a class="tag-link" href="index.html?tag=baseline">baseline</a><a class="tag-link" href="index.html?tag=cadence">cadence</a><a class="tag-link" href="index.html?tag=optimizer">optimizer</a><a class="tag-link" href="index.html?tag=partition-depth">partition-depth</a></div></div>
@@ -58,7 +58,8 @@ in slot 39 (2026-11-15, 01:29–02:07 UTC). Follow-up 3, trie targets in
 ordinary minibatch training, was 21 runs in slot 41 (02:56–03:11 UTC).
 Follow-ups 4 (trie targets at longer windows, 36 runs) and 5 (AGPT emulated
 exactly by a standard transformer: frozen-weight gradient comparisons and 7
-replays) ran in slot 45 (07:50–08:35 UTC).</p>
+replays) ran in slot 45 (07:50–08:35 UTC). Follow-up 6, equal-mass steps at
+pd=1's cadence, was 24 runs in slot 47 (15:36–16:00 UTC).</p>
 <h3 id="question">Question</h3>
 <p>AGPT's goal is a model that learns enough from one pass over a corpus to
 match a conventional training run, in less time. The record has AGPT's
@@ -1334,6 +1335,139 @@ against 8.13, 8.32 against 8.01). Runs that differ only in unit order
 differ by a few percent, so one seed resolves differences between plans
 only above that.</li>
 </ul>
+<h3 id="follow-up-6-equal-mass-steps-at-pd1s-cadence-2026-11-15">Follow-up 6: equal-mass steps at pd=1's cadence (2026-11-15)</h3>
+<p>The user asked for a packed plan at pd=1 with steps of equal mass, and
+named the trade-off between sharing and variety within a step as the key
+question: how to share without giving up random order.</p>
+<p><strong>Arms</strong> (<a href="https://github.com/trans/agpt/blob/main/rnd/one-pass-gap/make_configs.py"><code>make_configs.py</code></a>, <a href="https://github.com/trans/agpt/blob/main/rnd/one-pass-gap/run_pd1_packed.sh"><code>run_pd1_packed.sh</code></a>; 24 runs in slot 47,
+15:36–16:00 UTC), each at rates 0.003–0.024:</p>
+<ul>
+<li><code>pkP</code>: packed plans, as <code>tqP</code> in follow-up 2, with pd=1's 65 steps of
+about 260,833 events each, pieces and node chunks of at most P =
+260,833 (as big as a step), 65,208, 16,302, 1,338 and 84 events.</li>
+<li><code>mbu1</code>: random windows in batches of pd=1's 65 unit sizes
+(<code>pd1_unit_events.txt</code>, from <a href="https://github.com/trans/agpt/blob/main/rnd/one-pass-gap/v2_units/pd1.tsv"><code>v2_units/pd1.tsv</code></a>), shuffled each pass:
+the transformer's version of the GRU control in
+<code>context-tree-orientation</code> (prefix units against random groups of the
+same sizes).</li>
+</ul>
+<p>Positions per pass are the trie positions each plan's steps would compute
+(<code>trie_plan.plan_cost</code>, on the CPU before the runs); random equal batches
+were costed the same way. Sharing kept is (16.95M − positions) / (16.95M −
+8.90M). Pieces per step counts the plan's units (pieces and node chunks)
+over 65. Every best rate is 0.006 except AGPT's (0.012), all inside their
+grids. Rolling byte PPL (fixed-window in brackets):</p>
+<table>
+<thead>
+<tr>
+<th>Plan, 65 steps per pass</th>
+<th style="text-align:right">Pieces per step</th>
+<th style="text-align:right">Step size CV</th>
+<th style="text-align:right">Positions</th>
+<th style="text-align:right">Sharing kept</th>
+<th style="text-align:right">Rolling (fixed)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>AGPT pd=1 (v2)</td>
+<td style="text-align:right">1</td>
+<td style="text-align:right">1.62</td>
+<td style="text-align:right">8.90M</td>
+<td style="text-align:right">100%</td>
+<td style="text-align:right">15.734 (15.657)</td>
+</tr>
+<tr>
+<td>random windows, pd=1's sizes (<code>mbu1</code>)</td>
+<td style="text-align:right"></td>
+<td style="text-align:right">1.62</td>
+<td style="text-align:right"></td>
+<td style="text-align:right"></td>
+<td style="text-align:right">13.539 (13.531)</td>
+</tr>
+<tr>
+<td><code>pk260833</code></td>
+<td style="text-align:right">11.5</td>
+<td style="text-align:right">0.175</td>
+<td style="text-align:right">8.90M</td>
+<td style="text-align:right">100%</td>
+<td style="text-align:right">14.013 (13.919)</td>
+</tr>
+<tr>
+<td><code>pk65208</code></td>
+<td style="text-align:right">47.5</td>
+<td style="text-align:right">0.043</td>
+<td style="text-align:right">8.91M</td>
+<td style="text-align:right">100%</td>
+<td style="text-align:right">13.799 (13.734)</td>
+</tr>
+<tr>
+<td><code>pk16302</code></td>
+<td style="text-align:right">166</td>
+<td style="text-align:right">0.011</td>
+<td style="text-align:right">8.92M</td>
+<td style="text-align:right">99.8%</td>
+<td style="text-align:right">13.409 (13.410)</td>
+</tr>
+<tr>
+<td><code>pk1338</code></td>
+<td style="text-align:right">1,191</td>
+<td style="text-align:right">0.001</td>
+<td style="text-align:right">9.03M</td>
+<td style="text-align:right">98.4%</td>
+<td style="text-align:right">13.121 (13.032)</td>
+</tr>
+<tr>
+<td><code>pk84</code></td>
+<td style="text-align:right">8,989</td>
+<td style="text-align:right">0.000</td>
+<td style="text-align:right">10.22M</td>
+<td style="text-align:right">83.7%</td>
+<td style="text-align:right">12.656 (12.591)</td>
+</tr>
+<tr>
+<td>random equal batches (<code>mbL</code>)</td>
+<td style="text-align:right">16,302 windows</td>
+<td style="text-align:right">0</td>
+<td style="text-align:right">12.72M</td>
+<td style="text-align:right">52.6%</td>
+<td style="text-align:right">12.562 (12.496)</td>
+</tr>
+</tbody>
+</table>
+<h4 id="reading-6">Reading</h4>
+<ul>
+<li><strong>Equal mass takes half of pd=1's gap.</strong> With all the sharing kept,
+steps of equal mass score 14.01 against AGPT's 15.73: 0.116 of the 0.225
+nats between AGPT and random batches. Equal mass also forces some mixing
+(11.5 pieces a step instead of one unit), so the two are not separated
+here. Unequal sizes alone, with random windows, cost 0.075 (13.54
+against 12.56).</li>
+<li><strong>At this cadence variety costs almost no sharing.</strong> With the step
+count fixed, more and smaller pieces per step close most of the rest:
+13.12 with 98% of the sharing kept (0.044 nats behind random batches)
+and 12.66 with 84% (0.008 behind). Sharing kept depends on the piece
+size, variety on how many pieces a step holds, so the two go together
+only in big steps. At pd=3's cadence, 1,338 events a step, pieces of
+1,338 give one per step (<code>tq1338</code>, 6.34 against 4.83), and 16 pieces a
+step keep only 65% (<code>tq84</code>, 5.39).</li>
+<li><strong>No root lag.</strong> At matched loss (<a href="https://github.com/trans/agpt/blob/main/rnd/one-pass-gap/depth_matched.py"><code>depth_matched.py</code></a>) every arm is
+within 0.04 nats of the random-batch reference at 1–4 characters: with
+equal-mass steps the shallow contexts keep their frequency weight, and
+pd=1 has no crown units.</li>
+<li><strong>The transformer pays for prefix grouping about as the GRU did.</strong>
+AGPT's prefix units trail random windows in the same sizes by 0.150
+nats after one pass (15.73 against 13.54). The GRU at pd=1 trailed by
+0.12 after 3 epochs and 0.05 after 10, and tied from 30 on.</li>
+<li><strong>Random batches share too.</strong> Through a trie, random batches of 16,302
+windows would compute 12.72M positions instead of 16.95M (25% fewer)
+with no change to training; 1,463 batches a pass 14.89M (12% fewer) and
+12,675 batches 15.98M (6% fewer). That is the sharing random order
+keeps for free, and it grows with batch size.</li>
+<li><strong>None of this is trained.</strong> At 65 steps every plan is far from the
+8,279-step minibatch run's 4.83; this follow-up measures the trade-off,
+not a usable schedule.</li>
+</ul>
 <h3 id="caveats">Caveats</h3>
 <ul>
 <li>One seed. The seed weights are the AGPT record's; in June they slowed
@@ -1395,6 +1529,8 @@ and 2.52 (the pd=2 runs). The 1-character reference rises only 0.05 and
 0.11 across those gaps, so if it rises steadily the root excess is at
 least 0.60 at pd=4 and 0.18 at pd=2 whatever its shape there. The pd=3
 runs sit between reference runs 0.16 apart.</li>
+<li>Follow-up 6: one seed, four rates per arm. Positions per pass are
+computed for one packing (seed 1); each pass repacks.</li>
 </ul>
 </article>
       <div class="record-end"><a href="https://github.com/trans/agpt/tree/main/rnd/one-pass-gap">View the experiment directory on GitHub ↗</a><a href="index.html">Browse all experiments →</a></div>

@@ -21,7 +21,7 @@ import summarize as sm
 
 D = 'rnd/one-pass-gap'; OUT = f'{D}/depth_matched.json'; T = 16
 REF = ('mb', 'mb84', 'mb724', 'mbL', 'cv')
-ARMS = ('agpt', 'tp1x', 'pd2c', 'pd3c', 'pd3cs', 'pd3css', 'tp3x', 'pd4c', 'tq1338', 'tq335', 'tq84', 'mbu3')
+ARMS = ('agpt', 'tp1x', 'pd2c', 'pd3c', 'pd3cs', 'pd3css', 'tp3x', 'pd4c', 'tq1338', 'tq335', 'tq84', 'mbu3', 'mbu1', 'pk260833', 'pk65208', 'pk16302', 'pk1338', 'pk84')
 
 
 def depth_loss(path, seqs, V):

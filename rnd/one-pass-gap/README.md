@@ -37,7 +37,10 @@ answer: >-
   (pd=1 15.72 against 15.73, pd=3 7.80 against 7.81). The normal v2 build's bf16 cache and TF32
   put 1–4% errors into its unit gradients, up to 67% in some small units. At equal loss AGPT's
   plans lag random batches only at the shortest contexts (a unit's step gives a context the same
-  weight however common it is), about 0.03 of pd=3's 0.48 nats. One seed; 188 runs.
+  weight however common it is), about 0.03 of pd=3's 0.48 nats. At pd=1's 65 steps, steps of
+  equal mass score 14.01 against AGPT's 15.73 with all the sharing kept, and more, smaller pieces
+  per step close most of the rest: 13.12 keeping 98% of the sharing, 12.66 keeping 84%, against
+  12.56 for random batches. Sharing and variety go together only in big steps. One seed; 212 runs.
 opened: 2026-11-14
 updated: 2026-11-15
 code: main
@@ -59,7 +62,8 @@ in slot 39 (2026-11-15, 01:29–02:07 UTC). Follow-up 3, trie targets in
 ordinary minibatch training, was 21 runs in slot 41 (02:56–03:11 UTC).
 Follow-ups 4 (trie targets at longer windows, 36 runs) and 5 (AGPT emulated
 exactly by a standard transformer: frozen-weight gradient comparisons and 7
-replays) ran in slot 45 (07:50–08:35 UTC).
+replays) ran in slot 45 (07:50–08:35 UTC). Follow-up 6, equal-mass steps at
+pd=1's cadence, was 24 runs in slot 47 (15:36–16:00 UTC).
 
 ## Question
 
@@ -833,6 +837,75 @@ by prefix (the packed plans, follow-up 2).
   differ by a few percent, so one seed resolves differences between plans
   only above that.
 
+## Follow-up 6: equal-mass steps at pd=1's cadence (2026-11-15)
+
+The user asked for a packed plan at pd=1 with steps of equal mass, and
+named the trade-off between sharing and variety within a step as the key
+question: how to share without giving up random order.
+
+**Arms** (`make_configs.py`, `run_pd1_packed.sh`; 24 runs in slot 47,
+15:36–16:00 UTC), each at rates 0.003–0.024:
+
+- `pkP`: packed plans, as `tqP` in follow-up 2, with pd=1's 65 steps of
+  about 260,833 events each, pieces and node chunks of at most P =
+  260,833 (as big as a step), 65,208, 16,302, 1,338 and 84 events.
+- `mbu1`: random windows in batches of pd=1's 65 unit sizes
+  (`pd1_unit_events.txt`, from `v2_units/pd1.tsv`), shuffled each pass:
+  the transformer's version of the GRU control in
+  `context-tree-orientation` (prefix units against random groups of the
+  same sizes).
+
+Positions per pass are the trie positions each plan's steps would compute
+(`trie_plan.plan_cost`, on the CPU before the runs); random equal batches
+were costed the same way. Sharing kept is (16.95M − positions) / (16.95M −
+8.90M). Pieces per step counts the plan's units (pieces and node chunks)
+over 65. Every best rate is 0.006 except AGPT's (0.012), all inside their
+grids. Rolling byte PPL (fixed-window in brackets):
+
+| Plan, 65 steps per pass | Pieces per step | Step size CV | Positions | Sharing kept | Rolling (fixed) |
+|---|---:|---:|---:|---:|---:|
+| AGPT pd=1 (v2) | 1 | 1.62 | 8.90M | 100% | 15.734 (15.657) |
+| random windows, pd=1's sizes (`mbu1`) | | 1.62 | | | 13.539 (13.531) |
+| `pk260833` | 11.5 | 0.175 | 8.90M | 100% | 14.013 (13.919) |
+| `pk65208` | 47.5 | 0.043 | 8.91M | 100% | 13.799 (13.734) |
+| `pk16302` | 166 | 0.011 | 8.92M | 99.8% | 13.409 (13.410) |
+| `pk1338` | 1,191 | 0.001 | 9.03M | 98.4% | 13.121 (13.032) |
+| `pk84` | 8,989 | 0.000 | 10.22M | 83.7% | 12.656 (12.591) |
+| random equal batches (`mbL`) | 16,302 windows | 0 | 12.72M | 52.6% | 12.562 (12.496) |
+
+### Reading
+
+- **Equal mass takes half of pd=1's gap.** With all the sharing kept,
+  steps of equal mass score 14.01 against AGPT's 15.73: 0.116 of the 0.225
+  nats between AGPT and random batches. Equal mass also forces some mixing
+  (11.5 pieces a step instead of one unit), so the two are not separated
+  here. Unequal sizes alone, with random windows, cost 0.075 (13.54
+  against 12.56).
+- **At this cadence variety costs almost no sharing.** With the step
+  count fixed, more and smaller pieces per step close most of the rest:
+  13.12 with 98% of the sharing kept (0.044 nats behind random batches)
+  and 12.66 with 84% (0.008 behind). Sharing kept depends on the piece
+  size, variety on how many pieces a step holds, so the two go together
+  only in big steps. At pd=3's cadence, 1,338 events a step, pieces of
+  1,338 give one per step (`tq1338`, 6.34 against 4.83), and 16 pieces a
+  step keep only 65% (`tq84`, 5.39).
+- **No root lag.** At matched loss (`depth_matched.py`) every arm is
+  within 0.04 nats of the random-batch reference at 1–4 characters: with
+  equal-mass steps the shallow contexts keep their frequency weight, and
+  pd=1 has no crown units.
+- **The transformer pays for prefix grouping about as the GRU did.**
+  AGPT's prefix units trail random windows in the same sizes by 0.150
+  nats after one pass (15.73 against 13.54). The GRU at pd=1 trailed by
+  0.12 after 3 epochs and 0.05 after 10, and tied from 30 on.
+- **Random batches share too.** Through a trie, random batches of 16,302
+  windows would compute 12.72M positions instead of 16.95M (25% fewer)
+  with no change to training; 1,463 batches a pass 14.89M (12% fewer) and
+  12,675 batches 15.98M (6% fewer). That is the sharing random order
+  keeps for free, and it grows with batch size.
+- **None of this is trained.** At 65 steps every plan is far from the
+  8,279-step minibatch run's 4.83; this follow-up measures the trade-off,
+  not a usable schedule.
+
 ## Caveats
 
 - One seed. The seed weights are the AGPT record's; in June they slowed
@@ -894,3 +967,5 @@ by prefix (the packed plans, follow-up 2).
   0.11 across those gaps, so if it rises steadily the root excess is at
   least 0.60 at pd=4 and 0.18 at pd=2 whatever its shape there. The pd=3
   runs sit between reference runs 0.16 apart.
+- Follow-up 6: one seed, four rates per arm. Positions per pass are
+  computed for one packing (seed 1); each pass repacks.
