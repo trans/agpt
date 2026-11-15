@@ -8,6 +8,8 @@ question: >-
   training run in one pass over Tiny Shakespeare, and in a few more, against ordinary minibatch
   Adam training of the same d64/L2 model from the same weights? Is AGPT's deficit its update
   count: 65 per pass at pd=1, and more at pd=2–4 when the shallow targets are trained too?
+  How does AGPT compare with conventional epochs, and how much of the trie's prefix sharing can
+  a plan keep before the grouping it needs costs more than the sharing saves?
 answer: >-
   Far off, and the update count is only part of it. After one pass AGPT pd=1 scores rolling byte
   PPL 15.73; minibatch training scores 4.83 in 31 s, already better than AGPT's 100-pass run, and
@@ -17,9 +19,15 @@ answer: >-
   takes 185 s a pass. At pd=3 the steps also match in average size; half the gap (0.27 of 0.48
   nats) is the units' unequal sizes (random windows in batches of pd=3's sizes score 6.33), and
   half is the trie's grouping of each step by a shared prefix. Weighting units by mass
-  (fire_norm sum) is worse (8.53). One seed; 95 runs.
+  (fire_norm sum) is worse (8.53). A conventional epoch, each character a target once (518
+  updates, 2 s), scores 6.94, better than a pd=3 pass, which computes 8.4 times as many
+  positions; 8 conventional epochs, about a pd=3 pass's compute, score 5.12. In equal steps, the
+  more of the trie's sharing a plan keeps, the worse it scores: 4.83 with 12% (random batches),
+  5.39 with 65%, 5.86 with 88%, 6.34 with 97%. Keeping 65% costs 0.11 nats, more than all of the
+  sharing could save at this context length (about 0.05 nats at equal compute). One seed; 124
+  runs.
 opened: 2026-11-14
-updated: 2026-11-14
+updated: 2026-11-15
 code: main
 eval: canonical
 family: attention
@@ -33,7 +41,9 @@ related: [gradient-population, context-tree-orientation, vanilla-attn-torch, par
 after we found the work had drifted off AGPT's main path. It is item 04 of
 the site's next tests ("Measure the one-pass gap"), never done before. The
 first grid was 48 runs in slot 30 (08:32–09:38 UTC). The follow-up, AGPT at
-minibatch cadence, was 47 runs in slot 33 (17:50–18:54 UTC).
+minibatch cadence, was 47 runs in slot 33 (17:50–18:54 UTC). Follow-up 2,
+conventional epochs and AGPT's plans in the minibatch trainer, was 29 runs
+in slot 39 (2026-11-15, 01:29–02:07 UTC).
 
 ## Question
 
@@ -295,20 +305,130 @@ passes it scores 8.85 against 8.71.
   beyond about 1,500 updates per pass, the composition of each update
   matters more than how many there are.
 
-### Next (not run)
+### Next
 
-1. **Equal-mass units:** a plan whose units hold about the same number of
-   events (1–2k). It would split heavy subtrees deeper and pack light
-   sibling subtrees together. This aims at the size half; `mbu3` against
-   `mb84` bounds what it can gain (0.27 nats at pd=3). Packing subtrees
-   from different roots into one unit would also attack the grouping half,
-   at the price of some context compute: each packed subtree brings its own
-   ancestors.
-2. **The grouping half is the price of prefix sharing.** A unit shares
-   computation because its contexts share a prefix, and that same prefix
-   is what correlates its events. Measuring the grouping cost against the
-   compute saved, as the partition depth and packing vary, would map the
-   trade-off AGPT has to win.
+1. **Equal-mass units:** done in follow-up 2 (the packed plans).
+2. **The grouping cost against the compute saved:** done in follow-up 2,
+   for three piece sizes.
+
+## Follow-up 2: conventional epochs, and AGPT's plans in the minibatch trainer (2026-11-15)
+
+Two questions the record had never asked. Every "epoch" above, in v2 and in
+the minibatch trainer, is every window start with 16 targets each, so each
+character is a target 16 times per pass. A conventional epoch makes each
+character a target once. How does AGPT compare with that? And the trie
+saves compute only where a step's contexts share prefixes, which means
+grouping them. How much of the sharing can a plan keep before the grouping
+costs more than the sharing saves? 29 runs in slot 39 (2026-11-15,
+01:29–02:07 UTC), code `bf32854`.
+
+**Arms.** Same model, seed weights, Adam, schedule and evaluation as above,
+all in `src/tools/agpt_minibatch_train.py`.
+
+- `cv`: conventional epochs (`experimental.window_stride: 16`): 66,226
+  non-overlapping windows from a random offset each epoch, 1,059,616
+  targets, 128 windows a step, 518 steps per epoch. Run for 1, 2, 4, 8 and
+  16 epochs. Sixteen epochs compute as many positions as one pass of `mb`.
+- `tp3`: AGPT's pd=3 + crown plan, replayed event by event
+  (`experimental.trie_plan: pd`, new module `src/tools/trie_plan.py`). Each
+  unit is one Adam step on its own events, picked out of ordinary windows
+  by a loss mask, and the units are shuffled each pass. A unit's gradient
+  is the sum of its events' gradients, so this gives the updates v2 gives,
+  computed by a different program. It is the control for everything
+  between v2 and the PyTorch trainer.
+- `tq1338`, `tq335`, `tq84`: packed plans (`trie_plan: packed`), each with
+  12,675 steps of equal size and 1,338 events per step on average, as at
+  pd=3. A window's deep events go to a piece: the subtree of the shallowest
+  prefix that holds at most P events (P = 1,338, 335 or 84). The heavier
+  nodes' own events are split by occurrence into chunks of at most P.
+  Pieces and chunks are packed at random into the steps, repacked each
+  pass. The smaller P is, the shallower the shared prefixes and the less
+  sharing is left.
+
+**Trie positions per pass** count what a trie trainer would compute for a
+plan: in each step, every distinct context its events read. The replay
+trainer itself computes whole windows, so its times don't show the
+sharing. Every pass has 16,953,872 events.
+
+**Checks done before the run (CPU):**
+
+- With no trie plan the trainer writes a byte-identical model to before.
+- The pd=3 replay has v2's 12,675 units, and 99.5% of the sorted sizes are
+  identical to v2's. The total differs by 272 events, from the trie's wrap
+  at the corpus end.
+- Every event is trained exactly once per pass in every plan.
+- Windows cut at their deepest event give the full-window gradient to
+  within 8e-16 (float64).
+
+### Results
+
+Conventional epochs, best rate 0.006 at every budget, rolling byte PPL
+(fixed-window PPL in brackets) and the trainer's own training seconds:
+
+| Epochs | Steps | Positions | Rolling (fixed) | Train s |
+|---:|---:|---:|---:|---:|
+| 1 | 518 | 1.06M | 6.940 (6.509) | 2 |
+| 2 | 1,036 | 2.12M | 6.036 (5.558) | 4 |
+| 4 | 2,072 | 4.24M | 5.476 (4.972) | 7 |
+| 8 | 4,144 | 8.48M | 5.125 (4.587) | 15 |
+| 16 | 8,288 | 16.95M | 4.854 (4.319) | 29 |
+
+One pass of each plan, all with 12,675 steps of 1,338 events on average.
+"Sharing kept" is the share of the trie's saving (16.95M events against
+pd=3's 8.93M positions) the plan keeps:
+
+| Plan | Step size CV | Positions per pass | Sharing kept | Rolling (fixed), best lr |
+|---|---:|---:|---:|---:|
+| `tp3`, pd=3 replay | 3.83 | 8.93M | 100% | 7.762 (7.179), 0.0015 |
+| `tq1338` | 0.23 | 9.18M | 97% | 6.341 (5.836), 0.0015 |
+| `tq335` | 0.06 | 9.90M | 88% | 5.864 (5.377), 0.003 |
+| `tq84` | 0.017 | 11.71M | 65% | 5.387 (4.859), 0.003 |
+| `mb84`, random windows (above) | 0 | 15.97M | 12% | 4.827 (4.290), 0.006 |
+
+Median piece depth: 5, 6 and 7 characters for P = 1,338, 335 and 84.
+
+### Reading
+
+- **The control holds.** The pd=3 replay scores 7.76 against v2's 7.81, at
+  the same best rate (0.0015; the neighbours are 7.94 and 8.32, against
+  v2's 8.13 and 8.01). So the pd=3 gap is in the plan, not in v2.
+- **One conventional epoch beats a pass of AGPT pd=3.** 518 steps and 1.06M
+  positions (2 s) give 6.94. AGPT's pd=3 pass takes 24 times the steps and
+  8.4 times the positions and gives 7.76–7.81. Only pd=4 (6.74, 185 s) is
+  better than one conventional epoch.
+- **At equal compute the gap is wide.** Eight conventional epochs compute
+  about as many positions as a pd=3 pass (8.48M against 8.93M) and score
+  5.12 against 7.81.
+- **The every-start objective is worth what it costs, no more.** Sixteen
+  conventional epochs score 4.85 and one pass over every window start
+  4.83, with the same positions and nearly the same steps (8,288 against
+  8,279). Training each target at all 16 context lengths is as good as
+  seeing the corpus 16 times.
+- **The more sharing a plan keeps, the worse it scores.** With equal steps
+  and equal mean size, keeping 12% of the sharing gives 4.83, 65% 5.39,
+  88% 5.86 and 97% 6.34.
+- **Equal sizes fix the size half and leave the grouping half.** At equal
+  sizes, grouping costs 0.27 nats (4.83 → 6.34). pd=3's unequal sizes on
+  top of that grouping cost 0.20 more (6.34 → 7.76). In follow-up 1, in the
+  other order, the two costs were 0.27 and 0.21 nats, so they roughly add.
+  Unequal sizes without grouping (`mbu3`, 6.33) cost the same as grouping
+  at equal sizes (`tq1338`, 6.34).
+- **No point on the curve pays.** `tq84` computes 11.71M positions a pass
+  in a trie trainer and scores 5.39. Conventional epochs with that many
+  positions score about 5.0, interpolated between 8 and 16 epochs, and
+  that is before the trie trainer's per-position cost (v2 is about 2.2×
+  slower per position than the PyTorch trainer). At the other end, if the
+  full sharing cost nothing in step quality, pd=3's 8.93M positions would
+  buy random-batch quality (4.83) where conventional training at that
+  compute scores about 5.10. That is a gain of about 0.05 nats. Keeping
+  even 65% of the sharing costs 0.11 nats (5.39 against 4.83).
+- **Why the gain is that small.** The trie's saving is a fixed ~8.2M
+  positions, about 7.7 per character, all from contexts shorter than about
+  12 characters: past that depth almost every context in the corpus is
+  distinct. So a step can share only where its contexts have a short
+  prefix in common. At longer context lengths the saving is a smaller
+  share of the cost (1.32× at T=32, 1.06× at T=128), so the 0.05-nat
+  ceiling shrinks.
 
 ## Caveats
 
@@ -339,3 +459,13 @@ passes it scores 8.85 against 8.71.
   depths of its subtree. Rounding to whole windows gives 1,060,418 windows
   per pass, 801 more than one epoch; the extra ones come from a second
   random permutation.
+- Follow-up 2: one seed. `tq1338`'s best rate is the bottom of its grid.
+  The 16-epoch `cv` run tried only 0.006, the best rate at every other
+  budget.
+- The plan replays' training seconds in `result.json` include building the
+  plan (6–17 s). The replay trainer computes whole windows for every
+  step, so its times say nothing about what a trie trainer would take.
+  Positions per pass are the cost measure for the plans.
+- Follow-up 2 runs say `git_dirty: true` because of untracked files only
+  (weight files elsewhere in `rnd/`, the grid logs). The tracked tree was
+  `bf32854` exactly.
