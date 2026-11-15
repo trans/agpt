@@ -52,6 +52,13 @@ Config keys read:
     experimental.trie_plan_piece_max  (packed: most events in a piece or node chunk)
     experimental.trie_plan_steps      (packed: steps per pass)
     experimental.trie_plan_seed       (unit order / packing / chunking seed, default 1)
+    experimental.trie_targets    (true: each position's target is the trie's next-token
+                                  distribution for its context, n(c, .) / n(c) over
+                                  every event of the corpus, instead of the one token
+                                  that follows. Same expected gradient, lower variance;
+                                  a context seen once keeps its one-hot target. Not
+                                  with trie_plan. train_nll still reports the
+                                  one-hot loss.)
 """
 
 from __future__ import annotations
@@ -74,8 +81,46 @@ from agpt_ppl import AGPTModel, MGPT_MAGIC, build_vocab, load_model  # noqa: E40
 
 KNOWN_EXPERIMENTAL = {"minibatch_size", "micro_batch", "device", "max_corpus_chars", "step_events_file",
                       "window_stride", "trie_plan", "trie_plan_depth", "trie_plan_piece_max",
-                      "trie_plan_steps", "trie_plan_seed"}
+                      "trie_plan_steps", "trie_plan_seed", "trie_targets"}
 TOKEN_CAP = 131072  # tokens per forward/backward in trie-plan steps (memory bound only)
+
+
+class TrieTargets:
+    """The trie's next-token distribution for every event's context, on the device.
+
+    dist(starts) gives, for windows starting at `starts`, a [windows * T, V]
+    tensor (window-major, like the logits) whose row for event (i, L) is
+    n(c, .) / n(c), c = tokens[i:i+L], counted over every event of the
+    corpus. Summed over the occurrences of c, the one-hot targets equal
+    n(c) times this row, so for any sample of events the soft loss has the
+    hard loss's expected gradient: AGPT's node loss, at minibatch cadence.
+    """
+
+    def __init__(self, tokens, n_starts, T, V, device):
+        import trie_plan as tp
+        t0 = time.perf_counter()
+        ctx, indptr, child, count = tp.context_targets(tokens.numpy(), n_starts, T, V)
+        self.n_ctx = indptr.size - 1
+        self.n_pairs = child.size
+        self.n_single = int((indptr[1:] - indptr[:-1] == 1).sum())
+        self.ctx = torch.from_numpy(ctx).to(device)
+        self.indptr = torch.from_numpy(indptr).to(device)
+        self.child = torch.from_numpy(child).to(device)
+        self.count = torch.from_numpy(count).to(device=device, dtype=torch.float32)
+        self.V, self.device = V, device
+        self.build_seconds = time.perf_counter() - t0
+
+    def dist(self, starts, dtype=torch.float32):
+        ids = self.ctx[:, starts].t().reshape(-1).long()
+        a = self.indptr[ids]
+        lens = self.indptr[ids + 1] - a
+        n = ids.numel()
+        row = torch.repeat_interleave(torch.arange(n, device=self.device), lens)
+        first = torch.cumsum(lens, 0) - lens
+        pidx = a[row] + torch.arange(row.numel(), device=self.device) - first[row]
+        out = torch.zeros(n, self.V, device=self.device, dtype=dtype)
+        out.index_put_((row, self.child[pidx].long()), self.count[pidx].to(dtype))
+        return out / out.sum(-1, keepdim=True)
 
 
 class TriePlanner:
@@ -272,6 +317,8 @@ def main():
         sys.exit("agpt_minibatch_train: trie_plan replaces minibatch_size, step_events_file and window_stride")
     if stride != 1 and step_sizes is not None:
         sys.exit("agpt_minibatch_train: give window_stride or step_events_file, not both")
+    if exp.get("trie_targets") and exp.get("trie_plan"):
+        sys.exit("agpt_minibatch_train: trie_targets is for minibatch training, not trie_plan")
     micro = min(batch, int(exp.get("micro_batch") or batch))
     device = torch.device(exp.get("device") or ("cuda" if torch.cuda.is_available() else "cpu"))
     save_path = mcfg["save_file"]
@@ -304,6 +351,7 @@ def main():
     model = AGPTModel(mc, sd, device="cpu").to(device)
     opt = torch.optim.Adam(model.parameters(), lr=lr, betas=(beta1, beta2), eps=eps)
     planner = TriePlanner(exp, tokens, n_starts, T) if exp.get("trie_plan") else None
+    targets = TrieTargets(tokens, n_starts, T, V, device) if exp.get("trie_targets") else None
     n_windows = n_starts // stride if stride > 1 else n_starts
     if planner is not None:
         steps_per_epoch = planner.steps_per_epoch
@@ -328,6 +376,9 @@ def main():
     if stride > 1:
         print(f"  window_stride {stride}: {n_windows} windows per epoch from a random offset each epoch, "
               f"targets_per_epoch={n_windows * T}", flush=True)
+    if targets is not None:
+        print(f"  trie_targets: {targets.n_ctx} contexts ({targets.n_single} seen once), "
+              f"{targets.n_pairs} (context, next) pairs, built in {targets.build_seconds:.1f}s", flush=True)
     if planner is not None:
         print(f"  trie_plan {planner.desc}: {planner.unit_sizes.size} units "
               f"({planner.tp.describe(planner.unit_sizes)}), built in {planner.build_seconds:.1f}s", flush=True)
@@ -408,6 +459,7 @@ def main():
             bounds = list(range(0, n_windows, batch)) + [n_windows]
         perm = perm.to(device)
         loss_sum = torch.zeros((), device=device)
+        soft_sum = torch.zeros((), device=device)
         model.train()
         for i0, i1 in zip(bounds[:-1], bounds[1:]):
             starts = perm[i0:i1]
@@ -420,8 +472,15 @@ def main():
                 part = starts[j:j + micro]
                 chunks = tokens_dev[part.view(-1, 1) + offsets]
                 logits = model(chunks[:, :T])
-                loss = F.cross_entropy(logits.reshape(-1, V), chunks[:, 1:].reshape(-1))
-                (loss * (part.numel() / nb)).backward()
+                if targets is None:
+                    loss = F.cross_entropy(logits.reshape(-1, V), chunks[:, 1:].reshape(-1))
+                    (loss * (part.numel() / nb)).backward()
+                else:
+                    logp = F.log_softmax(logits.reshape(-1, V), dim=-1)
+                    soft = -(targets.dist(part, logp.dtype) * logp).sum(-1).mean()
+                    (soft * (part.numel() / nb)).backward()
+                    soft_sum += soft.detach() * part.numel()
+                    loss = F.nll_loss(logp.detach(), chunks[:, 1:].reshape(-1))
                 loss_sum += loss.detach() * part.numel()
             opt.step()
             step += 1
@@ -430,7 +489,8 @@ def main():
         dt = time.perf_counter() - t0
         train_wall += dt
         nll = loss_sum.item() / bounds[-1]
-        print(f"  epoch {epoch} train_nll={nll:.6f} train_ppl={math.exp(nll):.4f} steps={step} "
+        soft_note = f" soft_ce={soft_sum.item() / bounds[-1]:.6f}" if targets is not None else ""
+        print(f"  epoch {epoch} train_nll={nll:.6f} train_ppl={math.exp(nll):.4f}{soft_note} steps={step} "
               f"lr_end={cur:.6g} wall={dt:.2f}s", flush=True)
         if epoch in checkpoints:
             p = epoch_checkpoint_path(save_path, epoch)

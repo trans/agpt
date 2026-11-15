@@ -172,6 +172,37 @@ def plan_cost(keys: np.ndarray, sw_step: np.ndarray, sw_i: np.ndarray, sw_bits: 
     return total
 
 
+def context_targets(tok: np.ndarray, n_starts: int, T: int, V: int):
+    """The trie's next-token counts for every event's context.
+
+    Returns ctx [T, n_starts] int32, the context id of event (i, L) at
+    ctx[L-1, i], and a CSR table over context ids: indptr int64, child uint8,
+    count int32, listing for each context every token that follows it at
+    some event (j, L) and how often. These are the trie nodes' child counts:
+    the node of context c has n(c, a) = count of child a. A context seen once
+    lists one child, its own target, with count 1.
+    """
+    if V > 256:
+        raise ValueError(f"context_targets: vocab {V} does not fit uint8")
+    keys = prefix_keys(tok, n_starts, T)
+    t = tok.astype(np.int64)
+    ctx = np.empty((T, n_starts), dtype=np.int32)
+    per_ctx, child, count = [], [], []
+    base = 0
+    for L in range(1, T + 1):
+        _, inv = np.unique(keys[L - 1], return_inverse=True)
+        nctx = int(inv.max()) + 1
+        ctx[L - 1] = inv + base
+        pk = inv.astype(np.int64) * V + t[L:L + n_starts]
+        up, pc = np.unique(pk, return_counts=True)
+        per_ctx.append(np.bincount(up // V, minlength=nctx))
+        child.append((up % V).astype(np.uint8))
+        count.append(pc.astype(np.int32))
+        base += nctx
+    indptr = np.r_[0, np.cumsum(np.concatenate(per_ctx))].astype(np.int64)
+    return ctx, indptr, np.concatenate(child), np.concatenate(count)
+
+
 def describe(sizes: np.ndarray) -> str:
     q = np.percentile(sizes, [10, 50, 90, 99])
     return (f"n={sizes.size} mean={sizes.mean():.0f} p10={q[0]:.0f} median={q[1]:.0f} "

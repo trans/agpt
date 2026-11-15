@@ -27,7 +27,9 @@ ARMS = {"agpt": "AGPT pd=1 (65 steps/pass)", "mb": "minibatch 128 (8,279 steps/p
         "tp3": "replay of AGPT pd=3 + crown plan, shuffled (12,675 steps/pass)",
         "tq1338": "packed AGPT plan, pieces <= 1338 (12,675 equal steps, 97% sharing)",
         "tq335": "packed AGPT plan, pieces <= 335 (12,675 equal steps, 88% sharing)",
-        "tq84": "packed AGPT plan, pieces <= 84 (12,675 equal steps, 65% sharing)"}
+        "tq84": "packed AGPT plan, pieces <= 84 (12,675 equal steps, 65% sharing)",
+        "cvt": "conventional epochs with trie targets (518 steps/epoch; 'passes' = epochs)",
+        "mbt": "minibatch 128 with trie targets (8,279 steps/pass)"}
 
 
 def load():

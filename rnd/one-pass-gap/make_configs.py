@@ -81,8 +81,12 @@ CADENCE = {"pd2c": ({1: [0.0015] + HI}, 2, False), "pd3c": ({1: PD3_E1}, 3, Fals
 # Second follow-up arms: {budget: lrs} and the experimental keys.
 NEXT = {
     "cv": ({1: [0.003, 0.006, 0.012, 0.024], 2: [0.003, 0.006, 0.012, 0.024], 4: [0.003, 0.006, 0.012],
-            8: [0.003, 0.006, 0.012], 16: [0.006]},
+            8: [0.003, 0.006, 0.012], 16: [0.003, 0.006, 0.012]},
            "  minibatch_size: 128\n  window_stride: 16\n"),
+    "cvt": ({1: [0.003, 0.006, 0.012, 0.024], 2: [0.003, 0.006, 0.012], 4: [0.003, 0.006, 0.012],
+             8: [0.003, 0.006, 0.012], 16: [0.003, 0.006, 0.012]},
+            "  minibatch_size: 128\n  window_stride: 16\n  trie_targets: true\n"),
+    "mbt": ({1: [0.003, 0.006, 0.012]}, "  minibatch_size: 128\n  trie_targets: true\n"),
     "tp3": ({1: [0.00075, 0.0015, 0.003]}, "  trie_plan: pd\n  trie_plan_depth: 3\n"),
     "tq1338": ({1: [0.0015, 0.003, 0.006]},
                "  trie_plan: packed\n  trie_plan_piece_max: 1338\n  trie_plan_steps: 12675\n"),
@@ -97,6 +101,9 @@ NEXT_DESC = {
     "tq1338": "packed AGPT plan: pieces <= 1338 events in 12,675 equal steps",
     "tq335": "packed AGPT plan: pieces <= 335 events in 12,675 equal steps",
     "tq84": "packed AGPT plan: pieces <= 84 events in 12,675 equal steps",
+    "cvt": "conventional epochs with trie targets (each position's target is the trie's next-character "
+           "distribution for its context)",
+    "mbt": "minibatch 128 over every window start with trie targets",
 }
 
 COMMON = """corpus:
@@ -204,7 +211,7 @@ def main():
         for epochs, lrs in grid.items():
             for lr in lrs:
                 slug = f"{arm}-e{epochs}-lr{lr:g}"
-                unit = "epoch(s)" if arm == "cv" else "pass(es)"
+                unit = "epoch(s)" if arm in ("cv", "cvt") else "pass(es)"
                 desc = (f"one-pass gap, next: {NEXT_DESC[arm]}, {epochs} {unit}, "
                         f"Adam lr {lr:g} warmup-cosine per step")
                 body = COMMON.format(trie="", epochs=epochs, lr=lr, train_extra="",
