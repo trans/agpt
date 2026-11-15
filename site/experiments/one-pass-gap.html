@@ -38,7 +38,7 @@
       </div>
     </section>
     <div class="shell experiment-main">
-      <section class="answer-panel" aria-labelledby="answer-heading"><span id="answer-heading" class="micro-label">THE ANSWER SO FAR</span><p>Far off, and the update count is only part of it. After one pass AGPT pd=1 scores rolling byte PPL 15.73; minibatch training scores 4.83 in 31 s, already better than AGPT&#x27;s 100-pass run, and 4.66 after two passes, better than AGPT&#x27;s best on record (4.764 after 625). More updates help AGPT a lot: one pass at pd=2 (1,463 updates) scores 9.65, pd=3 (12,675) 7.81 and pd=4 (58,721) 6.74. But random equal batches with the same update counts score 12.56, 5.18 and 4.83, and pd=4 takes 185 s a pass. At pd=3 the steps also match in average size; half the gap (0.27 of 0.48 nats) is the units&#x27; unequal sizes (random windows in batches of pd=3&#x27;s sizes score 6.33), and half is the trie&#x27;s grouping of each step by a shared prefix. Weighting units by mass (fire_norm sum) is worse (8.53). A conventional epoch, each character a target once (518 updates, 2 s), scores 6.94, better than a pd=3 pass, which computes 8.4 times as many positions; 8 conventional epochs, about a pd=3 pass&#x27;s compute, score 5.12. In equal steps, the more of the trie&#x27;s sharing a plan keeps, the worse it scores: 4.83 with 12% (random batches), 5.39 with 65%, 5.86 with 88%, 6.34 with 97%. Keeping 65% costs 0.11 nats, more than all of the sharing could save at this context length (about 0.05 nats at equal compute). AGPT&#x27;s statistics do help without its schedule. With the trie&#x27;s next-character distribution as each position&#x27;s target, in the same batches, conventional training gains about 0.025 nats at 1–8 epochs (6.94 → 6.77 after one, 5.12 → 5.00 after eight), worth 1.13–1.37× the training, and 0.014–0.017 nats at 16 epochs. The gain halves at 32–64-character windows (about 0.013 nats) and is gone at 128: contexts stop repeating at about 12 characters. AGPT&#x27;s equivalence holds: with an fp32 cache and TF32 off, v2&#x27;s per-unit gradients match a float64 PyTorch transformer as closely as float32 PyTorch does, and replays with v2&#x27;s units, order and events reproduce its runs within 0.4% (pd=1 15.72 against 15.73, pd=3 7.80 against 7.81). The normal v2 build&#x27;s bf16 cache and TF32 put 1–4% errors into its unit gradients, up to 67% in some small units. What grouping costs is learning from contexts longer than a few characters. One seed; 188 runs.</p></section>
+      <section class="answer-panel" aria-labelledby="answer-heading"><span id="answer-heading" class="micro-label">THE ANSWER SO FAR</span><p>Far off, and the update count is only part of it. After one pass AGPT pd=1 scores rolling byte PPL 15.73; minibatch training scores 4.83 in 31 s, already better than AGPT&#x27;s 100-pass run, and 4.66 after two passes, better than AGPT&#x27;s best on record (4.764 after 625). More updates help AGPT a lot: one pass at pd=2 (1,463 updates) scores 9.65, pd=3 (12,675) 7.81 and pd=4 (58,721) 6.74. But random equal batches with the same update counts score 12.56, 5.18 and 4.83, and pd=4 takes 185 s a pass. At pd=3 the steps also match in average size; half the gap (0.27 of 0.48 nats) is the units&#x27; unequal sizes (random windows in batches of pd=3&#x27;s sizes score 6.33), and half is the trie&#x27;s grouping of each step by a shared prefix. Weighting units by mass (fire_norm sum) is worse (8.53). A conventional epoch, each character a target once (518 updates, 2 s), scores 6.94, better than a pd=3 pass, which computes 8.4 times as many positions; 8 conventional epochs, about a pd=3 pass&#x27;s compute, score 5.12. In equal steps, the more of the trie&#x27;s sharing a plan keeps, the worse it scores: 4.83 with 12% (random batches), 5.39 with 65%, 5.86 with 88%, 6.34 with 97%. Keeping 65% costs 0.11 nats, more than all of the sharing could save at this context length (about 0.05 nats at equal compute). AGPT&#x27;s statistics do help without its schedule. With the trie&#x27;s next-character distribution as each position&#x27;s target, in the same batches, conventional training gains about 0.025 nats at 1–8 epochs (6.94 → 6.77 after one, 5.12 → 5.00 after eight), worth 1.13–1.37× the training, and 0.014–0.017 nats at 16 epochs. The gain halves at 32–64-character windows (about 0.013 nats) and is gone at 128: contexts stop repeating at about 12 characters. AGPT&#x27;s equivalence holds: with an fp32 cache and TF32 off, v2&#x27;s per-unit gradients match a float64 PyTorch transformer as closely as float32 PyTorch does, and replays with v2&#x27;s units, order and events reproduce its runs within 0.4% (pd=1 15.72 against 15.73, pd=3 7.80 against 7.81). The normal v2 build&#x27;s bf16 cache and TF32 put 1–4% errors into its unit gradients, up to 67% in some small units. At equal loss AGPT&#x27;s plans lag random batches only at the shortest contexts (a unit&#x27;s step gives a context the same weight however common it is), about 0.03 of pd=3&#x27;s 0.48 nats. One seed; 188 runs.</p></section>
 
       <section class="experiment-meta" aria-label="Experiment connections">
         <div><span class="micro-label">TOPICS</span><div class="meta-links"><a class="tag-link" href="index.html?tag=one-pass">one-pass</a><a class="tag-link" href="index.html?tag=baseline">baseline</a><a class="tag-link" href="index.html?tag=cadence">cadence</a><a class="tag-link" href="index.html?tag=optimizer">optimizer</a><a class="tag-link" href="index.html?tag=partition-depth">partition-depth</a></div></div>
@@ -927,12 +927,12 @@ implementation. Trainer options <code>wrap_tail</code> (v2's events),
 <code>trie_plan_order_file</code> (v2's units in v2's order, from a dump's
 <code>units.tsv</code>, checked unit by unit against the plan's event counts) and
 <code>log_step_loss</code>. Arms <code>tp1x</code> (pd=1) and <code>tp3x</code> (pd=3 + crown, shuffled),
-run with v2's orders in <code>v2_units/</code>. The dumps' unit order is the order
+run with v2's orders in <a href="https://github.com/trans/agpt/tree/main/rnd/one-pass-gap/v2_units"><code>v2_units/</code></a>. The dumps' unit order is the order
 the original runs trained in: both sequences match their <code>train.log</code>s
 unit for unit.</p>
-<p>The work ran in slot 45 (<a href="https://github.com/trans/agpt/blob/main/rnd/one-pass-gap/run_emulation.sh"><code>run_emulation.sh</code></a>, then <code>extra_dumps.sh</code>):
+<p>The work ran in slot 45 (<a href="https://github.com/trans/agpt/blob/main/rnd/one-pass-gap/run_emulation.sh"><code>run_emulation.sh</code></a>, then <a href="https://github.com/trans/agpt/blob/main/rnd/one-pass-gap/extra_dumps.sh"><code>extra_dumps.sh</code></a>):
 twelve frozen dumps, 7 replay runs. Comparisons on CPU afterwards;
-<code>grad_compare.json</code> has every summary.</p>
+<a href="https://github.com/trans/agpt/blob/main/rnd/one-pass-gap/grad_compare.json"><code>grad_compare.json</code></a> has every summary.</p>
 <h4 id="gradients-at-frozen-weights">Gradients at frozen weights</h4>
 <p>Relative error of v2's per-unit gradient against float64 PyTorch: median
 and worst unit, and the lowest cosine. Weights: the seed, and after 16
@@ -1087,7 +1087,7 @@ values leave mostly rounding in it.</p>
 </tr>
 </tbody>
 </table>
-<p>Step by step (<code>step_losses.py</code>): the pd=1 losses agree to 1e-4 at the first
+<p>Step by step (<a href="https://github.com/trans/agpt/blob/main/rnd/one-pass-gap/step_losses.py"><code>step_losses.py</code></a>): the pd=1 losses agree to 1e-4 at the first
 step (the normal build's forward rounding) and stay within 7e-3 (2e-2 at
 lr 0.024). The pd=3 runs drift apart as chaotic runs do: the median gap is
 1e-3 over the first 100 steps and 2–4e-2 after 1,000. Single small units
@@ -1097,11 +1097,12 @@ differ by up to 3 nats once the trajectories have parted, but the last
 <p>The user read these results (the math holds, so the schedule is what
 costs) as learning by contrast. A step whose windows share a prefix has no
 contrast at the root, so the root region would change slowly while the
-leaves are updated often. If so, against random batches
-with the same steps, the grouped runs should lag most at short contexts.
-Held-out loss by context length (<code>depth_loss.py</code>, every window start in
-the held-out chunks, best-rate run of each arm), gap in nats to the
-random-batch run with the same step count:</p>
+leaves are updated often. If so, the grouped runs should be furthest
+behind at the shortest contexts.</p>
+<p><strong>At equal steps the gap grows with context length, but that says
+nothing about grouping.</strong> Held-out loss by context length
+(<a href="https://github.com/trans/agpt/blob/main/rnd/one-pass-gap/depth_loss.py"><code>depth_loss.py</code></a>, every window start in the held-out chunks, best-rate run
+of each arm), gap in nats to the random-batch run with the same steps:</p>
 <table>
 <thead>
 <tr>
@@ -1140,17 +1141,6 @@ random-batch run with the same step count:</p>
 <td style="text-align:right">0.31</td>
 </tr>
 <tr>
-<td>packed, 88% sharing (12,675)</td>
-<td><code>mb84</code></td>
-<td style="text-align:right">0.03</td>
-<td style="text-align:right">0.09</td>
-<td style="text-align:right">0.14</td>
-<td style="text-align:right">0.20</td>
-<td style="text-align:right">0.22</td>
-<td style="text-align:right">0.22</td>
-<td style="text-align:right">0.23</td>
-</tr>
-<tr>
 <td>packed, 65% sharing (12,675)</td>
 <td><code>mb84</code></td>
 <td style="text-align:right">0.02</td>
@@ -1160,17 +1150,6 @@ random-batch run with the same step count:</p>
 <td style="text-align:right">0.13</td>
 <td style="text-align:right">0.12</td>
 <td style="text-align:right">0.13</td>
-</tr>
-<tr>
-<td>random, pd=3's sizes (12,675)</td>
-<td><code>mb84</code></td>
-<td style="text-align:right">0.06</td>
-<td style="text-align:right">0.10</td>
-<td style="text-align:right">0.18</td>
-<td style="text-align:right">0.28</td>
-<td style="text-align:right">0.31</td>
-<td style="text-align:right">0.31</td>
-<td style="text-align:right">0.31</td>
 </tr>
 <tr>
 <td>AGPT pd=1 (65)</td>
@@ -1183,24 +1162,137 @@ random-batch run with the same step count:</p>
 <td style="text-align:right">0.23</td>
 <td style="text-align:right">0.23</td>
 </tr>
+<tr>
+<td>conventional epoch, random (518)</td>
+<td><code>mb84</code></td>
+<td style="text-align:right">0.08</td>
+<td style="text-align:right">0.14</td>
+<td style="text-align:right">0.27</td>
+<td style="text-align:right">0.38</td>
+<td style="text-align:right">0.41</td>
+<td style="text-align:right">0.41</td>
+<td style="text-align:right">0.42</td>
+</tr>
 </tbody>
 </table>
-<p>The gap is smallest at contexts of 1–2 characters and largest from about
-5 on, and the extra sharing (65% → 97%) adds 0.06 nats at one character
-and 0.18 from five on. So what grouping by prefix costs is learning from
-longer contexts, not from short ones. Counting updates makes the same
-point. In a pd=3 plan each context, shallow or deep, is trained in exactly
-one step per pass. Random batches train a shallow context in nearly every
-step but a deep context, which mostly occurs once, in one step too. The
-shallow contexts lose the most updates to grouping and lag least; the
-deep ones lose none and lag most. What differs for a deep context is the
-company it keeps in its one step: its subtree's siblings, all continuing
-the same prefix, against a cross-section of the corpus. So the contrast
-that matters is between distant parts of the context space within a step,
-which a grouped step lacks, much as a class-sorted batch does. The
-grouping that gives the trie its sharing is what removes it.
-Unequal sizes alone (random windows in pd=3's step sizes) cost about as
-much as 97% sharing does at equal sizes, also mostly at longer contexts.</p>
+<p>The last row has no grouping at all: random batches with fewer steps
+trail in the same shape. Any run that is behind overall is behind mostly
+at long contexts, because a model learns short-context statistics first
+(the random-batch runs that reach 1.46–1.57 at contexts 5–16 all score
+2.47–2.48 at one character). An earlier version of this section read the rising gap as
+grouping costing long-context learning; that reading was wrong.</p>
+<p><strong>At equal loss the AGPT plans lag at the root.</strong> <code>depth_matched.py</code>
+compares each one-pass run with the random-batch runs that reach the same
+loss at contexts 5–16: 20 runs of <code>mb</code>, <code>mb84</code>, <code>mb724</code>, <code>mbL</code> and <code>cv</code>,
+interpolated at the run's own loss there. Excess in nats at the best rate
+of each arm (the script prints every rate; they agree, the excess
+smaller at the highest rates), and what it adds to the rolling loss, which weights context
+lengths 1–16 equally:</p>
+<table>
+<thead>
+<tr>
+<th>Run</th>
+<th style="text-align:right">1 char</th>
+<th style="text-align:right">2</th>
+<th style="text-align:right">3</th>
+<th style="text-align:right">4</th>
+<th style="text-align:right">Rolling</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>AGPT pd=2 + crown</td>
+<td style="text-align:right">+0.26</td>
+<td style="text-align:right">+0.08</td>
+<td style="text-align:right">+0.02</td>
+<td style="text-align:right">+0.01</td>
+<td style="text-align:right">+0.023</td>
+</tr>
+<tr>
+<td>AGPT pd=3 + crown, shuffled</td>
+<td style="text-align:right">+0.32</td>
+<td style="text-align:right">+0.08</td>
+<td style="text-align:right">+0.04</td>
+<td style="text-align:right">+0.01</td>
+<td style="text-align:right">+0.027</td>
+</tr>
+<tr>
+<td>its exact replay (<code>tp3x</code>)</td>
+<td style="text-align:right">+0.33</td>
+<td style="text-align:right">+0.10</td>
+<td style="text-align:right">+0.06</td>
+<td style="text-align:right">+0.01</td>
+<td style="text-align:right">+0.031</td>
+</tr>
+<tr>
+<td>AGPT pd=3 + crown, v2's order</td>
+<td style="text-align:right">+0.51</td>
+<td style="text-align:right">+0.13</td>
+<td style="text-align:right">+0.05</td>
+<td style="text-align:right">+0.02</td>
+<td style="text-align:right">+0.045</td>
+</tr>
+<tr>
+<td>AGPT pd=4 + crown</td>
+<td style="text-align:right">+0.63</td>
+<td style="text-align:right">+0.23</td>
+<td style="text-align:right">+0.10</td>
+<td style="text-align:right">+0.03</td>
+<td style="text-align:right">+0.062</td>
+</tr>
+<tr>
+<td>packed, 97% sharing</td>
+<td style="text-align:right">+0.04</td>
+<td style="text-align:right">+0.04</td>
+<td style="text-align:right">+0.05</td>
+<td style="text-align:right">+0.02</td>
+<td style="text-align:right">+0.009</td>
+</tr>
+<tr>
+<td>packed, 65% sharing</td>
+<td style="text-align:right">+0.00</td>
+<td style="text-align:right">+0.02</td>
+<td style="text-align:right">+0.00</td>
+<td style="text-align:right">+0.01</td>
+<td style="text-align:right">+0.002</td>
+</tr>
+<tr>
+<td>random windows, pd=3's sizes (<code>mbu3</code>)</td>
+<td style="text-align:right">+0.01</td>
+<td style="text-align:right">+0.00</td>
+<td style="text-align:right">+0.02</td>
+<td style="text-align:right">+0.00</td>
+<td style="text-align:right">+0.002</td>
+</tr>
+</tbody>
+</table>
+<p>The pd=1 runs are less trained than every random-batch run on record (2.75
+at contexts 5–16 against at most 2.66), so they have no reference.</p>
+<p><strong>Why: a unit's step gives a context the same weight however common it
+is.</strong> Each step is the mean over its events, so over a pass a context gets
+the sum, over the steps that hold it, of its share of each step. In random
+batches that is its count over the batch size: weight in proportion to
+frequency, which is what the corpus loss asks for. In a pd≥2 plan each
+1-character context is a crown unit of its own, so it gets exactly one
+step. The commonest, a space (161,324 occurrences), gets 1 step at pd=3
+where random batches of the same size give it 121 steps' worth; 1 against
+14 at pd=2 and 1 against 559 at pd=4, and the lag grows in that order.
+The packed plans split a heavy node's events into chunks of at most P and
+spread them over the pass, which gives the 1-character contexts about 790
+steps' worth at P = 1,338, as random batches do (792), while keeping 97%
+of the sharing; their root lag is gone. Their chunks are still one
+context each, so what the root lacked was training weight, not variety
+within a step.</p>
+<p>At pd=1 there is no crown: a 1-character context is 1/16 of its unit, and
+its whole unit carries the same reweighting (windows that start with a
+space are 15% of the events and get 1/65 of the steps), so it falls on
+every depth of those windows, not on the root. At pd=0 the one step's
+weights are the frequencies exactly: full-batch training.</p>
+<p>The root lag is a small part of the gap: about 0.03 of the 0.48 nats
+between pd=3 and random batches. Outside the shortest contexts the
+profiles match, so the rest is slower learning at every context length,
+from the unequal unit sizes (<code>mbu3</code>, first follow-up) and the grouping
+by prefix (the packed plans, follow-up 2).</p>
 <h4 id="reading-5">Reading</h4>
 <ul>
 <li><strong>The equivalence holds.</strong> In full precision v2's gradients match a
@@ -1268,13 +1360,21 @@ budgets per window length. The T=64 gain is above the prediction by more
 than half; whether T=32 and T=64 really differ is within one seed's noise.</li>
 <li>Follow-up 5: the pd=3 comparisons cover 300 of 12,675 units, at two
 weight points. The dumps and comparisons are diagnostics outside the
-orchestrator (<code>grad_compare.json</code>, built from the tool's output); the
+orchestrator (<a href="https://github.com/trans/agpt/blob/main/rnd/one-pass-gap/grad_compare.json"><code>grad_compare.json</code></a>, built from the tool's output); the
 replays are orchestrator runs. The replays' training seconds include
 logging every step's loss and building the plan, so they say nothing
-about speed. The <code>v2_units/</code> orders were written in the slot before the
+about speed. The <a href="https://github.com/trans/agpt/tree/main/rnd/one-pass-gap/v2_units"><code>v2_units/</code></a> orders were written in the slot before the
 replays ran and committed after, so those runs' <code>meta.json</code> (<code>99b3387</code>,
 <code>git_dirty: true</code>) predates them; each replay's <code>train.log</code> records its
 order file's sha256, which matches the committed file.</li>
+<li>Loss by context length (<a href="https://github.com/trans/agpt/blob/main/rnd/one-pass-gap/depth_loss.py"><code>depth_loss.py</code></a>, <code>depth_matched.py</code>) is a CPU
+diagnostic on the runs' checkpoints, one seed. The matched-loss reference
+is linear interpolation between random-batch runs, with no run between
+1.69 and 1.87 at contexts 5–16 (where the pd=4 runs sit) or between 2.07
+and 2.52 (the pd=2 runs). The 1-character reference rises only 0.05 and
+0.11 across those gaps, so if it rises steadily the root excess is at
+least 0.60 at pd=4 and 0.18 at pd=2 whatever its shape there. The pd=3
+runs sit between reference runs 0.16 apart.</li>
 </ul>
 </article>
       <div class="record-end"><a href="https://github.com/trans/agpt/tree/main/rnd/one-pass-gap">View the experiment directory on GitHub ↗</a><a href="index.html">Browse all experiments →</a></div>

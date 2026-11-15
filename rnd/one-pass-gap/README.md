@@ -35,8 +35,9 @@ answer: >-
   TF32 off, v2's per-unit gradients match a float64 PyTorch transformer as closely as float32
   PyTorch does, and replays with v2's units, order and events reproduce its runs within 0.4%
   (pd=1 15.72 against 15.73, pd=3 7.80 against 7.81). The normal v2 build's bf16 cache and TF32
-  put 1–4% errors into its unit gradients, up to 67% in some small units. What grouping costs is
-  learning from contexts longer than a few characters. One seed; 188 runs.
+  put 1–4% errors into its unit gradients, up to 67% in some small units. At equal loss AGPT's
+  plans lag random batches only at the shortest contexts (a unit's step gives a context the same
+  weight however common it is), about 0.03 of pd=3's 0.48 nats. One seed; 188 runs.
 opened: 2026-11-14
 updated: 2026-11-15
 code: main
@@ -724,37 +725,78 @@ differ by up to 3 nats once the trajectories have parted, but the last
 The user read these results (the math holds, so the schedule is what
 costs) as learning by contrast. A step whose windows share a prefix has no
 contrast at the root, so the root region would change slowly while the
-leaves are updated often. If so, against random batches
-with the same steps, the grouped runs should lag most at short contexts.
-Held-out loss by context length (`depth_loss.py`, every window start in
-the held-out chunks, best-rate run of each arm), gap in nats to the
-random-batch run with the same step count:
+leaves are updated often. If so, the grouped runs should be furthest
+behind at the shortest contexts.
+
+**At equal steps the gap grows with context length, but that says
+nothing about grouping.** Held-out loss by context length
+(`depth_loss.py`, every window start in the held-out chunks, best-rate run
+of each arm), gap in nats to the random-batch run with the same steps:
 
 | Run (steps per pass) | vs | 1 char | 2 | 3 | 4 | 5 | 8 | 16 |
 |---|---|---:|---:|---:|---:|---:|---:|---:|
 | AGPT pd=3 + crown, shuffled (12,675) | `mb84` | 0.40 | 0.27 | 0.40 | 0.48 | 0.51 | 0.51 | 0.52 |
 | packed, 97% sharing (12,675) | `mb84` | 0.08 | 0.13 | 0.21 | 0.28 | 0.30 | 0.31 | 0.31 |
-| packed, 88% sharing (12,675) | `mb84` | 0.03 | 0.09 | 0.14 | 0.20 | 0.22 | 0.22 | 0.23 |
 | packed, 65% sharing (12,675) | `mb84` | 0.02 | 0.06 | 0.07 | 0.11 | 0.13 | 0.12 | 0.13 |
-| random, pd=3's sizes (12,675) | `mb84` | 0.06 | 0.10 | 0.18 | 0.28 | 0.31 | 0.31 | 0.31 |
 | AGPT pd=1 (65) | `mbL` | 0.17 | 0.22 | 0.23 | 0.24 | 0.23 | 0.23 | 0.23 |
+| conventional epoch, random (518) | `mb84` | 0.08 | 0.14 | 0.27 | 0.38 | 0.41 | 0.41 | 0.42 |
 
-The gap is smallest at contexts of 1–2 characters and largest from about
-5 on, and the extra sharing (65% → 97%) adds 0.06 nats at one character
-and 0.18 from five on. So what grouping by prefix costs is learning from
-longer contexts, not from short ones. Counting updates makes the same
-point. In a pd=3 plan each context, shallow or deep, is trained in exactly
-one step per pass. Random batches train a shallow context in nearly every
-step but a deep context, which mostly occurs once, in one step too. The
-shallow contexts lose the most updates to grouping and lag least; the
-deep ones lose none and lag most. What differs for a deep context is the
-company it keeps in its one step: its subtree's siblings, all continuing
-the same prefix, against a cross-section of the corpus. So the contrast
-that matters is between distant parts of the context space within a step,
-which a grouped step lacks, much as a class-sorted batch does. The
-grouping that gives the trie its sharing is what removes it.
-Unequal sizes alone (random windows in pd=3's step sizes) cost about as
-much as 97% sharing does at equal sizes, also mostly at longer contexts.
+The last row has no grouping at all: random batches with fewer steps
+trail in the same shape. Any run that is behind overall is behind mostly
+at long contexts, because a model learns short-context statistics first
+(the random-batch runs that reach 1.46–1.57 at contexts 5–16 all score
+2.47–2.48 at one character). An earlier version of this section read the rising gap as
+grouping costing long-context learning; that reading was wrong.
+
+**At equal loss the AGPT plans lag at the root.** `depth_matched.py`
+compares each one-pass run with the random-batch runs that reach the same
+loss at contexts 5–16: 20 runs of `mb`, `mb84`, `mb724`, `mbL` and `cv`,
+interpolated at the run's own loss there. Excess in nats at the best rate
+of each arm (the script prints every rate; they agree, the excess
+smaller at the highest rates), and what it adds to the rolling loss, which weights context
+lengths 1–16 equally:
+
+| Run | 1 char | 2 | 3 | 4 | Rolling |
+|---|---:|---:|---:|---:|---:|
+| AGPT pd=2 + crown | +0.26 | +0.08 | +0.02 | +0.01 | +0.023 |
+| AGPT pd=3 + crown, shuffled | +0.32 | +0.08 | +0.04 | +0.01 | +0.027 |
+| its exact replay (`tp3x`) | +0.33 | +0.10 | +0.06 | +0.01 | +0.031 |
+| AGPT pd=3 + crown, v2's order | +0.51 | +0.13 | +0.05 | +0.02 | +0.045 |
+| AGPT pd=4 + crown | +0.63 | +0.23 | +0.10 | +0.03 | +0.062 |
+| packed, 97% sharing | +0.04 | +0.04 | +0.05 | +0.02 | +0.009 |
+| packed, 65% sharing | +0.00 | +0.02 | +0.00 | +0.01 | +0.002 |
+| random windows, pd=3's sizes (`mbu3`) | +0.01 | +0.00 | +0.02 | +0.00 | +0.002 |
+
+The pd=1 runs are less trained than every random-batch run on record (2.75
+at contexts 5–16 against at most 2.66), so they have no reference.
+
+**Why: a unit's step gives a context the same weight however common it
+is.** Each step is the mean over its events, so over a pass a context gets
+the sum, over the steps that hold it, of its share of each step. In random
+batches that is its count over the batch size: weight in proportion to
+frequency, which is what the corpus loss asks for. In a pd≥2 plan each
+1-character context is a crown unit of its own, so it gets exactly one
+step. The commonest, a space (161,324 occurrences), gets 1 step at pd=3
+where random batches of the same size give it 121 steps' worth; 1 against
+14 at pd=2 and 1 against 559 at pd=4, and the lag grows in that order.
+The packed plans split a heavy node's events into chunks of at most P and
+spread them over the pass, which gives the 1-character contexts about 790
+steps' worth at P = 1,338, as random batches do (792), while keeping 97%
+of the sharing; their root lag is gone. Their chunks are still one
+context each, so what the root lacked was training weight, not variety
+within a step.
+
+At pd=1 there is no crown: a 1-character context is 1/16 of its unit, and
+its whole unit carries the same reweighting (windows that start with a
+space are 15% of the events and get 1/65 of the steps), so it falls on
+every depth of those windows, not on the root. At pd=0 the one step's
+weights are the frequencies exactly: full-batch training.
+
+The root lag is a small part of the gap: about 0.03 of the 0.48 nats
+between pd=3 and random batches. Outside the shortest contexts the
+profiles match, so the rest is slower learning at every context length,
+from the unequal unit sizes (`mbu3`, first follow-up) and the grouping
+by prefix (the packed plans, follow-up 2).
 
 ### Reading
 
@@ -830,3 +872,11 @@ much as 97% sharing does at equal sizes, also mostly at longer contexts.
   replays ran and committed after, so those runs' `meta.json` (`99b3387`,
   `git_dirty: true`) predates them; each replay's `train.log` records its
   order file's sha256, which matches the committed file.
+- Loss by context length (`depth_loss.py`, `depth_matched.py`) is a CPU
+  diagnostic on the runs' checkpoints, one seed. The matched-loss reference
+  is linear interpolation between random-batch runs, with no run between
+  1.69 and 1.87 at contexts 5–16 (where the pd=4 runs sit) or between 2.07
+  and 2.52 (the pd=2 runs). The 1-character reference rises only 0.05 and
+  0.11 across those gaps, so if it rises steadily the root excess is at
+  least 0.60 at pd=4 and 0.18 at pd=2 whatever its shape there. The pd=3
+  runs sit between reference runs 0.16 apart.
