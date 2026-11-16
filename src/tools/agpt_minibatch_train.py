@@ -386,6 +386,11 @@ def main():
         sys.exit("agpt_minibatch_train: grad_average_beta must be in [0, 1]")
     micro = min(batch, int(exp.get("micro_batch") or batch))
     device = torch.device(exp.get("device") or ("cuda" if torch.cuda.is_available() else "cpu"))
+    if device.type == "cpu":
+        # torch.optim.Adam's step checks for CUDA graph capture, which opens a CUDA
+        # context (~128 MiB of GPU memory) even for CPU tensors; hide the GPU first.
+        import os
+        os.environ["CUDA_VISIBLE_DEVICES"] = ""
     save_path = mcfg["save_file"]
 
     vocab_src = corpus.get("vocab_source") or corpus["path"]
