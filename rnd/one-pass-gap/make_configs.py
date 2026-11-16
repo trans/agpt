@@ -294,7 +294,7 @@ def main():
                 body = COMMON.format(trie="", epochs=epochs, lr=lr, train_extra="",
                                      experimental=exp + "  device: cuda\n")
                 if arm in NO_MOMENTUM:
-                    body = body.replace("    momentum_beta: 0.9\n", "    momentum_beta: 0\n")
+                    body = body.replace("    momentum_beta: 0.9\n", "    momentum_beta: 0.0\n")
                 text = (f'---\ndescription: "{desc}"\nexperiment: one-pass-gap\n'
                         f"run_slug: {slug}\n{body}")
                 (OUT / f"{slug}.yml").write_text(text)

@@ -18,7 +18,7 @@ train:
     name: adam
     lr: 0.0015
     beta: 0.999
-    momentum_beta: 0
+    momentum_beta: 0.0
   lr_schedule:
     name: warmup-cosine
     warmup_epochs: 0
