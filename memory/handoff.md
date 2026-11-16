@@ -1,6 +1,6 @@
 # Handoff: where AGPT stands
 
-*Updated 2026-11-15*
+*Updated 2026-11-16*
 
 ## Back on the main path (2026-11-14)
 
@@ -141,9 +141,24 @@
   `mbu1` (random windows, pd=1 sizes) 13.54: prefix grouping costs 0.150
   after one pass, like the GRU early. Random batches of 16k windows keep
   52.6% of the sharing themselves. No root lag. Sharing and variety go
-  together only in big steps (few updates). Next proposed to the user:
-  Adam momentum (`momentum_beta` 0.99) on v2 units, then SAG (stored unit
-  gradients) at pd=2. **Open: the user's choice.**
+  together only in big steps (few updates).
+- **Follow-up 7: SAG** (`5eab514`, slot 61, 9 runs, 2026-11-16). The user
+  asked what SAG can do and chose to start at the lowest pd because of the
+  table's memory (28 MB pd=1, 0.6 GB pd=2, 5.5 GB pd=3). `experimental.grad_average: sag | ema` in the minibatch
+  trainer's replay (`63bbb29`). Result: SAG on pd=1's units (momentum off)
+  scores 24.94 after one pass and 14.49 after eight, against AGPT's 15.73 and
+  8.71. Cause measured (`sag_staleness.py`, CPU, 20k chars): the table's
+  mean points uphill at the current weights on 45–53% of steps, while one
+  fresh unit's gradient has cosine +0.8 with the full gradient. The stored
+  gradients are a pass old, and with Adam a pass moves the weights a lot;
+  in one pass nothing is ever replaced. Mass-weighted momentum (`ema`)
+  was worse than plain steps too (CPU calibration). Conclusion: averaging
+  across steps can't buy back a grouped step's variety, so the big-step
+  trade-off stands. pd=2/3 not run. **Open: what next (the user's call).**
+- CPU PyTorch runs open a CUDA context (~128 MiB) at the first
+  `torch.optim.Adam` step (its graph-capture check). The minibatch trainer
+  now hides the GPU when on the CPU (`64ecd85`); for other CPU work, set
+  `CUDA_VISIBLE_DEVICES=` outside a slot.
 - `src/tools/agpt_minibatch_train.py` (`84054bc`) is the minibatch baseline
   as an orchestrator custom trainer, so baselines get `result.json` too.
 
