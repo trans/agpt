@@ -11,7 +11,8 @@ question: >-
   How does AGPT compare with conventional epochs, and how much of the trie's prefix sharing can
   a plan keep before the grouping it needs costs more than the sharing saves? Do AGPT's
   statistics help without its schedule, as trie targets in ordinary minibatch training, and at
-  longer windows? And does a standard transformer trained on AGPT's exact steps reproduce AGPT?
+  longer windows? Does a standard transformer trained on AGPT's exact steps reproduce AGPT? And
+  can averaging gradients across steps (SAG) give grouped steps the variety they lack?
 answer: >-
   Far off, and the update count is only part of it. After one pass AGPT pd=1 scores rolling byte
   PPL 15.73; minibatch training scores 4.83 in 31 s, already better than AGPT's 100-pass run, and
@@ -40,9 +41,14 @@ answer: >-
   weight however common it is), about 0.03 of pd=3's 0.48 nats. At pd=1's 65 steps, steps of
   equal mass score 14.01 against AGPT's 15.73 with all the sharing kept, and more, smaller pieces
   per step close most of the rest: 13.12 keeping 98% of the sharing, 12.66 keeping 84%, against
-  12.56 for random batches. Sharing and variety go together only in big steps. One seed; 212 runs.
+  12.56 for random batches. Sharing and variety go together only in big steps. Averaging across
+  steps does not buy the variety back: SAG on pd=1's units (each step recomputes one unit and
+  follows the mean of every unit's latest gradient) scores 24.94 after one pass and 14.49 after
+  eight, against AGPT's 15.73 and 8.71. The stored gradients are a pass old, and with Adam the
+  model moves a lot in a pass, so their mean points uphill at the current weights on half the
+  steps. One seed; 221 runs.
 opened: 2026-11-14
-updated: 2026-11-15
+updated: 2026-11-16
 code: main
 eval: canonical
 family: attention
@@ -63,7 +69,8 @@ ordinary minibatch training, was 21 runs in slot 41 (02:56–03:11 UTC).
 Follow-ups 4 (trie targets at longer windows, 36 runs) and 5 (AGPT emulated
 exactly by a standard transformer: frozen-weight gradient comparisons and 7
 replays) ran in slot 45 (07:50–08:35 UTC). Follow-up 6, equal-mass steps at
-pd=1's cadence, was 24 runs in slot 47 (15:36–16:00 UTC).
+pd=1's cadence, was 24 runs in slot 47 (15:36–16:00 UTC). Follow-up 7,
+SAG on pd=1's units, was 9 runs in slot 61 (2026-11-16, 15:55–16:11 UTC).
 
 ## Question
 
@@ -906,6 +913,109 @@ grids. Rolling byte PPL (fixed-window in brackets):
   8,279-step minibatch run's 4.83; this follow-up measures the trade-off,
   not a usable schedule.
 
+## Follow-up 7: stochastic average gradient on AGPT's units (2026-11-16)
+
+Follow-up 6 left the question of how to share without giving up random
+order. Within a step, sharing and variety go together only in big steps.
+The candidate across steps was SAG, the stochastic average gradient (Le
+Roux, Schmidt and Bach, 2012). It keeps every unit's latest gradient, and
+each step recomputes one unit (shared, as AGPT does) and moves along the
+mean of them all. The user asked what SAG can do, and to start with the
+smallest plan, since the table holds one gradient per unit: 28 MB at pd=1,
+0.6 GB at pd=2, 5.5 GB at pd=3.
+
+**Method.** `experimental.grad_average: sag` in the minibatch trainer's
+plan replay (`agpt_minibatch_train.py`). A table on the host keeps every
+unit's latest summed gradient and its events. Each step recomputes its
+unit, replaces the unit's row, and gives Adam the sum of the rows over the
+sum of their events instead of the unit's own event-mean gradient. So
+every step moves along the mass-weighted mean over every unit seen so far,
+each gradient taken at the weights it was computed at. In the first pass,
+units not yet reached are left out. `grad_average: ema` (no table) is
+mass-weighted momentum: D = βD + G, M = βM + E, and Adam gets D / M.
+Checked on the first 20k characters of the training split: with lr 0, the
+SAG direction after one pass equals the full-batch gradient (norm 2.71805
+both) and stays fixed through pass 2, and `ema` with β 0 reproduces the
+plain replay.
+
+**Calibration** (CPU, the same 20k characters, 58 units a pass, train
+loss, direct trainer runs, not orchestrator runs). After 8 passes, plain
+unit steps reach 1.960 (best of 3 rates). SAG reaches 2.755 with Adam's
+momentum at 0.9 and 2.338 with it off. Mass-weighted momentum reaches 2.271
+at β 0.9 and 2.795 at β 0.99. After 64 passes, plain steps are at 0.936
+and SAG with momentum off at 1.837. So `sg1` runs with Adam's momentum off.
+
+**Arm** `sg1` (`make_configs.py`, `run_sag.sh`; 9 runs in slot 61,
+15:55–16:11 UTC): v2's pd=1 plan in v2's order over v2's events, as
+`tp1x`, with SAG and Adam `momentum_beta` 0. It ran at 1 pass (lr
+0.00075–0.006) and 8 passes (0.000375–0.006). The baselines are the first
+grid's `agpt` (v2, same plan and order; `tp1x` reproduced it within 0.02)
+and `mbL` (random equal batches, 65 steps a pass). Rolling byte PPL, with
+fixed-window PPL in brackets, at each arm's best rate:
+
+| 65 steps a pass | 1 pass | 8 passes |
+|---|---|---|
+| AGPT pd=1 (`agpt`) | 15.73 (15.66), lr 0.012 | 8.71 (8.46), lr 0.006 |
+| SAG on its units (`sg1`) | 24.94 (25.16), lr 0.0015 | 14.49 (14.45), lr 0.00075 |
+| random equal batches (`mbL`) | 12.56 (12.50), lr 0.006 | 5.67 (5.17), lr 0.012 |
+
+SAG's best rates are inside their grids, at an eighth of AGPT's.
+
+**Why** (`sag_staleness.py`, output in `sag_staleness.json`; a CPU
+diagnostic outside the orchestrator). It used the same 20k characters, a
+constant rate, plain steps at 0.006 with momentum 0.9, SAG at 0.0015 with
+momentum off, and the same unit order. At every step it computes the
+full-batch gradient at the current weights and its cosine with the
+direction Adam was given:
+
+| Run | Pass | Mean cosine, by quarter of the pass | Steps pointing uphill |
+|---|---|---|---:|
+| plain (one unit's gradient) | 1 | +0.72, +0.71, +0.60, +0.60 | 0% |
+| plain | 2 | +0.61, +0.56, +0.51, +0.63 | 0% |
+| SAG (the table's mean) | 1 | +0.31, +0.14, −0.09, +0.17 | 45% |
+| SAG | 2 | −0.03, −0.19, −0.11, +0.36 | 53% |
+
+In the SAG run, the one unit computed fresh at each step has a cosine of
++0.77 (pass 1) and +0.82 (pass 2) with the full gradient.
+
+### Reading
+
+- **SAG makes AGPT worse at every rate and both budgets.** After one pass
+  it scores 24.94 against 15.73, and after eight 14.49 against 8.71. That
+  falls between AGPT's one-pass and two-pass scores (15.73, 12.31).
+- **The stored gradients are a pass old, and the model moves a lot in a
+  pass.** A unit's row is refreshed once a pass, so the table's mean is a
+  gradient taken at weights up to a pass old. Early in training those
+  weights are somewhere else. At the current weights, the mean of every
+  unit's stored gradient points uphill on half the steps. One fresh unit's
+  gradient points along the true gradient (cosine about +0.8), so it is a
+  better estimate of the full gradient than all 58 stored ones. Following
+  a delayed gradient overshoots, as delayed feedback does. The only fix is
+  a lower rate, and at an eighth of AGPT's rate, 65 steps a pass learn
+  little.
+- **Adam keeps the table stale.** SAG's theory (a constant rate and linear
+  convergence on smooth convex sums) relies on steps that shrink with the
+  gradient. A pass then moves the weights less and less, and the table
+  catches up. Adam's steps keep their size until the schedule anneals
+  them, so each pass moves the weights about as far as the last. After 64
+  passes on the calibration corpus SAG was at 1.84 against 0.94. This
+  agrees with Defazio and Bottou (2019), who found variance reduction
+  ineffective for deep networks.
+- **In one pass there is nothing to replace.** Each unit is computed
+  once, so the table never holds a second version of any unit. What SAG
+  relies on, subtracting a unit's old gradient when it is recomputed,
+  never happens. One-pass SAG is a running mean of everything so far,
+  momentum without decay. Mass-weighted momentum with decay was also worse
+  than plain steps in the calibration.
+- **So averaging across steps does not buy back the variety a grouped
+  step lacks.** The variety has to be computed at the current weights.
+  Averaging over a few consecutive steps, as Adam's momentum does, helps
+  random batches and AGPT's units alike. Averaging over many brings in
+  gradients from weights the model has left. That leaves big steps, which
+  mean few updates, so follow-up 6's trade-off stands. pd=2 and pd=3 were
+  not run: their tables are larger, and their stored gradients are just
+  as stale, a pass of training each.
+
 ## Caveats
 
 - One seed. The seed weights are the AGPT record's; in June they slowed
@@ -969,3 +1079,14 @@ grids. Rolling byte PPL (fixed-window in brackets):
   runs sit between reference runs 0.16 apart.
 - Follow-up 6: one seed, four rates per arm. Positions per pass are
   computed for one packing (seed 1); each pass repacks.
+- Follow-up 7: one seed. `sg1` turns Adam's momentum off and its baseline
+  `agpt` keeps 0.9. In the calibration, SAG with momentum 0.9 was worse
+  (2.755 against 2.338), so this does not flatter the baseline. The
+  calibration and `sag_staleness.py` use a 20k-character prefix, where
+  the model memorizes (train loss below 1 after 64 passes). They explain
+  the runs but are not canonical numbers. The rates 0.00075 (both budgets)
+  and 0.000375 (8 passes) were added in the slot after the grid's bottom
+  rate won. Their configs were committed before they ran (`88e5818`,
+  `03c135a`). The runs' `meta.json` name `6aa2f94`, `88e5818` and
+  `03c135a`, which differ only in configs. The trainer is `64ecd85`'s in
+  all of them, and `git_dirty: true` is from untracked files.

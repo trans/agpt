@@ -4,10 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#101c1d">
-  <meta name="description" content="AGPT&#x27;s measuring stick is &quot;one epoch and done&quot;. How close does AGPT get to a conventional training run in one pass over Tiny Shakespeare, and in a few more, against ordinary minibatch Adam training of the same d64/L2 model from the same weights? Is AGPT&#x27;s deficit its update count: 65 per pass at pd=1, and more at pd=2–4 when the shallow targets are trained too? How does AGPT compare with conventional epochs, and how much of the trie&#x27;s prefix sharing can a plan keep before the grouping it needs costs more than the sharing saves? Do AGPT&#x27;s statistics help without its schedule, as trie targets in ordinary minibatch training, and at longer windows? And does a standard transformer trained on AGPT&#x27;s exact steps reproduce AGPT?">
+  <meta name="description" content="AGPT&#x27;s measuring stick is &quot;one epoch and done&quot;. How close does AGPT get to a conventional training run in one pass over Tiny Shakespeare, and in a few more, against ordinary minibatch Adam training of the same d64/L2 model from the same weights? Is AGPT&#x27;s deficit its update count: 65 per pass at pd=1, and more at pd=2–4 when the shallow targets are trained too? How does AGPT compare with conventional epochs, and how much of the trie&#x27;s prefix sharing can a plan keep before the grouping it needs costs more than the sharing saves? Do AGPT&#x27;s statistics help without its schedule, as trie targets in ordinary minibatch training, and at longer windows? Does a standard transformer trained on AGPT&#x27;s exact steps reproduce AGPT? And can averaging gradients across steps (SAG) give grouped steps the variety they lack?">
   <link rel="canonical" href="https://trans.github.io/agpt/experiments/one-pass-gap.html">
   <meta property="og:title" content="The one-pass gap (AGPT pd=1–4 vs ordinary minibatch training) · AGPT">
-  <meta property="og:description" content="AGPT&#x27;s measuring stick is &quot;one epoch and done&quot;. How close does AGPT get to a conventional training run in one pass over Tiny Shakespeare, and in a few more, against ordinary minibatch Adam training of the same d64/L2 model from the same weights? Is AGPT&#x27;s deficit its update count: 65 per pass at pd=1, and more at pd=2–4 when the shallow targets are trained too? How does AGPT compare with conventional epochs, and how much of the trie&#x27;s prefix sharing can a plan keep before the grouping it needs costs more than the sharing saves? Do AGPT&#x27;s statistics help without its schedule, as trie targets in ordinary minibatch training, and at longer windows? And does a standard transformer trained on AGPT&#x27;s exact steps reproduce AGPT?">
+  <meta property="og:description" content="AGPT&#x27;s measuring stick is &quot;one epoch and done&quot;. How close does AGPT get to a conventional training run in one pass over Tiny Shakespeare, and in a few more, against ordinary minibatch Adam training of the same d64/L2 model from the same weights? Is AGPT&#x27;s deficit its update count: 65 per pass at pd=1, and more at pd=2–4 when the shallow targets are trained too? How does AGPT compare with conventional epochs, and how much of the trie&#x27;s prefix sharing can a plan keep before the grouping it needs costs more than the sharing saves? Do AGPT&#x27;s statistics help without its schedule, as trie targets in ordinary minibatch training, and at longer windows? Does a standard transformer trained on AGPT&#x27;s exact steps reproduce AGPT? And can averaging gradients across steps (SAG) give grouped steps the variety they lack?">
   <meta property="og:url" content="https://trans.github.io/agpt/experiments/one-pass-gap.html">
   <meta property="og:image" content="https://trans.github.io/agpt/og-image.png">
   <meta property="og:type" content="website">
@@ -31,14 +31,14 @@
         <a class="back-link" href="index.html">← All experiments</a>
         <span class="section-number">THE RESEARCH RECORD / one-pass-gap</span>
         <h1>The one-pass gap (AGPT pd=1–4 vs ordinary minibatch training)</h1>
-        <p class="experiment-question">AGPT&#x27;s measuring stick is &quot;one epoch and done&quot;. How close does AGPT get to a conventional training run in one pass over Tiny Shakespeare, and in a few more, against ordinary minibatch Adam training of the same d64/L2 model from the same weights? Is AGPT&#x27;s deficit its update count: 65 per pass at pd=1, and more at pd=2–4 when the shallow targets are trained too? How does AGPT compare with conventional epochs, and how much of the trie&#x27;s prefix sharing can a plan keep before the grouping it needs costs more than the sharing saves? Do AGPT&#x27;s statistics help without its schedule, as trie targets in ordinary minibatch training, and at longer windows? And does a standard transformer trained on AGPT&#x27;s exact steps reproduce AGPT?</p>
+        <p class="experiment-question">AGPT&#x27;s measuring stick is &quot;one epoch and done&quot;. How close does AGPT get to a conventional training run in one pass over Tiny Shakespeare, and in a few more, against ordinary minibatch Adam training of the same d64/L2 model from the same weights? Is AGPT&#x27;s deficit its update count: 65 per pass at pd=1, and more at pd=2–4 when the shallow targets are trained too? How does AGPT compare with conventional epochs, and how much of the trie&#x27;s prefix sharing can a plan keep before the grouping it needs costs more than the sharing saves? Do AGPT&#x27;s statistics help without its schedule, as trie targets in ordinary minibatch training, and at longer windows? Does a standard transformer trained on AGPT&#x27;s exact steps reproduce AGPT? And can averaging gradients across steps (SAG) give grouped steps the variety they lack?</p>
         <div class="badge-row"><span class="badge badge-kind">experiment</span><span class="badge badge-status">concluded</span><span class="badge badge-outcome outcome-negative">negative</span><span class="badge badge-family">attention</span><span class="badge badge-eval">eval: canonical</span></div>
 
-        <div class="experiment-dates"><span>Opened <time datetime="2026-11-14">2026-11-14</time></span><span>Updated <time datetime="2026-11-15">2026-11-15</time></span></div>
+        <div class="experiment-dates"><span>Opened <time datetime="2026-11-14">2026-11-14</time></span><span>Updated <time datetime="2026-11-16">2026-11-16</time></span></div>
       </div>
     </section>
     <div class="shell experiment-main">
-      <section class="answer-panel" aria-labelledby="answer-heading"><span id="answer-heading" class="micro-label">THE ANSWER SO FAR</span><p>Far off, and the update count is only part of it. After one pass AGPT pd=1 scores rolling byte PPL 15.73; minibatch training scores 4.83 in 31 s, already better than AGPT&#x27;s 100-pass run, and 4.66 after two passes, better than AGPT&#x27;s best on record (4.764 after 625). More updates help AGPT a lot: one pass at pd=2 (1,463 updates) scores 9.65, pd=3 (12,675) 7.81 and pd=4 (58,721) 6.74. But random equal batches with the same update counts score 12.56, 5.18 and 4.83, and pd=4 takes 185 s a pass. At pd=3 the steps also match in average size; half the gap (0.27 of 0.48 nats) is the units&#x27; unequal sizes (random windows in batches of pd=3&#x27;s sizes score 6.33), and half is the trie&#x27;s grouping of each step by a shared prefix. Weighting units by mass (fire_norm sum) is worse (8.53). A conventional epoch, each character a target once (518 updates, 2 s), scores 6.94, better than a pd=3 pass, which computes 8.4 times as many positions; 8 conventional epochs, about a pd=3 pass&#x27;s compute, score 5.12. In equal steps, the more of the trie&#x27;s sharing a plan keeps, the worse it scores: 4.83 with 12% (random batches), 5.39 with 65%, 5.86 with 88%, 6.34 with 97%. Keeping 65% costs 0.11 nats, more than all of the sharing could save at this context length (about 0.05 nats at equal compute). AGPT&#x27;s statistics do help without its schedule. With the trie&#x27;s next-character distribution as each position&#x27;s target, in the same batches, conventional training gains about 0.025 nats at 1–8 epochs (6.94 → 6.77 after one, 5.12 → 5.00 after eight), worth 1.13–1.37× the training, and 0.014–0.017 nats at 16 epochs. The gain halves at 32–64-character windows (about 0.013 nats) and is gone at 128: contexts stop repeating at about 12 characters. AGPT&#x27;s equivalence holds: with an fp32 cache and TF32 off, v2&#x27;s per-unit gradients match a float64 PyTorch transformer as closely as float32 PyTorch does, and replays with v2&#x27;s units, order and events reproduce its runs within 0.4% (pd=1 15.72 against 15.73, pd=3 7.80 against 7.81). The normal v2 build&#x27;s bf16 cache and TF32 put 1–4% errors into its unit gradients, up to 67% in some small units. At equal loss AGPT&#x27;s plans lag random batches only at the shortest contexts (a unit&#x27;s step gives a context the same weight however common it is), about 0.03 of pd=3&#x27;s 0.48 nats. At pd=1&#x27;s 65 steps, steps of equal mass score 14.01 against AGPT&#x27;s 15.73 with all the sharing kept, and more, smaller pieces per step close most of the rest: 13.12 keeping 98% of the sharing, 12.66 keeping 84%, against 12.56 for random batches. Sharing and variety go together only in big steps. One seed; 212 runs.</p></section>
+      <section class="answer-panel" aria-labelledby="answer-heading"><span id="answer-heading" class="micro-label">THE ANSWER SO FAR</span><p>Far off, and the update count is only part of it. After one pass AGPT pd=1 scores rolling byte PPL 15.73; minibatch training scores 4.83 in 31 s, already better than AGPT&#x27;s 100-pass run, and 4.66 after two passes, better than AGPT&#x27;s best on record (4.764 after 625). More updates help AGPT a lot: one pass at pd=2 (1,463 updates) scores 9.65, pd=3 (12,675) 7.81 and pd=4 (58,721) 6.74. But random equal batches with the same update counts score 12.56, 5.18 and 4.83, and pd=4 takes 185 s a pass. At pd=3 the steps also match in average size; half the gap (0.27 of 0.48 nats) is the units&#x27; unequal sizes (random windows in batches of pd=3&#x27;s sizes score 6.33), and half is the trie&#x27;s grouping of each step by a shared prefix. Weighting units by mass (fire_norm sum) is worse (8.53). A conventional epoch, each character a target once (518 updates, 2 s), scores 6.94, better than a pd=3 pass, which computes 8.4 times as many positions; 8 conventional epochs, about a pd=3 pass&#x27;s compute, score 5.12. In equal steps, the more of the trie&#x27;s sharing a plan keeps, the worse it scores: 4.83 with 12% (random batches), 5.39 with 65%, 5.86 with 88%, 6.34 with 97%. Keeping 65% costs 0.11 nats, more than all of the sharing could save at this context length (about 0.05 nats at equal compute). AGPT&#x27;s statistics do help without its schedule. With the trie&#x27;s next-character distribution as each position&#x27;s target, in the same batches, conventional training gains about 0.025 nats at 1–8 epochs (6.94 → 6.77 after one, 5.12 → 5.00 after eight), worth 1.13–1.37× the training, and 0.014–0.017 nats at 16 epochs. The gain halves at 32–64-character windows (about 0.013 nats) and is gone at 128: contexts stop repeating at about 12 characters. AGPT&#x27;s equivalence holds: with an fp32 cache and TF32 off, v2&#x27;s per-unit gradients match a float64 PyTorch transformer as closely as float32 PyTorch does, and replays with v2&#x27;s units, order and events reproduce its runs within 0.4% (pd=1 15.72 against 15.73, pd=3 7.80 against 7.81). The normal v2 build&#x27;s bf16 cache and TF32 put 1–4% errors into its unit gradients, up to 67% in some small units. At equal loss AGPT&#x27;s plans lag random batches only at the shortest contexts (a unit&#x27;s step gives a context the same weight however common it is), about 0.03 of pd=3&#x27;s 0.48 nats. At pd=1&#x27;s 65 steps, steps of equal mass score 14.01 against AGPT&#x27;s 15.73 with all the sharing kept, and more, smaller pieces per step close most of the rest: 13.12 keeping 98% of the sharing, 12.66 keeping 84%, against 12.56 for random batches. Sharing and variety go together only in big steps. Averaging across steps does not buy the variety back: SAG on pd=1&#x27;s units (each step recomputes one unit and follows the mean of every unit&#x27;s latest gradient) scores 24.94 after one pass and 14.49 after eight, against AGPT&#x27;s 15.73 and 8.71. The stored gradients are a pass old, and with Adam the model moves a lot in a pass, so their mean points uphill at the current weights on half the steps. One seed; 221 runs.</p></section>
 
       <section class="experiment-meta" aria-label="Experiment connections">
         <div><span class="micro-label">TOPICS</span><div class="meta-links"><a class="tag-link" href="index.html?tag=one-pass">one-pass</a><a class="tag-link" href="index.html?tag=baseline">baseline</a><a class="tag-link" href="index.html?tag=cadence">cadence</a><a class="tag-link" href="index.html?tag=optimizer">optimizer</a><a class="tag-link" href="index.html?tag=partition-depth">partition-depth</a></div></div>
@@ -59,7 +59,8 @@ ordinary minibatch training, was 21 runs in slot 41 (02:56–03:11 UTC).
 Follow-ups 4 (trie targets at longer windows, 36 runs) and 5 (AGPT emulated
 exactly by a standard transformer: frozen-weight gradient comparisons and 7
 replays) ran in slot 45 (07:50–08:35 UTC). Follow-up 6, equal-mass steps at
-pd=1's cadence, was 24 runs in slot 47 (15:36–16:00 UTC).</p>
+pd=1's cadence, was 24 runs in slot 47 (15:36–16:00 UTC). Follow-up 7,
+SAG on pd=1's units, was 9 runs in slot 61 (2026-11-16, 15:55–16:11 UTC).</p>
 <h3 id="question">Question</h3>
 <p>AGPT's goal is a model that learns enough from one pass over a corpus to
 match a conventional training run, in less time. The record has AGPT's
@@ -1468,6 +1469,150 @@ keeps for free, and it grows with batch size.</li>
 8,279-step minibatch run's 4.83; this follow-up measures the trade-off,
 not a usable schedule.</li>
 </ul>
+<h3 id="follow-up-7-stochastic-average-gradient-on-agpts-units-2026-11-16">Follow-up 7: stochastic average gradient on AGPT's units (2026-11-16)</h3>
+<p>Follow-up 6 left the question of how to share without giving up random
+order. Within a step, sharing and variety go together only in big steps.
+The candidate across steps was SAG, the stochastic average gradient (Le
+Roux, Schmidt and Bach, 2012). It keeps every unit's latest gradient, and
+each step recomputes one unit (shared, as AGPT does) and moves along the
+mean of them all. The user asked what SAG can do, and to start with the
+smallest plan, since the table holds one gradient per unit: 28 MB at pd=1,
+0.6 GB at pd=2, 5.5 GB at pd=3.</p>
+<p><strong>Method.</strong> <code>experimental.grad_average: sag</code> in the minibatch trainer's
+plan replay (<code>agpt_minibatch_train.py</code>). A table on the host keeps every
+unit's latest summed gradient and its events. Each step recomputes its
+unit, replaces the unit's row, and gives Adam the sum of the rows over the
+sum of their events instead of the unit's own event-mean gradient. So
+every step moves along the mass-weighted mean over every unit seen so far,
+each gradient taken at the weights it was computed at. In the first pass,
+units not yet reached are left out. <code>grad_average: ema</code> (no table) is
+mass-weighted momentum: D = βD + G, M = βM + E, and Adam gets D / M.
+Checked on the first 20k characters of the training split: with lr 0, the
+SAG direction after one pass equals the full-batch gradient (norm 2.71805
+both) and stays fixed through pass 2, and <code>ema</code> with β 0 reproduces the
+plain replay.</p>
+<p><strong>Calibration</strong> (CPU, the same 20k characters, 58 units a pass, train
+loss, direct trainer runs, not orchestrator runs). After 8 passes, plain
+unit steps reach 1.960 (best of 3 rates). SAG reaches 2.755 with Adam's
+momentum at 0.9 and 2.338 with it off. Mass-weighted momentum reaches 2.271
+at β 0.9 and 2.795 at β 0.99. After 64 passes, plain steps are at 0.936
+and SAG with momentum off at 1.837. So <code>sg1</code> runs with Adam's momentum off.</p>
+<p><strong>Arm</strong> <code>sg1</code> (<a href="https://github.com/trans/agpt/blob/main/rnd/one-pass-gap/make_configs.py"><code>make_configs.py</code></a>, <a href="https://github.com/trans/agpt/blob/main/rnd/one-pass-gap/run_sag.sh"><code>run_sag.sh</code></a>; 9 runs in slot 61,
+15:55–16:11 UTC): v2's pd=1 plan in v2's order over v2's events, as
+<code>tp1x</code>, with SAG and Adam <code>momentum_beta</code> 0. It ran at 1 pass (lr
+0.00075–0.006) and 8 passes (0.000375–0.006). The baselines are the first
+grid's <code>agpt</code> (v2, same plan and order; <code>tp1x</code> reproduced it within 0.02)
+and <code>mbL</code> (random equal batches, 65 steps a pass). Rolling byte PPL, with
+fixed-window PPL in brackets, at each arm's best rate:</p>
+<table>
+<thead>
+<tr>
+<th>65 steps a pass</th>
+<th>1 pass</th>
+<th>8 passes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>AGPT pd=1 (<code>agpt</code>)</td>
+<td>15.73 (15.66), lr 0.012</td>
+<td>8.71 (8.46), lr 0.006</td>
+</tr>
+<tr>
+<td>SAG on its units (<code>sg1</code>)</td>
+<td>24.94 (25.16), lr 0.0015</td>
+<td>14.49 (14.45), lr 0.00075</td>
+</tr>
+<tr>
+<td>random equal batches (<code>mbL</code>)</td>
+<td>12.56 (12.50), lr 0.006</td>
+<td>5.67 (5.17), lr 0.012</td>
+</tr>
+</tbody>
+</table>
+<p>SAG's best rates are inside their grids, at an eighth of AGPT's.</p>
+<p><strong>Why</strong> (<code>sag_staleness.py</code>, output in <code>sag_staleness.json</code>; a CPU
+diagnostic outside the orchestrator). It used the same 20k characters, a
+constant rate, plain steps at 0.006 with momentum 0.9, SAG at 0.0015 with
+momentum off, and the same unit order. At every step it computes the
+full-batch gradient at the current weights and its cosine with the
+direction Adam was given:</p>
+<table>
+<thead>
+<tr>
+<th>Run</th>
+<th>Pass</th>
+<th>Mean cosine, by quarter of the pass</th>
+<th style="text-align:right">Steps pointing uphill</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>plain (one unit's gradient)</td>
+<td>1</td>
+<td>+0.72, +0.71, +0.60, +0.60</td>
+<td style="text-align:right">0%</td>
+</tr>
+<tr>
+<td>plain</td>
+<td>2</td>
+<td>+0.61, +0.56, +0.51, +0.63</td>
+<td style="text-align:right">0%</td>
+</tr>
+<tr>
+<td>SAG (the table's mean)</td>
+<td>1</td>
+<td>+0.31, +0.14, −0.09, +0.17</td>
+<td style="text-align:right">45%</td>
+</tr>
+<tr>
+<td>SAG</td>
+<td>2</td>
+<td>−0.03, −0.19, −0.11, +0.36</td>
+<td style="text-align:right">53%</td>
+</tr>
+</tbody>
+</table>
+<p>In the SAG run, the one unit computed fresh at each step has a cosine of
++0.77 (pass 1) and +0.82 (pass 2) with the full gradient.</p>
+<h4 id="reading-7">Reading</h4>
+<ul>
+<li><strong>SAG makes AGPT worse at every rate and both budgets.</strong> After one pass
+it scores 24.94 against 15.73, and after eight 14.49 against 8.71. That
+falls between AGPT's one-pass and two-pass scores (15.73, 12.31).</li>
+<li><strong>The stored gradients are a pass old, and the model moves a lot in a
+pass.</strong> A unit's row is refreshed once a pass, so the table's mean is a
+gradient taken at weights up to a pass old. Early in training those
+weights are somewhere else. At the current weights, the mean of every
+unit's stored gradient points uphill on half the steps. One fresh unit's
+gradient points along the true gradient (cosine about +0.8), so it is a
+better estimate of the full gradient than all 58 stored ones. Following
+a delayed gradient overshoots, as delayed feedback does. The only fix is
+a lower rate, and at an eighth of AGPT's rate, 65 steps a pass learn
+little.</li>
+<li><strong>Adam keeps the table stale.</strong> SAG's theory (a constant rate and linear
+convergence on smooth convex sums) relies on steps that shrink with the
+gradient. A pass then moves the weights less and less, and the table
+catches up. Adam's steps keep their size until the schedule anneals
+them, so each pass moves the weights about as far as the last. After 64
+passes on the calibration corpus SAG was at 1.84 against 0.94. This
+agrees with Defazio and Bottou (2019), who found variance reduction
+ineffective for deep networks.</li>
+<li><strong>In one pass there is nothing to replace.</strong> Each unit is computed
+once, so the table never holds a second version of any unit. What SAG
+relies on, subtracting a unit's old gradient when it is recomputed,
+never happens. One-pass SAG is a running mean of everything so far,
+momentum without decay. Mass-weighted momentum with decay was also worse
+than plain steps in the calibration.</li>
+<li><strong>So averaging across steps does not buy back the variety a grouped
+step lacks.</strong> The variety has to be computed at the current weights.
+Averaging over a few consecutive steps, as Adam's momentum does, helps
+random batches and AGPT's units alike. Averaging over many brings in
+gradients from weights the model has left. That leaves big steps, which
+mean few updates, so follow-up 6's trade-off stands. pd=2 and pd=3 were
+not run: their tables are larger, and their stored gradients are just
+as stale, a pass of training each.</li>
+</ul>
 <h3 id="caveats">Caveats</h3>
 <ul>
 <li>One seed. The seed weights are the AGPT record's; in June they slowed
@@ -1531,6 +1676,17 @@ least 0.60 at pd=4 and 0.18 at pd=2 whatever its shape there. The pd=3
 runs sit between reference runs 0.16 apart.</li>
 <li>Follow-up 6: one seed, four rates per arm. Positions per pass are
 computed for one packing (seed 1); each pass repacks.</li>
+<li>Follow-up 7: one seed. <code>sg1</code> turns Adam's momentum off and its baseline
+<code>agpt</code> keeps 0.9. In the calibration, SAG with momentum 0.9 was worse
+(2.755 against 2.338), so this does not flatter the baseline. The
+calibration and <code>sag_staleness.py</code> use a 20k-character prefix, where
+the model memorizes (train loss below 1 after 64 passes). They explain
+the runs but are not canonical numbers. The rates 0.00075 (both budgets)
+and 0.000375 (8 passes) were added in the slot after the grid's bottom
+rate won. Their configs were committed before they ran (<code>88e5818</code>,
+<code>03c135a</code>). The runs' <code>meta.json</code> name <code>6aa2f94</code>, <code>88e5818</code> and
+<code>03c135a</code>, which differ only in configs. The trainer is <code>64ecd85</code>'s in
+all of them, and <code>git_dirty: true</code> is from untracked files.</li>
 </ul>
 </article>
       <div class="record-end"><a href="https://github.com/trans/agpt/tree/main/rnd/one-pass-gap">View the experiment directory on GitHub ↗</a><a href="index.html">Browse all experiments →</a></div>

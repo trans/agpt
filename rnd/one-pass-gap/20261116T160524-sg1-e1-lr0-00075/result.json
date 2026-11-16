@@ -1,0 +1,38 @@
+{
+  "run_id": "20261116T160524-sg1-e1-lr0-00075",
+  "experiment": "one-pass-gap",
+  "wall_seconds": 53.255392653,
+  "train_wall_seconds": 25.428153535,
+  "convert_wall_seconds": 4.977010955,
+  "eval_wall_seconds": 18.68726656,
+  "started_utc": "2026-11-16T16:05:24Z",
+  "ended_utc": "2026-11-16T16:06:17Z",
+  "trainer": "src/tools/agpt_minibatch_train.py",
+  "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+  "eval": {
+    "split": "multi-chunk-heldout",
+    "source_path": null,
+    "source_sha256": null,
+    "chunks_dir": "data/.splits/4fa9aec1db6b3aea/heldout_chunks",
+    "benchmark": null,
+    "task_name": "sg1-e1-lr0-00075_holdout"
+  },
+  "metrics": {
+    "lm_eval_rolling_word_perplexity": 51992281.90214028,
+    "lm_eval_rolling_byte_perplexity": 25.790052956773323,
+    "lm_eval_rolling_bits_per_byte": 4.68874283041836,
+    "agpt_fixed_token_perplexity": 26.002539970046122
+  },
+  "checkpoint_sha": "b4dfe2f57ecc0430335a40d3d16a369c0262fbcf32177b6720eee7465b98a4ed",
+  "checkpoint_results": null,
+  "experimental_used": {
+    "src/tools/agpt_minibatch_train.py": [
+      "device",
+      "grad_average",
+      "trie_plan",
+      "trie_plan_depth",
+      "trie_plan_order_file",
+      "wrap_tail"
+    ]
+  }
+}
