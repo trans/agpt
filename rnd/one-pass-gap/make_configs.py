@@ -152,7 +152,7 @@ NEXT = {
     "mbu1": ({1: [0.003, 0.006, 0.012, 0.024]},
              "  step_events_file: rnd/one-pass-gap/pd1_unit_events.txt\n  micro_batch: 2048\n"),
     # Follow-up 7: SAG on v2's pd=1 units (Adam momentum off, see make_body)
-    "sg1": ({1: [0.00075, 0.0015, 0.003, 0.006], 8: [0.00075, 0.0015, 0.003, 0.006]},
+    "sg1": ({1: [0.00075, 0.0015, 0.003, 0.006], 8: [0.000375, 0.00075, 0.0015, 0.003, 0.006]},
             "  trie_plan: pd\n  trie_plan_depth: 1\n  trie_plan_order_file: rnd/one-pass-gap/v2_units/pd1.tsv\n"
             "  wrap_tail: true\n  grad_average: sag\n"),
 }
