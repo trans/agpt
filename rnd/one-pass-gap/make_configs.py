@@ -74,6 +74,18 @@ Sixth follow-up (2026-11-15), equal-mass steps at pd=1's cadence (65 steps):
 - mbu1: random windows in batches with pd=1's 65 unit sizes
         (pd1_unit_events.txt, from v2_units/pd1.tsv), shuffled each pass.
 
+Seventh follow-up (2026-11-16), stochastic average gradient (SAG) on AGPT's units,
+the smallest plans first (the table holds one gradient per unit: 28 MB at pd=1,
+0.6 GB at pd=2, 5.5 GB at pd=3), through the minibatch trainer's replay:
+
+- sg1:  v2's pd=1 plan in v2's order over v2's events, as tp1x, with
+        experimental.grad_average sag: each step recomputes its unit and Adam gets
+        the mass-weighted mean of every unit's latest gradient. Adam's own momentum
+        is off (momentum_beta 0; on a 20k-character calibration it did better than
+        0.9). Baselines: agpt (v2, same plan and order; tp1x matched it to 0.02) and
+        mbL, at the same budgets.
+pd=2 (SAG and its shuffled replay without SAG) waits on pd=1's outcome.
+
 Each budget is its own run, so every run anneals its own schedule.
 Usage: python3 rnd/one-pass-gap/make_configs.py
 """
@@ -139,7 +151,12 @@ NEXT = {
               "  trie_plan: packed\n  trie_plan_piece_max: 84\n  trie_plan_steps: 65\n"),
     "mbu1": ({1: [0.003, 0.006, 0.012, 0.024]},
              "  step_events_file: rnd/one-pass-gap/pd1_unit_events.txt\n  micro_batch: 2048\n"),
+    # Follow-up 7: SAG on v2's pd=1 units (Adam momentum off, see make_body)
+    "sg1": ({1: [0.0015, 0.003, 0.006], 8: [0.0015, 0.003, 0.006]},
+            "  trie_plan: pd\n  trie_plan_depth: 1\n  trie_plan_order_file: rnd/one-pass-gap/v2_units/pd1.tsv\n"
+            "  wrap_tail: true\n  grad_average: sag\n"),
 }
+NO_MOMENTUM = {"sg1"}  # arms run with Adam momentum_beta 0
 NEXT_DESC = {
     "cv": "conventional epochs (non-overlapping windows from a random offset each epoch, 128 per step)",
     "tp3": "replay of AGPT's pd=3 + crown plan (12,675 units, one per step, shuffled)",
@@ -152,6 +169,8 @@ NEXT_DESC = {
     "pk1338": "packed AGPT plan at pd=1's cadence: pieces <= 1338 events in 65 equal steps",
     "pk84": "packed AGPT plan at pd=1's cadence: pieces <= 84 events in 65 equal steps",
     "mbu1": "minibatch Adam over random windows in batches with AGPT pd=1's 65 unit sizes (shuffled each pass)",
+    "sg1": "SAG on AGPT pd=1's units (v2's 65 units in v2's order over the trie's tail-wrapped windows; "
+           "Adam gets the mass-weighted mean of every unit's latest gradient, Adam momentum off)",
     "cvt": "conventional epochs with trie targets (each position's target is the trie's next-character "
            "distribution for its context)",
     "mbt": "minibatch 128 over every window start with trie targets",
@@ -274,6 +293,8 @@ def main():
                         f"Adam lr {lr:g} warmup-cosine per step")
                 body = COMMON.format(trie="", epochs=epochs, lr=lr, train_extra="",
                                      experimental=exp + "  device: cuda\n")
+                if arm in NO_MOMENTUM:
+                    body = body.replace("    momentum_beta: 0.9\n", "    momentum_beta: 0\n")
                 text = (f'---\ndescription: "{desc}"\nexperiment: one-pass-gap\n'
                         f"run_slug: {slug}\n{body}")
                 (OUT / f"{slug}.yml").write_text(text)

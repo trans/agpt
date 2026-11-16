@@ -69,6 +69,21 @@ Config keys read:
                                   plan with the same event count.)
     experimental.log_step_loss   (trie_plan only: print every step's event-mean loss, as
                                   v2 prints every unit's.)
+    experimental.grad_average    (trie_plan only: what Adam is given instead of the step's
+                                  own event-mean gradient.
+                                  `sag` (pd plans): stochastic average gradient. A table
+                                  keeps every unit's latest summed gradient and its events;
+                                  a step recomputes its unit, replaces the unit's row, and
+                                  passes Adam the sum of all rows over the sum of their
+                                  events: the mass-weighted mean over every unit seen so
+                                  far, each at the weights it was computed at. In the first
+                                  pass, units not yet reached are left out. The table is
+                                  float32 on the host (units x parameters x 4 bytes).
+                                  `ema`: no table. D = beta D + G, M = beta M + E, and Adam
+                                  gets D / M, where G and E are the step's summed gradient
+                                  and events: mass-weighted momentum. With beta 1 and each
+                                  unit once, it is the same as sag's first pass.)
+    experimental.grad_average_beta (ema only: beta, default 1.)
 """
 
 from __future__ import annotations
@@ -92,7 +107,7 @@ from agpt_ppl import AGPTModel, MGPT_MAGIC, build_vocab, load_model  # noqa: E40
 KNOWN_EXPERIMENTAL = {"minibatch_size", "micro_batch", "device", "max_corpus_chars", "step_events_file",
                       "window_stride", "trie_plan", "trie_plan_depth", "trie_plan_piece_max",
                       "trie_plan_steps", "trie_plan_seed", "trie_targets", "wrap_tail",
-                      "trie_plan_order_file", "log_step_loss"}
+                      "trie_plan_order_file", "log_step_loss", "grad_average", "grad_average_beta"}
 TOKEN_CAP = 131072  # tokens per forward/backward in trie-plan steps (memory bound only)
 
 
@@ -205,8 +220,12 @@ class TriePlanner:
         counts = np.bincount(sw_step.astype(np.int64) * nb + bucket, minlength=n_steps * nb)
         off = np.r_[0, np.cumsum(counts)].tolist()
         step_events = np.bincount(sw_step, weights=np.bitwise_count(sw_bits), minlength=n_steps)
+        unit_of_step = None
+        if self.kind == "pd":  # one unit per step: invert unit -> step
+            unit_of_step = np.empty(n_steps, dtype=np.int64)
+            unit_of_step[step_of_unit] = np.arange(n_steps)
         return dict(n_steps=n_steps, sw_i=sw_i, sw_bits=sw_bits, off=off, step_events=step_events.tolist(),
-                    cost=cost, pairs=int(sw_i.size), sizes=step_events)
+                    cost=cost, pairs=int(sw_i.size), sizes=step_events, unit_of_step=unit_of_step)
 
 
 def random_state_dict(d_model, n_heads, n_layers, d_ff, vocab_size, seed):
@@ -319,7 +338,8 @@ def main():
     if opt_cfg["name"] != "adam":
         sys.exit(f"agpt_minibatch_train: optimizer {opt_cfg['name']!r} not supported (adam only)")
     lr = float(opt_cfg["lr"])
-    beta1 = float(opt_cfg.get("momentum_beta") or 0.9)
+    # `or` would turn an explicit momentum_beta 0 into 0.9
+    beta1 = float(opt_cfg["momentum_beta"]) if opt_cfg.get("momentum_beta") is not None else 0.9
     beta2 = float(opt_cfg.get("beta") or 0.999)
     eps = float(opt_cfg.get("eps") or 1e-8)
     sched = tcfg.get("lr_schedule") or {}
@@ -351,6 +371,19 @@ def main():
     log_steps = bool(exp.get("log_step_loss"))
     if log_steps and not exp.get("trie_plan"):
         sys.exit("agpt_minibatch_train: log_step_loss is for trie_plan runs")
+    avg = exp.get("grad_average")
+    if avg is not None:
+        if avg not in ("sag", "ema"):
+            sys.exit(f"agpt_minibatch_train: grad_average {avg!r} not supported (sag | ema)")
+        if not exp.get("trie_plan"):
+            sys.exit("agpt_minibatch_train: grad_average is for trie_plan runs")
+        if avg == "sag" and exp["trie_plan"] != "pd":
+            sys.exit("agpt_minibatch_train: grad_average sag needs trie_plan pd (one unit per step)")
+    if "grad_average_beta" in exp and avg != "ema":
+        sys.exit("agpt_minibatch_train: grad_average_beta is for grad_average ema")
+    avg_beta = float(exp.get("grad_average_beta", 1.0))
+    if not 0.0 <= avg_beta <= 1.0:
+        sys.exit("agpt_minibatch_train: grad_average_beta must be in [0, 1]")
     micro = min(batch, int(exp.get("micro_batch") or batch))
     device = torch.device(exp.get("device") or ("cuda" if torch.cuda.is_available() else "cpu"))
     save_path = mcfg["save_file"]
@@ -422,6 +455,25 @@ def main():
     if planner is not None:
         print(f"  trie_plan {planner.desc}: {planner.unit_sizes.size} units "
               f"({planner.tp.describe(planner.unit_sizes)}), built in {planner.build_seconds:.1f}s", flush=True)
+    params = list(model.parameters())
+    n_params = sum(p.numel() for p in params)
+    if avg is not None:
+        # D (float64, on the device) is the sum of the summed unit gradients Adam's
+        # direction averages; M is their events. D / M goes to Adam in place of the
+        # step's own event-mean gradient.
+        avg_D = torch.zeros(n_params, dtype=torch.float64, device=device)
+        avg_M = 0.0
+        if avg == "sag":
+            n_units = planner.unit_sizes.size
+            sag_table = torch.zeros((n_units, n_params), dtype=torch.float32,
+                                    pin_memory=(device.type == "cuda"))
+            sag_mass = [0.0] * n_units  # 0: the unit has no row yet
+            print(f"  grad_average sag: table of {n_units} units x {n_params} floats "
+                  f"({sag_table.numel() * 4 / 2**20:.1f} MiB, host); Adam gets the mass-weighted mean of every "
+                  f"unit's latest summed gradient", flush=True)
+        else:
+            print(f"  grad_average ema: beta {avg_beta:g}; Adam gets (beta D + G) / (beta M + E), "
+                  f"mass-weighted momentum", flush=True)
 
     tokens_dev = tokens.to(device)
     offsets = torch.arange(T + 1, device=device).view(1, T + 1)
@@ -467,16 +519,48 @@ def main():
                         (ls / E).backward()
                         loss_sum += ls.detach()
                         step_loss += ls.detach().double()
+                avg_note = ""
+                if avg is not None:
+                    # the step's summed gradient G (p.grad holds G / E)
+                    G = torch.cat([(p.grad if p.grad is not None else torch.zeros_like(p)).reshape(-1)
+                                   for p in params]).float() * E
+                    if avg == "ema":
+                        avg_D.mul_(avg_beta).add_(G.double())
+                        avg_M = avg_beta * avg_M + E
+                    else:
+                        u = int(plan["unit_of_step"][s])
+                        if sag_mass[u] > 0:
+                            avg_D.sub_(sag_table[u].to(device).double())
+                        avg_D.add_(G.double())
+                        sag_table[u].copy_(G)
+                        avg_M += E - sag_mass[u]
+                        sag_mass[u] = E
+                    d = (avg_D / avg_M).float()
+                    o = 0
+                    for p in params:
+                        n = p.numel()
+                        if p.grad is None:
+                            p.grad = torch.empty_like(p)
+                        p.grad.copy_(d[o:o + n].view_as(p))
+                        o += n
+                    if log_steps:
+                        avg_note = f" avg_norm={d.norm().item():.6g} avg_events={avg_M:.0f}"
                 opt.step()
                 if log_steps:
-                    print(f"    step {step + 1} events={E:.0f} mean_loss={step_loss.item() / E:.6f} lr={cur:.6g}",
-                          flush=True)
+                    print(f"    step {step + 1} events={E:.0f} mean_loss={step_loss.item() / E:.6f} lr={cur:.6g}"
+                          + avg_note, flush=True)
                 step += 1
             if device.type == "cuda":
                 torch.cuda.synchronize()
             dt = time.perf_counter() - t0
             train_wall += dt
             nll = loss_sum.item() / float(sizes_np.sum())
+            if avg == "sag":
+                # re-sum D from the table each pass so float64 rounding cannot drift
+                acc = torch.zeros(n_params, dtype=torch.float64)
+                for r in range(0, sag_table.shape[0], 64):
+                    acc += sag_table[r:r + 64].double().sum(0)
+                avg_D.copy_(acc.to(device))
             del sw_i, sw_bits, plan
             print(f"  epoch {epoch} train_nll={nll:.6f} train_ppl={math.exp(nll):.4f} steps={step} "
                   f"lr_end={cur:.6g} wall={dt:.2f}s", flush=True)

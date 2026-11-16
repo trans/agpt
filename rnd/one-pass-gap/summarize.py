@@ -37,7 +37,10 @@ ARMS = {"agpt": "AGPT pd=1 (65 steps/pass)", "mb": "minibatch 128 (8,279 steps/p
         "pk16302": "packed AGPT plan at pd=1's cadence, pieces <= 16,302 (65 equal steps)",
         "pk1338": "packed AGPT plan at pd=1's cadence, pieces <= 1,338 (65 equal steps)",
         "pk84": "packed AGPT plan at pd=1's cadence, pieces <= 84 (65 equal steps)",
-        "mbu1": "random windows in batches with pd=1's unit sizes (65 steps/pass)"}
+        "mbu1": "random windows in batches with pd=1's unit sizes (65 steps/pass)",
+        "sg1": "SAG on AGPT pd=1's units, v2's order and events (65 steps/pass)",
+        "sg2": "SAG on AGPT pd=2 + crown's units, shuffled (1,463 steps/pass)",
+        "tp2": "replay of AGPT pd=2 + crown plan, shuffled, v2's events (1,463 steps/pass)"}
 for _T in (32, 64, 128):
     ARMS[f"cv{_T}"] = f"conventional epochs at seq_len {_T}, {2048 // _T} windows (518 steps/epoch)"
     ARMS[f"cvt{_T}"] = f"conventional epochs at seq_len {_T} with trie targets, {2048 // _T} windows (518 steps/epoch)"
