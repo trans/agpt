@@ -21,6 +21,16 @@ Attention grouping control; Proviso status table).
   passes 1–4 and are level from pass 16 (constant rate and cosine). So the
   user's suspicion that the prefix grouping costs something holds early in
   training (one-pass training's regime) and fades, as for the GRU.
+- **Next (the user asked for it on 2026-11-17, when there is a chance): check 3,
+  v2's fixed unit order at pd=1.** No v2 run at pd=1 has ever had
+  `experimental.unit_order_seed` set. The fixed-order arm already exists: the
+  `rnd/one-pass-gap` grid `agpt-e{1,2,4,8}-lr{0.003..0.024}` (v2's radix-id
+  order, warmup-cosine per step, 1 pass 15.734 at 0.012). The new arm is the
+  same configs with `unit_order_seed: 1`, plus seed 2 at the best rates: about
+  20 short runs, a few GPU minutes in a slot. It says how much of AGPT pd=1's
+  early cost (0.150 nats against size-matched random batches after one pass)
+  comes from the order rather than the grouping. Expect it to be small: at
+  pd=3 the order cost 0.024 nats.
 - **Proviso checks still open:** GRU seeds (check 1); v2's fixed unit order at
   pd=1 (check 3; at pd=3 it costs 0.024 nats after one pass); suffix units at
   pd=2/3 (check 4); interference between unit steps (check 6). The suffix arm's
