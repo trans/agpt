@@ -1,6 +1,6 @@
 # What AGPT's equivalences do and don't buy
 
-*Updated 2026-11-10*
+*Updated 2026-11-17*
 
 These lessons came from the optimizer and equivalence work. Check a new idea
 against them before writing any code.
@@ -50,10 +50,14 @@ against them before writing any code.
     a target-sorted batch. Their target skew (mean KL of a unit's targets from
     the corpus's) is 0.86 nats (context-tree, 2026-10-03 and 2026-11-10).
   - Prefix-trie units group by the oldest, least predictive character (skew
-    0.09). At an equal number of steps they train as well as shuffled
-    minibatches. This is why AGPT's partitioned training has worked.
+    0.09 at depth 8, 0.03 at 16). At an equal number of equal-sized steps they
+    trail shuffled minibatches early (GRU 0.13 nats at epoch 3; d64/L2
+    attention 0.09–0.28 nats in passes 1–4) and train as well from about epoch
+    30 (GRU) or pass 16 (attention). This is why AGPT's partitioned training
+    has worked, and the early cost is one part of its one-pass gap.
   - With the tree removed, the grouping alone costs about two thirds of the
-    suffix tree's pd=1 gap.
+    GRU's suffix-tree pd=1 gap; for attention, 0.91 nats after one pass and
+    0.59 after 16 (context-tree README, attention control, 2026-11-17).
   - Check any new partitioning's target skew, and its gradient cosine within
     units against across units.
 - **Under full-batch training, the tree is bookkeeping.**
