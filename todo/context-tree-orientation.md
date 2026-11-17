@@ -3,21 +3,26 @@
 ## Status
 
 **Called on 2026-11-10: a minor breakthrough, with a proviso to double-check
-and polish.** Idea from Thomas, 2026-10-03; Thomas called it.
+and polish.** Idea from Thomas, 2026-10-03; Thomas called it. Checked with an
+attention f_θ on 2026-11-17: it holds.
 
 The suffix tree loses, and the reason is the finding: the prefix trie we have
 always used is the right orientation for partitioned training. Its pd=1 units
-group contexts by the oldest, least predictive character, so they train as
-well as shuffled minibatches. Suffix-tree units group by the newest, most
-predictive character and are target-sorted batches. A no-trie control
-(2026-11-10) shows the grouping alone causes about two thirds of the suffix
-tree's pd=1 penalty. Results, the conclusion and the proviso checks are in
+group contexts by the oldest, least predictive character, so their targets are
+well mixed. Past the first passes they train as well as shuffled minibatches;
+before that they trail them (GRU: 0.13 nats at epoch 3; d64/L2 attention at
+depth 16: 0.09–0.28 nats in passes 1–4, level from pass 16). Suffix-tree units
+group by the newest, most predictive character and are target-sorted batches.
+A no-trie control (2026-11-10) shows the grouping alone causes about two
+thirds of the GRU's suffix-tree pd=1 penalty. With attention the grouping
+alone costs 0.91 nats after one pass and 0.59 after 16 (canonical eval, two
+order seeds). Results, the conclusion and the proviso checks are in
 `rnd/context-tree-orientation/README.md`.
 
 From the plan below: step 1 (mechanism) is done with the no-trie grouping
 control (sorted by last char, by first char, shuffled, and by start position)
 but not the interference measurement. Steps 2–5 are the proviso list in the
-README.
+README; its Status table says which are done.
 
 ## The observation
 

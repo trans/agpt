@@ -79,7 +79,9 @@ at the end).</p>
 reason nobody had identified. A prefix-trie pd=1 unit is every context that
 starts with one character. The oldest character of a context says the least
 about the next one, so the units come out well mixed in their targets, and
-stepping through them behaves like stepping through shuffled minibatches. The
+once training is past its first passes, stepping through them behaves like
+stepping through shuffled minibatches. (Before that the leftover mixing costs
+something, for both models tested: see the attention control below.) The
 transposed tree, the suffix tree, groups contexts by their newest character,
 which says the most. Its units are target-sorted batches, and partitioned
 training on them is clearly worse. The user had long expected AGPT's training
@@ -837,15 +839,16 @@ cosine 1.704 against 1.714);</li>
 against 1.640 and 1.638; 1.632 against 1.628 and 1.632).</li>
 </ul>
 <p>The prefix units' leftover skew (0.09 against 0.0002) costs nothing
-measurable at this scale. Shuffled batches are ahead only in the first ~10
-epochs (2.183 against 2.315 at epoch 3).</p>
+measurable from about epoch 30. Before that, shuffled batches are ahead
+(2.183 against 2.315 at epoch 3, 0.05 nats at epoch 10). The attention
+control finds the same early cost, larger (its reading 2).</p>
 </li>
 <li>
 <p><strong>Clumping by start position costs nothing.</strong> Keeping together all the
 windows that start at one position (start) tracks fully shuffled windows
-(window) to within about 0.01 through epoch 100. So neither part of a prefix
-unit's structure costs anything measurable: neither the clumping by start
-position nor the sort by oldest character.</p>
+(window) to within about 0.01 through epoch 100. So past the first epochs,
+neither part of a prefix unit's structure costs anything measurable:
+neither the clumping by start position nor the sort by oldest character.</p>
 </li>
 <li>
 <p><strong>Shuffled windows at a constant 3e-3 hit an instability.</strong> The window
