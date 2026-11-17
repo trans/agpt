@@ -65,6 +65,15 @@ def main():
         g1 = f"{math.log(best['last'][0] / best['first'][0]):+.3f}" if "last" in best and "first" in best else ""
         g2 = f"{math.log(best['first'][0] / best['window'][0]):+.3f}" if "first" in best and "window" in best else ""
         print(f"| {p} | " + " | ".join(cells) + f" | {g1} | {g2} |")
+    cos = {k: v for k, v in R.items() if k[0] in ("cfirst", "cwindow")}
+    if cos:
+        cp = sorted({p for v in cos.values() for p in v["curve"]})
+        print("\nCosine check (warmup-cosine over 16 passes, peak rate), rolling byte PPL (fixed-window):\n")
+        print("| arm | peak lr | " + " | ".join(str(p) for p in cp) + " |")
+        print("|---|---:|" + "---:|" * len(cp))
+        for (a, lr, s), v in sorted(cos.items()):
+            cells = [f"{v['curve'][p][0]:.3f} ({v['curve'][p][1]:.3f})" if p in v["curve"] else "" for p in cp]
+            print(f"| {a[1:]} | {lr:g} | " + " | ".join(cells) + " |")
     if "--json" in sys.argv:
         out = {f"{a}|{lr:g}|{s}": v for (a, lr, s), v in R.items()}
         Path(sys.argv[sys.argv.index("--json") + 1]).write_text(json.dumps(out, indent=1, default=str))

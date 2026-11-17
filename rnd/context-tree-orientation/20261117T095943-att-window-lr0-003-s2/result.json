@@ -1,0 +1,123 @@
+{
+  "run_id": "20261117T095943-att-window-lr0-003-s2",
+  "experiment": "context-tree-orientation",
+  "wall_seconds": 1061.338203781,
+  "train_wall_seconds": 927.550201205,
+  "convert_wall_seconds": 5.251237428,
+  "eval_wall_seconds": 18.840343745,
+  "started_utc": "2026-11-17T09:59:43Z",
+  "ended_utc": "2026-11-17T10:17:24Z",
+  "trainer": "src/tools/agpt_minibatch_train.py",
+  "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+  "eval": {
+    "split": "multi-chunk-heldout",
+    "source_path": null,
+    "source_sha256": null,
+    "chunks_dir": "data/.splits/4fa9aec1db6b3aea/heldout_chunks",
+    "benchmark": null,
+    "task_name": "att-window-lr0-003-s2_holdout"
+  },
+  "metrics": {
+    "lm_eval_rolling_word_perplexity": 22902.546128942337,
+    "lm_eval_rolling_byte_perplexity": 6.273930643567427,
+    "lm_eval_rolling_bits_per_byte": 2.6493695807061584,
+    "agpt_fixed_token_perplexity": 5.789339960929323
+  },
+  "checkpoint_sha": "1e76cb58722b7af240d2320445def96bf657fba4a169d3847fb68fc48b8cb88a",
+  "checkpoint_results": [
+    {
+      "epoch": 1,
+      "checkpoint_path": "rnd/context-tree-orientation/20261117T095943-att-window-lr0-003-s2/checkpoint.epoch_000001.model",
+      "checkpoint_sha": "4cf9cb8cb047fa7c1fb6f3883660a807bd8fb0dbfb385d1d6e5d7caf090ecd4e",
+      "hf_dir": "rnd/context-tree-orientation/20261117T095943-att-window-lr0-003-s2/hf_checkpoint_epoch_000001",
+      "eval_raw_json": "rnd/context-tree-orientation/20261117T095943-att-window-lr0-003-s2/eval_raw_epoch_000001.json",
+      "task_name": "att-window-lr0-003-s2_epoch_000001_holdout",
+      "train_wall_seconds": 24.376673,
+      "convert_wall_seconds": 4.214687926,
+      "eval_wall_seconds": 17.152263212,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 775698.6802795152,
+        "lm_eval_rolling_byte_perplexity": 11.950411925097528,
+        "lm_eval_rolling_bits_per_byte": 3.5789884429722973,
+        "agpt_fixed_token_perplexity": 11.881055799257352
+      }
+    },
+    {
+      "epoch": 2,
+      "checkpoint_path": "rnd/context-tree-orientation/20261117T095943-att-window-lr0-003-s2/checkpoint.epoch_000002.model",
+      "checkpoint_sha": "75ddf3a2896942f7938fbdfa36006c70eeeb223d76f1c2e46dcd906179084d3c",
+      "hf_dir": "rnd/context-tree-orientation/20261117T095943-att-window-lr0-003-s2/hf_checkpoint_epoch_000002",
+      "eval_raw_json": "rnd/context-tree-orientation/20261117T095943-att-window-lr0-003-s2/eval_raw_epoch_000002.json",
+      "task_name": "att-window-lr0-003-s2_epoch_000002_holdout",
+      "train_wall_seconds": 48.670126,
+      "convert_wall_seconds": 4.272262699,
+      "eval_wall_seconds": 17.225869908,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 284726.9305868425,
+        "lm_eval_rolling_byte_perplexity": 9.948585104894493,
+        "lm_eval_rolling_bits_per_byte": 3.3144913590934606,
+        "agpt_fixed_token_perplexity": 9.797580699852341
+      }
+    },
+    {
+      "epoch": 4,
+      "checkpoint_path": "rnd/context-tree-orientation/20261117T095943-att-window-lr0-003-s2/checkpoint.epoch_000004.model",
+      "checkpoint_sha": "dd8a1e0adaf21c405e157322e5fb39c9a73395088db0a176a0a016992af4d005",
+      "hf_dir": "rnd/context-tree-orientation/20261117T095943-att-window-lr0-003-s2/hf_checkpoint_epoch_000004",
+      "eval_raw_json": "rnd/context-tree-orientation/20261117T095943-att-window-lr0-003-s2/eval_raw_epoch_000004.json",
+      "task_name": "att-window-lr0-003-s2_epoch_000004_holdout",
+      "train_wall_seconds": 97.25021,
+      "convert_wall_seconds": 4.3180641810000004,
+      "eval_wall_seconds": 16.387009791,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 109903.70541476621,
+        "lm_eval_rolling_byte_perplexity": 8.358655047309787,
+        "lm_eval_rolling_bits_per_byte": 3.0632708235651354,
+        "agpt_fixed_token_perplexity": 8.068079468894194
+      }
+    },
+    {
+      "epoch": 8,
+      "checkpoint_path": "rnd/context-tree-orientation/20261117T095943-att-window-lr0-003-s2/checkpoint.epoch_000008.model",
+      "checkpoint_sha": "7f596e35662e174326bb3c9d11937354baf875e8a5cccf93c5b81b10365f61d2",
+      "hf_dir": "rnd/context-tree-orientation/20261117T095943-att-window-lr0-003-s2/hf_checkpoint_epoch_000008",
+      "eval_raw_json": "rnd/context-tree-orientation/20261117T095943-att-window-lr0-003-s2/eval_raw_epoch_000008.json",
+      "task_name": "att-window-lr0-003-s2_epoch_000008_holdout",
+      "train_wall_seconds": 194.515768,
+      "convert_wall_seconds": 4.235151946,
+      "eval_wall_seconds": 16.97317371,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 69165.97040813928,
+        "lm_eval_rolling_byte_perplexity": 7.679734116081313,
+        "lm_eval_rolling_bits_per_byte": 2.9410563635439466,
+        "agpt_fixed_token_perplexity": 7.235627047599656
+      }
+    },
+    {
+      "epoch": 16,
+      "checkpoint_path": "rnd/context-tree-orientation/20261117T095943-att-window-lr0-003-s2/checkpoint.epoch_000016.model",
+      "checkpoint_sha": "0a5e850d634e86368b381d5cef7f3c44fc5a534cfb2f4abd8e005bb05dc5ed0f",
+      "hf_dir": "rnd/context-tree-orientation/20261117T095943-att-window-lr0-003-s2/hf_checkpoint_epoch_000016",
+      "eval_raw_json": "rnd/context-tree-orientation/20261117T095943-att-window-lr0-003-s2/eval_raw_epoch_000016.json",
+      "task_name": "att-window-lr0-003-s2_epoch_000016_holdout",
+      "train_wall_seconds": 389.014794,
+      "convert_wall_seconds": 4.191250965,
+      "eval_wall_seconds": 16.162895772,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 31533.937508549476,
+        "lm_eval_rolling_byte_perplexity": 6.651923288448089,
+        "lm_eval_rolling_bits_per_byte": 2.733771531220843,
+        "agpt_fixed_token_perplexity": 6.1905223825204585
+      }
+    }
+  ],
+  "experimental_used": {
+    "src/tools/agpt_minibatch_train.py": [
+      "device",
+      "trie_plan",
+      "trie_plan_group",
+      "trie_plan_seed",
+      "wrap_tail"
+    ]
+  }
+}
