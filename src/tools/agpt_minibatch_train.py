@@ -43,11 +43,20 @@ Config keys read:
                                   so stride = seq_len trains each target once per
                                   epoch, as ordinary LM training does. Default 1:
                                   every window start.)
-    experimental.trie_plan       (replay an AGPT plan, see trie_plan.py: `pd` or
-                                  `packed`. Each step trains exactly its plan step's
+    experimental.trie_plan       (replay an AGPT plan, see trie_plan.py: `pd`, `packed`
+                                  or `group`. Each step trains exactly its plan step's
                                   events: the step's windows run through the model
                                   (cut to 4, 8 or seq_len tokens by their deepest
                                   event) with a loss mask, mean over the events.)
+    experimental.trie_plan_group (trie_plan `group`: 65-ish steps per pass, one per character,
+                                  each holding the events whose context has that character
+                                  `first` (the oldest: AGPT's prefix-trie pd=1 units, the
+                                  same as pd depth 1) or `last` (the newest: the suffix
+                                  tree's pd=1 units, target-sorted batches); or `window`:
+                                  whole windows assigned at random each pass to groups of
+                                  `first`'s sizes, the size-matched shuffled control. The
+                                  steps run in a new random order each pass. With wrap_tail
+                                  all three have exactly the same step sizes.)
     experimental.trie_plan_depth      (pd: the partition depth)
     experimental.trie_plan_piece_max  (packed: most events in a piece or node chunk)
     experimental.trie_plan_steps      (packed: steps per pass)
@@ -107,7 +116,8 @@ from agpt_ppl import AGPTModel, MGPT_MAGIC, build_vocab, load_model  # noqa: E40
 KNOWN_EXPERIMENTAL = {"minibatch_size", "micro_batch", "device", "max_corpus_chars", "step_events_file",
                       "window_stride", "trie_plan", "trie_plan_depth", "trie_plan_piece_max",
                       "trie_plan_steps", "trie_plan_seed", "trie_targets", "wrap_tail",
-                      "trie_plan_order_file", "log_step_loss", "grad_average", "grad_average_beta"}
+                      "trie_plan_order_file", "log_step_loss", "grad_average", "grad_average_beta",
+                      "trie_plan_group"}
 TOKEN_CAP = 131072  # tokens per forward/backward in trie-plan steps (memory bound only)
 
 
@@ -160,8 +170,10 @@ class TriePlanner:
         import trie_plan as tp
         self.np, self.tp, self.T, self.n = np, tp, T, n_starts
         self.kind = exp["trie_plan"]
-        if self.kind not in ("pd", "packed"):
-            sys.exit(f"agpt_minibatch_train: trie_plan {self.kind!r} not supported (pd | packed)")
+        if self.kind not in ("pd", "packed", "group"):
+            sys.exit(f"agpt_minibatch_train: trie_plan {self.kind!r} not supported (pd | packed | group)")
+        if (self.kind == "group") != ("trie_plan_group" in exp):
+            sys.exit("agpt_minibatch_train: trie_plan_group goes with trie_plan group")
         self.rng = np.random.default_rng(int(exp.get("trie_plan_seed", 1)))
         t0 = time.perf_counter()
         tok = tokens.numpy()
@@ -170,10 +182,27 @@ class TriePlanner:
         self.fixed_order = None
         if exp.get("trie_plan_order_file") and self.kind != "pd":
             sys.exit("agpt_minibatch_train: trie_plan_order_file is for trie_plan pd")
+        self.group = None
         if self.kind == "pd":
             self.depth = int(exp["trie_plan_depth"])
             tags = tp.pd_unit_tags(keys, self.depth)
             self.desc = f"pd={self.depth} + crown, one unit per step, shuffled each pass"
+        elif self.kind == "group":
+            self.group = exp["trie_plan_group"]
+            if self.group not in ("first", "last", "window"):
+                sys.exit(f"agpt_minibatch_train: trie_plan_group {self.group!r} not supported (first | last | window)")
+            first = tok[:n_starts].astype(np.uint64)
+            if self.group == "last":  # event (i, L): newest context character tok[i + L - 1]
+                tags = tok[np.arange(n_starts)[:, None] + np.arange(T)[None, :]].astype(np.uint64)
+                self.desc = "groups by the newest context character (suffix-tree pd=1 units), shuffled each pass"
+            else:
+                tags = np.broadcast_to(first[:, None], (n_starts, T))
+                self.desc = "groups by the oldest context character (prefix-trie pd=1 units), shuffled each pass"
+            if self.group == "window":
+                # group sizes of `first`, in windows; reassigned at random every pass
+                _, self.window_counts = np.unique(first, return_counts=True)
+                self.desc = ("whole windows assigned at random each pass to groups of the prefix-trie "
+                             "pd=1 units' sizes, shuffled each pass")
         else:
             self.piece_max = int(exp["trie_plan_piece_max"])
             self.n_steps_req = int(exp["trie_plan_steps"])
@@ -193,23 +222,60 @@ class TriePlanner:
             sha = hashlib.sha256(path.read_bytes()).hexdigest()
             self.desc = (f"pd={self.depth} + crown, one unit per step, every pass in the order of {path} "
                          f"(sha256 {sha})")
-        self.build_seconds = time.perf_counter() - t0
         self.blens = sorted({min(4, T), min(8, T), T})
+        self.cache = None
+        if self.kind == "group":
+            # cut every window at its deepest event (a `last` step's windows are often short)
+            self.blens = list(range(1, T + 1))
+            if self.group != "window":
+                # a fixed partition: sort its (unit, window) pairs once; a pass only reorders the units
+                U = self.unit_sizes.size
+                sw_u, sw_i, sw_bits = tp.step_windows(self.unit_of_event, np.arange(U, dtype=np.int32), n_starts, T)
+                bucket = np.searchsorted(np.array(self.blens), tp.bit_length(sw_bits)).astype(np.int64)
+                order = np.lexsort((sw_i, bucket, sw_u))
+                sw_u, sw_i, sw_bits, bucket = sw_u[order], sw_i[order], sw_bits[order], bucket[order]
+                nb = len(self.blens)
+                ub = np.bincount(sw_u.astype(np.int64) * nb + bucket, minlength=U * nb).reshape(U, nb)
+                self.cache = (sw_i, sw_bits, ub, np.r_[0, np.cumsum(ub.sum(1))])
+                del sw_u, bucket, order
+                self.unit_of_event = None  # not needed once the pairs are cached
+        self.build_seconds = time.perf_counter() - t0
 
     @property
     def steps_per_epoch(self):
-        return self.unit_sizes.size if self.kind == "pd" else self.n_steps_req
+        return self.n_steps_req if self.kind == "packed" else self.unit_sizes.size
 
     def epoch(self, with_cost):
         np, tp = self.np, self.tp
         if self.fixed_order is not None:
             step_of_unit = self.fixed_order
             n_steps = self.unit_sizes.size
-        elif self.kind == "pd":
+        elif self.kind in ("pd", "group"):
+            if self.group == "window":
+                counts = self.window_counts
+                gw = np.empty(self.n, dtype=np.int32)
+                gw[self.rng.permutation(self.n)] = np.repeat(np.arange(counts.size, dtype=np.int32), counts)
+                self.unit_of_event = np.repeat(gw, self.T)
             step_of_unit = tp.shuffled_steps(self.unit_sizes.size, self.rng)
             n_steps = self.unit_sizes.size
         else:
             step_of_unit, n_steps = tp.packed_steps(self.unit_sizes, self.n_steps_req, self.rng)
+        if self.cache is not None:
+            unit_of_step = np.empty(n_steps, dtype=np.int64)
+            unit_of_step[step_of_unit] = np.arange(n_steps)
+            c_i, c_bits, ub, start = self.cache
+            idx = np.concatenate([np.arange(start[u], start[u + 1]) for u in unit_of_step])
+            sw_i, sw_bits = c_i[idx], c_bits[idx]
+            per_step = ub[unit_of_step]
+            cost = None
+            if with_cost:
+                sw_step = np.repeat(np.arange(n_steps, dtype=np.int32), per_step.sum(1))
+                cost = tp.plan_cost(self.keys, sw_step, sw_i, sw_bits)
+                self.keys = None  # costed once, on the first pass
+            step_events = self.unit_sizes[unit_of_step].astype(np.float64)
+            return dict(n_steps=n_steps, sw_i=sw_i, sw_bits=sw_bits, off=np.r_[0, np.cumsum(per_step.ravel())].tolist(),
+                        step_events=step_events.tolist(), cost=cost, pairs=int(sw_i.size), sizes=step_events,
+                        unit_of_step=unit_of_step)
         sw_step, sw_i, sw_bits = tp.step_windows(self.unit_of_event, step_of_unit, self.n, self.T)
         cost = tp.plan_cost(self.keys, sw_step, sw_i, sw_bits) if with_cost else None
         lmax = tp.bit_length(sw_bits)
@@ -221,7 +287,7 @@ class TriePlanner:
         off = np.r_[0, np.cumsum(counts)].tolist()
         step_events = np.bincount(sw_step, weights=np.bitwise_count(sw_bits), minlength=n_steps)
         unit_of_step = None
-        if self.kind == "pd":  # one unit per step: invert unit -> step
+        if self.kind in ("pd", "group"):  # one unit per step: invert unit -> step
             unit_of_step = np.empty(n_steps, dtype=np.int64)
             unit_of_step[step_of_unit] = np.arange(n_steps)
         return dict(n_steps=n_steps, sw_i=sw_i, sw_bits=sw_bits, off=off, step_events=step_events.tolist(),
