@@ -1,9 +1,10 @@
 #!/bin/sh
 # Attention grouping control (proviso check 2): the 12 configs of make_configs.py
-# in three concurrent streams on the GPU (the d64/L2 runs are launch-bound, so the
-# streams overlap), started 2 minutes apart so their plan builds (~1.6 GB of host
-# RAM each) do not coincide. Each `last` run costs about 7 times a `first` or
-# `window` pass; the streams are balanced by that estimate.
+# in three concurrent streams on the GPU, started 2 minutes apart so their plan
+# builds (~1.6 GB of host RAM each) do not coincide. (The streams were meant to
+# overlap; they don't: the GPU is the bottleneck, see run2.sh. Slot 66 stopped this
+# script's launch loops after 4 runs, and run2.sh runs the other 8.) A `last` pass
+# costs about 7 times a `first` or `window` pass; the streams are balanced by that.
 # Run only inside a slot (sh /home/trans/Projects/air/tools/slots add @agpt ...).
 # A failed run is reported and skipped.
 # Usage: sh rnd/context-tree-orientation/attention/run.sh
