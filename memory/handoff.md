@@ -1,6 +1,6 @@
 # Handoff: where AGPT stands
 
-*Updated 2026-11-16*
+*Updated 2026-11-17*
 
 ## Back on the main path (2026-11-14)
 
@@ -161,6 +161,17 @@
   `CUDA_VISIBLE_DEVICES=` outside a slot.
 - `src/tools/agpt_minibatch_train.py` (`84054bc`) is the minibatch baseline
   as an orchestrator custom trainer, so baselines get `result.json` too.
+- **Orientation finalized with attention** (2026-11-17, `16f73e7`..`bd9535a`,
+  slots 66, 68, 70). The user asked whether the minor breakthrough was ever
+  finalized (it wasn't: none of the six proviso checks had run) and approved
+  both the attention control and the README polish, then asked for the
+  cosine check. `trie_plan: group` (`first | last | window`) in the
+  minibatch trainer. Suffix units trail prefix units by 0.91 nats after one
+  pass, 0.59 after 16; prefix units trail size-matched random windows by up
+  to 0.28 in passes 1–4 and are level from 16. Details in
+  [open-lines.md](open-lines.md) §1. Slot lesson: three d64 streams do not
+  overlap on this GPU (100% busy; a pass took 3× as long), so estimate slots
+  from the sum of the runs.
 
 ## Where we were (as of 2026-11-10)
 
@@ -227,8 +238,10 @@ The user named item 1 on 2026-11-10. No order is agreed for the rest.
    in layer 2: it recovers 65% of exact attention's gain over the window,
    and is short of exact by a steady 0.010 nats. No next step agreed. The other direction the user named, a Möbius prior plus imm's
    residual models, belongs to @mobius and @imm.
-2. **The orientation proviso checks** ([open-lines.md](open-lines.md) §1),
-   whenever the result is built on.
+2. **The rest of the orientation proviso** ([open-lines.md](open-lines.md)
+   §1): attention, depth 16, canonical eval and seeds for attention are done
+   (2026-11-17); GRU seeds, v2's fixed order at pd=1, suffix units at pd=2/3
+   and interference are open, whenever the result is built on.
 3. **v2 trainer speed:** correctness is done; the kernel work has not started.
    Resume point and acceptance tests: [open-lines.md](open-lines.md).
 4. **Curvature that keeps partitioned cadence:** per-subtree L-BFGS histories,

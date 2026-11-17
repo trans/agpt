@@ -1,34 +1,45 @@
 # Open lines of research
 
-*Updated 2026-11-12*
+*Updated 2026-11-17*
 
 Each line has a state, where its plan lives, and what it needs next.
 
 ## 1. Context-tree orientation (suffix tree instead of the prefix trie)
 
 **Called on 2026-11-10 by the user: a minor breakthrough, with a proviso to
-double-check and polish.** The prefix trie is the right orientation, because
-its pd=1 units group by the least predictive character and train like shuffled
-minibatches. Suffix-tree units are target-sorted. Record and numbers:
-`rnd/context-tree-orientation/README.md` (Conclusion; Grouping control).
+double-check and polish. The user asked on 2026-11-17 to finalize it; the
+attention check confirms it.** The prefix trie is the right orientation, because
+its pd=1 units group by the least predictive character; suffix-tree units are
+target-sorted (skew 0.86 nats at any depth: the mutual information of adjacent
+characters). Record: `rnd/context-tree-orientation/README.md` (Conclusion;
+Attention grouping control; Proviso status table).
 
-- **Proviso checks, not yet done** (the README's list, in order):
-  1. seeds for the random and 2×2 cells;
-  2. an attention f_θ (cheapest: the no-trie control with attention over the
-     window);
-  3. v2's fixed unit order (`experimental.unit_order_seed` defaults to −1);
-  4. depth 16, pd=2/3, warmup-cosine;
-  5. canonical eval;
-  6. interference between unit steps.
-- **Open puzzle from the control:** shuffled minibatches at a constant 3e-3 got
-  worse after epoch 100 (train 1.846 → 1.893 at epoch 300), while
+- **Attention control, done 2026-11-17** (`16f73e7`..`bd9535a`, slots 66, 68,
+  70; 16 canonical runs): d64/L2 attention at depth 16, 65 steps per pass.
+  Suffix units trail prefix units by 0.91 nats after one pass and 0.59 after 16
+  (best rates). Prefix units trail size-matched random windows by 0.09–0.28 in
+  passes 1–4 and are level from pass 16 (constant rate and cosine). So the
+  user's suspicion that the prefix grouping costs something holds early in
+  training (one-pass training's regime) and fades, as for the GRU.
+- **Proviso checks still open:** GRU seeds (check 1); v2's fixed unit order at
+  pd=1 (check 3; at pd=3 it costs 0.024 nats after one pass); suffix units at
+  pd=2/3 (check 4); interference between unit steps (check 6). The suffix arm's
+  best rate at 16 passes was the grid's bottom (0.0015).
+- **Open puzzle from the GRU control:** shuffled minibatches at a constant 3e-3
+  got worse after epoch 100 (train 1.846 → 1.893 at epoch 300), while
   start-position-labelled random batches did not. One seed each; the
-  cosine-schedule runs avoid it.
+  cosine-schedule runs avoid it. With attention, random windows' pass-mean
+  train loss rises more often than prefix units' at every rate and under
+  cosine, on the same passes for one order seed, without showing in held-out.
+  Not explained.
 - **Tools:**
   - `src/tools/agpt_context_tree_coherence.py`: the trees, with an exact
     level-by-level backward;
   - `src/tools/agpt_unit_grouping_control.py`: the no-trie grouping control,
     with node and event groupings and `--schedule cosine`.
+  - `src/tools/agpt_minibatch_train.py` `experimental.trie_plan: group`
+    (`first | last | window`): the same control for the attention model,
+    through the orchestrator.
 
 ## 2. Curvature that keeps partitioned cadence
 
