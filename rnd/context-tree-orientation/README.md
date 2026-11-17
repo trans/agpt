@@ -9,30 +9,32 @@ question: >-
   each subtree one target's prediction problem), and if so, why?
 answer: >-
   Yes, and the prefix trie is the right one, for a reason nobody had seen (a minor breakthrough,
-  with a proviso to double-check). A pd=1 step uses one root-child subtree. Prefix-trie units
-  group contexts by their oldest, least predictive character, so their targets are well mixed and
-  they train as well as shuffled minibatches with the same number of steps. Suffix-tree units
-  group by the newest, most predictive character, so each step is a target-sorted batch. With the
-  tree removed and one GRU, that grouping alone costs about two thirds of the suffix tree's pd=1
-  gap; the newest-first reading costs the rest. GRU d64 depth 8, diagnostic held-out PPL, mostly
-  one seed.
+  checked with attention on 2026-11-17). A pd=1 step uses one root-child subtree. Prefix-trie
+  units group contexts by their oldest, least predictive character, so their targets are well
+  mixed. Suffix-tree units group by the newest, most predictive character, so each step is a
+  target-sorted batch (skew 0.86 nats at any depth, the mutual information of adjacent
+  characters). With the tree removed and the d64/L2 attention model at depth 16, suffix-tree
+  units trail prefix-trie units by 0.91 nats of canonical rolling byte PPL after one pass and
+  0.59 after 16 passes of 65 steps; a GRU at depth 8 showed the same effect, smaller (diagnostic
+  eval). Prefix units trail random windows in batches of their sizes by up to 0.28 nats in the
+  first four passes and are level with them from pass 16.
 opened: 2026-10-03
-updated: 2026-11-10
+updated: 2026-11-17
 code: main
-eval: legacy
-family: recurrent
+eval: canonical
+family: attention
 headline:
-- label: 'pd=1 prefix-trie units, oldest-first GRU, d64 depth 8, 500 epochs (2 seeds)'
-  metric: diagnostic held-out PPL (context <= 8, carved split, not canonical)
-  value: 5.093
-- label: 'Same GRU and steps, suffix-tree units (grouping control, no tree)'
-  metric: diagnostic held-out PPL (context <= 8, carved split, not canonical)
-  value: 5.805
-- label: 'pd=1 suffix tree, newest-first GRU, 500 epochs'
-  metric: diagnostic held-out PPL (context <= 8, carved split, not canonical)
-  value: 6.286
-tags: [trie-structure, recurrence, coherence, partitioning, minor-breakthrough]
-related: [gradient-population, linear-recurrence, count-backoff-gate, slot-selection-step0]
+- label: 'Prefix-trie pd=1 units (first), d64/L2 attention, depth 16, 16 passes, Adam 0.003 constant'
+  metric: rolling byte PPL (canonical, carved split's held-out chunks)
+  value: 6.719
+- label: 'Same steps, suffix-tree pd=1 units (last), best rate 0.0015'
+  metric: rolling byte PPL (canonical, carved split's held-out chunks)
+  value: 12.131
+- label: 'Same steps, random windows in batches of the prefix units'' sizes (window)'
+  metric: rolling byte PPL (canonical, carved split's held-out chunks)
+  value: 6.863
+tags: [trie-structure, recurrence, attention, coherence, partitioning, minor-breakthrough]
+related: [gradient-population, linear-recurrence, count-backoff-gate, slot-selection-step0, one-pass-gap]
 ---
 
 # Context-tree orientation
@@ -76,20 +78,43 @@ held-out NLL):
 
   The grouping accounts for about two thirds of the October pd=1 gap, and the
   newest-first reading for the rest.
-- **Prefix-trie units are as good as shuffled minibatches.** With equal
-  numbers of equal-sized steps they agree on train loss to 0.001 at epoch 100,
-  under a constant and a cosine schedule. Held-out differences are about 0.01 and change sign with the
-  epoch: 1.628 and 1.632 (two seeds) against 1.632 for start-labelled random
-  batches at 500 epochs; 1.704 against 1.714 for shuffled windows under
-  cosine at 100.
+- **For the GRU, prefix-trie units become as good as shuffled minibatches.**
+  With equal numbers of equal-sized steps they agree on train loss to 0.001 at
+  epoch 100, under a constant and a cosine schedule. Held-out differences are
+  about 0.01 and change sign with the epoch: 1.628 and 1.632 (two seeds)
+  against 1.632 for start-labelled random batches at 500 epochs; 1.704 against
+  1.714 for shuffled windows under cosine at 100. Early on the shuffled
+  batches lead: by 0.13 nats at epoch 3 (2.315 against 2.183) and 0.05 at
+  epoch 10. They tie from epoch 30.
 
 The user suspected the prefix units' remaining correlation (skew 0.09 against
 ~0) explained part of AGPT's gap to vanilla minibatch training
 (`rnd/vanilla-attn-torch`). At an equal number of equal-sized steps, this
-control finds no such cost, so that gap more likely comes from elsewhere. The
-plainest candidate is step count: vanilla training takes many more, smaller
-steps per epoch. Their reading (2026-11-10) is that getting further needs
-something past the tree, though they suspect something is still being missed.
+control finds no such cost after epoch 30, so that gap more likely comes from
+elsewhere. The plainest candidate is step count: vanilla training takes many
+more, smaller steps per epoch. Their reading (2026-11-10) is that getting
+further needs something past the tree, though they suspect something is still
+being missed.
+
+**Later evidence from attention (2026-11-14/15, `rnd/one-pass-gap`).** The
+d64/L2 attention model, after one pass at pd=1's 65 steps, does pay for the
+prefix grouping. AGPT's prefix units score rolling byte PPL 15.73, against
+13.54 for random windows in batches of the same sizes: 0.150 nats (follow-up
+6). At pd=3, grouping by the three oldest characters costs 0.21 nats (7.81
+against 6.33, follow-up 1). The GRU paid the same way in its first epochs.
+So the user's suspicion holds early in training, which is where one-pass
+training lives, and for the GRU it fades with epochs.
+
+**The attention control (2026-11-17) confirms both halves.** It removes the
+tree and trains the d64/L2 attention model at depth 16 on the three
+groupings, with canonical eval and two order seeds. Suffix-tree units trail
+prefix-trie units by 0.91 nats after one pass and 0.59 after 16 (each arm at
+its best rate), more than they cost the GRU. Prefix units trail random
+windows in batches of their sizes by 0.09–0.28 nats in the first four
+passes. From pass 16 the two are level, under a constant rate and under
+cosine. So for attention too, the prefix trie is the right tree, and the
+cost of its grouping is an early-training cost. Details: Attention grouping
+control, below.
 
 ## Setup
 
@@ -235,7 +260,8 @@ Train loss by depth at pd=1 epoch 500:
    face the same pd=1 penalty. With the GRU, the grouping control below puts
    the units' share of the penalty at about two thirds. Only an attention
    model's pd=0 behaviour (reading direction without recency inversion) is
-   open.
+   open. (Measured 2026-11-17: the attention model pays 0.59–0.91 nats for
+   the suffix units; see Attention grouping control.)
 
 pd=1 epochs are about 0.55 s in this Python tool against 0.23 s at pd=0
 (per-unit overhead). The node work per epoch is the same.
@@ -352,6 +378,134 @@ With a cosine schedule (2-epoch warmup to 3e-3, cosine to 0 at epoch 100;
    The cosine runs avoid it, and the 500-epoch window number should not be
    read as a property of shuffled batches.
 
+## Attention grouping control (2026-11-17)
+
+Proviso check 2: the grouping control with an attention f_θ, at depth 16.
+`src/tools/agpt_minibatch_train.py` with `experimental.trie_plan: group`
+(commit `16f73e7`) trains the d64/L2 attention model of `rnd/one-pass-gap`
+(RoPE, 4 heads, d_ff 256, the same seed weights) on exactly the events a
+depth-16 trie holds: every window start of the training split, read past the
+end from the front as the cached tries do, and every context length 1–16
+(16.95M events). A pass is 65 steps, one per character, in a new random order
+each pass. Each step takes the event-mean gradient of its events, and Adam
+(β1 0.9, β2 0.999) runs at a constant rate, as in the GRU control. The
+groupings are the GRU control's:
+
+| arm | one step holds | which is | target skew (depth 16) |
+|---|---|---|---:|
+| first | the events whose context starts with one char | AGPT's prefix-trie pd=1 unit (the same partition as pd depth 1) | 0.0325 |
+| last | the events whose context ends with one char | the suffix tree's pd=1 unit | 0.8606 |
+| window | whole windows, assigned at random each pass to groups of first's sizes | a size-matched shuffled minibatch | 0.0001 |
+
+With the wrapped tail, all three take steps of exactly the same sizes
+(coefficient of variation 1.62, as AGPT pd=1). Checks on the CPU: at depth 8
+the three skews are the GRU control's (0.0899 / 0.8606 / 0.0002); every
+`last` step holds exactly its character's events; at lr 0 all three arms and
+pd depth 1 give the same epoch loss.
+
+Every run is canonical (`bin/agpt_experiment`, rolling byte PPL on the carved
+split's 10 held-out chunks). Each is evaluated at passes 1, 2, 4, 8 and 16,
+and also 32 for first and window. Rates 0.0015, 0.003 and 0.006, and a second
+order seed (`trie_plan_seed` 2) at 0.003. Configs from
+`attention/make_configs.py`, run by `attention/run.sh` (slot 66: four runs)
+and `attention/run2.sh` (slot 68: the other eight); `attention/summarize.py`
+makes the tables.
+
+**What the suffix grouping costs to compute.** A model that reads oldest
+first can share a step's computation only across contexts with a common
+start. Grouping by the newest character breaks that. A `last` pass runs 147M
+window tokens against 17M for `first` (117M when each window is cut at its
+deepest event), and on a trie it would need 48.5M positions against the
+prefix trie's 8.9M. A `last` pass took about 7 times as long.
+
+### Results
+
+Rolling byte PPL (fixed-window in brackets), constant rates. s2 is the second
+order seed:
+
+| arm | lr | seed | 1 | 2 | 4 | 8 | 16 | 32 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| first | 0.0015 | 1 | 15.818 (16.007) | 12.665 (12.806) | 11.016 (10.870) | 8.317 (7.976) | 6.980 (6.533) | 5.952 (5.411) |
+| first | 0.003 | 1 | 13.626 (13.741) | 11.833 (11.823) | 10.397 (10.034) | 8.072 (7.623) | 6.719 (6.229) | 5.853 (5.269) |
+| first | 0.003 | s2 | 13.813 (13.820) | 11.335 (11.278) | 9.506 (9.222) | 8.142 (7.764) | 6.761 (6.265) | 6.270 (5.719) |
+| first | 0.006 | 1 | 12.899 (12.993) | 11.888 (11.800) | 10.950 (10.573) | 8.274 (7.915) | 7.080 (6.596) | 6.062 (5.456) |
+| window | 0.0015 | 1 | 12.889 (12.977) | 10.179 (10.088) | 8.898 (8.688) | 7.654 (7.292) | 6.973 (6.501) | 6.216 (5.725) |
+| window | 0.003 | 1 | 12.046 (12.021) | 9.389 (9.195) | 8.575 (8.244) | 7.605 (7.185) | 6.863 (6.342) | 6.338 (5.873) |
+| window | 0.003 | s2 | 11.950 (11.881) | 9.949 (9.798) | 8.359 (8.068) | 7.680 (7.236) | 6.652 (6.191) | 6.274 (5.789) |
+| window | 0.006 | 1 | 11.740 (11.633) | 8.979 (8.701) | 8.779 (8.445) | 7.664 (7.263) | 7.454 (7.076) | 6.517 (6.076) |
+| last | 0.0015 | 1 | 35.738 (36.124) | 28.043 (28.240) | 20.406 (20.315) | 15.464 (15.303) | 12.131 (11.729) | |
+| last | 0.003 | 1 | 32.107 (32.350) | 25.981 (26.136) | 20.304 (20.442) | 14.629 (14.495) | 13.160 (12.780) | |
+| last | 0.003 | s2 | 38.472 (38.988) | 31.154 (31.102) | 24.253 (24.678) | 15.116 (14.726) | 12.886 (12.441) | |
+| last | 0.006 | 1 | 33.843 (34.014) | 27.581 (28.095) | 23.418 (23.460) | 16.668 (16.635) | 14.133 (13.980) | |
+
+The gaps in nats (log ratio of rolling byte PPL), at each arm's best rate for
+seed 1 and as two-seed means at 0.003:
+
+| pass | last − first, best | last − first, seeds | first − window, best | first − window, seeds |
+|---:|---:|---:|---:|---:|
+| 1 | +0.912 | +0.941 | +0.094 | +0.134 |
+| 2 | +0.786 | +0.899 | +0.276 | +0.181 |
+| 4 | +0.669 | +0.803 | +0.193 | +0.161 |
+| 8 | +0.595 | +0.607 | +0.060 | +0.059 |
+| 16 | +0.591 | +0.659 | −0.021 | −0.002 |
+| 32 | | | −0.060 | −0.040 |
+
+The two order seeds differ by up to 0.09 nats for first, 0.06 for window and
+0.18 for last (in its first four passes).
+
+### Reading
+
+1. **The orientation result holds for attention, more strongly than for the
+   GRU.** Suffix-tree units trail prefix-trie units by 0.91 nats after one
+   pass and 0.59 after 16, each at its best rate (0.94 and 0.66 in the
+   two-seed means). The GRU's gap was 0.46 nats at epoch 3, 0.31 at 10 and
+   0.13 at 500 (diagnostic eval, so the sizes compare only roughly). The gap
+   narrows with passes, but slowly: from pass 8 to 16 it barely moves.
+2. **Prefix units against size-matched random windows: the GRU's pattern.**
+   Random windows lead by 0.09–0.28 nats in the first four passes and by 0.06
+   at pass 8. From pass 16 the two are level: −0.02 and −0.06 at the best
+   rates, −0.00 and −0.04 in the seed means, inside the seeds' spread. The
+   GRU led by 0.13 at epoch 3 and 0.05 at 10, and tied from 30. So the
+   user's suspicion that the prefix units' leftover correlation costs
+   something holds for attention too: early in training, where one-pass
+   training sits, and fading with passes. AGPT pd=1's one-pass deficit
+   against random batches of its unit sizes (0.150 nats, `rnd/one-pass-gap`
+   follow-up 6) is this early cost.
+3. **Rates.** first and window do best at 0.003 (0.006 after one pass; 0.0015
+   for window at 32). last does best at 0.003 through pass 8 and at 0.0015 at
+   pass 16, the bottom of the grid, so its best rate there may be lower still.
+   0.0015 beat 0.003 there by 0.08 nats; the gap to first is 0.59.
+4. **Train-loss rises follow the step order, not the rate.** Random windows'
+   pass-mean train loss rises more often than the prefix units' (5–7 rises
+   above 0.02 in each 32-pass run, against 0–3). Under order seed 1 the rises
+   fall on the same passes (8, 11, 17, 21, 24) at all three rates, and under
+   seed 2 on others. They do not show in held-out: window at 0.003 improves
+   from 8.575 at pass 4 to 7.605 at pass 8, the pass of its largest rise. So
+   this is not the instability the GRU's shuffled-window cell showed, whose
+   held-out NLL got worse. The pass-mean train loss is taken during the pass,
+   so with steps of unequal sizes it depends on where in the pass the big
+   ones fall. Whether that explains the rises, or why random windows show
+   more of them, was not checked.
+5. **The cosine check agrees: level by pass 16.** first and window for 16
+   passes under warmup-cosine (one pass of warmup, then cosine to 0), peak
+   rates 0.003 and 0.006, evaluated at passes 4, 8 and 16:
+
+   | arm | peak lr | 4 | 8 | 16 |
+   |---|---:|---:|---:|---:|
+   | first | 0.003 | 10.987 (10.728) | 8.161 (7.808) | 7.281 (6.906) |
+   | first | 0.006 | 10.852 (10.478) | 8.063 (7.669) | 6.968 (6.544) |
+   | window | 0.003 | 8.836 (8.629) | 7.361 (6.959) | 6.762 (6.311) |
+   | window | 0.006 | 8.697 (8.370) | 7.795 (7.431) | 6.897 (6.442) |
+
+   At each arm's best peak, window ends 0.030 nats ahead (6.762 against
+   6.968). Under a constant rate first was 0.021 ahead at pass 16. Both are
+   inside the seeds' spread. first's best peak is the top of this grid, so a
+   higher peak might help it a little. Over 16 passes, cosine is worse than
+   a constant rate for both arms here (first 6.968 against 6.719), so the
+   constant-rate runs are the better-trained ones. Random windows' train loss
+   rises under cosine too (2.144 at pass 4, 2.200 at pass 8, peak 0.006), so
+   the rises in item 4 are not caused by the constant rate.
+
 ## Proviso: double-check before building on this
 
 The user called this strand on 2026-11-10 as a minor breakthrough, with a
@@ -381,3 +535,25 @@ of how much each could change the reading:
    Anything cited elsewhere needs `bin/agpt_experiment`.
 6. **Interference between unit steps** (todo, step 1) was not measured. With
    this control it is less needed.
+
+### Status (2026-11-17)
+
+| # | Check | Status |
+|---|---|---|
+| 1 | Seeds | Attention: two order seeds per arm at 0.003. They differ by up to 0.09 nats (first), 0.06 (window) and 0.18 (last, early passes), against a suffix gap of 0.6–0.9 nats. GRU cells: still one seed each, except fwd/first. |
+| 2 | Attention f_θ | **Done (2026-11-17), holds.** Suffix-tree units cost the d64/L2 attention model 0.91 nats after one pass and 0.59 after 16; prefix units are level with size-matched random windows from pass 16 (Attention grouping control, above). |
+| 3 | v2's fixed unit order | Measured at pd=3 only (`rnd/one-pass-gap`, follow-up 1): radix-id order 8.00 against shuffled 7.81 after one pass, 0.024 nats. Not measured at pd=1. |
+| 4 | Depth 16, pd=2/3, cosine | Depth 16: done with attention (above). pd=3 prefix units with attention trail size-matched random batches by 0.21 nats after one pass (`rnd/one-pass-gap`). Suffix units at pd=2/3 not run. Cosine: the attention control's 16-pass check (above). |
+| 5 | Canonical eval | Done for the attention control (`bin/agpt_experiment`, rolling byte PPL). The GRU numbers remain diagnostic. |
+| 6 | Interference between unit steps | Not measured. |
+
+**Skew at depth 16** (`trie_plan group`, commit `16f73e7`, the full training
+split with the trie's tail wrapping): prefix units 0.0325 nats, suffix units
+0.8606, size-matched random windows 0.0001. At depth 8 the same code gives
+the GRU control's 0.0899 / 0.8606 / 0.0002. The suffix units' skew does not
+depend on depth. Each of their events pairs a context's newest character with
+the character after it, so a unit's targets are always that character's
+successor distribution, and the skew is the mutual information between
+adjacent characters. A prefix unit's targets mix the characters 1 to T
+places after its character, and the farther ones depend on it less, so
+deeper tries mix their prefix units better.

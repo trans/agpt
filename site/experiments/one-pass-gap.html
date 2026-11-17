@@ -1531,7 +1531,7 @@ fixed-window PPL in brackets, at each arm's best rate:</p>
 </tbody>
 </table>
 <p>SAG's best rates are inside their grids, at an eighth of AGPT's.</p>
-<p><strong>Why</strong> (<code>sag_staleness.py</code>, output in <code>sag_staleness.json</code>; a CPU
+<p><strong>Why</strong> (<a href="https://github.com/trans/agpt/blob/main/rnd/one-pass-gap/sag_staleness.py"><code>sag_staleness.py</code></a>, output in <a href="https://github.com/trans/agpt/blob/main/rnd/one-pass-gap/sag_staleness.json"><code>sag_staleness.json</code></a>; a CPU
 diagnostic outside the orchestrator). It used the same 20k characters, a
 constant rate, plain steps at 0.006 with momentum 0.9, SAG at 0.0015 with
 momentum off, and the same unit order. At every step it computes the
@@ -1679,7 +1679,7 @@ computed for one packing (seed 1); each pass repacks.</li>
 <li>Follow-up 7: one seed. <code>sg1</code> turns Adam's momentum off and its baseline
 <code>agpt</code> keeps 0.9. In the calibration, SAG with momentum 0.9 was worse
 (2.755 against 2.338), so this does not flatter the baseline. The
-calibration and <code>sag_staleness.py</code> use a 20k-character prefix, where
+calibration and <a href="https://github.com/trans/agpt/blob/main/rnd/one-pass-gap/sag_staleness.py"><code>sag_staleness.py</code></a> use a 20k-character prefix, where
 the model memorizes (train loss below 1 after 64 passes). They explain
 the runs but are not canonical numbers. The rates 0.00075 (both budgets)
 and 0.000375 (8 passes) were added in the slot after the grid's bottom

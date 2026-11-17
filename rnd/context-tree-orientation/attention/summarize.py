@@ -39,12 +39,12 @@ def runs():
 
 def main():
     R = runs()
-    passes = sorted({p for v in R.values() for p in v["curve"]})
+    passes = sorted({p for (a, _, _), v in R.items() if a in ARMS for p in v["curve"]})
     print("Rolling byte PPL (fixed-window in brackets) by pass:\n")
     print("| arm | lr | seed | " + " | ".join(str(p) for p in passes) + " |")
     print("|---|---:|---:|" + "---:|" * len(passes))
     for arm in ARMS:
-        for (a, lr, s), v in sorted(R.items(), key=lambda kv: (ARMS.index(kv[0][0]), kv[0][1], kv[0][2])):
+        for (a, lr, s), v in sorted(R.items(), key=lambda kv: kv[0]):
             if a != arm:
                 continue
             cells = []
