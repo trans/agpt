@@ -66,8 +66,9 @@ Record: `rnd/refined-trie-counts/README.md`; code `35b4ee8`
 - 10 configs, d64/L2 at depth 8: a 1M PG-19 slice's trie with its own counts
   or the 4.75M/20M/100M texts', the 4.75M text's own trie, minibatch
   references; two order seeds for the core pair.
-- **Waiting on GPU slot 85** (queued 02:48 UTC 2026-11-18, place 3, about
-  100 min). A background waiter in the session starts `run.sh` at the grant;
+- **Waiting on GPU slot 86** (first queued as 85 at 02:48 UTC 2026-11-18;
+  the user moved it ahead of imm's 83 and 84 at 04:44 UTC, so @air re-added
+  it as 86, first in line behind mobius's 82, about 100 min). A background waiter in the session starts `run.sh` at the grant;
   if the session is gone, start it by hand within 30 minutes of the grant.
 - Related record: agpt `rnd/prior-scaling-plain-1g` (a 1 GB prior beat
   training on the 1 GB by 0.025 bits/char), `rnd/count-backoff-gate`
