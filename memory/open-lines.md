@@ -1,6 +1,6 @@
 # Open lines of research
 
-*Updated 2026-11-17*
+*Updated 2026-11-18*
 
 Each line has a state, where its plan lives, and what it needs next.
 
@@ -53,26 +53,31 @@ Attention grouping control; Proviso status table).
 
 ## 1a. Refined trie counts (a small trie with a larger corpus's counts)
 
-**Active, opened 2026-11-18 at the user's word ("let's test it").** The user's
-observation (2026-11-17): in the imm and mobius work most of the useful data
-lives in the shallow tree, and mobius refines a small corpus's counts with a
-larger corpus's. AGPT's cost is per trie node and its loss reads the text only
-through the counts, so a small trie can take a larger corpus's child counts at
-no cost per step. Measured on PG-19: nodes up to depth 8 grow about as
-corpus^0.7 (sharing 6.7× at 1M, 19.2× at 32M), depth 16 stays at 2–3×.
-Record: `rnd/refined-trie-counts/README.md`; code `35b4ee8`
-(`experimental.trie_targets_corpus`, soft targets in `trie_plan` replay).
+**Concluded positive 2026-11-18 (slot 86, 11 runs, canonical).** Opened at the
+user's word ("let's test it", 2026-11-17), from their observation that in the
+imm and mobius work most of the useful data lives in the shallow tree, and
+mobius refines a small corpus's counts with a larger corpus's. Record:
+`rnd/refined-trie-counts/README.md`; code `35b4ee8`
+(`experimental.trie_targets_corpus`), results `9d4ef74`.
 
-- 10 configs, d64/L2 at depth 8: a 1M PG-19 slice's trie with its own counts
-  or the 4.75M/20M/100M texts', the 4.75M text's own trie, minibatch
-  references; two order seeds for the core pair.
-- **Waiting on GPU slot 86** (first queued as 85 at 02:48 UTC 2026-11-18;
-  the user moved it ahead of imm's 83 and 84 at 04:44 UTC, so @air re-added
-  it as 86, first in line behind mobius's 82, about 100 min). A background waiter in the session starts `run.sh` at the grant;
-  if the session is gone, start it by hand within 30 minutes of the grant.
+- AGPT pd=3 replay, d64/L2, depth 8, on a 1M PG-19 slice's trie: the 20M or
+  100M text's counts beat the slice's own by 0.051–0.057 nats after 8 passes
+  (three pairs, two order seeds), same steps and nodes. The 4.75M text's
+  counts give nothing (39% of the slice's contexts still occur once there).
+- A better objective, not a speed-up: in minibatch training own counts as
+  soft targets fade to −0.008 by 8 epochs, the 100M counts add −0.058 on top
+  and are still growing; the slice with 100M counts (6.150) beats 2 epochs of
+  the 4.75M text itself (6.314).
+- Keeping the small trie beats growing it: AGPT on the 4.75M text's own trie
+  trails the slice's trie at equal steps (bigger units).
+- Seed caution: the baseline's two order seeds differ by 0.065 nats, as much
+  as the effect; the paired gaps agree within 0.006.
+- **Next (not decided by the user):** refined counts in v2; the gain at depth
+  16; minibatch streaming the larger text for the same steps.
 - Related record: agpt `rnd/prior-scaling-plain-1g` (a 1 GB prior beat
   training on the 1 GB by 0.025 bits/char), `rnd/count-backoff-gate`
-  (same-corpus smoothed targets hurt AGPT: 6.70 against 5.30).
+  (same-corpus smoothed targets hurt AGPT: 6.70 against 5.30; raw counts from
+  a larger text keep the objective's form and help).
 
 ## 2. Curvature that keeps partitioned cadence
 
