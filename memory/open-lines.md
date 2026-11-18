@@ -94,8 +94,18 @@ mobius refines a small corpus's counts with a larger corpus's. Record:
   wasn't what made 3.82 look good (4%); the scorer is the difference.
   Corrections made to the user: the record's "d=32" is depth 32 (model
   d64/L2); I had wrongly implied 3.82 was close to a training-set score.
-- **Next (not decided by the user):** refined counts in v2; the gain at depth
-  16; minibatch streaming the larger text for the same steps.
+- **Sharing with the larger text's counts: not tested (the user asked,
+  2026-11-18).** The runs took each context's distribution from the larger
+  text but kept its weight in A, so sharing stayed at 5.2x. Counted
+  (`eff0ed6`, `superload_sharing.py`): weighted by the 100M text, A's 1.54M
+  depth-8 nodes cover 83% of its 800M events, 433x sharing (22x at 4.75M,
+  88x at 20M); what A lacks is deep contexts (half of depth 8). I had left
+  "weighting by the larger count was not tried" in the README without raising
+  it with the user. Offered: the weighted arm in the replay against minibatch
+  on the 100M text at equal compute (the replay tests the objective only).
+- **Next (not decided by the user):** the weighted arm; refined counts in v2
+  (needed for the compute saving); the gain at depth 16; minibatch streaming
+  the larger text for the same steps.
 - Related record: agpt `rnd/prior-scaling-plain-1g` (a 1 GB prior beat
   training on the 1 GB by 0.025 bits/char), `rnd/count-backoff-gate`
   (same-corpus smoothed targets hurt AGPT: 6.70 against 5.30; raw counts from
@@ -153,6 +163,15 @@ kernel work as research (2026-09-28).
 - Prefix-shared attention kernels exist only for inference (cascade-style or
   radix attention). No standard training kernel computes the gradient into
   ancestors.
+- **Full precision costs nothing measurable (the user: "want to do that",
+  2026-11-18; slot 97, `rnd/exact-build-speed/`, `18c104c`).** fp32 K/V
+  cache + `NVIDIA_TF32_OVERRIDE=0` against the normal bf16/TF32 build, two
+  one-pass-gap runs, twice each: pd=1 4 passes 29.3 s vs 28.3 s (+3.7%),
+  pd=3 1 pass 54.1 s vs 54.4 s (-0.6%), inside the 1-3 s repeat spread;
+  scores within run-to-run noise. Runner: `--trainer v2-kvfp32`, and
+  `NVIDIA_TF32_OVERRIDE` recorded in `meta.json` (`18284a0`). Making it the
+  default build is the user's call (offered 2026-11-18). Holds at d64/L2;
+  re-measure at a wider model.
 
 ## 3a. Multi-positional (superposed) RoPE — next direction
 
