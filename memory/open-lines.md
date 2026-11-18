@@ -51,6 +51,28 @@ Attention grouping control; Proviso status table).
     (`first | last | window`): the same control for the attention model,
     through the orchestrator.
 
+## 1a. Refined trie counts (a small trie with a larger corpus's counts)
+
+**Active, opened 2026-11-18 at the user's word ("let's test it").** The user's
+observation (2026-11-17): in the imm and mobius work most of the useful data
+lives in the shallow tree, and mobius refines a small corpus's counts with a
+larger corpus's. AGPT's cost is per trie node and its loss reads the text only
+through the counts, so a small trie can take a larger corpus's child counts at
+no cost per step. Measured on PG-19: nodes up to depth 8 grow about as
+corpus^0.7 (sharing 6.7× at 1M, 19.2× at 32M), depth 16 stays at 2–3×.
+Record: `rnd/refined-trie-counts/README.md`; code `35b4ee8`
+(`experimental.trie_targets_corpus`, soft targets in `trie_plan` replay).
+
+- 10 configs, d64/L2 at depth 8: a 1M PG-19 slice's trie with its own counts
+  or the 4.75M/20M/100M texts', the 4.75M text's own trie, minibatch
+  references; two order seeds for the core pair.
+- **Waiting on GPU slot 85** (queued 02:48 UTC 2026-11-18, place 3, about
+  100 min). A background waiter in the session starts `run.sh` at the grant;
+  if the session is gone, start it by hand within 30 minutes of the grant.
+- Related record: agpt `rnd/prior-scaling-plain-1g` (a 1 GB prior beat
+  training on the 1 GB by 0.025 bits/char), `rnd/count-backoff-gate`
+  (same-corpus smoothed targets hurt AGPT: 6.70 against 5.30).
+
 ## 2. Curvature that keeps partitioned cadence
 
 **Open.** Full-trie L-BFGS works on the exact gradient but loses to pd=1 Adam at
