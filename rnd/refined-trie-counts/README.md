@@ -275,7 +275,9 @@ At the last pass of every plan depth:
 - **Plan depth, at equal passes:** the deeper the plan, the further ahead
   early. pd=6 after 2 passes (9.459) is ahead of pd=3 after 8 (10.006 and
   10.683), and with the 100M counts (8.982) of pd=3 with them (9.455). This
-  agrees with the record's pd=6 best.
+  agrees with the record's ranking (pd=6 the best of pd=1–7), not its numbers:
+  `partition-depth`'s 3.82 is legacy PPL@32 on Shakespeare scored on its own
+  training text (`data/input.txt`), not comparable with these.
 - **Plan depth, at equal steps:** the order reverses. pd=0's 512 steps reach
   6.841; pd=1's 11,392 reach 7.93–8.36; pd=6's 758,624 reach 9.459. pd=0 with
   the 100M counts (6.621) is the best AGPT result here, and it was still
