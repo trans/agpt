@@ -72,6 +72,12 @@ mobius refines a small corpus's counts with a larger corpus's. Record:
   trails the slice's trie at equal steps (bigger units).
 - Seed caution: the baseline's two order seeds differ by 0.065 nats, as much
   as the effect; the paired gaps agree within 0.006.
+- **Follow-up queued (the user, 2026-11-18: "I am curious to see pd=1 and
+  pd=0 as well"; pd=6 is the deepest plan on record and its best score):**
+  the same pair at pd=0 (512 full-batch steps), pd=1 (128 passes, two
+  seeds) and pd=6 (2 passes, Adam 0.001). Code and configs `0485dce`
+  (`trie_plan` pd=0 added), `run2.sh`; GPU slot 88, place 2, about 110 min.
+  A session waiter starts it at the grant.
 - **Next (not decided by the user):** refined counts in v2; the gain at depth
   16; minibatch streaming the larger text for the same steps.
 - Related record: agpt `rnd/prior-scaling-plain-1g` (a 1 GB prior beat
