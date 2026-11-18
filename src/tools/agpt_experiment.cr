@@ -7,7 +7,7 @@
 #   3. (AGPT only) build/cache radix trie at data/.tries/<hash>/ when trie.path absent.
 #   4. Apply defaults (model.save_file → <rundir>/checkpoint.model; trie.path → cache).
 #   5. Write resolved_config.yml to the run dir.
-#   6. Spawn the trainer chosen via --trainer (v1|v2|microgpt|<path>).
+#   6. Spawn the trainer chosen via --trainer (v1|v2|v2-kvfp32|microgpt|<path>).
 #   7. Convert checkpoint → HF; run agpt_lm_eval.py against held-out / external / benchmark.
 #   8. Parse metrics → write result.json + update meta.json + runs.json.
 #
@@ -15,7 +15,7 @@
 # notes/operations/orchestrator-rewrite-plan.md for the #29 rewrite plan.
 #
 # Usage:
-#   bin/agpt_experiment --config FOO.yml --trainer <v1|v2|microgpt|/path/to/binary> [--seed N]
+#   bin/agpt_experiment --config FOO.yml --trainer <v1|v2|v2-kvfp32|microgpt|/path/to/binary> [--seed N]
 #   bin/agpt_experiment --validate FOO.yml
 #   bin/agpt_experiment --eval-run-dir rnd/<experiment>/<run-id>
 #
@@ -303,8 +303,9 @@ module AgptExperiment
   # Capture host/runtime environment for reproducibility. AGPT_* env vars are
   # NOT recorded — they were removed from the schema (see "Removed / not in
   # the schema" in docs/yaml-schema.md). If any are set we emit a warning so
-  # users notice. CUDA_VISIBLE_DEVICES / OMP_NUM_THREADS / CUBLAS_WORKSPACE_CONFIG
-  # remain permitted and are recorded for provenance.
+  # users notice. CUDA_VISIBLE_DEVICES / OMP_NUM_THREADS / CUBLAS_WORKSPACE_CONFIG /
+  # NVIDIA_TF32_OVERRIDE remain permitted and are recorded for provenance
+  # (NVIDIA_TF32_OVERRIDE=0 turns off TF32 matmuls in cuBLAS: full fp32).
   def self.environment_info : Hash(String, String | Hash(String, String))
     cuda_version = if File.exists?("/opt/cuda/bin/nvcc")
       `/opt/cuda/bin/nvcc --version 2>/dev/null | grep release | head -1`.strip
@@ -321,7 +322,7 @@ module AgptExperiment
       pkg[mod] = out.empty? ? "unknown" : out
     end
     permitted_env = {} of String => String
-    {"CUDA_VISIBLE_DEVICES", "OMP_NUM_THREADS", "CUBLAS_WORKSPACE_CONFIG"}.each do |k|
+    {"CUDA_VISIBLE_DEVICES", "OMP_NUM_THREADS", "CUBLAS_WORKSPACE_CONFIG", "NVIDIA_TF32_OVERRIDE"}.each do |k|
       if v = ENV[k]?
         permitted_env[k] = v
       end
@@ -556,12 +557,15 @@ module AgptExperiment
     case name
     when "v1"       then {Trainer::V1,       "bin/agpt_train"}
     when "v2"       then {Trainer::V2,       "bin/agpt_train_v2"}
+    # The same trainer with an fp32 K/V cache (just build-agpt-train-v2-kvfp32).
+    # Run it with NVIDIA_TF32_OVERRIDE=0 for full fp32 (no TF32 matmuls).
+    when "v2-kvfp32" then {Trainer::V2,      "bin/agpt_train_v2_kvfp32"}
     when "microgpt" then {Trainer::Microgpt, "bin/microgpt_yaml"}
     else
       if name.includes?('/') && File.exists?(name)
         {Trainer::Custom, name}
       else
-        raise "unknown --trainer #{name.inspect}; expected v1|v2|microgpt or a path to a binary"
+        raise "unknown --trainer #{name.inspect}; expected v1|v2|v2-kvfp32|microgpt or a path to a binary"
       end
     end
   end
@@ -870,9 +874,9 @@ module AgptExperiment
     eval_run_dir : String? = nil
 
     OptionParser.parse(argv) do |p|
-      p.banner = "Usage: agpt_experiment --config X.yml --trainer <v1|v2|microgpt|path> [--seed N]"
+      p.banner = "Usage: agpt_experiment --config X.yml --trainer <v1|v2|v2-kvfp32|microgpt|path> [--seed N]"
       p.on("--config PATH", "YAML config path (required)") { |v| config_path = v }
-      p.on("--trainer NAME", "Trainer: v1|v2|microgpt|<path>") { |v| trainer_name = v }
+      p.on("--trainer NAME", "Trainer: v1|v2|v2-kvfp32|microgpt|<path>") { |v| trainer_name = v }
       p.on("--rnd-root PATH", "Root dir for experiments (default: rnd)") { |v| rnd_root = v }
       p.on("--seed N", "Override train.seed for this run") { |v| seed_override = v.to_i }
       p.on("--eval-run-dir PATH", "Evaluate an existing run dir; skips missing epoch checkpoints") { |v| eval_run_dir = v }
@@ -924,7 +928,7 @@ module AgptExperiment
 
     tn = trainer_name
     if tn.nil?
-      STDERR.puts "error: --trainer is required (one of: v1|v2|microgpt|<path>)"
+      STDERR.puts "error: --trainer is required (one of: v1|v2|v2-kvfp32|microgpt|<path>)"
       exit 2
     end
     trainer, trainer_bin = begin
