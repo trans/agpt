@@ -1,0 +1,19 @@
+# Toolchain check, run directly (not through bin/agpt_experiment): the sweep's
+# own trie (all of data/input.txt, depth 32, built 2026-04-28 and unchanged),
+# its init, its trainer and its recipe; scored as the sweep scored it
+# (bin/perplexity --file data/input.txt --max-positions 8192 --seq-len 32).
+corpus:
+  path: data/input.txt
+model:
+  init_file: data/input.random.model
+  save_file: rnd/partition-depth-rerun/repro/checkpoint.model
+train:
+  budget: {unit: epochs, value: 3}
+  optimizer: {name: adam, lr: 0.001}
+  lr_schedule: {name: warmup-cosine, warmup_epochs: 1}
+  max_depth: 32
+  partition_depth: 6
+  mass_weight: log
+  entropy_lambda: 1.0
+experimental:
+  old_trie_dir: /home/trans/agpt-tries/shakespeare_d32_radix_corpus
