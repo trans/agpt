@@ -68,8 +68,14 @@ def n_children(keys: np.ndarray, d: int) -> np.ndarray:
 
 
 def pd_unit_tags(keys: np.ndarray, k: int) -> np.ndarray:
-    """[n_starts, T] unit tag of every event under v2's pd=k + train_crown plan."""
+    """[n_starts, T] unit tag of every event under v2's pd=k + train_crown plan.
+
+    k = 0 is the whole trie as one unit: one step a pass, the full-batch gradient."""
     T, n = keys.shape
+    if not 0 <= k <= T:
+        raise ValueError(f"pd={k} needs 0 <= pd <= T={T}")
+    if k == 0:
+        return np.zeros((n, T), dtype=np.uint64)
     tags = np.empty((n, T), dtype=np.uint64)
     piece = keys[k - 1] * _C_PIECE + np.uint64(k)
     tags[:, k - 1:] = piece[:, None]

@@ -74,16 +74,16 @@ experimental:
 {exp}"""
 
 
-def config(slug, desc, corpus, passes, checkpoints, seed, agpt, ref):
+def config(slug, desc, corpus, passes, checkpoints, seed, agpt, ref, pd=3, lr=LR):
     exp = []
     if agpt:
-        exp += ["trie_plan: pd", "trie_plan_depth: 3", f"trie_plan_seed: {1 if seed == 42 else 2}"]
+        exp += ["trie_plan: pd", f"trie_plan_depth: {pd}", f"trie_plan_seed: {1 if seed == 42 else 2}"]
     if ref == "own":
         exp += ["trie_targets: true"]
     elif ref:
         path, sha = REFS[ref]
         exp += ["trie_targets: true", f"trie_targets_corpus: {path}", f"trie_targets_corpus_sha256: {sha}"]
-    body = BODY.format(corpus=corpus, P=P, passes=passes, seed=seed, lr=LR,
+    body = BODY.format(corpus=corpus, P=P, passes=passes, seed=seed, lr=lr,
                        checkpoints=", ".join(str(c) for c in checkpoints),
                        exp="".join(f"  {e}\n" for e in exp))
     (OUT / f"{slug}.yml").write_text(f'---\ndescription: "{desc}"\nexperiment: refined-trie-counts\n'
@@ -116,6 +116,21 @@ def main():
                  "own"))
     runs.append(("mb-5m","refined trie counts: minibatch (128 windows a step), d64/L2, depth 8, the 4.75M PG-19 text, "
                           "hard targets; 2 epochs, Adam 0.003 constant", CORPUS["5m"], 2, [1], 42, False, None))
+    # Follow-up (the user, 2026-11-18: pd=1 and pd=0 too; pd=6 is the deepest plan on record and
+    # its best score): the same pair, own counts against the 100M text's, at other plan depths.
+    # pd=0 is one full-batch step a pass (no order, so one seed), pd=1 89 steps a pass, pd=6
+    # 379,312 (at the record's pd=6 rate, 0.001).
+    PD = {0: (512, [32, 128, 256], [42], LR), 1: (128, [8, 32, 64], [42, 43], LR), 6: (2, [1], [42], 0.001)}
+    for pd, (passes, cps, seeds, lr) in PD.items():
+        for seed in seeds:
+            s2 = "" if seed == 42 else "-s2"
+            for ref in (None, "100m"):
+                slug = f"agpt-a1m-pd{pd}" + (f"-ref{ref}" if ref else "") + s2
+                counts = "its child counts from the 100M PG-19 text containing it" if ref else "its own counts"
+                order = "one full-batch step a pass" if pd == 0 else f"order seed {1 if seed == 42 else 2}"
+                runs.append((slug, f"refined trie counts, plan depths: AGPT pd={pd} replay, d64/L2, depth 8, the 1M "
+                                   f"PG-19 slice's trie with {counts}; {passes} passes, Adam {lr:g} constant, {order}",
+                             CORPUS["a1m"], passes, cps, seed, True, ref, pd, lr))
     for r in runs:
         config(*r)
     print(f"wrote {len(runs)} configs to {OUT}")
