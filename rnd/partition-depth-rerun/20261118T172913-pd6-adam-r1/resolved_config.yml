@@ -1,0 +1,39 @@
+---
+description: 'partition-depth rerun: the 2026-04-30 Adam pd=6 recipe with the code
+  of that day (agpt_train at a8ddb15), d64/L2 from data/input.random.model, depth
+  32, 3 passes, trained on the canonical Shakespeare split and scored on its held-out
+  chunks; repeat 1 (the old trainer has no seed)'
+experiment: partition-depth-rerun
+run_slug: pd6-adam-r1
+corpus:
+  path: data/.splits/4fa9aec1db6b3aea/train_corpus.txt
+  heldout: data/.splits/4fa9aec1db6b3aea/heldout_corpus.txt
+  vocab_source: data/input.txt
+model:
+  init_file: data/input.random.model
+  save_file: rnd/partition-depth-rerun/20261118T172913-pd6-adam-r1/checkpoint.model
+train:
+  budget:
+    unit: epochs
+    value: 3
+  seed: 42
+  quiet: false
+  optimizer:
+    name: adam
+    lr: 0.001
+  lr_schedule:
+    name: warmup-cosine
+    warmup_epochs: 1
+    min_lr_ratio: 0.0
+  max_depth: 32
+  seq_len: 32
+  partition_depth: 6
+  mass_weight: log
+  entropy_lambda: 1.0
+eval:
+  train_sanity: false
+  batch_size: 1
+  device: cpu
+experimental:
+  old_trainer: /home/trans/agpt-tries/old-a8ddb15/agpt_train
+  old_trie_builder: /home/trans/agpt-tries/old-a8ddb15/agpt_build_radix_corpus

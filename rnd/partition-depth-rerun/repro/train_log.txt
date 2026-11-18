@@ -1,0 +1,68 @@
+old_v1_trainer: trainer /home/trans/agpt-tries/old-a8ddb15/agpt_train sha256 a2db020c5ea3d160151f94cba80b732de3c1544d661e135b4c5bfd24f79765f4
+old_v1_trainer: trie /home/trans/agpt-tries/shakespeare_d32_radix_corpus
++ /home/trans/agpt-tries/old-a8ddb15/agpt_train --model rnd/partition-depth-rerun/repro/checkpoint.model --trie-dir /home/trans/agpt-tries/shakespeare_d32_radix_corpus --save rnd/partition-depth-rerun/repro/checkpoint.model --epochs 3 --lr 0.001 --optimizer adam --lr-schedule warmup-cosine --warmup-epochs 1 --entropy-lambda 1.0 --mass-weight log --no-accumulate --partition-depth 6
+AGPT CUDA Training Engine
+  Model: d=64 heads=4 layers=2 ff=256 vocab=65 seq=128 head_dim=16
+  Loaded 108481 weight floats (423.8 KB)
+Loading radix trie from /home/trans/agpt-tries/shakespeare_d32_radix_corpus...
+  Radix trie: 1666215 nodes, 27046236 total edge chars, 33 endpoint depths
+  Radix loaded: 2780616 counts entries, 13382283 ancestor char entries
+  d_split: 1113344/1666215 nodes have a mass=1 ancestor (mean depth 9.71)
+  lr-schedule: warmup-cosine (peak=0.001, warmup_epochs=1)
+  optimizer: adam (lr=0.001)
+  entropy lambda: 1.000 (branching-endpoint icing enabled)
+  mass weighting: log (head-of-edge count restores corpus-frequency exposure)
+  curriculum: flat (d=max each epoch)
+  max edge_len: 32, max ancestor chars: 31, max KV per node: 63, max endpoint depth: 32
+  mass=1 compaction: 25933940 / 27046236 chars are mass=1 (95.9%); cache holds 1112296 positions
+  loop points: 986 (mass>1 leaves; 0.2% of 552870 mass>1 nodes)
+  KV cache: 569.5 MB unified memory (bf16 compact)
+  GPU memory: 4596.2 MB used, 3675.8 MB free, 8272.0 MB total
+  65 root-child subtrees: sizes min=1 max=254737 avg=25634.1 (total=1666214 radix nodes)
+  partition-depth=6: 283309 groups, 1 Adam step per group per super-epoch
+Epoch 1: loss=1.953882  (184.98 sec, 283309 subtrees, 283310 chunks, 27046236 nodes)
+  residual top-10 (subtree_mass × max(avg_loss − 1.954, 0)):
+    rc   rootID   mass      avg_loss     score 
+    0    1        5088672   6.3015       22123833.0
+    572  10896    3066      4.6921       8395.5
+    3    80       2503      5.1229       7932.1
+    10472 87529    10176     2.6902       7492.8
+    9911 85625    8500      2.7873       7083.9
+    410  7926     1821      5.0507       5639.3
+    1482 2683     2503      4.0432       5229.5
+    92   2359     1564      5.2653       5179.0
+    13194 97601    9092      2.5228       5173.1
+    317  6540     1631      5.1212       5165.9
+    top-10: 59.1% of mass, 96.3% of excess-loss
+Epoch 2: loss=1.482323  (185.29 sec, 283309 subtrees, 283310 chunks, 27046195 nodes)
+  residual top-10 (subtree_mass × max(avg_loss − 1.482, 0)):
+    rc   rootID   mass      avg_loss     score 
+    0    1        5088672   2.4876       5115417.5
+    10472 87529    10176     1.5379       565.7 
+    13194 97601    9092      1.5438       558.6 
+    30296 333204   6158      1.5515       425.8 
+    29830 330993   4151      1.5606       325.0 
+    9585 84462    3668      1.5639       299.1 
+    10383 87381    5908      1.5326       296.8 
+    572  10896    3066      1.5741       281.5 
+    10372 87351    6413      1.5250       273.5 
+    7099 69953    2565      1.5839       260.5 
+    top-10: 59.3% of mass, 97.2% of excess-loss
+Epoch 3: loss=1.381241  (185.37 sec, 283309 subtrees, 283310 chunks, 27046199 nodes)
+  residual top-10 (subtree_mass × max(avg_loss − 1.381, 0)):
+    rc   rootID   mass      avg_loss     score 
+    0    1        5088672   2.3787       5075991.0
+    10472 87529    10176     1.4464       663.5 
+    13194 97601    9092      1.4268       413.9 
+    30296 333204   6158      1.4404       364.0 
+    9585 84462    3668      1.4521       259.8 
+    29830 330993   4151      1.4433       257.4 
+    7539 73410    1632      1.5260       236.3 
+    11825 92554    7016      1.4144       232.3 
+    12909 96183    3297      1.4512       230.8 
+    10383 87381    5908      1.4194       225.6 
+    top-10: 59.3% of mass, 97.3% of excess-loss
+Saved to rnd/partition-depth-rerun/repro/checkpoint.model
+Done.
+  (971 s)
+old_v1_trainer: header seq_len 128 -> 32 (the trained context; RoPE, weights unchanged)

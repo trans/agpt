@@ -1,0 +1,10 @@
+17:12 start
+17:29 repro on data/input.txt: bin/perplexity 3.8360 | agpt_ppl.py 3.8360
+17:29 repro on data/.splits/4fa9aec1db6b3aea/heldout_corpus.txt: bin/perplexity  | agpt_ppl.py 3.4884
+17:45 pd6-adam-r1:  lm_eval_rolling_byte_perplexity = 4.8891
+17:45 pd6-adam-r1 on data/input.txt: bin/perplexity 3.8009 | agpt_ppl.py 3.8009
+17:45 pd6-adam-r1 on data/.splits/4fa9aec1db6b3aea/heldout_corpus.txt: bin/perplexity  | agpt_ppl.py 3.7007
+18:01 pd6-adam-r2:  lm_eval_rolling_byte_perplexity = 4.9465
+18:01 pd6-adam-r2 on data/input.txt: bin/perplexity 3.8211 | agpt_ppl.py 3.8210
+18:01 pd6-adam-r2 on data/.splits/4fa9aec1db6b3aea/heldout_corpus.txt: bin/perplexity  | agpt_ppl.py 3.6809
+18:01 all done
