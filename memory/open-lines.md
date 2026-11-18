@@ -83,6 +83,16 @@ mobius refines a small corpus's counts with a larger corpus's. Record:
   6.621; minibatch with the same counts 6.503 after one epoch. The slot ran
   3 h 22 min against the 110 min asked: pd=6 with soft targets took 99 min a
   pass in the Python replay.
+- **Shakespeare pd=6 rerun running (the user, 2026-11-18: "yes, queue the
+  Shakespeare pd=6 rerun"), slot 91, record `rnd/partition-depth-rerun/`
+  (`5631b42`).** After the user objected that today's 8.98 can't be set
+  against `partition-depth`'s 3.82: that record is legacy PPL@32 from before
+  the 2026-05-25 switch to lm-evaluation-harness, and its script scores the
+  start of `data/input.txt` (logs not kept). The rerun rebuilds that day's
+  trainer (`a8ddb15` + microgpt `bdd8e82`), checks it on the sweep's own trie
+  and scorer, then trains on the canonical split twice with canonical eval,
+  each checkpoint also scored the old way. Correction made to the user:
+  the record's "d=32" is depth 32; the model was d64/L2.
 - **Next (not decided by the user):** refined counts in v2; the gain at depth
   16; minibatch streaming the larger text for the same steps.
 - Related record: agpt `rnd/prior-scaling-plain-1g` (a 1 GB prior beat
