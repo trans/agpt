@@ -72,12 +72,17 @@ mobius refines a small corpus's counts with a larger corpus's. Record:
   trails the slice's trie at equal steps (bigger units).
 - Seed caution: the baseline's two order seeds differ by 0.065 nats, as much
   as the effect; the paired gaps agree within 0.006.
-- **Follow-up queued (the user, 2026-11-18: "I am curious to see pd=1 and
-  pd=0 as well"; pd=6 is the deepest plan on record and its best score):**
-  the same pair at pd=0 (512 full-batch steps), pd=1 (128 passes, two
-  seeds) and pd=6 (2 passes, Adam 0.001). Code and configs `0485dce`
-  (`trie_plan` pd=0 added), `run2.sh`; GPU slot 88, place 2, about 110 min.
-  A session waiter starts it at the grant.
+- **Plan-depth follow-up done (the user, 2026-11-18: "I am curious to see
+  pd=1 and pd=0 as well"; pd=6 added as the deepest plan on record and its
+  best score; slot 88, 8 runs, results `f5e9d7b`, `trie_plan` pd=0 `0485dce`).**
+  The gain holds at every depth: pd=0 (full batch, 512 passes) −0.033, pd=1
+  (128 passes) −0.073 / −0.033 on two seeds, pd=6 (2 passes) −0.052. In
+  full batch it appears only from step 256. At equal passes deeper plans
+  lead (pd=6 at 2 passes 9.459 beats pd=3 at 8); at equal steps the order
+  reverses (pd=0's 512 steps 6.841). Best AGPT here pd=0 + 100M counts,
+  6.621; minibatch with the same counts 6.503 after one epoch. The slot ran
+  3 h 22 min against the 110 min asked: pd=6 with soft targets took 99 min a
+  pass in the Python replay.
 - **Next (not decided by the user):** refined counts in v2; the gain at depth
   16; minibatch streaming the larger text for the same steps.
 - Related record: agpt `rnd/prior-scaling-plain-1g` (a 1 GB prior beat
