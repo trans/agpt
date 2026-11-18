@@ -1,0 +1,91 @@
+{
+  "run_id": "20261118T112903-agpt-a1m-pd0-ref100m",
+  "experiment": "refined-trie-counts",
+  "wall_seconds": 4766.52188974,
+  "train_wall_seconds": 4594.654620526,
+  "convert_wall_seconds": 3.443160142,
+  "eval_wall_seconds": 38.525728294,
+  "started_utc": "2026-11-18T11:29:03Z",
+  "ended_utc": "2026-11-18T12:48:29Z",
+  "trainer": "src/tools/agpt_minibatch_train.py",
+  "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+  "eval": {
+    "split": "multi-chunk-heldout",
+    "source_path": null,
+    "source_sha256": null,
+    "chunks_dir": "data/pg19/imm-split/heldout_chunks",
+    "benchmark": null,
+    "task_name": "agpt-a1m-pd0-ref100m_holdout"
+  },
+  "metrics": {
+    "lm_eval_rolling_word_perplexity": 49419.22075695991,
+    "lm_eval_rolling_byte_perplexity": 6.621019097424268,
+    "lm_eval_rolling_bits_per_byte": 2.7270532916012646,
+    "agpt_fixed_token_perplexity": 5.488306485452173
+  },
+  "checkpoint_sha": "cb7c4dcee5212c8d9756fecc633091b8f03ae64de79bdee7d5f4183ae8995d66",
+  "checkpoint_results": [
+    {
+      "epoch": 32,
+      "checkpoint_path": "rnd/refined-trie-counts/20261118T112903-agpt-a1m-pd0-ref100m/checkpoint.epoch_000032.model",
+      "checkpoint_sha": "d5b2e08b4abc724aa396f196f0856155be639de3d003ba81af949b1fef4def6d",
+      "hf_dir": "rnd/refined-trie-counts/20261118T112903-agpt-a1m-pd0-ref100m/hf_checkpoint_epoch_000032",
+      "eval_raw_json": "rnd/refined-trie-counts/20261118T112903-agpt-a1m-pd0-ref100m/eval_raw_epoch_000032.json",
+      "task_name": "agpt-a1m-pd0-ref100m_epoch_000032_holdout",
+      "train_wall_seconds": 425.203399,
+      "convert_wall_seconds": 3.439950119,
+      "eval_wall_seconds": 38.786367777,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 3772934.050951712,
+        "lm_eval_rolling_byte_perplexity": 14.132161150526333,
+        "lm_eval_rolling_bits_per_byte": 3.820910200526302,
+        "agpt_fixed_token_perplexity": 14.139553656163443
+      }
+    },
+    {
+      "epoch": 128,
+      "checkpoint_path": "rnd/refined-trie-counts/20261118T112903-agpt-a1m-pd0-ref100m/checkpoint.epoch_000128.model",
+      "checkpoint_sha": "b56218bb4bfdf8e1b1de5a5a4f4ce722426247b3f6909c1478f6eb81f100c459",
+      "hf_dir": "rnd/refined-trie-counts/20261118T112903-agpt-a1m-pd0-ref100m/hf_checkpoint_epoch_000128",
+      "eval_raw_json": "rnd/refined-trie-counts/20261118T112903-agpt-a1m-pd0-ref100m/eval_raw_epoch_000128.json",
+      "task_name": "agpt-a1m-pd0-ref100m_epoch_000128_holdout",
+      "train_wall_seconds": 1491.221755,
+      "convert_wall_seconds": 3.428304654,
+      "eval_wall_seconds": 38.575048721,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 213637.9776458234,
+        "lm_eval_rolling_byte_perplexity": 8.552993163758062,
+        "lm_eval_rolling_bits_per_byte": 3.0964293868792523,
+        "agpt_fixed_token_perplexity": 7.743217555980291
+      }
+    },
+    {
+      "epoch": 256,
+      "checkpoint_path": "rnd/refined-trie-counts/20261118T112903-agpt-a1m-pd0-ref100m/checkpoint.epoch_000256.model",
+      "checkpoint_sha": "1a44c257d06d5873ce045d5ca927cd02c521244b1520b1a2d4ba9d12d70853c0",
+      "hf_dir": "rnd/refined-trie-counts/20261118T112903-agpt-a1m-pd0-ref100m/hf_checkpoint_epoch_000256",
+      "eval_raw_json": "rnd/refined-trie-counts/20261118T112903-agpt-a1m-pd0-ref100m/eval_raw_epoch_000256.json",
+      "task_name": "agpt-a1m-pd0-ref100m_epoch_000256_holdout",
+      "train_wall_seconds": 2684.606049,
+      "convert_wall_seconds": 3.393842829,
+      "eval_wall_seconds": 38.725484015,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 90344.94326404978,
+        "lm_eval_rolling_byte_perplexity": 7.357799278256918,
+        "lm_eval_rolling_bits_per_byte": 2.879274319935079,
+        "agpt_fixed_token_perplexity": 6.330375170240784
+      }
+    }
+  ],
+  "experimental_used": {
+    "src/tools/agpt_minibatch_train.py": [
+      "device",
+      "trie_plan",
+      "trie_plan_depth",
+      "trie_plan_seed",
+      "trie_targets",
+      "trie_targets_corpus",
+      "trie_targets_corpus_sha256"
+    ]
+  }
+}

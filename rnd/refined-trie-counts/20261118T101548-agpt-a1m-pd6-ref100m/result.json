@@ -1,0 +1,57 @@
+{
+  "run_id": "20261118T101548-agpt-a1m-pd6-ref100m",
+  "experiment": "refined-trie-counts",
+  "wall_seconds": 11978.999138781,
+  "train_wall_seconds": 11890.284805844,
+  "convert_wall_seconds": 3.261271421,
+  "eval_wall_seconds": 38.548724182,
+  "started_utc": "2026-11-18T10:15:48Z",
+  "ended_utc": "2026-11-18T13:35:27Z",
+  "trainer": "src/tools/agpt_minibatch_train.py",
+  "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+  "eval": {
+    "split": "multi-chunk-heldout",
+    "source_path": null,
+    "source_sha256": null,
+    "chunks_dir": "data/pg19/imm-split/heldout_chunks",
+    "benchmark": null,
+    "task_name": "agpt-a1m-pd6-ref100m_holdout"
+  },
+  "metrics": {
+    "lm_eval_rolling_word_perplexity": 282541.98896801437,
+    "lm_eval_rolling_byte_perplexity": 8.981539985504511,
+    "lm_eval_rolling_bits_per_byte": 3.166962832379488,
+    "agpt_fixed_token_perplexity": 6.613135647380553
+  },
+  "checkpoint_sha": "5ad5c58bb466405c139c692673017582a9a855985e5097214546bf93ea87857b",
+  "checkpoint_results": [
+    {
+      "epoch": 1,
+      "checkpoint_path": "rnd/refined-trie-counts/20261118T101548-agpt-a1m-pd6-ref100m/checkpoint.epoch_000001.model",
+      "checkpoint_sha": "33ba32a6b239cc18df5d9ff42a25209257b879417b89c2cb459b76eafaca777f",
+      "hf_dir": "rnd/refined-trie-counts/20261118T101548-agpt-a1m-pd6-ref100m/hf_checkpoint_epoch_000001",
+      "eval_raw_json": "rnd/refined-trie-counts/20261118T101548-agpt-a1m-pd6-ref100m/eval_raw_epoch_000001.json",
+      "task_name": "agpt-a1m-pd6-ref100m_epoch_000001_holdout",
+      "train_wall_seconds": 8945.142619,
+      "convert_wall_seconds": 3.232866322,
+      "eval_wall_seconds": 38.550093738,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 301924.7308082746,
+        "lm_eval_rolling_byte_perplexity": 9.086370498910462,
+        "lm_eval_rolling_bits_per_byte": 3.18370413282621,
+        "agpt_fixed_token_perplexity": 7.140573317473114
+      }
+    }
+  ],
+  "experimental_used": {
+    "src/tools/agpt_minibatch_train.py": [
+      "device",
+      "trie_plan",
+      "trie_plan_depth",
+      "trie_plan_seed",
+      "trie_targets",
+      "trie_targets_corpus",
+      "trie_targets_corpus_sha256"
+    ]
+  }
+}

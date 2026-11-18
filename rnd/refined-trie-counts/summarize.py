@@ -14,7 +14,9 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 ORDER = ["agpt-a1m", "agpt-a1m-s2", "agpt-a1m-ref5m", "agpt-a1m-ref20m", "agpt-a1m-ref100m",
-         "agpt-a1m-ref100m-s2", "agpt-5m", "mb-a1m", "mb-a1m-tt", "mb-a1m-ref100m", "mb-5m"]
+         "agpt-a1m-ref100m-s2", "agpt-5m", "mb-a1m", "mb-a1m-tt", "mb-a1m-ref100m", "mb-5m",
+         "agpt-a1m-pd0", "agpt-a1m-pd0-ref100m", "agpt-a1m-pd1", "agpt-a1m-pd1-ref100m", "agpt-a1m-pd1-s2",
+         "agpt-a1m-pd1-ref100m-s2", "agpt-a1m-pd6", "agpt-a1m-pd6-ref100m"]
 
 
 def runs():
@@ -67,6 +69,7 @@ def main():
           "mb-a1m-tt: own counts as soft targets):\n")
     pairs = [(f"agpt-a1m-ref{r}{s}", f"agpt-a1m{s}") for r in ("5m", "20m", "100m") for s in ("", "-s2")]
     pairs += [("mb-a1m-tt", "mb-a1m"), ("mb-a1m-ref100m", "mb-a1m"), ("mb-a1m-ref100m", "mb-a1m-tt")]
+    pairs += [(f"agpt-a1m-pd{k}-ref100m{s}", f"agpt-a1m-pd{k}{s}") for k in (0, 1, 6) for s in ("", "-s2")]
     print("| run | vs | " + " | ".join(str(p) for p in passes) + " |")
     print("|---|---|" + "---:|" * len(passes))
     for a, b in pairs:
@@ -76,7 +79,7 @@ def main():
             print(f"| {a} | {b} | " + " | ".join(cells) + " |")
 
     print("\nTrain loss (nats, on the run's own targets; soft cross-entropy in brackets) by pass:\n")
-    tp = sorted({p for v in R.values() for p in v["train"]})
+    tp = sorted({p for v in R.values() for p in v["train"]} & set(passes))  # the evaluated passes
     print("| run | steps/pass | trie positions/pass | " + " | ".join(str(p) for p in tp) + " |")
     print("|---|---:|---:|" + "---:|" * len(tp))
     for s in ORDER + sorted(set(R) - set(ORDER)):

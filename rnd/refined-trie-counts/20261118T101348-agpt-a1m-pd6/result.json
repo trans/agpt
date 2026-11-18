@@ -1,0 +1,54 @@
+{
+  "run_id": "20261118T101348-agpt-a1m-pd6",
+  "experiment": "refined-trie-counts",
+  "wall_seconds": 3743.225800595,
+  "train_wall_seconds": 3623.619668633,
+  "convert_wall_seconds": 6.206420477,
+  "eval_wall_seconds": 51.285846263,
+  "started_utc": "2026-11-18T10:13:48Z",
+  "ended_utc": "2026-11-18T11:16:12Z",
+  "trainer": "src/tools/agpt_minibatch_train.py",
+  "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+  "eval": {
+    "split": "multi-chunk-heldout",
+    "source_path": null,
+    "source_sha256": null,
+    "chunks_dir": "data/pg19/imm-split/heldout_chunks",
+    "benchmark": null,
+    "task_name": "agpt-a1m-pd6_holdout"
+  },
+  "metrics": {
+    "lm_eval_rolling_word_perplexity": 380023.14548916894,
+    "lm_eval_rolling_byte_perplexity": 9.459411948001527,
+    "lm_eval_rolling_bits_per_byte": 3.2417505000475946,
+    "agpt_fixed_token_perplexity": 7.172490454942238
+  },
+  "checkpoint_sha": "4d0e96ce026c2b5dce36d44a93918ea546b174f59ce4eb905e39dbf72e1f3ff0",
+  "checkpoint_results": [
+    {
+      "epoch": 1,
+      "checkpoint_path": "rnd/refined-trie-counts/20261118T101348-agpt-a1m-pd6/checkpoint.epoch_000001.model",
+      "checkpoint_sha": "d9e4c8d79e2536c1d2cca10933fdf465f74a1528c3cd7e60ff8ba262389b6895",
+      "hf_dir": "rnd/refined-trie-counts/20261118T101348-agpt-a1m-pd6/hf_checkpoint_epoch_000001",
+      "eval_raw_json": "rnd/refined-trie-counts/20261118T101348-agpt-a1m-pd6/eval_raw_epoch_000001.json",
+      "task_name": "agpt-a1m-pd6_epoch_000001_holdout",
+      "train_wall_seconds": 1813.897629,
+      "convert_wall_seconds": 3.682928553,
+      "eval_wall_seconds": 48.997957526,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 435614.4648358139,
+        "lm_eval_rolling_byte_perplexity": 9.6879943779649,
+        "lm_eval_rolling_bits_per_byte": 3.2761980278228577,
+        "agpt_fixed_token_perplexity": 7.744889864110077
+      }
+    }
+  ],
+  "experimental_used": {
+    "src/tools/agpt_minibatch_train.py": [
+      "device",
+      "trie_plan",
+      "trie_plan_depth",
+      "trie_plan_seed"
+    ]
+  }
+}

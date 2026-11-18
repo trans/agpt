@@ -1,0 +1,91 @@
+{
+  "run_id": "20261118T124830-agpt-a1m-pd1-ref100m",
+  "experiment": "refined-trie-counts",
+  "wall_seconds": 1158.033894801,
+  "train_wall_seconds": 979.986036245,
+  "convert_wall_seconds": 3.533245514,
+  "eval_wall_seconds": 38.963745986,
+  "started_utc": "2026-11-18T12:48:30Z",
+  "ended_utc": "2026-11-18T13:07:48Z",
+  "trainer": "src/tools/agpt_minibatch_train.py",
+  "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+  "eval": {
+    "split": "multi-chunk-heldout",
+    "source_path": null,
+    "source_sha256": null,
+    "chunks_dir": "data/pg19/imm-split/heldout_chunks",
+    "benchmark": null,
+    "task_name": "agpt-a1m-pd1-ref100m_holdout"
+  },
+  "metrics": {
+    "lm_eval_rolling_word_perplexity": 123602.92994437371,
+    "lm_eval_rolling_byte_perplexity": 7.772399136890699,
+    "lm_eval_rolling_bits_per_byte": 2.958359989706993,
+    "agpt_fixed_token_perplexity": 6.767667123246839
+  },
+  "checkpoint_sha": "ff2fc211c7707bf6d05373ceb56a16835a4e954585bc5934b26e6ae22ab1e245",
+  "checkpoint_results": [
+    {
+      "epoch": 8,
+      "checkpoint_path": "rnd/refined-trie-counts/20261118T124830-agpt-a1m-pd1-ref100m/checkpoint.epoch_000008.model",
+      "checkpoint_sha": "fb13602e6975fd7f32796be12543ff71bc6c6097c37753416ab2b9fad9bce4e3",
+      "hf_dir": "rnd/refined-trie-counts/20261118T124830-agpt-a1m-pd1-ref100m/hf_checkpoint_epoch_000008",
+      "eval_raw_json": "rnd/refined-trie-counts/20261118T124830-agpt-a1m-pd1-ref100m/eval_raw_epoch_000008.json",
+      "task_name": "agpt-a1m-pd1-ref100m_epoch_000008_holdout",
+      "train_wall_seconds": 53.543233,
+      "convert_wall_seconds": 3.432762792,
+      "eval_wall_seconds": 38.688855261,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 1564585.9621287114,
+        "lm_eval_rolling_byte_perplexity": 12.115766783233031,
+        "lm_eval_rolling_bits_per_byte": 3.5988138079194023,
+        "agpt_fixed_token_perplexity": 11.484203113348949
+      }
+    },
+    {
+      "epoch": 32,
+      "checkpoint_path": "rnd/refined-trie-counts/20261118T124830-agpt-a1m-pd1-ref100m/checkpoint.epoch_000032.model",
+      "checkpoint_sha": "db5d9515508a3fb05fbeb6c1dcdb9fbf7420af588442bed6c36046dfba0f9721",
+      "hf_dir": "rnd/refined-trie-counts/20261118T124830-agpt-a1m-pd1-ref100m/hf_checkpoint_epoch_000032",
+      "eval_raw_json": "rnd/refined-trie-counts/20261118T124830-agpt-a1m-pd1-ref100m/eval_raw_epoch_000032.json",
+      "task_name": "agpt-a1m-pd1-ref100m_epoch_000032_holdout",
+      "train_wall_seconds": 213.463158,
+      "convert_wall_seconds": 3.432751582,
+      "eval_wall_seconds": 44.065899,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 384114.77117939794,
+        "lm_eval_rolling_byte_perplexity": 9.47714563944071,
+        "lm_eval_rolling_bits_per_byte": 3.2444526085017755,
+        "agpt_fixed_token_perplexity": 8.69706100185512
+      }
+    },
+    {
+      "epoch": 64,
+      "checkpoint_path": "rnd/refined-trie-counts/20261118T124830-agpt-a1m-pd1-ref100m/checkpoint.epoch_000064.model",
+      "checkpoint_sha": "e7c83b579e103929a5f82386dca766e862216c333d5d6603f096a4725fe53598",
+      "hf_dir": "rnd/refined-trie-counts/20261118T124830-agpt-a1m-pd1-ref100m/hf_checkpoint_epoch_000064",
+      "eval_raw_json": "rnd/refined-trie-counts/20261118T124830-agpt-a1m-pd1-ref100m/eval_raw_epoch_000064.json",
+      "task_name": "agpt-a1m-pd1-ref100m_epoch_000064_holdout",
+      "train_wall_seconds": 426.821238,
+      "convert_wall_seconds": 3.425353386,
+      "eval_wall_seconds": 39.036865622,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 221098.0930020253,
+        "lm_eval_rolling_byte_perplexity": 8.604490496483255,
+        "lm_eval_rolling_bits_per_byte": 3.105089767517165,
+        "agpt_fixed_token_perplexity": 7.588812741770052
+      }
+    }
+  ],
+  "experimental_used": {
+    "src/tools/agpt_minibatch_train.py": [
+      "device",
+      "trie_plan",
+      "trie_plan_depth",
+      "trie_plan_seed",
+      "trie_targets",
+      "trie_targets_corpus",
+      "trie_targets_corpus_sha256"
+    ]
+  }
+}

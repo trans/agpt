@@ -16,8 +16,10 @@ answer: >-
   It is a better objective, not a speed-up: in minibatch training the 100M counts add 0.058
   nats over the slice's own counts as soft targets, and the slice with the 100M counts beats
   minibatch on the 4.75M text itself. Keeping the small trie beats growing it: AGPT on the
-  4.75M text's own trie trails the slice's. AGPT's schedule still trails minibatch by far
-  (9.46 against 6.15).
+  4.75M text's own trie trails the slice's. The gain holds at plan depths 0, 1 and 6 too
+  (0.033-0.073 nats on five more pairs), full-batch training included. AGPT's schedules still
+  trail minibatch: the best here, full-batch pd=0 with the 100M counts, reaches 6.62 after 512
+  passes, where minibatch with them reaches 6.50 after one epoch.
 opened: 2026-11-18
 updated: 2026-11-18
 code: main
@@ -203,6 +205,92 @@ A's 400), 7,813 for minibatch on A, 37,110 for `mb-5m`.
   rows of 96), and in minibatch about 1.15×. In v2 a node's loss already
   sums over its children's counts, so other counts would change the
   numbers in a node's target, not its cost.
+
+## Follow-up: plan depths
+
+The user, 2026-11-18, asked for pd=1 and pd=0 as well; pd=6 is the deepest
+plan on record and its best score (`partition-depth`, legacy eval). Same
+pair, A's own counts against the 100M text's, at three more plan depths:
+
+- **pd=0:** the whole trie is one unit, so one step a pass is the full-batch
+  gradient. `trie_plan.pd_unit_tags` gained k = 0 for it (`0485dce`); on the
+  CPU it reproduces minibatch with every window in one batch (the same train
+  losses, weights within 8.8e-7). 512 passes, so 512 Adam steps; one run
+  each, since a single step a pass has no order.
+- **pd=1:** 89 units a pass (median 7,792 events). 128 passes, two order
+  seeds.
+- **pd=6:** 379,312 units a pass (median 5 events). 2 passes, at the
+  record's pd=6 rate (Adam 0.001).
+
+Slot 88, 2026-11-18, 10:13–13:35 UTC, three streams on the GPU
+(`run2.sh`, log `grid2.out`). Canonical eval as above.
+
+Rolling byte PPL (fixed-window PPL in brackets) by pass:
+
+| run | 1 | 2 | 8 | 32 | 64 | 128 | 256 | 512 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| agpt-a1m-pd0 |  |  |  | 14.018 (13.975) |  | 8.502 (7.669) | 7.465 (6.478) | 6.841 (5.690) |
+| agpt-a1m-pd0-ref100m |  |  |  | 14.132 (14.140) |  | 8.553 (7.743) | 7.358 (6.330) | **6.621** (5.488) |
+| agpt-a1m-pd1 |  |  | 12.297 (11.775) | 9.644 (8.878) | 8.873 (7.986) | 8.364 (7.484) |  |  |
+| agpt-a1m-pd1-ref100m |  |  | 12.116 (11.484) | 9.477 (8.697) | 8.604 (7.589) | 7.772 (6.768) |  |  |
+| agpt-a1m-pd1-s2 |  |  | 11.892 (11.416) | 9.799 (9.095) | 8.585 (7.668) | 7.929 (6.925) |  |  |
+| agpt-a1m-pd1-ref100m-s2 |  |  | 11.933 (11.377) | 9.538 (8.777) | 8.386 (7.442) | 7.675 (6.645) |  |  |
+| agpt-a1m-pd6 | 9.688 (7.745) | 9.459 (7.172) |  |  |  |  |  |  |
+| agpt-a1m-pd6-ref100m | 9.086 (7.141) | 8.982 (6.613) |  |  |  |  |  |  |
+
+Paired gaps, 100M counts against own (nats; negative = the 100M counts
+better):
+
+| plan | order seed | 1 | 2 | 8 | 32 | 64 | 128 | 256 | 512 |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| pd=0 | – |  |  |  | +0.008 |  | +0.006 | −0.014 | −0.033 |
+| pd=1 | 1 |  |  | −0.015 | −0.017 | −0.031 | −0.073 |  |  |
+| pd=1 | 2 |  |  | +0.003 | −0.027 | −0.023 | −0.033 |  |  |
+| pd=6 | 1 | −0.064 | −0.052 |  |  |  |  |  |  |
+
+At the last pass of every plan depth:
+
+| plan | steps a pass | passes | own counts | 100M counts | gap |
+|---|---:|---:|---:|---:|---:|
+| pd=0 | 1 | 512 | 6.841 | 6.621 | −0.033 |
+| pd=1, seed 1 / 2 | 89 | 128 | 8.364 / 7.929 | 7.772 / 7.675 | −0.073 / −0.033 |
+| pd=3, seed 1 / 2 | 19,999 | 8 | 10.006 / 10.683 | 9.455 / 10.155 | −0.057 / −0.051 |
+| pd=6 | 379,312 | 2 | 9.459 | 8.982 | −0.052 |
+
+### Reading
+
+- **The gain holds at every plan depth.** At the last pass the 100M counts
+  are 0.033–0.073 nats ahead on all five new pairs, around pd=3's 0.054.
+  The plan sets which events share a step, not the objective, so a change
+  of objective should show at every depth, and it does. pd=0 is the
+  cleanest case: the exact full gradient, no order and no step noise, and
+  the 100M counts still win.
+- **When it appears differs.** In full-batch training the gain is absent
+  through 128 steps (+0.006) and appears from 256 on, still growing at 512.
+  pd=1 shows it from pass 32 (2,848 steps) and pd=6 after one pass
+  (−0.064). One reading, not tested: the 100M counts change mostly the rare
+  deep contexts' distributions, which full-batch GD, weighting contexts by
+  their events, reaches only late; pd=6's small units fit a few deep
+  contexts per step from the start.
+- **Plan depth, at equal passes:** the deeper the plan, the further ahead
+  early. pd=6 after 2 passes (9.459) is ahead of pd=3 after 8 (10.006 and
+  10.683), and with the 100M counts (8.982) of pd=3 with them (9.455). This
+  agrees with the record's pd=6 best.
+- **Plan depth, at equal steps:** the order reverses. pd=0's 512 steps reach
+  6.841; pd=1's 11,392 reach 7.93–8.36; pd=6's 758,624 reach 9.459. pd=0 with
+  the 100M counts (6.621) is the best AGPT result here, and it was still
+  falling (0.09 and 0.11 nats from pass 256 to 512).
+- **Minibatch is still ahead.** Minibatch with the same 100M counts reaches
+  6.503 after one epoch, and without them reaches pd=0's 6.841 after about
+  1.7 epochs (13.8M positions). pd=0 needed 512 passes for it: 788M node
+  evaluations even counting only the trie's 1.54M nodes a pass, as v2 would
+  (this replay evaluates every window, 8.0M positions a pass), about 57×
+  minibatch's compute.
+- **Cost here.** pd=0 took 8–9 s a pass (steps chunked into 131,072
+  tokens), pd=1 8–12 s, pd=6 about 30 minutes a pass with own counts and 99
+  minutes with the 100M counts (11,890 s against 3,624 s for 2 passes, both
+  sharing the GPU with the other streams). At pd=6's tiny steps the Python
+  replay's per-step costs dominate, the soft-target build among them.
 
 ### Next
 
