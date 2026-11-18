@@ -302,3 +302,29 @@ At the last pass of every plan depth:
   the gain should shrink with depth; worth measuring before scaling up.
 - Minibatch streaming the larger text for the same steps, the control the
   epoch-only budget left out.
+
+## Sharing with the larger text's counts (2026-11-18)
+
+The user, 2026-11-18: loading the small trie with a much larger corpus's
+statistics should increase the sharing considerably; was that tested? Only
+half. The runs above take each context's next-character distribution from the
+larger text but keep its weight in A (one event per occurrence in A), so a
+node evaluation still stands for A's 5.2 events on average. Counted in the
+larger texts (`superload_sharing.py`, output in `superload_sharing.out`; its
+node count, 1,539,197, is the runs' own), the same nodes cover:
+
+| text | events at depth ≤ 8 | in A's nodes | sharing | covered at depth 6 / 7 / 8 |
+|---|---:|---:|---:|---|
+| A itself (1M) | 8.0M | all | 5.2× | all |
+| 4.75M | 38.0M | 33.2M (87%) | 22× | 82% / 71% / 60% |
+| 20M | 160M | 135.6M (85%) | 88× | 78% / 65% / 52% |
+| 100M | 800M | 666.9M (83%) | 433× | 76% / 62% / 49% |
+
+Depths 1–3 are covered whole and depth 4 at 95–96%; what A lacks is deep
+contexts. So with the 100M text's weights, A's 1.54M nodes would stand for
+83% of that text's depth-8 loss: 433 events per node evaluation instead of
+5.2. That arm, each context weighted by its count in the larger text, was
+not run, and neither was the comparison it needs (minibatch on the 100M text
+at equal compute). The replay runs ordinary windows, so it can test the
+objective but not the compute: the compute saving needs refined counts in
+v2.

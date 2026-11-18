@@ -1,0 +1,4 @@
+A: 1000000 chars, 1539197 nodes depth<=8 ([89, 2321, 18079, 66826, 159938, 289223, 432333, 570388]), sharing 5.2x
+data/pg19/imm-split/train_corpus.txt: 4750000 chars; events in A's nodes 33184421 of 37999972 (87.3%); sharing 22x; by depth covered ['100%', '100%', '99%', '96%', '91%', '82%', '71%', '60%']
+data/pg19/imm-split-20m/train_corpus.txt: 20000000 chars; events in A's nodes 135624892 of 159999972 (84.8%); sharing 88x; by depth covered ['100%', '100%', '99%', '96%', '89%', '78%', '65%', '52%']
+data/pg19/imm-split-100m/train_corpus.txt: 100000000 chars; events in A's nodes 666868123 of 799999972 (83.4%); sharing 433x; by depth covered ['100%', '100%', '99%', '95%', '87%', '76%', '62%', '49%']
