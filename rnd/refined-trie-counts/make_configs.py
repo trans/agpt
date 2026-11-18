@@ -78,7 +78,9 @@ def config(slug, desc, corpus, passes, checkpoints, seed, agpt, ref):
     exp = []
     if agpt:
         exp += ["trie_plan: pd", "trie_plan_depth: 3", f"trie_plan_seed: {1 if seed == 42 else 2}"]
-    if ref:
+    if ref == "own":
+        exp += ["trie_targets: true"]
+    elif ref:
         path, sha = REFS[ref]
         exp += ["trie_targets: true", f"trie_targets_corpus: {path}", f"trie_targets_corpus_sha256: {sha}"]
     body = BODY.format(corpus=corpus, P=P, passes=passes, seed=seed, lr=LR,
@@ -106,7 +108,13 @@ def main():
     runs.append(("mb-a1m-ref100m", "refined trie counts: minibatch (128 windows a step), d64/L2, depth 8, the 1M PG-19 "
                                    "slice with each context's next-token distribution from the 100M text containing it; "
                                    "8 epochs, Adam 0.003 constant", CORPUS["a1m"], 8, [1, 2, 4], 42, False, "100m"))
-    runs.append(("mb-5m", "refined trie counts: minibatch (128 windows a step), d64/L2, depth 8, the 4.75M PG-19 text, "
+    # Added after the grid (slot 86): the minibatch pair mixes soft-vs-one-hot targets with the 100M
+    # counts; this splits them (in the AGPT arms own-count soft targets are the hard-target steps).
+    runs.append(("mb-a1m-tt", "refined trie counts: minibatch (128 windows a step), d64/L2, depth 8, the 1M PG-19 "
+                              "slice with each context's next-token distribution from the slice itself (trie targets, "
+                              "own counts); 8 epochs, Adam 0.003 constant", CORPUS["a1m"], 8, [1, 2, 4], 42, False,
+                 "own"))
+    runs.append(("mb-5m","refined trie counts: minibatch (128 windows a step), d64/L2, depth 8, the 4.75M PG-19 text, "
                           "hard targets; 2 epochs, Adam 0.003 constant", CORPUS["5m"], 2, [1], 42, False, None))
     for r in runs:
         config(*r)

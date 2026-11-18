@@ -1,0 +1,39 @@
+---
+description: "refined trie counts: minibatch (128 windows a step), d64/L2, depth 8, the 1M PG-19 slice with each context's next-token distribution from the 100M text containing it; 8 epochs, Adam 0.003 constant"
+experiment: refined-trie-counts
+run_slug: mb-a1m-ref100m
+corpus:
+  path: data/pg19/a1m/train_corpus.txt
+  heldout: data/pg19/imm-split/heldout_corpus.txt
+  vocab_source: data/pg19/imm-split/vocab.txt
+model:
+  d_model: 64
+  n_layers: 2
+  n_heads: 4
+  d_ff: 256
+  init_seed: 42
+train:
+  budget:
+    unit: epochs
+    value: 8
+  seed: 42
+  quiet: true
+  optimizer:
+    name: adam
+    lr: 0.003
+    beta: 0.999
+    momentum_beta: 0.9
+  lr_schedule:
+    name: constant
+  seq_len: 8
+  checkpoint_epochs: [1, 2, 4]
+eval:
+  split: tail-heldout
+  train_sanity: false
+  batch_size: 1
+  device: cpu
+experimental:
+  device: cuda
+  trie_targets: true
+  trie_targets_corpus: data/pg19/imm-split-100m/train_corpus.txt
+  trie_targets_corpus_sha256: fc55205ead4c13554ab2992b5891263aad822956618d801720dab840af124c54

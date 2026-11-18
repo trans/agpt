@@ -1,0 +1,91 @@
+{
+  "run_id": "20261118T051617-agpt-a1m-ref100m-s2",
+  "experiment": "refined-trie-counts",
+  "wall_seconds": 1318.453710801,
+  "train_wall_seconds": 1125.996754423,
+  "convert_wall_seconds": 3.655015719,
+  "eval_wall_seconds": 41.9911317,
+  "started_utc": "2026-11-18T05:16:17Z",
+  "ended_utc": "2026-11-18T05:38:15Z",
+  "trainer": "src/tools/agpt_minibatch_train.py",
+  "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+  "eval": {
+    "split": "multi-chunk-heldout",
+    "source_path": null,
+    "source_sha256": null,
+    "chunks_dir": "data/pg19/imm-split/heldout_chunks",
+    "benchmark": null,
+    "task_name": "agpt-a1m-ref100m-s2_holdout"
+  },
+  "metrics": {
+    "lm_eval_rolling_word_perplexity": 570221.8923312707,
+    "lm_eval_rolling_byte_perplexity": 10.15514262985389,
+    "lm_eval_rolling_bits_per_byte": 3.3441385974399753,
+    "agpt_fixed_token_perplexity": 8.331673343937483
+  },
+  "checkpoint_sha": "f3ab14db572b014033d508e13b067e6fa2adb2ae5227898ed83b4819ac5ae2fb",
+  "checkpoint_results": [
+    {
+      "epoch": 1,
+      "checkpoint_path": "rnd/refined-trie-counts/20261118T051617-agpt-a1m-ref100m-s2/checkpoint.epoch_000001.model",
+      "checkpoint_sha": "2e8ad94ec725158e1a5dc3783aeb666ee695f01177bda083a7aa25ccb51e82eb",
+      "hf_dir": "rnd/refined-trie-counts/20261118T051617-agpt-a1m-ref100m-s2/hf_checkpoint_epoch_000001",
+      "eval_raw_json": "rnd/refined-trie-counts/20261118T051617-agpt-a1m-ref100m-s2/eval_raw_epoch_000001.json",
+      "task_name": "agpt-a1m-ref100m-s2_epoch_000001_holdout",
+      "train_wall_seconds": 134.850383,
+      "convert_wall_seconds": 4.445581543,
+      "eval_wall_seconds": 43.31140245,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 1834319.975577813,
+        "lm_eval_rolling_byte_perplexity": 12.45752267684847,
+        "lm_eval_rolling_bits_per_byte": 3.638945295097614,
+        "agpt_fixed_token_perplexity": 11.286317741593365
+      }
+    },
+    {
+      "epoch": 2,
+      "checkpoint_path": "rnd/refined-trie-counts/20261118T051617-agpt-a1m-ref100m-s2/checkpoint.epoch_000002.model",
+      "checkpoint_sha": "d60468f74db5ae86a6ecec023b2452bfb57a81ffbeca2695a3935e27b6bdcb26",
+      "hf_dir": "rnd/refined-trie-counts/20261118T051617-agpt-a1m-ref100m-s2/hf_checkpoint_epoch_000002",
+      "eval_raw_json": "rnd/refined-trie-counts/20261118T051617-agpt-a1m-ref100m-s2/eval_raw_epoch_000002.json",
+      "task_name": "agpt-a1m-ref100m-s2_epoch_000002_holdout",
+      "train_wall_seconds": 267.52904,
+      "convert_wall_seconds": 3.656376128,
+      "eval_wall_seconds": 42.760101304,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 1007631.9446540307,
+        "lm_eval_rolling_byte_perplexity": 11.21836279395764,
+        "lm_eval_rolling_bits_per_byte": 3.4877902395164218,
+        "agpt_fixed_token_perplexity": 10.504546077462338
+      }
+    },
+    {
+      "epoch": 4,
+      "checkpoint_path": "rnd/refined-trie-counts/20261118T051617-agpt-a1m-ref100m-s2/checkpoint.epoch_000004.model",
+      "checkpoint_sha": "bea50495228d9ff2dae2656f42df1705d3c9affae04af5d90b3213abdb6f9e35",
+      "hf_dir": "rnd/refined-trie-counts/20261118T051617-agpt-a1m-ref100m-s2/hf_checkpoint_epoch_000004",
+      "eval_raw_json": "rnd/refined-trie-counts/20261118T051617-agpt-a1m-ref100m-s2/eval_raw_epoch_000004.json",
+      "task_name": "agpt-a1m-ref100m-s2_epoch_000004_holdout",
+      "train_wall_seconds": 532.689821,
+      "convert_wall_seconds": 4.14551465,
+      "eval_wall_seconds": 44.785269078,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 739211.2364759182,
+        "lm_eval_rolling_byte_perplexity": 10.626755071800405,
+        "lm_eval_rolling_bits_per_byte": 3.4096292254818104,
+        "agpt_fixed_token_perplexity": 9.694038571040682
+      }
+    }
+  ],
+  "experimental_used": {
+    "src/tools/agpt_minibatch_train.py": [
+      "device",
+      "trie_plan",
+      "trie_plan_depth",
+      "trie_plan_seed",
+      "trie_targets",
+      "trie_targets_corpus",
+      "trie_targets_corpus_sha256"
+    ]
+  }
+}

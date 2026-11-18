@@ -1,0 +1,91 @@
+{
+  "run_id": "20261118T051418-agpt-a1m-ref100m",
+  "experiment": "refined-trie-counts",
+  "wall_seconds": 1286.803242474,
+  "train_wall_seconds": 1097.905558399,
+  "convert_wall_seconds": 5.161896167,
+  "eval_wall_seconds": 45.407990565,
+  "started_utc": "2026-11-18T05:14:18Z",
+  "ended_utc": "2026-11-18T05:35:45Z",
+  "trainer": "src/tools/agpt_minibatch_train.py",
+  "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+  "eval": {
+    "split": "multi-chunk-heldout",
+    "source_path": null,
+    "source_sha256": null,
+    "chunks_dir": "data/pg19/imm-split/heldout_chunks",
+    "benchmark": null,
+    "task_name": "agpt-a1m-ref100m_holdout"
+  },
+  "metrics": {
+    "lm_eval_rolling_word_perplexity": 379031.46997737465,
+    "lm_eval_rolling_byte_perplexity": 9.45509017789166,
+    "lm_eval_rolling_bits_per_byte": 3.2410912179398896,
+    "agpt_fixed_token_perplexity": 7.798519844006423
+  },
+  "checkpoint_sha": "49f133b3c2ced1074592dc7e500847e9dfd6dbeff0eddea7f18141d2cc4aa744",
+  "checkpoint_results": [
+    {
+      "epoch": 1,
+      "checkpoint_path": "rnd/refined-trie-counts/20261118T051418-agpt-a1m-ref100m/checkpoint.epoch_000001.model",
+      "checkpoint_sha": "d77b22d5443ba868da043a43f7009c9e5da50109559add2d5fc8e428908df128",
+      "hf_dir": "rnd/refined-trie-counts/20261118T051418-agpt-a1m-ref100m/hf_checkpoint_epoch_000001",
+      "eval_raw_json": "rnd/refined-trie-counts/20261118T051418-agpt-a1m-ref100m/eval_raw_epoch_000001.json",
+      "task_name": "agpt-a1m-ref100m_epoch_000001_holdout",
+      "train_wall_seconds": 100.436205,
+      "convert_wall_seconds": 3.509587889,
+      "eval_wall_seconds": 41.368773394,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 2031125.178510683,
+        "lm_eval_rolling_byte_perplexity": 12.681560127066708,
+        "lm_eval_rolling_bits_per_byte": 3.6646603363526156,
+        "agpt_fixed_token_perplexity": 11.616538533623677
+      }
+    },
+    {
+      "epoch": 2,
+      "checkpoint_path": "rnd/refined-trie-counts/20261118T051418-agpt-a1m-ref100m/checkpoint.epoch_000002.model",
+      "checkpoint_sha": "123970607432920f118b9d14ce49bd76152bbb2324531a6028fb53436a35ba4d",
+      "hf_dir": "rnd/refined-trie-counts/20261118T051418-agpt-a1m-ref100m/hf_checkpoint_epoch_000002",
+      "eval_raw_json": "rnd/refined-trie-counts/20261118T051418-agpt-a1m-ref100m/eval_raw_epoch_000002.json",
+      "task_name": "agpt-a1m-ref100m_epoch_000002_holdout",
+      "train_wall_seconds": 227.342246,
+      "convert_wall_seconds": 3.717401165,
+      "eval_wall_seconds": 41.022769173,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 1298500.851250705,
+        "lm_eval_rolling_byte_perplexity": 11.727140814503313,
+        "lm_eval_rolling_bits_per_byte": 3.551779408718866,
+        "agpt_fixed_token_perplexity": 10.099048896278086
+      }
+    },
+    {
+      "epoch": 4,
+      "checkpoint_path": "rnd/refined-trie-counts/20261118T051418-agpt-a1m-ref100m/checkpoint.epoch_000004.model",
+      "checkpoint_sha": "1b59560d46aee1581812b96f197df5035e5d265154c38c24dda9689ee89d0d52",
+      "hf_dir": "rnd/refined-trie-counts/20261118T051418-agpt-a1m-ref100m/hf_checkpoint_epoch_000004",
+      "eval_raw_json": "rnd/refined-trie-counts/20261118T051418-agpt-a1m-ref100m/eval_raw_epoch_000004.json",
+      "task_name": "agpt-a1m-ref100m_epoch_000004_holdout",
+      "train_wall_seconds": 494.794437,
+      "convert_wall_seconds": 3.7487059069999997,
+      "eval_wall_seconds": 41.131887077,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 567899.8257543456,
+        "lm_eval_rolling_byte_perplexity": 10.14789797719575,
+        "lm_eval_rolling_bits_per_byte": 3.343109015210521,
+        "agpt_fixed_token_perplexity": 8.677730818354673
+      }
+    }
+  ],
+  "experimental_used": {
+    "src/tools/agpt_minibatch_train.py": [
+      "device",
+      "trie_plan",
+      "trie_plan_depth",
+      "trie_plan_seed",
+      "trie_targets",
+      "trie_targets_corpus",
+      "trie_targets_corpus_sha256"
+    ]
+  }
+}

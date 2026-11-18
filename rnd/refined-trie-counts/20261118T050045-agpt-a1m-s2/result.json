@@ -1,0 +1,88 @@
+{
+  "run_id": "20261118T050045-agpt-a1m-s2",
+  "experiment": "refined-trie-counts",
+  "wall_seconds": 931.800610431,
+  "train_wall_seconds": 737.642013931,
+  "convert_wall_seconds": 3.529667585,
+  "eval_wall_seconds": 41.101741513,
+  "started_utc": "2026-11-18T05:00:45Z",
+  "ended_utc": "2026-11-18T05:16:17Z",
+  "trainer": "src/tools/agpt_minibatch_train.py",
+  "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+  "eval": {
+    "split": "multi-chunk-heldout",
+    "source_path": null,
+    "source_sha256": null,
+    "chunks_dir": "data/pg19/imm-split/heldout_chunks",
+    "benchmark": null,
+    "task_name": "agpt-a1m-s2_holdout"
+  },
+  "metrics": {
+    "lm_eval_rolling_word_perplexity": 762018.2349600667,
+    "lm_eval_rolling_byte_perplexity": 10.683380252015501,
+    "lm_eval_rolling_bits_per_byte": 3.417296286972917,
+    "agpt_fixed_token_perplexity": 9.033134163787327
+  },
+  "checkpoint_sha": "14285893a944431c0aae5ecd08813620947e9ae14fc05258cefa3e59e6ac7ef5",
+  "checkpoint_results": [
+    {
+      "epoch": 1,
+      "checkpoint_path": "rnd/refined-trie-counts/20261118T050045-agpt-a1m-s2/checkpoint.epoch_000001.model",
+      "checkpoint_sha": "452b2128a1104a7a9fc548706c2fefa14f53ea33d30c79ba7da2813d770240e5",
+      "hf_dir": "rnd/refined-trie-counts/20261118T050045-agpt-a1m-s2/hf_checkpoint_epoch_000001",
+      "eval_raw_json": "rnd/refined-trie-counts/20261118T050045-agpt-a1m-s2/eval_raw_epoch_000001.json",
+      "task_name": "agpt-a1m-s2_epoch_000001_holdout",
+      "train_wall_seconds": 91.915545,
+      "convert_wall_seconds": 3.46589597,
+      "eval_wall_seconds": 43.3372125,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 3059799.246119547,
+        "lm_eval_rolling_byte_perplexity": 13.62372311289367,
+        "lm_eval_rolling_bits_per_byte": 3.768049114133125,
+        "agpt_fixed_token_perplexity": 12.562162511303077
+      }
+    },
+    {
+      "epoch": 2,
+      "checkpoint_path": "rnd/refined-trie-counts/20261118T050045-agpt-a1m-s2/checkpoint.epoch_000002.model",
+      "checkpoint_sha": "cb6ee0e4aa0f1fdc20ad8f1c1fe7df258fc5c757455c8ad0d2f0ebd7350d9860",
+      "hf_dir": "rnd/refined-trie-counts/20261118T050045-agpt-a1m-s2/hf_checkpoint_epoch_000002",
+      "eval_raw_json": "rnd/refined-trie-counts/20261118T050045-agpt-a1m-s2/eval_raw_epoch_000002.json",
+      "task_name": "agpt-a1m-s2_epoch_000002_holdout",
+      "train_wall_seconds": 201.3703,
+      "convert_wall_seconds": 4.35592582,
+      "eval_wall_seconds": 44.661706046,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 1794854.4933984599,
+        "lm_eval_rolling_byte_perplexity": 12.410225788152445,
+        "lm_eval_rolling_bits_per_byte": 3.633457458581624,
+        "agpt_fixed_token_perplexity": 11.38256556566332
+      }
+    },
+    {
+      "epoch": 4,
+      "checkpoint_path": "rnd/refined-trie-counts/20261118T050045-agpt-a1m-s2/checkpoint.epoch_000004.model",
+      "checkpoint_sha": "93e2d11757b52b633c8b0c5906a4082e4a8db716b3099ca13dfe012be015fbb3",
+      "hf_dir": "rnd/refined-trie-counts/20261118T050045-agpt-a1m-s2/hf_checkpoint_epoch_000004",
+      "eval_raw_json": "rnd/refined-trie-counts/20261118T050045-agpt-a1m-s2/eval_raw_epoch_000004.json",
+      "task_name": "agpt-a1m-s2_epoch_000004_holdout",
+      "train_wall_seconds": 380.543532,
+      "convert_wall_seconds": 3.535473439,
+      "eval_wall_seconds": 40.873205684,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 1045680.1467633239,
+        "lm_eval_rolling_byte_perplexity": 11.291319746282362,
+        "lm_eval_rolling_bits_per_byte": 3.4971422152003826,
+        "agpt_fixed_token_perplexity": 10.038270255468124
+      }
+    }
+  ],
+  "experimental_used": {
+    "src/tools/agpt_minibatch_train.py": [
+      "device",
+      "trie_plan",
+      "trie_plan_depth",
+      "trie_plan_seed"
+    ]
+  }
+}

@@ -1,0 +1,44 @@
+{
+  "config_sha256": "eb164043f961fa7683260b62f58ebc1c3f7def9acba87cd1d3d2bbd089ed8a5a",
+  "started_utc": "2026-11-18T05:38:15Z",
+  "trainer": "src/tools/agpt_minibatch_train.py",
+  "trainer_bin": "src/tools/agpt_minibatch_train.py",
+  "git_sha": "35b4ee81bb25d0a70bd45acc0eca4763e8b75ea4",
+  "git_branch": "main",
+  "git_dirty": true,
+  "host": "neo14",
+  "command": "bin/agpt_experiment",
+  "corpus": {
+    "path": "data/pg19/imm-split/train_corpus.txt",
+    "sha256": "4b7c1b1069f3d50deb37a04b216e4475c61ba1db8c5b624d1ac7453708618ddc",
+    "byte_count": 4750000,
+    "carve": null
+  },
+  "model_init": {
+    "path": null,
+    "sha256": null,
+    "header": {}
+  },
+  "trie_path": null,
+  "environment": {
+    "cuda": "Cuda compilation tools, release 13.4, V13.4.92",
+    "gpu": "NVIDIA GeForce RTX 4070 Laptop GPU, 615.78.08, 8188 MiB",
+    "crystal": "Crystal 1.22.2 [2329f40] (2026-10-30)",
+    "python": "Python 3.14.9",
+    "python_packages": {
+      "torch": "2.15.0",
+      "transformers": "5.5.0",
+      "lm_eval": "0.4.12",
+      "accelerate": "1.13.0",
+      "datasets": "4.8.5"
+    },
+    "env_vars": {
+      "OMP_NUM_THREADS": "2"
+    }
+  },
+  "ended_utc": "2026-11-18T05:44:15Z",
+  "wall_seconds": 359.776702207,
+  "train_wall_seconds": 262.23188261,
+  "convert_wall_seconds": 4.20985959,
+  "eval_wall_seconds": 43.284551721
+}
