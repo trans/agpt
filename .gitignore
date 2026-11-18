@@ -90,3 +90,5 @@ rnd/gradient-population/**/grads.f32
 rnd/gradient-population/**/train.log
 rnd/gradient-population/**/*.pt
 /.ai/
+data/pg19/*
+!data/pg19/README.md

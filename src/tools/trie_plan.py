@@ -212,6 +212,69 @@ def context_targets(tok: np.ndarray, n_starts: int, T: int, V: int):
     return ctx, indptr, np.concatenate(child), np.concatenate(count), n_all, n_single
 
 
+def context_targets_from(tok: np.ndarray, n_starts: int, T: int, V: int, ref: np.ndarray,
+                         chunk: int = 1 << 23):
+    """context_targets with the counts taken from another token stream.
+
+    The events and their contexts are this corpus's (tok); the next-token counts
+    of each context are counted over `ref`, normally a larger corpus that
+    contains this one: n_ref(c, a) at every position of ref where c occurs and
+    is followed by a token. So the trie keeps its nodes and gets the larger
+    corpus's child counts. A context that never occurs in ref gets -1 and keeps
+    its own event's next token. Same return layout as context_targets, with the
+    CSR over the contexts found in ref; n_single counts those found exactly once.
+    ref is read in chunks of `chunk` positions, one context length at a time, so
+    memory stays bounded for a ref of 100M tokens.
+    """
+    if V > 256:
+        raise ValueError(f"context_targets_from: vocab {V} does not fit uint8")
+    tk = tok.astype(np.uint64) + np.uint64(1)
+    h = np.zeros(n_starts, dtype=np.uint64)
+    ctx = np.empty((T, n_starts), dtype=np.int32)
+    uniq, base, nr = [], 0, ref.size
+    for L in range(1, T + 1):
+        h = h * _HB + tk[L - 1:L - 1 + n_starts]
+        u, inv = np.unique(h, return_inverse=True)
+        ctx[L - 1] = base + inv
+        uniq.append((u, base))
+        base += u.size
+    n_all = base
+    keys, cnts = [], []
+    for L in range(1, T + 1):
+        u, b = uniq[L - 1]
+        kl, cl = [], []
+        for s in range(0, max(0, nr - L), chunk):
+            e = min(nr - L, s + chunk)          # context starts s..e-1, next token at j + L
+            hc = np.zeros(e - s, dtype=np.uint64)
+            for d in range(L):
+                hc = hc * _HB + (ref[s + d:e + d].astype(np.uint64) + np.uint64(1))
+            idx = np.minimum(np.searchsorted(u, hc), u.size - 1)
+            hit = np.nonzero(u[idx] == hc)[0]
+            k = (idx[hit].astype(np.int64) + b) * V + ref[s + L + hit].astype(np.int64)
+            uk, uc = np.unique(k, return_counts=True)
+            kl.append(uk)
+            cl.append(uc)
+        if kl:
+            uk, inv2 = np.unique(np.concatenate(kl), return_inverse=True)
+            keys.append(uk)
+            cnts.append(np.bincount(inv2, weights=np.concatenate(cl)).astype(np.int64))
+    key = np.concatenate(keys) if keys else np.zeros(0, dtype=np.int64)
+    cnt = np.concatenate(cnts) if cnts else np.zeros(0, dtype=np.int64)
+    if cnt.size and cnt.max() > np.iinfo(np.int32).max:
+        raise ValueError("context_targets_from: a count overflows int32")
+    cid = key // V
+    per = np.bincount(cid, minlength=n_all)
+    found = per > 0
+    new_id = np.full(n_all, -1, dtype=np.int64)
+    new_id[found] = np.arange(int(found.sum()))
+    for L in range(T):
+        ctx[L] = new_id[ctx[L]]
+    tot = np.bincount(cid, weights=cnt, minlength=n_all)
+    indptr = np.r_[0, np.cumsum(per[found])].astype(np.int64)
+    return (ctx, indptr, (key % V).astype(np.uint8), cnt.astype(np.int32), n_all,
+            int((tot[found] == 1).sum()))
+
+
 def hash_path(path) -> np.uint64:
     """prefix_keys' hash of one token path."""
     h = np.uint64(0)

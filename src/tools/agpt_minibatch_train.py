@@ -65,9 +65,21 @@ Config keys read:
                                   distribution for its context, n(c, .) / n(c) over
                                   every event of the corpus, instead of the one token
                                   that follows. Same expected gradient, lower variance;
-                                  a context seen once keeps its one-hot target. Not
-                                  with trie_plan. train_nll still reports the
+                                  a context seen once keeps its one-hot target. With
+                                  trie_plan, each step's event loss uses the soft
+                                  targets; since a plan step holds every event of each
+                                  of its contexts, the corpus's own counts give exactly
+                                  the hard-target steps. train_nll still reports the
                                   one-hot loss.)
+    experimental.trie_targets_corpus (with trie_targets: count each training context's
+                                  next tokens over this corpus instead, normally a
+                                  larger one containing the training corpus: the
+                                  trie keeps its nodes and gets the larger corpus's
+                                  child counts. Read as bytes through the vocab; every
+                                  byte must be in it. A context it never contains keeps
+                                  its one-hot target.)
+    experimental.trie_targets_corpus_sha256 (required with trie_targets_corpus: its
+                                  SHA-256, checked before counting.)
     experimental.wrap_tail       (true: a window starts at every character and reads past
                                   the end from the front, as the cached tries do, boundary
                                   mode tail-wrap-front-v1. Default: only windows that fit.)
@@ -117,7 +129,7 @@ KNOWN_EXPERIMENTAL = {"minibatch_size", "micro_batch", "device", "max_corpus_cha
                       "window_stride", "trie_plan", "trie_plan_depth", "trie_plan_piece_max",
                       "trie_plan_steps", "trie_plan_seed", "trie_targets", "wrap_tail",
                       "trie_plan_order_file", "log_step_loss", "grad_average", "grad_average_beta",
-                      "trie_plan_group"}
+                      "trie_plan_group", "trie_targets_corpus", "trie_targets_corpus_sha256"}
 TOKEN_CAP = 131072  # tokens per forward/backward in trie-plan steps (memory bound only)
 
 
@@ -134,11 +146,16 @@ class TrieTargets:
     same way): a context seen once has its own next token as its row.
     """
 
-    def __init__(self, tokens, n_starts, T, V, device):
+    def __init__(self, tokens, n_starts, T, V, device, ref=None):
         import trie_plan as tp
         t0 = time.perf_counter()
-        ctx, indptr, child, count, self.n_ctx, self.n_single = tp.context_targets(tokens.numpy(), n_starts, T, V)
-        self.n_pairs = child.size + self.n_single
+        if ref is None:
+            ctx, indptr, child, count, self.n_ctx, self.n_single = tp.context_targets(tokens.numpy(), n_starts, T, V)
+        else:
+            ctx, indptr, child, count, self.n_ctx, self.n_single = tp.context_targets_from(
+                tokens.numpy(), n_starts, T, V, ref)
+        self.n_missing = int((ctx < 0).sum()) if ref is not None else None
+        self.n_pairs = child.size + (self.n_single if ref is None else 0)
         self.ctx = torch.from_numpy(ctx).to(device)
         self.indptr = torch.from_numpy(indptr).to(device)
         self.child = torch.from_numpy(child).to(device)
@@ -146,8 +163,8 @@ class TrieTargets:
         self.V, self.device = V, device
         self.build_seconds = time.perf_counter() - t0
 
-    def dist(self, starts, nxt, dtype=torch.float32):
-        ids = self.ctx[:, starts].t().reshape(-1).long()
+    def dist(self, starts, nxt, dtype=torch.float32, L=None):
+        ids = self.ctx[:L, starts].t().reshape(-1).long()
         n = ids.numel()
         out = torch.zeros(n, self.V, device=self.device, dtype=dtype)
         once = torch.nonzero(ids < 0).squeeze(1)
@@ -432,8 +449,10 @@ def main():
         sys.exit("agpt_minibatch_train: trie_plan replaces minibatch_size, step_events_file and window_stride")
     if stride != 1 and step_sizes is not None:
         sys.exit("agpt_minibatch_train: give window_stride or step_events_file, not both")
-    if exp.get("trie_targets") and exp.get("trie_plan"):
-        sys.exit("agpt_minibatch_train: trie_targets is for minibatch training, not trie_plan")
+    if exp.get("trie_targets_corpus") and not exp.get("trie_targets"):
+        sys.exit("agpt_minibatch_train: trie_targets_corpus goes with trie_targets: true")
+    if bool(exp.get("trie_targets_corpus")) != bool(exp.get("trie_targets_corpus_sha256")):
+        sys.exit("agpt_minibatch_train: trie_targets_corpus and trie_targets_corpus_sha256 go together")
     log_steps = bool(exp.get("log_step_loss"))
     if log_steps and not exp.get("trie_plan"):
         sys.exit("agpt_minibatch_train: log_step_loss is for trie_plan runs")
@@ -494,7 +513,28 @@ def main():
     model = AGPTModel(mc, sd, device="cpu").to(device)
     opt = torch.optim.Adam(model.parameters(), lr=lr, betas=(beta1, beta2), eps=eps)
     planner = TriePlanner(exp, tokens, n_starts, T) if exp.get("trie_plan") else None
-    targets = TrieTargets(tokens, n_starts, T, V, device) if exp.get("trie_targets") else None
+    ref = None
+    if exp.get("trie_targets_corpus"):
+        import hashlib
+        import numpy as np
+        raw = Path(exp["trie_targets_corpus"]).read_bytes()
+        sha = hashlib.sha256(raw).hexdigest()
+        if sha != exp["trie_targets_corpus_sha256"]:
+            sys.exit(f"agpt_minibatch_train: trie_targets_corpus sha256 {sha} != the config's")
+        lut = np.full(256, -1, dtype=np.int16)
+        for ch, i in char_to_id.items():
+            b = ch.encode("utf-8")
+            if len(b) == 1:
+                lut[b[0]] = i
+        ref = lut[np.frombuffer(raw, dtype=np.uint8)]
+        if (ref < 0).any():
+            bad = sorted(set(np.frombuffer(raw, dtype=np.uint8)[ref < 0].tolist()))[:10]
+            sys.exit(f"agpt_minibatch_train: trie_targets_corpus has bytes outside the vocab: {bad}")
+        ref = ref.astype(np.uint8)
+        del raw
+        print(f"  trie_targets_corpus {exp['trie_targets_corpus']}: {ref.size} tokens, sha256 {sha}", flush=True)
+    targets = TrieTargets(tokens, n_starts, T, V, device, ref) if exp.get("trie_targets") else None
+    del ref
     n_windows = n_starts // stride if stride > 1 else n_starts
     if planner is not None:
         steps_per_epoch = planner.steps_per_epoch
@@ -521,8 +561,14 @@ def main():
         print(f"  window_stride {stride}: {n_windows} windows per epoch from a random offset each epoch, "
               f"targets_per_epoch={n_windows * T}", flush=True)
     if targets is not None:
-        print(f"  trie_targets: {targets.n_ctx} contexts ({targets.n_single} seen once), "
-              f"{targets.n_pairs} (context, next) pairs, built in {targets.build_seconds:.1f}s", flush=True)
+        if targets.n_missing is None:
+            print(f"  trie_targets: {targets.n_ctx} contexts ({targets.n_single} seen once), "
+                  f"{targets.n_pairs} (context, next) pairs, built in {targets.build_seconds:.1f}s", flush=True)
+        else:
+            print(f"  trie_targets from the corpus above: {targets.n_ctx} training contexts, "
+                  f"{targets.n_pairs} (context, next) pairs, {targets.n_single} contexts "
+                  f"found once there, {targets.n_missing} events whose context it lacks (one-hot), "
+                  f"built in {targets.build_seconds:.1f}s", flush=True)
     if planner is not None:
         print(f"  trie_plan {planner.desc}: {planner.unit_sizes.size} units "
               f"({planner.tp.describe(planner.unit_sizes)}), built in {planner.build_seconds:.1f}s", flush=True)
@@ -568,6 +614,7 @@ def main():
                 torch.cuda.synchronize()
             t0 = time.perf_counter()
             loss_sum = torch.zeros((), device=device)
+            soft_sum = torch.zeros((), device=device)
             model.train()
             for s in range(plan["n_steps"]):
                 cur = scheduled_lr(lr, sched_name, min_ratio, step, total_steps, warmup_steps)
@@ -583,13 +630,21 @@ def main():
                         ii = sw_i[j:min(z, j + cap)]
                         chunks = tokens_dev[ii.view(-1, 1) + offsets[:, :Lb + 1]]
                         logits = model(chunks[:, :Lb])
-                        ce = F.cross_entropy(logits.reshape(-1, V), chunks[:, 1:].reshape(-1),
-                                             reduction="none").view(-1, Lb)
+                        y = chunks[:, 1:].reshape(-1)
+                        if targets is None:
+                            ce = F.cross_entropy(logits.reshape(-1, V), y, reduction="none").view(-1, Lb)
+                            obj = ce
+                        else:
+                            logp = F.log_softmax(logits.reshape(-1, V), dim=-1)
+                            ce = F.nll_loss(logp.detach(), y, reduction="none").view(-1, Lb)
+                            obj = -(targets.dist(ii, y, logp.dtype, Lb) * logp).sum(-1).view(-1, Lb)
                         m = ((sw_bits[j:min(z, j + cap)].view(-1, 1) >> pos[:, :Lb]) & 1).to(ce.dtype)
-                        ls = (ce * m).sum()
+                        ls = (obj * m).sum()
                         (ls / E).backward()
-                        loss_sum += ls.detach()
+                        loss_sum += (ce.detach() * m).sum()
                         step_loss += ls.detach().double()
+                        if targets is not None:
+                            soft_sum += ls.detach()
                 avg_note = ""
                 if avg is not None:
                     # the step's summed gradient G (p.grad holds G / E)
@@ -633,7 +688,8 @@ def main():
                     acc += sag_table[r:r + 64].double().sum(0)
                 avg_D.copy_(acc.to(device))
             del sw_i, sw_bits, plan
-            print(f"  epoch {epoch} train_nll={nll:.6f} train_ppl={math.exp(nll):.4f} steps={step} "
+            soft_note = f" soft_ce={soft_sum.item() / float(sizes_np.sum()):.6f}" if targets is not None else ""
+            print(f"  epoch {epoch} train_nll={nll:.6f} train_ppl={math.exp(nll):.4f}{soft_note} steps={step} "
                   f"lr_end={cur:.6g} wall={dt:.2f}s", flush=True)
             if epoch in checkpoints:
                 p = epoch_checkpoint_path(save_path, epoch)
