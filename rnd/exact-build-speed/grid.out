@@ -1,0 +1,20 @@
+a535286cb61febeb5dd0558a0aad0c17d1c744c0a0fbd7bd51cb21e679f7f33e  bin/agpt_train_v2
+81ef94f70efba0af322f3ab8730cbc2878df7d0ff135eac548be9a67dee67f7d  bin/agpt_train_v2_kvfp32
+23:14 start
+23:15 pd1-bf16-tf32-r1: train 28.9 s, rolling 10.4931, fixed 10.2731
+23:16 pd1-bf16-fp32-r1: train 31.9 s, rolling 10.4904, fixed 10.2478
+23:17 pd1-fp32-tf32-r1: train 29.5 s, rolling 10.3784, fixed 10.1192
+23:18 pd1-fp32-fp32-r1: train 30.3 s, rolling 10.5776, fixed 10.3058
+23:19 pd3-bf16-tf32-r1: train 54.9 s, rolling 7.8067, fixed 7.1802
+23:21 pd3-bf16-fp32-r1: train 58.4 s, rolling 7.8439, fixed 7.2326
+23:22 pd3-fp32-tf32-r1: train 55.4 s, rolling 7.9302, fixed 7.3484
+23:23 pd3-fp32-fp32-r1: train 54.4 s, rolling 7.7617, fixed 7.1191
+23:24 pd1-bf16-tf32-r2: train 27.7 s, rolling 10.5587, fixed 10.3710
+23:25 pd1-bf16-fp32-r2: train 28.5 s, rolling 10.5166, fixed 10.2434
+23:26 pd1-fp32-tf32-r2: train 27.8 s, rolling 10.5192, fixed 10.2560
+23:26 pd1-fp32-fp32-r2: train 28.4 s, rolling 10.6014, fixed 10.4012
+23:28 pd3-bf16-tf32-r2: train 54.0 s, rolling 7.8796, fixed 7.2706
+23:29 pd3-bf16-fp32-r2: train 55.2 s, rolling 7.7666, fixed 7.1661
+23:30 pd3-fp32-tf32-r2: train 54.3 s, rolling 7.8473, fixed 7.2401
+23:32 pd3-fp32-fp32-r2: train 53.9 s, rolling 7.8326, fixed 7.2314
+23:32 all done

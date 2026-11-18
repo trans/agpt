@@ -1,0 +1,33 @@
+{
+  "run_id": "20261118T232334-pd1-bf16-tf32-r2",
+  "experiment": "exact-build-speed",
+  "wall_seconds": 49.949197343,
+  "train_wall_seconds": 27.679594803,
+  "convert_wall_seconds": 3.73606095,
+  "eval_wall_seconds": 14.555870132999999,
+  "started_utc": "2026-11-18T23:23:34Z",
+  "ended_utc": "2026-11-18T23:24:24Z",
+  "trainer": "v2",
+  "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+  "eval": {
+    "split": "multi-chunk-heldout",
+    "source_path": null,
+    "source_sha256": null,
+    "chunks_dir": "data/.splits/4fa9aec1db6b3aea/heldout_chunks",
+    "benchmark": null,
+    "task_name": "pd1-bf16-tf32-r2_holdout"
+  },
+  "metrics": {
+    "lm_eval_rolling_word_perplexity": 394224.03566805425,
+    "lm_eval_rolling_byte_perplexity": 10.55872654826787,
+    "lm_eval_rolling_bits_per_byte": 3.400363941583384,
+    "agpt_fixed_token_perplexity": 10.370959264929507
+  },
+  "checkpoint_sha": "61a1c6b206d57c97e856074952fa07ff276236daf7123408df74bf75ca1f9a82",
+  "checkpoint_results": null,
+  "experimental_used": {
+    "v2": [
+      "anc_grad_exact"
+    ]
+  }
+}
