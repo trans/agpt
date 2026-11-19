@@ -5,6 +5,9 @@
 # so drift in the GPU's clocks falls on all settings alike. About 30 minutes.
 # Run only inside a slot (sh /home/trans/Projects/air/tools/slots add @agpt ...).
 # Usage: sh rnd/exact-build-speed/run.sh
+# Since fe3a4c8 (full precision the default) this no longer runs as written:
+# build-agpt-train-v2-kvfp32 and --trainer v2-kvfp32 are gone. Check out
+# 18c104c to rerun the grid as recorded.
 renice -n 19 -p $$ > /dev/null
 ionice -c3 -p $$
 export OMP_NUM_THREADS=2

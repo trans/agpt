@@ -1,0 +1,5 @@
+ckpt rnd/exact-build-speed/20261118T231717-pd1-fp32-fp32-r1/checkpoint.model  trainer bin/agpt_train_v2  exact=True  TF32_OVERRIDE=unset
+  f(theta) = 2.3479609   |g_anc| = 0.14299   |g_noanc| = 0.13992   cos(g_anc, g_noanc) = 0.9886   |g_trunc| = 0.14061   cos(g_anc, g_trunc) = 0.9920
+  dir=anc   eps=0.01   FD = +0.142970 | g_anc.d = +0.142993 (ratio 0.9998) | g_noanc.d = +0.138329 (ratio 1.0336) | g_trunc.d = +0.139484 (ratio 1.0250) | d2f = 1.117
+  dir=anc   eps=0.003  FD = +0.142991 | g_anc.d = +0.142993 (ratio 1.0000) | g_noanc.d = +0.138329 (ratio 1.0337) | g_trunc.d = +0.139484 (ratio 1.0251) | d2f = 1.117
+  dir=anc   eps=0.001  FD = +0.143008 | g_anc.d = +0.142993 (ratio 1.0001) | g_noanc.d = +0.138329 (ratio 1.0338) | g_trunc.d = +0.139484 (ratio 1.0253) | d2f = 1.157

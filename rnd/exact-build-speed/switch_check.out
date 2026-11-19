@@ -1,0 +1,29 @@
+a535286cb61febeb5dd0558a0aad0c17d1c744c0a0fbd7bd51cb21e679f7f33e  /home/trans/agpt-tries/switch-check/old_default
+81ef94f70efba0af322f3ab8730cbc2878df7d0ff135eac548be9a67dee67f7d  /home/trans/agpt-tries/switch-check/old_kvfp32
+3abef619de3d4d38d59bbdb1225fd9261de741bb9478e08fdb0ce9c1f29e09ea  bin/agpt_train_v2
+3607b24a721f9aa5179570e73b56d2f2cc6ce358e9b64de68bb28e711b6ccb72  bin/agpt_train_v2_reduced
+02:11 dumps
+  new: exit 0, 65 units
+  new2: exit 0, 65 units
+  oldexact: exit 0, 65 units
+  reduced: exit 0, 65 units
+  reduced2: exit 0, 65 units
+  olddefault: exit 0, 65 units
+new2:new                     whole 1.08e-07 (cos 1.000000); per unit median 2.56e-07, p90 2.95e-07, max 3.62e-07 (65 units)
+new:oldexact                 whole 1.18e-07 (cos 1.000000); per unit median 2.49e-07, p90 2.95e-07, max 3.68e-07 (65 units)
+reduced2:reduced             whole 2.59e-07 (cos 1.000000); per unit median 6.78e-07, p90 1.64e-06, max 6.89e-06 (65 units)
+reduced:olddefault           whole 2.31e-07 (cos 1.000000); per unit median 6.71e-07, p90 1.72e-06, max 6.89e-06 (65 units)
+reduced:new                  whole 3.07e-03 (cos 0.999995); per unit median 4.20e-03, p90 9.52e-03, max 1.90e-02 (65 units)
+02:12 finite differences
+  exit 0
+ckpt rnd/exact-build-speed/20261118T231717-pd1-fp32-fp32-r1/checkpoint.model  trainer bin/agpt_train_v2  exact=True  TF32_OVERRIDE=unset
+  f(theta) = 2.3479609   |g_anc| = 0.14299   |g_noanc| = 0.13992   cos(g_anc, g_noanc) = 0.9886   |g_trunc| = 0.14061   cos(g_anc, g_trunc) = 0.9920
+  dir=anc   eps=0.01   FD = +0.142970 | g_anc.d = +0.142993 (ratio 0.9998) | g_noanc.d = +0.138329 (ratio 1.0336) | g_trunc.d = +0.139484 (ratio 1.0250) | d2f = 1.117
+  dir=anc   eps=0.003  FD = +0.142991 | g_anc.d = +0.142993 (ratio 1.0000) | g_noanc.d = +0.138329 (ratio 1.0337) | g_trunc.d = +0.139484 (ratio 1.0251) | d2f = 1.117
+  dir=anc   eps=0.001  FD = +0.143008 | g_anc.d = +0.142993 (ratio 1.0001) | g_noanc.d = +0.138329 (ratio 1.0338) | g_trunc.d = +0.139484 (ratio 1.0253) | d2f = 1.157
+02:13 runs
+02:14 pd1-v2fp32-switch: train 28.0 s, rolling 10.4935, fixed 10.2878
+02:15 pd1-v2reduced-switch: train 26.9 s, rolling 10.5690, fixed 10.3634
+02:16 pd3-v2fp32-switch: train 53.3 s, rolling 7.7852, fixed 7.1832
+02:17 pd3-v2reduced-switch: train 53.0 s, rolling 7.8714, fixed 7.2411
+02:17 all done

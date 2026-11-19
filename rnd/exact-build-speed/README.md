@@ -13,9 +13,11 @@ answer: >-
   (-0.6%), inside the 1-3 s spread between repeats of the same setting. The two halves (fp32
   cache alone, fp32 matmuls alone) are within the same spread. Scores don't separate from run
   to run either at two repeats. At this size the GPU's time goes to the custom fp32 kernels,
-  not the cuBLAS matmuls or the cache, so neither precision choice buys speed here.
+  not the cuBLAS matmuls or the cache, so neither precision choice buys speed here. Full
+  precision is v2's default build since fe3a4c8, checked to match the timed full-precision
+  setting to rounding.
 opened: 2026-11-18
-updated: 2026-11-18
+updated: 2026-11-19
 code: main
 eval: canonical
 family: attention
@@ -60,6 +62,8 @@ measured first. The user, 2026-11-18: "want to do that".
   build-agpt-train-v2-kvfp32`, `-DAGPT_KV_CACHE_FP32`), and the runner now
   records `NVIDIA_TF32_OVERRIDE` in `meta.json` (`18284a0`).
   `NVIDIA_TF32_OVERRIDE=0` is follow-up 5's full-precision setting.
+  Since the switch (below), `--trainer v2-kvfp32` and its recipe are
+  gone: check out `18c104c` to rerun the grid as recorded.
 - **Order** (`run.sh`, slot 97, 2026-11-18, 23:14–23:32 UTC, log
   `grid.out`): all of repeat 1, then repeat 2, so drift in the GPU's clocks
   falls on every setting. Binaries: `agpt_train_v2` a535286c…,
@@ -122,9 +126,59 @@ in full precision (pd=1, repeat 1).
   share and TF32 would start to matter, and a deep trie's cache would make
   its width matter for memory. Measure again before scaling up.
 
-### Next
+## The switch to full precision (2026-11-19)
 
-- Make full precision the default build (the user's decision): define
-  `AGPT_KV_CACHE_FP32` in `build-agpt-train-v2`, and default cuBLAS to
-  `CUBLAS_DEFAULT_MATH` (`read_cublas_math_mode_v2`,
-  `src/cudax/runtime_objects.cuh`), with TF32 opt-in.
+The user chose full precision as the default (2026-11-18: "I agree,
+fp32"). Since `fe3a4c8`, `just build-agpt-train-v2` builds an fp32 K/V
+cache and runs cuBLAS at `CUBLAS_DEFAULT_MATH`, with no env var needed.
+`just build-agpt-train-v2-reduced` (`-DAGPT_V2_REDUCED_PRECISION`,
+`bin/agpt_train_v2_reduced`, `--trainer v2-reduced`) builds the old
+default, bf16 cache and TF32. `AGPT_V2_CUBLAS_MATH=fp32|tf32` still sets
+the math mode in either build. v1 still uses TF32 (`AGPT_V1_DISABLE_TF32=1`
+turns it off), so match precision before comparing v1 with v2.
+
+`switch_check.sh` (slot 103, 2026-11-19, 02:10–02:18 UTC, log
+`switch_check.out`) checked the new builds against the two binaries the
+grid timed, kept aside before rebuilding. New binaries: `agpt_train_v2`
+3abef619…, `agpt_train_v2_reduced` 3607b24a… (sha256 in the log).
+
+**Gradients at fixed weights.** Frozen-weight dumps
+(`AGPT_GRAD_DUMP_DIR`: one pd=1 pass, 65 units, no step taken) at
+pd1-fp32-fp32-r1's checkpoint, compared by `compare_dumps.py`
+(`switch_dumps.json`). Relative error of the first against the second:
+
+| pair | whole pass | unit median | unit max |
+|---|---|---|---|
+| new v2, one dump against another | 1.1e-7 | 2.6e-7 | 3.6e-7 |
+| new v2 against the old fp32 cache with `NVIDIA_TF32_OVERRIDE=0` | 1.2e-7 | 2.5e-7 | 3.7e-7 |
+| reduced, one dump against another | 2.6e-7 | 6.8e-7 | 6.9e-6 |
+| reduced against the old default | 2.3e-7 | 6.7e-7 | 6.9e-6 |
+| reduced against new v2 | 3.1e-3 | 4.2e-3 | 1.9e-2 |
+
+Each new build differs from the old one it replaces by no more than two
+dumps of itself differ (GPU atomics), so the new default is the grid's
+full-precision setting and the reduced build is the old default. Between
+the two precisions, at this point, the whole pass differs by 0.3%, the
+median unit by 0.4%, the worst by 1.9%. That is less than follow-up 5
+found at its weight points (1–4% per unit; 8% on the whole pass, trained);
+why it is less here was not looked into.
+
+**Finite differences** (`src/tools/agpt_grad_check.py`, `switch_fd.out`)
+on new v2 with no env var set, along the ancestor gradient: ratio 0.9998,
+1.0000 and 1.0001 at steps of 1e-2, 3e-3 and 1e-3.
+
+**Runs**, one of each case with each new build, no env var:
+
+| run | build | training s | rolling | fixed |
+|---|---|---|---|---|
+| 20261119T021352-pd1-v2fp32-switch | `v2` (full) | 28.0 | 10.494 | 10.288 |
+| 20261119T021444-pd1-v2reduced-switch | `v2-reduced` | 26.9 | 10.569 | 10.363 |
+| 20261119T021531-pd3-v2fp32-switch | `v2` (full) | 53.3 | 7.785 | 7.183 |
+| 20261119T021645-pd3-v2reduced-switch | `v2-reduced` | 53.0 | 7.871 | 7.241 |
+
+Both builds ran about 1 s faster than their settings' grid means, and
+each score is within the grid's spread between repeats (0.14 at pd=1,
+0.08 at pd=3) of its setting's two grid runs. Over three runs each, full
+precision averages 10.558 against 10.540 at pd=1 and 7.793 against 7.853
+at pd=3: no consistent direction at this count. `summarize.py` leaves
+these runs out.

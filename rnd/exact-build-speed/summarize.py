@@ -8,6 +8,8 @@ R = {}
 for j in sorted(D.glob("2026*/result.json")):
     r = json.loads(j.read_text())
     slug = r["run_id"].split("-", 1)[1]            # e.g. pd1-fp32-fp32-r2
+    if slug.endswith("-switch"):                   # switch_check.sh's runs, not the grid
+        continue
     case, cache, mm, rep = slug.split("-")
     R[(case, f"{cache}-{mm}", rep)] = r
 S = ["bf16-tf32", "bf16-fp32", "fp32-tf32", "fp32-fp32"]

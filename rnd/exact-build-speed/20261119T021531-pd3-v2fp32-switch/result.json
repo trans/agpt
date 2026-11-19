@@ -1,0 +1,35 @@
+{
+  "run_id": "20261119T021531-pd3-v2fp32-switch",
+  "experiment": "exact-build-speed",
+  "wall_seconds": 73.541301068,
+  "train_wall_seconds": 53.261777931,
+  "convert_wall_seconds": 3.2919612750000002,
+  "eval_wall_seconds": 13.151079417,
+  "started_utc": "2026-11-19T02:15:31Z",
+  "ended_utc": "2026-11-19T02:16:45Z",
+  "trainer": "v2",
+  "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+  "eval": {
+    "split": "multi-chunk-heldout",
+    "source_path": null,
+    "source_sha256": null,
+    "chunks_dir": "data/.splits/4fa9aec1db6b3aea/heldout_chunks",
+    "benchmark": null,
+    "task_name": "pd3-v2fp32-switch_holdout"
+  },
+  "metrics": {
+    "lm_eval_rolling_word_perplexity": 74521.51534179435,
+    "lm_eval_rolling_byte_perplexity": 7.785222668868844,
+    "lm_eval_rolling_bits_per_byte": 2.9607383031037706,
+    "agpt_fixed_token_perplexity": 7.183208818394509
+  },
+  "checkpoint_sha": "e247309550fdc354738360130eb01ba7568dc89d503f8c7d2fb73f53cbad7567",
+  "checkpoint_results": null,
+  "experimental_used": {
+    "v2": [
+      "anc_grad_exact",
+      "train_crown",
+      "unit_order_seed"
+    ]
+  }
+}
