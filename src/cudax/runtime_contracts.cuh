@@ -111,10 +111,10 @@ static inline CacheRuntimeContract build_cache_runtime_contract(const RuntimeSha
     contract.compact_char_capacity = compact_chars;
     contract.layer_count = layer_count;
     contract.d_model = shape.d_model;
-#ifdef AGPT_KV_CACHE_FP32
-    const std::size_t kv_elem_bytes = sizeof(float);
-#else
+#ifdef AGPT_V2_REDUCED_PRECISION
     const std::size_t kv_elem_bytes = sizeof(unsigned short);  // bf16
+#else
+    const std::size_t kv_elem_bytes = sizeof(float);
 #endif
     contract.per_layer_k_bytes = (std::size_t)(compact_chars * (long long)shape.d_model * kv_elem_bytes);
     contract.per_layer_v_bytes = (std::size_t)(compact_chars * (long long)shape.d_model * kv_elem_bytes);

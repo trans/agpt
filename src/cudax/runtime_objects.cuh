@@ -11,16 +11,25 @@
 
 namespace agpt_v2 {
 
+// cuBLAS math: fp32 by default since 2026-11-18 (see agpt_kv_t in
+// cuda_support.cuh); TF32 in the reduced-precision build. The diagnostic
+// override AGPT_V2_CUBLAS_MATH=fp32|tf32 picks either in any build;
+// NVIDIA_TF32_OVERRIDE=0 also turns TF32 off.
 static inline cublasMath_t read_cublas_math_mode_v2() {
+#ifdef AGPT_V2_REDUCED_PRECISION
+    const cublasMath_t build_default = CUBLAS_TF32_TENSOR_OP_MATH;
+#else
+    const cublasMath_t build_default = CUBLAS_DEFAULT_MATH;
+#endif
     const char* env = std::getenv("AGPT_V2_CUBLAS_MATH");
-    if (!env || !env[0]) return CUBLAS_TF32_TENSOR_OP_MATH;
+    if (!env || !env[0]) return build_default;
     if (std::strcmp(env, "fp32") == 0 || std::strcmp(env, "default") == 0) {
         return CUBLAS_DEFAULT_MATH;
     }
     if (std::strcmp(env, "tf32") == 0) {
         return CUBLAS_TF32_TENSOR_OP_MATH;
     }
-    return CUBLAS_TF32_TENSOR_OP_MATH;
+    return build_default;
 }
 
 struct CacheRuntimeV2 {

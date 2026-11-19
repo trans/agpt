@@ -50,3 +50,25 @@ for case, base in BASES.items():
                 new.append(ln)
             (out / f"{slug}.yml").write_text("\n".join(new) + "\n")
             print(out / f"{slug}.yml")
+
+# After the switch (2026-11-18, the user: "I agree, fp32"): one run of each case
+# with the new default build (--trainer v2, now fp32) and with the reduced build
+# (--trainer v2-reduced, the old default), no env var. switch_check.sh runs them.
+SWITCH = {"v2fp32": "after the switch, v2's new default build (fp32 cache, fp32 matmuls, no env var)",
+          "v2reduced": "after the switch, the reduced build (bf16 cache, TF32 matmuls; the old default)"}
+for case, base in BASES.items():
+    lines = (SRC / base).read_text().splitlines()
+    for s, what in SWITCH.items():
+        slug = f"{case}-{s}-switch"
+        new = []
+        for ln in lines:
+            if ln.startswith("description:"):
+                old = ln.split(":", 1)[1].strip().strip('"')
+                ln = f'description: "exact-build speed, {what}: {old}"'
+            elif ln.startswith("experiment:"):
+                ln = "experiment: exact-build-speed"
+            elif ln.startswith("run_slug:"):
+                ln = f"run_slug: {slug}"
+            new.append(ln)
+        (out / f"{slug}.yml").write_text("\n".join(new) + "\n")
+        print(out / f"{slug}.yml")

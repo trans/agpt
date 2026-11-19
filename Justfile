@@ -81,6 +81,10 @@ build-agpt-train: build-cuda-kernels
 # Build AGPT CUDA training engine v2 skeleton.
 # Shares build/kernels_gpu.o with v1; same flags — load-bearing for
 # v1↔v2 forward bit-parity. No --use_fast_math: see build-cuda-kernels.
+# Full fp32 since 2026-11-18 (fp32 K/V cache, fp32 cuBLAS math); the earlier
+# bf16/TF32 build is build-agpt-train-v2-reduced. v1 still defaults to TF32
+# matmuls (AGPT_V1_DISABLE_TF32=1 turns them off): match precision before
+# comparing the two.
 build-agpt-train-v2: build-cuda-kernels
     mkdir -p bin
     /opt/cuda/bin/nvcc --allow-unsupported-compiler -std=c++17 -O3 \
@@ -89,16 +93,18 @@ build-agpt-train-v2: build-cuda-kernels
         -gencode=arch=compute_90,code=sm_90 \
         src/cudax/agpt_train_v2.cu build/kernels_gpu.o -lcublas $(pkg-config --cflags --libs yam) -o bin/agpt_train_v2
 
-# v2 trainer with an fp32 ancestor K/V cache instead of bf16 (gradient-parity
-# diagnostics; see rnd/gradient-population Exp 7). Same flags otherwise.
-build-agpt-train-v2-kvfp32: build-cuda-kernels
+# v2 trainer in reduced precision: a bf16 ancestor K/V cache and TF32 matmuls,
+# the default build until 2026-11-18 (full fp32 since; see rnd/exact-build-speed).
+# Half the cache memory; its rounding puts errors of 1-4% into a typical unit's
+# gradient (rnd/one-pass-gap follow-up 5). Same flags otherwise.
+build-agpt-train-v2-reduced: build-cuda-kernels
     mkdir -p bin
     /opt/cuda/bin/nvcc --allow-unsupported-compiler -std=c++17 -O3 \
         -gencode=arch=compute_80,code=sm_80 \
         -gencode=arch=compute_89,code=sm_89 \
         -gencode=arch=compute_90,code=sm_90 \
-        -DAGPT_KV_CACHE_FP32 \
-        src/cudax/agpt_train_v2.cu build/kernels_gpu.o -lcublas $(pkg-config --cflags --libs yam) -o bin/agpt_train_v2_kvfp32
+        -DAGPT_V2_REDUCED_PRECISION \
+        src/cudax/agpt_train_v2.cu build/kernels_gpu.o -lcublas $(pkg-config --cflags --libs yam) -o bin/agpt_train_v2_reduced
 
 # Build standalone cudax seed-model generator.
 build-agpt-seed:
