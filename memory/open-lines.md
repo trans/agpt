@@ -101,9 +101,12 @@ mobius refines a small corpus's counts with a larger corpus's. Record:
   depth-8 nodes cover 83% of its 800M events, 433x sharing (22x at 4.75M,
   88x at 20M); what A lacks is deep contexts (half of depth 8). I had left
   "weighting by the larger count was not tried" in the README without raising
-  it with the user. Offered: the weighted arm in the replay against minibatch
-  on the 100M text at equal compute (the replay tests the objective only).
-- **Next (not decided by the user):** the weighted arm; refined counts in v2
+  it with the user. **The user approved the weighted arm (2026-11-19, "ok
+  go-ahead"):** `trie_weights_corpus` in the replay (`5db567f`, CPU-checked),
+  4 runs (`run3.sh`: weighted pd=3, pd=1, minibatch on A; minibatch on the
+  100M text with window_stride 100 as the equal-compute control), **queued
+  as slot 108, not yet run.** The replay tests the objective only.
+- **Next (not decided by the user):** refined counts in v2
   (needed for the compute saving); the gain at depth 16; minibatch streaming
   the larger text for the same steps.
 - Related record: agpt `rnd/prior-scaling-plain-1g` (a 1 GB prior beat
