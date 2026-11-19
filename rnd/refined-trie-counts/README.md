@@ -19,9 +19,14 @@ answer: >-
   4.75M text's own trie trails the slice's. The gain holds at plan depths 0, 1 and 6 too
   (0.033-0.073 nats on five more pairs), full-batch training included. AGPT's schedules still
   trail minibatch: the best here, full-batch pd=0 with the 100M counts, reaches 6.62 after 512
-  passes, where minibatch with them reaches 6.50 after one epoch.
+  passes, where minibatch with them reaches 6.50 after one epoch. Weighting each context by its
+  100M count as well, so the slice's 1.54M nodes stand for 83% of the 100M text's loss (433
+  events a node), does not help: it costs AGPT 0.12 nats at pd=3 and 0.05 at pd=1 against the
+  slice's own weights, and leaves minibatch level (6.163 against 6.150). Minibatch on the slice
+  with the 100M counts beats minibatch on the 100M text itself at equal steps (6.150 against
+  6.329 after 62,504) and still leads after three times the steps (6.170).
 opened: 2026-11-18
-updated: 2026-11-18
+updated: 2026-11-19
 code: main
 eval: canonical
 family: attention
@@ -323,8 +328,97 @@ node count, 1,539,197, is the runs' own), the same nodes cover:
 Depths 1–3 are covered whole and depth 4 at 95–96%; what A lacks is deep
 contexts. So with the 100M text's weights, A's 1.54M nodes would stand for
 83% of that text's depth-8 loss: 433 events per node evaluation instead of
-5.2. That arm, each context weighted by its count in the larger text, was
-not run, and neither was the comparison it needs (minibatch on the 100M text
-at equal compute). The replay runs ordinary windows, so it can test the
-objective but not the compute: the compute saving needs refined counts in
-v2.
+5.2. The replay runs ordinary windows, so it can test that objective but not
+the compute: the compute saving needs refined counts in v2. The objective
+was tested next.
+
+## Weighted by the larger text's counts (2026-11-19)
+
+The user approved the weighted arm (2026-11-19: "ok go-ahead"). The replay's
+`experimental.trie_weights_corpus` (`5db567f`) weights each event by
+n_100M(c) / n_A(c), its context's count in the 100M text over its count in A,
+so each of A's contexts carries its 100M weight and a pass's loss is the
+100M text's loss on the contexts A has. A step's loss is the weighted sum
+over the step's weight. Checked on the CPU before the slot: the weights match
+brute-force counts (300 events, worst relative error 5e-8), forcing every
+weight to 1 reproduces the unweighted pd=3 and minibatch runs byte for byte,
+and each pass's step weights sum to the total. In the runs the total is
+666,868,119 over A's 7,999,928 events (83.4 per event; per context median 24,
+99th percentile 295, max 8,520), against `superload_sharing.py`'s 666,868,123;
+the four events between them are boundary positions at the end of the text,
+probably.
+
+Runs (`run3.sh`, slot 108, 2026-11-19, 04:36–05:15 UTC, two streams, log
+`grid3.out`), each beside its unweighted 100M-count arm above (same steps,
+order seed 1):
+
+- `agpt-a1m-w100m`: pd=3, 8 passes.
+- `agpt-a1m-pd1-w100m`: pd=1, 128 passes.
+- `mb-a1m-w100m`: minibatch, 128 windows a step, 8 epochs.
+- `mb-100m-st100`: minibatch on the 100M text itself, hard targets, the
+  control the epoch-only budget had left out. `window_stride: 100` makes an
+  epoch 999,999 windows (7,813 steps, as an epoch of A) from a random offset,
+  so its epochs line up with A's in steps and positions. 25 epochs = 200M
+  positions, about the 197M trie positions of 128 pd=1 passes. The offsets
+  are drawn with replacement: 21 distinct in 25 epochs, 7 in the first 8, so
+  7M distinct windows by epoch 8 and 21M by epoch 25.
+
+Rolling byte PPL (fixed-window PPL in brackets):
+
+| run | 1 | 2 | 4 | 8 | 16 | 25 | 32 | 64 | 128 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| agpt-a1m-ref100m (pd=3, A's weights) | 12.682 (11.617) | 11.727 (10.099) | 10.148 (8.678) | 9.455 (7.799) | | | | | |
+| agpt-a1m-w100m (pd=3, weighted) | 14.298 (14.034) | 12.435 (11.388) | 11.274 (9.960) | 10.676 (9.320) | | | | | |
+| agpt-a1m-pd1-ref100m | | | | 12.116 (11.484) | | | 9.477 (8.697) | 8.604 (7.589) | 7.772 (6.768) |
+| agpt-a1m-pd1-w100m | | | | 13.333 (13.046) | | | 10.255 (9.643) | 9.499 (8.801) | 8.179 (7.223) |
+| mb-a1m-ref100m | 6.503 (5.315) | 6.349 (5.138) | 6.233 (4.992) | 6.150 (4.901) | | | | | |
+| mb-a1m-w100m | 6.549 (5.415) | 6.374 (5.189) | 6.224 (5.016) | 6.163 (4.940) | | | | | |
+| mb-100m-st100 | 6.924 (5.790) | 6.647 (5.466) | 6.439 (5.225) | 6.329 (5.100) | 6.207 (4.954) | 6.170 (4.909) | | | |
+
+Weighted against A's weights (nats; negative = weighting better):
+
+| plan | 1 | 2 | 4 | 8 | 32 | 64 | 128 | against A's own counts, last pass |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| pd=3 | +0.120 | +0.059 | +0.105 | +0.121 | | | | +0.065 |
+| pd=1 | | | | +0.096 | +0.079 | +0.099 | +0.051 | −0.022 |
+| minibatch | +0.007 | +0.004 | −0.001 | +0.002 | | | | −0.064 |
+
+### Reading
+
+- **Weighting by the larger text's counts doesn't help.** It costs AGPT
+  0.12 nats at pd=3 (worse than A's own counts) and 0.05 at pd=1 (which keeps
+  0.022 of the 100M counts' gain over A's own), at every pass. In minibatch
+  it is level with A's weights (within 0.007 at every epoch). The useful part
+  of the larger text is its next-character distributions, not its weights.
+  One order seed. The two earlier order seeds' paired gaps differed by up to
+  0.04 at the last pass, so the AGPT costs are clear of that at pd=3 and
+  about that size at pd=1.
+- **Why AGPT loses, not tested.** A plan step is its unit's weighted mean,
+  so the weights only shift each unit's mass among its own contexts, toward
+  the ones common in the 100M text: depth 8 gets half the weight of depth 1
+  (49% covered), and the commonest contexts dominate their units (weights up
+  to 8,520 against a median of 24). Fewer of a unit's contexts then count in
+  its step. Minibatch steps mix random windows, which may be why the same
+  weights cost it nothing.
+- **The slice with the 100M counts beats the 100M text itself.** At equal
+  steps and positions (8 epochs of A against 8 of the stride-100 stream,
+  62,504 steps), minibatch on A with the 100M counts scores 6.150 and on the
+  100M text 6.329 (0.029 nats); weighted, 6.163. After 25 epochs, three times
+  the steps and positions, the 100M text reaches 6.170, still 0.003 behind.
+  The stream sees 7M new windows by epoch 8, A its 1M windows 8 times, so
+  this is soft targets carrying the larger text's evidence (the 0.058 nats
+  of `mb-a1m-ref100m` over `mb-a1m-tt` above), not repetition helping.
+- **AGPT at equal compute is still far behind.** Counting v2's cost, a node
+  evaluation as a position: 8 pd=3 passes are 12.6M positions, between the
+  stream's epochs 1 and 2 (8M, 6.924; 16M, 6.647); AGPT scores 9.455 with A's
+  weights and 10.676 weighted, 0.35 and 0.47 nats behind epoch 2. 128 pd=1
+  passes are 197M positions, the stream's 25 epochs (6.170): 7.772 and
+  8.179, 0.23 and 0.28 nats behind. The 433× sharing is real as a count, but
+  AGPT's schedule, not its sharing, is what limits it (`one-pass-gap`), and
+  weighting doesn't change the schedule.
+
+### Next
+
+- Not planned: pd=0 weighted (the exact gradient of the weighted objective,
+  512 passes, about 75 minutes), which would show whether the weights cost
+  anything without units; and a second order seed for the AGPT pairs.

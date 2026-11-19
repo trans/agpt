@@ -16,7 +16,8 @@ HERE = Path(__file__).resolve().parent
 ORDER = ["agpt-a1m", "agpt-a1m-s2", "agpt-a1m-ref5m", "agpt-a1m-ref20m", "agpt-a1m-ref100m",
          "agpt-a1m-ref100m-s2", "agpt-5m", "mb-a1m", "mb-a1m-tt", "mb-a1m-ref100m", "mb-5m",
          "agpt-a1m-pd0", "agpt-a1m-pd0-ref100m", "agpt-a1m-pd1", "agpt-a1m-pd1-ref100m", "agpt-a1m-pd1-s2",
-         "agpt-a1m-pd1-ref100m-s2", "agpt-a1m-pd6", "agpt-a1m-pd6-ref100m"]
+         "agpt-a1m-pd1-ref100m-s2", "agpt-a1m-pd6", "agpt-a1m-pd6-ref100m",
+         "agpt-a1m-w100m", "agpt-a1m-pd1-w100m", "mb-a1m-w100m", "mb-100m-st100"]
 
 
 def runs():
