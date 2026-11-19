@@ -80,6 +80,16 @@ Config keys read:
                                   its one-hot target.)
     experimental.trie_targets_corpus_sha256 (required with trie_targets_corpus: its
                                   SHA-256, checked before counting.)
+    experimental.trie_weights_corpus (true, with trie_targets_corpus: weight each event
+                                  by n_ref(c) / n(c), its context's count in that corpus
+                                  over its count in the training corpus, so each context
+                                  carries the larger corpus's weight instead of its own:
+                                  the training corpus's events stand for the larger
+                                  corpus's loss on the contexts they share. A step's loss
+                                  is the weighted sum over its weight (in place of the
+                                  event mean), so pd=0 takes the gradient of that loss. A
+                                  context the corpus lacks weighs 0. Not with
+                                  grad_average.)
     experimental.wrap_tail       (true: a window starts at every character and reads past
                                   the end from the front, as the cached tries do, boundary
                                   mode tail-wrap-front-v1. Default: only windows that fit.)
@@ -129,7 +139,8 @@ KNOWN_EXPERIMENTAL = {"minibatch_size", "micro_batch", "device", "max_corpus_cha
                       "window_stride", "trie_plan", "trie_plan_depth", "trie_plan_piece_max",
                       "trie_plan_steps", "trie_plan_seed", "trie_targets", "wrap_tail",
                       "trie_plan_order_file", "log_step_loss", "grad_average", "grad_average_beta",
-                      "trie_plan_group", "trie_targets_corpus", "trie_targets_corpus_sha256"}
+                      "trie_plan_group", "trie_targets_corpus", "trie_targets_corpus_sha256",
+                      "trie_weights_corpus"}
 TOKEN_CAP = 131072  # tokens per forward/backward in trie-plan steps (memory bound only)
 
 
@@ -146,7 +157,8 @@ class TrieTargets:
     same way): a context seen once has its own next token as its row.
     """
 
-    def __init__(self, tokens, n_starts, T, V, device, ref=None):
+    def __init__(self, tokens, n_starts, T, V, device, ref=None, weights=False):
+        import numpy as np
         import trie_plan as tp
         t0 = time.perf_counter()
         if ref is None:
@@ -155,6 +167,18 @@ class TrieTargets:
             ctx, indptr, child, count, self.n_ctx, self.n_single = tp.context_targets_from(
                 tokens.numpy(), n_starts, T, V, ref)
         self.n_missing = int((ctx < 0).sum()) if ref is not None else None
+        self.wtab = None
+        if weights:
+            # w(c) = n_ref(c) / n(c): the reference corpus's count of the context over the
+            # training corpus's (its events here). Per event, [T, n_starts] like ctx.
+            n_found = indptr.size - 1
+            n_ref = np.add.reduceat(count.astype(np.float64), indptr[:-1]) if n_found else np.zeros(0)
+            n_own = np.bincount(ctx[ctx >= 0].astype(np.int64), minlength=n_found).astype(np.float64)
+            wc = n_ref / n_own
+            wt = np.where(ctx >= 0, wc[np.maximum(ctx, 0)], 0.0)
+            self.w_total, self.w_events = float(wt.sum()), int(ctx.size)
+            self.w_ctx = wc
+            self.wtab = torch.from_numpy(wt.astype(np.float32)).to(device)
         self.n_pairs = child.size + (self.n_single if ref is None else 0)
         self.ctx = torch.from_numpy(ctx).to(device)
         self.indptr = torch.from_numpy(indptr).to(device)
@@ -177,6 +201,10 @@ class TrieTargets:
         pidx = torch.repeat_interleave(a, lens) + torch.arange(row.numel(), device=self.device) - first
         out.index_put_((row, self.child[pidx].long()), self.count[pidx].to(dtype))
         return out / out.sum(-1, keepdim=True)
+
+    def weights(self, starts, L):
+        """[windows, L] event weights n_ref(c) / n(c) (trie_weights_corpus)."""
+        return self.wtab[:L, starts].t()
 
 
 class TriePlanner:
@@ -453,6 +481,11 @@ def main():
         sys.exit("agpt_minibatch_train: trie_targets_corpus goes with trie_targets: true")
     if bool(exp.get("trie_targets_corpus")) != bool(exp.get("trie_targets_corpus_sha256")):
         sys.exit("agpt_minibatch_train: trie_targets_corpus and trie_targets_corpus_sha256 go together")
+    weighted = bool(exp.get("trie_weights_corpus"))
+    if weighted and not exp.get("trie_targets_corpus"):
+        sys.exit("agpt_minibatch_train: trie_weights_corpus goes with trie_targets_corpus")
+    if weighted and exp.get("grad_average"):
+        sys.exit("agpt_minibatch_train: trie_weights_corpus is not supported with grad_average")
     log_steps = bool(exp.get("log_step_loss"))
     if log_steps and not exp.get("trie_plan"):
         sys.exit("agpt_minibatch_train: log_step_loss is for trie_plan runs")
@@ -533,7 +566,7 @@ def main():
         ref = ref.astype(np.uint8)
         del raw
         print(f"  trie_targets_corpus {exp['trie_targets_corpus']}: {ref.size} tokens, sha256 {sha}", flush=True)
-    targets = TrieTargets(tokens, n_starts, T, V, device, ref) if exp.get("trie_targets") else None
+    targets = TrieTargets(tokens, n_starts, T, V, device, ref, weighted) if exp.get("trie_targets") else None
     del ref
     n_windows = n_starts // stride if stride > 1 else n_starts
     if planner is not None:
@@ -569,6 +602,12 @@ def main():
                   f"{targets.n_pairs} (context, next) pairs, {targets.n_single} contexts "
                   f"found once there, {targets.n_missing} events whose context it lacks (one-hot), "
                   f"built in {targets.build_seconds:.1f}s", flush=True)
+    if weighted:
+        import numpy as np
+        q = np.percentile(targets.w_ctx, [0, 50, 90, 99, 100])
+        print(f"  trie_weights_corpus: events weighted n_ref(c) / n(c); total weight {targets.w_total:.0f} over "
+              f"{targets.w_events} events ({targets.w_total / targets.w_events:.2f} per event); per context "
+              f"min {q[0]:.3g} median {q[1]:.3g} p90 {q[2]:.3g} p99 {q[3]:.3g} max {q[4]:.3g}", flush=True)
     if planner is not None:
         print(f"  trie_plan {planner.desc}: {planner.unit_sizes.size} units "
               f"({planner.tp.describe(planner.unit_sizes)}), built in {planner.build_seconds:.1f}s", flush=True)
@@ -610,6 +649,18 @@ def main():
             sw_i = torch.from_numpy(plan["sw_i"]).to(device)
             sw_bits = torch.from_numpy(plan["sw_bits"]).to(device)
             off, step_events, nb = plan["off"], plan["step_events"], len(planner.blens)
+            if weighted:
+                # each step-window pair's weight: the weights of its events (set bits)
+                wp = torch.zeros(sw_i.numel(), device=device, dtype=torch.float64)
+                for l in range(T):
+                    wp += (((sw_bits >> l) & 1).double() * targets.wtab[l, sw_i.long()].double())
+                cs = torch.cat([torch.zeros(1, device=device, dtype=torch.float64), torch.cumsum(wp, 0)])
+                bnd = torch.tensor(off[0::nb], device=device, dtype=torch.long)
+                step_w = (cs[bnd[1:]] - cs[bnd[:-1]]).tolist()
+                if epoch == 1:
+                    print(f"  trie_weights_corpus: the pass's step weights sum to {sum(step_w):.0f} "
+                          f"(total {targets.w_total:.0f})", flush=True)
+                del wp, cs, bnd
             if device.type == "cuda":
                 torch.cuda.synchronize()
             t0 = time.perf_counter()
@@ -622,6 +673,7 @@ def main():
                     g["lr"] = cur
                 opt.zero_grad(set_to_none=True)
                 E = step_events[s]
+                Wd = step_w[s] if weighted else E  # the step loss's denominator
                 step_loss = torch.zeros((), device=device, dtype=torch.float64)
                 for b, Lb in enumerate(planner.blens):
                     a, z = off[s * nb + b], off[s * nb + b + 1]
@@ -640,7 +692,10 @@ def main():
                             obj = -(targets.dist(ii, y, logp.dtype, Lb) * logp).sum(-1).view(-1, Lb)
                         m = ((sw_bits[j:min(z, j + cap)].view(-1, 1) >> pos[:, :Lb]) & 1).to(ce.dtype)
                         ls = (obj * m).sum()
-                        (ls / E).backward()
+                        if weighted:
+                            ((obj * m * targets.weights(ii.long(), Lb)).sum() / Wd).backward()
+                        else:
+                            (ls / E).backward()
                         loss_sum += (ce.detach() * m).sum()
                         step_loss += ls.detach().double()
                         if targets is not None:
@@ -674,7 +729,7 @@ def main():
                 opt.step()
                 if log_steps:
                     print(f"    step {step + 1} events={E:.0f} mean_loss={step_loss.item() / E:.6f} lr={cur:.6g}"
-                          + avg_note, flush=True)
+                          + (f" weight={Wd:.0f}" if weighted else "") + avg_note, flush=True)
                 step += 1
             if device.type == "cuda":
                 torch.cuda.synchronize()
@@ -724,6 +779,8 @@ def main():
             for g in opt.param_groups:
                 g["lr"] = cur
             opt.zero_grad(set_to_none=True)
+            if weighted:
+                Wb = targets.weights(starts, T).double().sum().item()
             for j in range(0, nb, micro):
                 part = starts[j:j + micro]
                 chunks = tokens_dev[part.view(-1, 1) + offsets]
@@ -734,8 +791,12 @@ def main():
                 else:
                     logp = F.log_softmax(logits.reshape(-1, V), dim=-1)
                     y = chunks[:, 1:].reshape(-1)
-                    soft = -(targets.dist(part, y, logp.dtype) * logp).sum(-1).mean()
-                    (soft * (part.numel() / nb)).backward()
+                    soft_ev = -(targets.dist(part, y, logp.dtype) * logp).sum(-1)
+                    soft = soft_ev.mean()
+                    if weighted:
+                        ((soft_ev.view(-1, T) * targets.weights(part, T)).sum() / Wb).backward()
+                    else:
+                        (soft * (part.numel() / nb)).backward()
                     soft_sum += soft.detach() * part.numel()
                     loss = F.nll_loss(logp.detach(), y)
                 loss_sum += loss.detach() * part.numel()

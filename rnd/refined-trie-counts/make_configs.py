@@ -36,7 +36,7 @@ REFS = {
     "20m": (f"{P}/imm-split-20m/train_corpus.txt", "754b3660b01e6d172c20c19d7c0ec59ffe43067a66f56eb31bb3e10b75cef6ba"),
     "100m": (f"{P}/imm-split-100m/train_corpus.txt", "fc55205ead4c13554ab2992b5891263aad822956618d801720dab840af124c54"),
 }
-CORPUS = {"a1m": f"{P}/a1m/train_corpus.txt", "5m": REFS["5m"][0]}
+CORPUS = {"a1m": f"{P}/a1m/train_corpus.txt", "5m": REFS["5m"][0], "100m": REFS["100m"][0]}
 LR = 0.003
 
 BODY = """corpus:
@@ -74,7 +74,7 @@ experimental:
 {exp}"""
 
 
-def config(slug, desc, corpus, passes, checkpoints, seed, agpt, ref, pd=3, lr=LR):
+def config(slug, desc, corpus, passes, checkpoints, seed, agpt, ref, pd=3, lr=LR, extra=()):
     exp = []
     if agpt:
         exp += ["trie_plan: pd", f"trie_plan_depth: {pd}", f"trie_plan_seed: {1 if seed == 42 else 2}"]
@@ -83,6 +83,7 @@ def config(slug, desc, corpus, passes, checkpoints, seed, agpt, ref, pd=3, lr=LR
     elif ref:
         path, sha = REFS[ref]
         exp += ["trie_targets: true", f"trie_targets_corpus: {path}", f"trie_targets_corpus_sha256: {sha}"]
+    exp += list(extra)
     body = BODY.format(corpus=corpus, P=P, passes=passes, seed=seed, lr=lr,
                        checkpoints=", ".join(str(c) for c in checkpoints),
                        exp="".join(f"  {e}\n" for e in exp))
@@ -131,6 +132,33 @@ def main():
                 runs.append((slug, f"refined trie counts, plan depths: AGPT pd={pd} replay, d64/L2, depth 8, the 1M "
                                    f"PG-19 slice's trie with {counts}; {passes} passes, Adam {lr:g} constant, {order}",
                              CORPUS["a1m"], passes, cps, seed, True, ref, pd, lr))
+    # Weighted (the user, 2026-11-18: loading the small trie with the larger text's statistics
+    # should raise the sharing; go-ahead 2026-11-19): each event weighted by its context's
+    # count in the 100M text over its count in A (trie_weights_corpus), so A's 1.54M nodes
+    # stand for the 100M text's loss on the contexts A has (666.9M of its 800M depth-8
+    # events, 433 a node). Against the unweighted 100M-count runs above at the same steps,
+    # and against ordinary minibatch on the 100M text itself, the control the epoch-only
+    # budget left out: window_stride 100 makes an epoch 1M windows (7,813 steps, as an
+    # epoch of A) from a random offset, so its epochs line up with A's in steps and
+    # positions. 25 epochs = 200M positions, the trie positions of 128 pd=1 passes
+    # (128 x 1,539,197 = 197M); 8 pd=3 passes (8 x 1,576,699 = 12.6M) fall between its
+    # epochs 1 and 2.
+    W = ["trie_weights_corpus: true"]
+    wdesc = ("its child counts from the 100M PG-19 text containing it, and each event weighted by its "
+             "context's count there over its count in the slice")
+    runs.append(("agpt-a1m-w100m", f"refined trie counts, weighted: AGPT pd=3 replay, d64/L2, depth 8, the 1M "
+                                   f"PG-19 slice's trie with {wdesc}; 8 passes, Adam 0.003 constant, order seed 1",
+                 CORPUS["a1m"], 8, [1, 2, 4], 42, True, "100m", 3, LR, W))
+    runs.append(("agpt-a1m-pd1-w100m", f"refined trie counts, weighted: AGPT pd=1 replay, d64/L2, depth 8, the 1M "
+                                       f"PG-19 slice's trie with {wdesc}; 128 passes, Adam 0.003 constant, "
+                                       f"order seed 1", CORPUS["a1m"], 128, [8, 32, 64], 42, True, "100m", 1, LR, W))
+    runs.append(("mb-a1m-w100m", f"refined trie counts, weighted: minibatch (128 windows a step), d64/L2, depth 8, "
+                                 f"the 1M PG-19 slice with {wdesc}; 8 epochs, Adam 0.003 constant",
+                 CORPUS["a1m"], 8, [1, 2, 4], 42, False, "100m", 3, LR, W))
+    runs.append(("mb-100m-st100", "refined trie counts: minibatch (128 windows a step), d64/L2, depth 8, the 100M "
+                                  "PG-19 text itself, hard targets, windows every 100 characters from a random offset "
+                                  "each epoch (1M windows, 7,813 steps an epoch); 25 epochs, Adam 0.003 constant",
+                 CORPUS["100m"], 25, [1, 2, 4, 8, 16], 42, False, None, 3, LR, ["window_stride: 100"]))
     for r in runs:
         config(*r)
     print(f"wrote {len(runs)} configs to {OUT}")
