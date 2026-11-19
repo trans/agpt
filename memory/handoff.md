@@ -1,6 +1,6 @@
 # Handoff: where AGPT stands
 
-*Updated 2026-11-17*
+*Updated 2026-11-19*
 
 ## Back on the main path (2026-11-14)
 
@@ -115,8 +115,11 @@
   own unit order. **The normal v2 build is not exact:** bf16 K/V cache and
   TF32 put 1–4% into unit gradients (8% on the trained whole-pass pd=1
   gradient, 67% in some small shallow units); every AGPT run on record used
-  it. Open: whether it matters for long runs or L-BFGS; the kvfp32 build's
-  speed is unmeasured.
+  it. Full precision costs no measurable speed at d64/L2
+  (`rnd/exact-build-speed`), and it is v2's default build since `fe3a4c8`
+  (the user, 2026-11-18), checked in `02fa484`; `just
+  build-agpt-train-v2-reduced` builds the old one. Open: whether the old
+  build's error mattered for long runs or L-BFGS.
 - **The user's contrast reading** (2026-11-15): prefix-shared steps give no
   contrast at the root, so root learning would lag. First reported wrong:
   at equal steps the gap grows with context length, but a random

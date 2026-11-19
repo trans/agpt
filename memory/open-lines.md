@@ -1,6 +1,6 @@
 # Open lines of research
 
-*Updated 2026-11-18*
+*Updated 2026-11-19*
 
 Each line has a state, where its plan lives, and what it needs next.
 
@@ -168,13 +168,16 @@ kernel work as research (2026-09-28).
   cache + `NVIDIA_TF32_OVERRIDE=0` against the normal bf16/TF32 build, two
   one-pass-gap runs, twice each: pd=1 4 passes 29.3 s vs 28.3 s (+3.7%),
   pd=3 1 pass 54.1 s vs 54.4 s (-0.6%), inside the 1-3 s repeat spread;
-  scores within run-to-run noise. Runner: `--trainer v2-kvfp32`, and
-  `NVIDIA_TF32_OVERRIDE` recorded in `meta.json` (`18284a0`). **The user chose
+  scores within run-to-run noise. Runner then: `--trainer v2-kvfp32` (gone
+  since the switch), and `NVIDIA_TF32_OVERRIDE` recorded in `meta.json` (`18284a0`). **The user chose
   fp32 as the default (2026-11-18: "I agree, fp32"): `fe3a4c8`.** v2 builds
   fp32 cache + fp32 cuBLAS math; `-DAGPT_V2_REDUCED_PRECISION` (`just
   build-agpt-train-v2-reduced`, `--trainer v2-reduced`) is the old default;
-  v1 unchanged (TF32). Check pending (`switch_check.sh`, slot 103): dumps vs
-  the timed binaries, FD on the new default with no env var, 4 runs. Holds at d64/L2;
+  v1 unchanged (TF32). **Checked, `02fa484` (slot 103, 2026-11-19):** the new
+  default's frozen-weight gradients match the old fp32 cache with TF32 off to
+  the atomics floor (1.2e-7 whole pass, against 1.1e-7 between two of its own
+  dumps), the reduced build matches the old default the same way, FD ratio
+  0.9998-1.0001 with no env var, and the 4 runs fall in the grid's spread. Holds at d64/L2;
   re-measure at a wider model.
 
 ## 3a. Multi-positional (superposed) RoPE — next direction

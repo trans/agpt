@@ -1,6 +1,6 @@
 # Methodology: evaluation pitfalls and working rules
 
-*Updated 2026-11-07*
+*Updated 2026-11-19*
 
 Each rule here cost something to learn. `CLAUDE.md` has the settled rules on
 the runner, the canonical PPL and the splits; they are not repeated here.
@@ -53,9 +53,11 @@ the runner, the canonical PPL and the splits; they are not repeated here.
   - `src/tools/agpt_grad_check.py` compares finite differences along the
     gradient and along chosen directions. Target an FD ratio of 1.000 ± 0.005
     at ε 0.01.
-  - TF32 adds about 3e-5 of noise to the loss. For small-ε checks use
-    `bin/agpt_train_v2_kvfp32` (`just build-agpt-train-v2-kvfp32`) with
-    `NVIDIA_TF32_OVERRIDE=0`.
+  - TF32 adds about 3e-5 of noise to the loss. Since `fe3a4c8` v2's
+    default build is full precision (fp32 K/V cache, no TF32) and needs no
+    env var for small-ε checks. The reduced build
+    (`bin/agpt_train_v2_reduced`) and v1 (unless `AGPT_V1_DISABLE_TF32=1`)
+    still use TF32.
 - **The L-BFGS backtrack rate is a sensitive end-to-end check.** A gradient
   error of a few percent, invisible to Adam, made trie L-BFGS backtrack on 44%
   of its steps (Exp 7).
