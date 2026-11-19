@@ -104,8 +104,13 @@ mobius refines a small corpus's counts with a larger corpus's. Record:
   it with the user. **The user approved the weighted arm (2026-11-19, "ok
   go-ahead"):** `trie_weights_corpus` in the replay (`5db567f`, CPU-checked),
   4 runs (`run3.sh`: weighted pd=3, pd=1, minibatch on A; minibatch on the
-  100M text with window_stride 100 as the equal-compute control), **queued
-  as slot 108, not yet run.** The replay tests the objective only.
+  100M text with window_stride 100 as the equal-compute control). **Done,
+  `c449019` (slot 108): weighting doesn't help.** AGPT +0.12 nats at pd=3,
+  +0.05 at pd=1 against A's weights (one order seed); minibatch level (6.163
+  vs 6.150). Minibatch on A with the 100M counts beats minibatch on the 100M
+  text at equal steps (6.150 vs 6.329 at 62,504) and after 3x the steps
+  (6.170). AGPT at equal compute 0.23-0.47 nats behind the 100M stream. Not
+  run: pd=0 weighted (~75 min).
 - **Next (not decided by the user):** refined counts in v2
   (needed for the compute saving); the gain at depth 16; minibatch streaming
   the larger text for the same steps.
