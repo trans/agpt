@@ -169,8 +169,12 @@ kernel work as research (2026-09-28).
   one-pass-gap runs, twice each: pd=1 4 passes 29.3 s vs 28.3 s (+3.7%),
   pd=3 1 pass 54.1 s vs 54.4 s (-0.6%), inside the 1-3 s repeat spread;
   scores within run-to-run noise. Runner: `--trainer v2-kvfp32`, and
-  `NVIDIA_TF32_OVERRIDE` recorded in `meta.json` (`18284a0`). Making it the
-  default build is the user's call (offered 2026-11-18). Holds at d64/L2;
+  `NVIDIA_TF32_OVERRIDE` recorded in `meta.json` (`18284a0`). **The user chose
+  fp32 as the default (2026-11-18: "I agree, fp32"): `fe3a4c8`.** v2 builds
+  fp32 cache + fp32 cuBLAS math; `-DAGPT_V2_REDUCED_PRECISION` (`just
+  build-agpt-train-v2-reduced`, `--trainer v2-reduced`) is the old default;
+  v1 unchanged (TF32). Check pending (`switch_check.sh`, slot 103): dumps vs
+  the timed binaries, FD on the new default with no env var, 4 runs. Holds at d64/L2;
   re-measure at a wider model.
 
 ## 3a. Multi-positional (superposed) RoPE — next direction
