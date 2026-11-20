@@ -2,6 +2,8 @@ s1-e1-lr0.012
 g1-full-e1-lr0.012
 s3-e1-lr0.0015
 g3-full-e1-lr0.0015
+s3-e1-o2-lr0.0015
+s3-e1-o3-lr0.0015
 g1-x2-e1-lr0.006
 g1-x2-e1-lr0.012
 g1-x2-e1-lr0.024

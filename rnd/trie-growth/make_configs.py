@@ -11,6 +11,7 @@ Arms (slug: what):
   g0-xR     growth, pd=0 (one update on the whole trie a stage), the trie grown by
             a factor R each stage from 1,000 starts: the user's "N changes, then update"
   g1-full, g3-full   growth with one stage (the full trie): must reproduce s1-e1 / s3-e1
+  s3-e1-oK  s3-e1 with unit-order seed K: the order noise at pd=3
 
 Doubling from 1,000 starts gives 11 stages and about 2E full-trie passes of
 compute, so E = 1, 2, 4 sit near 1, 2, 4 minibatch epochs (16.95M positions an
@@ -26,10 +27,10 @@ SEED = "rnd/cudax-d16-linear-mass-rerun/seeds/shake-d64L2-h4-dff256-d16-seed42.m
 TRIE = "data/.tries/64e9fe109211b366"
 
 
-def config(slug, desc, pd, passes, lr, growth=None, crown=False):
+def config(slug, desc, pd, passes, lr, growth=None, crown=False, order_seed=1):
     exp = ["  anc_grad_exact: true"]
     if crown:
-        exp += ["  train_crown: true", "  unit_order_seed: 1"]
+        exp += ["  train_crown: true", f"  unit_order_seed: {order_seed}"]
     g = ""
     if growth:
         start, ratio = growth
@@ -92,6 +93,11 @@ def main():
     add("s3-e1", "static pd=3 + crown, shuffled, 1 pass", 3, 1, 0.0015, crown=True)
     add("g3-full-e1", "growth pd=3 + crown, shuffled, one stage (the full trie), 1 pass", 3, 1, 0.0015,
         growth=(2_000_000, 2), crown=True)
+    # unit-order noise at pd=3: the growth trie numbers its nodes differently, so the same
+    # seed shuffles the same units into a different order
+    for o in (2, 3):
+        add(f"s3-e1-o{o}", f"static pd=3 + crown, shuffled (order seed {o}), 1 pass", 3, 1, 0.0015, crown=True,
+            order_seed=o)
     for e in (1, 2, 4):
         for lr in (0.006, 0.012, 0.024):
             add(f"g1-x2-e{e}", f"growth pd=1, doubling from 1,000 starts, {e} pass(es) a stage", 1, e, lr,
