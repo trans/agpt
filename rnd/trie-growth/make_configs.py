@@ -120,6 +120,13 @@ def main():
     for lr in (0.006, 0.012):
         add("g0-x1.01", "growth pd=0, one update a stage, trie x1.01 a stage from 1,000 starts", 0, 1, lr,
             growth=(1000, 1.01))
+    # added after the first results: lr 0.006 (the grid's lowest) was best for doubling at pd=1
+    # and for static at 4 and 8 passes, so bracket it from below
+    for e in (1, 2, 4):
+        add(f"g1-x2-e{e}", f"growth pd=1, doubling from 1,000 starts, {e} pass(es) a stage", 1, e, 0.003,
+            growth=(1000, 2))
+    for p in (4, 8):
+        add(f"s1-e{p}", f"static pd=1, {p} passes", 1, p, 0.003)
     order = []
     for name, text in cfgs.items():
         (out / f"{name}.yml").write_text(text)
