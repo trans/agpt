@@ -574,6 +574,25 @@ static std::vector<int> make_growth_division_frontiers_v2(int final_frontier, in
     return frontiers;
 }
 
+// Geometric frontiers: start, start*ratio, ... (each at least one more than the
+// last), then final_frontier.
+static std::vector<int> make_growth_geometric_frontiers_v2(int final_frontier, int start, double ratio) {
+    std::vector<int> frontiers;
+    if (final_frontier <= 0) return frontiers;
+    double v = start;
+    int prev = 0;
+    while (true) {
+        long long x = (long long)std::ceil(v);
+        if (x <= prev) x = prev + 1;
+        if (x >= final_frontier) break;
+        frontiers.push_back((int)x);
+        prev = (int)x;
+        v = (double)x * ratio;
+    }
+    frontiers.push_back(final_frontier);
+    return frontiers;
+}
+
 static bool checkpoint_epoch_requested_v2(const std::vector<int>& checkpoint_epochs, int epoch) {
     return std::find(checkpoint_epochs.begin(), checkpoint_epochs.end(), epoch) != checkpoint_epochs.end();
 }
@@ -1044,6 +1063,45 @@ static void free_device_loss_tables_v2(DeviceLossTablesV2& tables) {
     tables = DeviceLossTablesV2{};
 }
 
+// The optimizer steps train-growth will take: for each stage, the units whose
+// chunk plan is non-empty (run_train_epoch_on_radix_host_v2 skips the others
+// without a step) times the stage's epochs. Built on a separate copy of the
+// incremental trie, before training.
+static long long count_growth_unit_steps_v2(const agpt_v2::TrainerConfig& cfg,
+                                            const std::vector<int>& tokens,
+                                            int max_depth,
+                                            const std::vector<int>& frontiers,
+                                            GrowthEpochScheduleV2 schedule,
+                                            int min_epochs,
+                                            int epochs,
+                                            int unit_limit) {
+    std::vector<int> copy = tokens;
+    agpt_v2::GrowthIncrementalRadixStateV2 st =
+        agpt_v2::make_growth_incremental_radix_state_v2(std::move(copy), max_depth);
+    long long total = 0;
+    for (int i = 0; i < (int)frontiers.size(); i++) {
+        agpt_v2::growth_incremental_ingest_until_v2(st, frontiers[i]);
+        agpt_v2::RadixTrieStructure trie = agpt_v2::growth_incremental_radix_view_v2(st);
+        agpt_v2::TrainingPlan tp = cfg.lightning_enabled
+            ? agpt_v2::build_lightning_training_plan_v2(trie, cfg)
+            : agpt_v2::build_training_plan_for_partition_depth(trie, cfg.partition_depth, cfg.train_crown);
+        if (tp.unit_count > 0) {
+            int units = tp.unit_count;
+            if (unit_limit > 0 && unit_limit < units) units = unit_limit;
+            if (units < 1) units = 1;
+            long long stepped = 0;
+            for (int u = 0; u < units; u++) {
+                agpt_v2::ChunkPlanList c = agpt_v2::build_chunk_plan_for_unit(trie, tp.units[u], cfg.chunk_queries);
+                if (c.chunk_count > 0) stepped++;
+                agpt_v2::free_chunk_plan_list(c);
+            }
+            total += stepped * growth_epochs_for_stage_v2(schedule, i, (int)frontiers.size(), min_epochs, epochs);
+        }
+        agpt_v2::free_training_plan(tp);
+    }
+    return total;
+}
+
 static void run_train_epoch_on_radix_host_v2(const agpt_v2::TrainerConfig& cfg,
                                              const agpt_v2::RuntimeShape& shape,
                                              const agpt_v2::ModelLayout& model,
@@ -1056,12 +1114,14 @@ static void run_train_epoch_on_radix_host_v2(const agpt_v2::TrainerConfig& cfg,
                                              long long total_unit_steps,
                                              long long warmup_unit_steps,
                                              int& optimizer_step_index,
-                                             const agpt_v2::PositionSamplingStageV2* pos_stage = nullptr) {
+                                             const agpt_v2::PositionSamplingStageV2* pos_stage = nullptr,
+                                             int unit_order_seed = -1,
+                                             int* global_epoch = nullptr) {
     double t_total0 = wall_seconds_v2();
     agpt_v2::CacheLayout cache = agpt_v2::make_cache_layout(shape);
     agpt_v2::TrainingPlan training_plan = cfg.lightning_enabled
         ? agpt_v2::build_lightning_training_plan_v2(trie, cfg)
-        : agpt_v2::build_training_plan_for_partition_depth(trie, cfg.partition_depth);
+        : agpt_v2::build_training_plan_for_partition_depth(trie, cfg.partition_depth, cfg.train_crown);
     if (training_plan.unit_count <= 0) {
         std::printf("  train-growth-stage: skipped, no pd=%d training units at radix_nodes=%d\n",
                     cfg.partition_depth, trie.radix_count);
@@ -1112,7 +1172,19 @@ static void run_train_epoch_on_radix_host_v2(const agpt_v2::TrainerConfig& cfg,
         long long epoch_trained = 0;
         agpt_v2::zero_cache_runtime_v2(runtime.cache);
         std::printf("    stage-epoch %d/%d\n", epoch + 1, epochs);
-        for (int u = 0; u < units_to_run; u++) {
+        // experimental.unit_order_seed: a seeded shuffle of the unit order each
+        // stage-epoch, as static training does each epoch; the epoch counted
+        // across stages, so every stage-epoch gets its own order.
+        int shuffle_epoch = global_epoch ? *global_epoch : epoch;
+        std::vector<int> unit_order((size_t)units_to_run);
+        for (int i = 0; i < units_to_run; i++) unit_order[(size_t)i] = i;
+        if (unit_order_seed >= 0) {
+            std::mt19937 rng((unsigned)unit_order_seed * 1000003u + (unsigned)shuffle_epoch);
+            std::shuffle(unit_order.begin(), unit_order.end(), rng);
+        }
+        if (global_epoch) (*global_epoch)++;
+        for (int uo = 0; uo < units_to_run; uo++) {
+            int u = unit_order[(size_t)uo];
             const agpt_v2::TrainingUnit& unit = training_plan.units[u];
             agpt_v2::ChunkPlanList unit_chunks =
                 agpt_v2::build_chunk_plan_for_unit(trie, unit, cfg.chunk_queries);
@@ -1567,6 +1639,10 @@ int main(int argc, char** argv) {
         const char* growth_schedule_source = "explicit-frontiers";
         if (growth_frontiers_arg) {
             frontiers = agpt_v2::parse_growth_frontiers_v2(growth_frontiers_arg, full_starts);
+        } else if (yaml_cfg.growth_ratio > 1.0f) {
+            frontiers = make_growth_geometric_frontiers_v2(growth_final_frontier, yaml_cfg.growth_start,
+                                                           (double)yaml_cfg.growth_ratio);
+            growth_schedule_source = "geometric";
         } else if (growth_divisions > 0) {
             frontiers = make_growth_division_frontiers_v2(growth_final_frontier, growth_divisions);
             growth_schedule_source = "generated-divisions";
@@ -1604,8 +1680,18 @@ int main(int argc, char** argv) {
                                                            growth_min_epochs, epochs);
         }
         long long total_unit_steps = scheduled_epochs * (long long)estimated_units;
+        if (yaml_cfg.growth_exact_schedule) {
+            double t_count0 = wall_seconds_v2();
+            total_unit_steps = count_growth_unit_steps_v2(cfg, tokens, max_depth, frontiers,
+                                                          growth_epoch_schedule, growth_min_epochs,
+                                                          epochs, unit_limit);
+            std::printf("  growth-exact-schedule: total_unit_steps=%lld (counted in %.3fs; the vocab estimate was %lld)\n",
+                        total_unit_steps, wall_seconds_v2() - t_count0,
+                        scheduled_epochs * (long long)estimated_units);
+        }
         long long warmup_unit_steps = (long long)cfg.warmup_epochs * (long long)estimated_units;
         int optimizer_step_index = 0;
+        int growth_global_epoch = 0;
         const char* growth_radix_env = std::getenv("AGPT_GROWTH_RADIX");
         bool use_incremental_growth_radix =
             !(growth_radix_env && std::strcmp(growth_radix_env, "rebuild") == 0);
@@ -1703,7 +1789,8 @@ int main(int argc, char** argv) {
                                              h_weights, h_opt_m, h_opt_v,
                                              epochs_this_stage, unit_limit,
                                              total_unit_steps, warmup_unit_steps,
-                                             optimizer_step_index, pos_stage_ptr);
+                                             optimizer_step_index, pos_stage_ptr,
+                                             yaml_cfg.unit_order_seed, &growth_global_epoch);
             double t_train1 = wall_seconds_v2();
             if (!use_incremental_growth_radix) {
                 agpt_v2::free_radix_trie_structure(trie);

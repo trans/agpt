@@ -23,6 +23,14 @@ struct YamlConfigV2 {
     std::string successor_prefix_table;
     std::string target_sidecar;
 
+    // experimental.growth_start / growth_ratio: geometric growth frontiers
+    // (window starts start, start*ratio, ..., full); growth_exact_schedule:
+    // count each stage's optimizer steps before training so the LR schedule's
+    // horizon is the real step count, not stages x epochs x vocab_size.
+    int growth_start = 0;
+    float growth_ratio = 0.0f;
+    bool growth_exact_schedule = false;
+
     int seed = 42;
     bool seed_set = false;
     bool has_growth = false;
@@ -294,6 +302,9 @@ static bool yaml_is_known_experimental_field_v2(const std::string& path) {
         "experimental.entropy_grad_min_scale",
         "experimental.dropout_node_keep_prob",
         "experimental.dropout_seed",
+        "experimental.growth_start",
+        "experimental.growth_ratio",
+        "experimental.growth_exact_schedule",
     };
     return fields.find(path) != fields.end();
 }
@@ -945,6 +956,26 @@ static bool apply_yaml_config_v2(const char* config_path,
                          ramp->value.c_str());
             return false;
         }
+        bool have_start = false;
+        bool have_ratio = false;
+        if (!yaml_get_int_v2(doc, "experimental.growth_start", yaml_cfg.growth_start, &have_start)) return false;
+        if (!yaml_get_float_v2(doc, "experimental.growth_ratio", yaml_cfg.growth_ratio, &have_ratio)) return false;
+        if (have_start != have_ratio ||
+            (have_ratio && (yaml_cfg.growth_ratio <= 1.0f || yaml_cfg.growth_start < 1))) {
+            std::fprintf(stderr,
+                         "agpt_train_v2: experimental.growth_start (>= 1) and experimental.growth_ratio (> 1) must be given together\n");
+            return false;
+        }
+        if (have_ratio && growth_divisions > 0) {
+            std::fprintf(stderr,
+                         "agpt_train_v2: experimental.growth_ratio replaces train.growth.divisions; set divisions to 0\n");
+            return false;
+        }
+        if (!yaml_get_bool_v2(doc, "experimental.growth_exact_schedule", yaml_cfg.growth_exact_schedule)) return false;
+    } else if (yaml_find_v2(doc, "experimental.growth_start") || yaml_find_v2(doc, "experimental.growth_ratio") ||
+               yaml_find_v2(doc, "experimental.growth_exact_schedule")) {
+        std::fprintf(stderr, "agpt_train_v2: experimental.growth_* keys need a train.growth block\n");
+        return false;
     }
 
     bool virtual_tree = false;

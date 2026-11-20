@@ -261,7 +261,7 @@ split caches, tries are content-hashed and cached at
 | field | type | default | consumers | notes |
 |---|---|---|---|---|
 | `train.growth` | block | absent | v2 (today), v1 (planned); mg rejects | Optional. Block absent = static training. |
-| `train.growth.divisions` | int ≥ 1 | required if block present | v2, v1 (planned) | Number of stages. |
+| `train.growth.divisions` | int ≥ 0 | required if block present | v2, v1 (planned) | Number of evenly spaced stages; 0 with `experimental.growth_start`/`growth_ratio`. |
 | `train.growth.min_epochs` | int ≥ 1 | required if block present | v2, v1 (planned) | Per-stage minimum epoch budget. |
 | `train.growth.epoch_ramp` | enum | required if block present | v2, v1 (planned) | `fixed` \| `linear` \| `linear-decay`. |
 
@@ -345,7 +345,10 @@ every other section is relaxed inside `experimental`:** trainers emit
 | `experimental.dropout_node_keep_prob` | float | 1.0 | v2 | Structural target-node dropout. Nodes remain in the attention/context graph, but own query/loss rows are randomly zero-weighted when dropped. |
 | `experimental.dropout_seed` | int | 1 | v2 | Seed for structural target-node dropout. |
 | `experimental.train_crown` | bool | `false` | v2 | At `train.partition_depth` ≥ 2, also train each node whose edge ends above the partition depth as a unit of its own, with its ancestors as context. Without it those shallow targets (depth < pd) are only ever context-only ancestors and never trained. The trainer prints a `plan-coverage` line: with this on, every radix node is trained exactly once per pass. Not supported with `experimental.partition_depth_map`. |
-| `experimental.unit_order_seed` | int | `-1` | v2 | ≥ 0: shuffle the training units' order each epoch with this seed. −1 trains them in plan order every epoch. |
+| `experimental.unit_order_seed` | int | `-1` | v2 | ≥ 0: shuffle the training units' order each epoch with this seed. −1 trains them in plan order every epoch.  With `train.growth`, each stage-epoch gets its own order (the epoch counted across stages). |
+| `experimental.growth_start` | int ≥ 1 | absent | v2 (`train.growth`) | With `growth_ratio`: geometric stage frontiers, in window starts: start, start × ratio, … (each at least one more than the last), then the full corpus. Replaces `train.growth.divisions`, which must be 0. |
+| `experimental.growth_ratio` | float > 1 | absent | v2 (`train.growth`) | See `growth_start`. 2 doubles the trie each stage. |
+| `experimental.growth_exact_schedule` | bool | `false` | v2 (`train.growth`) | Count each stage's optimizer steps (units with a non-empty chunk plan × the stage's epochs) on a copy of the trie before training, so the LR schedule's horizon is the real step count. Without it, v2 assumes stages × epochs × vocab_size steps, right only at pd=1. |
 | `experimental.entropy_gate_min_scale` | float | 1.0 | v2 | Loss-weight gate for target entropy. `1.0` disables; lower values damp low-entropy rows while preserving high-entropy endpoint rows. |
 | `experimental.entropy_grad_min_scale` | float | 1.0 | v2 | Gradient-only entropy gate. `1.0` disables; lower values damp node gradients using endpoint target entropy while leaving reported loss weights unchanged. |
 
