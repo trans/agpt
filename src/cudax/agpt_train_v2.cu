@@ -1471,7 +1471,8 @@ int main(int argc, char** argv) {
     }
 
     bool has_growth_schedule =
-        growth_frontiers_arg || growth_divisions > 0 || growth_final_frontier > 0 || growth_train_frac < 1.0;
+        growth_frontiers_arg || growth_divisions > 0 || growth_final_frontier > 0 || growth_train_frac < 1.0 ||
+        yaml_cfg.growth_ratio > 1.0f;
     bool missing_required = !model_path ||
         (mode == V2Mode::TrainGrowth ? (!corpus_path || !has_growth_schedule) : !trie_dir);
     if (missing_required) {

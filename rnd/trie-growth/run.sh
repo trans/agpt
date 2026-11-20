@@ -7,7 +7,7 @@ names="$*"
 [ -z "$names" ] && names=$(cat $D/order.txt)
 for n in $names; do
   echo "$(date -u +%H:%M:%S) $n"
-  bin/agpt_experiment --config $D/configs/$n.yml > $D/last_run.log 2>&1
+  bin/agpt_experiment --config $D/configs/$n.yml --trainer v2 > $D/last_run.log 2>&1
   s=$?
   case $s in
     0) ;;
