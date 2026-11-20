@@ -127,6 +127,8 @@ def main():
             growth=(1000, 2))
     for p in (4, 8):
         add(f"s1-e{p}", f"static pd=1, {p} passes", 1, p, 0.003)
+    # static pd=3 past the growth e2 runs' 54M positions (lr 0.0015 was best at 2 and 4 passes)
+    add("s3-e8", "static pd=3 + crown, shuffled, 8 passes", 3, 8, 0.0015, crown=True)
     # and pd=0 at x1.1: 0.012, the lowest, was best
     for lr in (0.003, 0.006):
         add("g0-x1.1", "growth pd=0, one update a stage, trie x1.1 a stage from 1,000 starts", 0, 1, lr,
