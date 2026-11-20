@@ -1170,6 +1170,8 @@ static void run_train_epoch_on_radix_host_v2(const agpt_v2::TrainerConfig& cfg,
         double epoch_loss_sum = 0.0;
         double epoch_events = 0.0;
         long long epoch_trained = 0;
+        long long anc_exact_queries = 0, anc_exact_chunks = 0;
+        double anc_exact_seconds = 0.0;
         agpt_v2::zero_cache_runtime_v2(runtime.cache);
         std::printf("    stage-epoch %d/%d\n", epoch + 1, epochs);
         // experimental.unit_order_seed: a seeded shuffle of the unit order each
@@ -1224,7 +1226,7 @@ static void run_train_epoch_on_radix_host_v2(const agpt_v2::TrainerConfig& cfg,
                     agpt_v2::run_backward_output_head_v2(cfg, model, chunk_meta, chunk_device_meta,
                                                          upload, chunk_fwd, runtime,
                                                          cfg.anc_grad ? &unit_anc : nullptr,
-                                                         s == 0, s + 1 == unit_chunks.chunk_count);
+                                                         s == 0, (s + 1 == unit_chunks.chunk_count) && !cfg.anc_grad_exact);
                 (void)chunk_bwd;
                 unit_loss_sum += (double)chunk_fwd.mean_loss * chunk_fwd.trained_events;
                 unit_events += chunk_fwd.trained_events;
@@ -1233,6 +1235,14 @@ static void run_train_epoch_on_radix_host_v2(const agpt_v2::TrainerConfig& cfg,
                 epoch_events += chunk_fwd.trained_events;
                 epoch_trained += chunk_fwd.trained_queries;
                 agpt_v2::free_chunk_metadata_v2(chunk_meta);
+            }
+            if (cfg.anc_grad_exact && cfg.anc_grad) {
+                AncExactStatsV2 ax = run_anc_exact_pass_v2(cfg, shape, model, trie, unit, pos_stage,
+                                                           epoch, optimizer_step_index, upload,
+                                                           loss_tables, runtime, unit_anc, runtime_contract);
+                anc_exact_queries += ax.queries;
+                anc_exact_chunks += ax.chunks;
+                anc_exact_seconds += ax.seconds;
             }
 
             if (unit_events <= 0.0 || unit_trained <= 0) {
@@ -1255,6 +1265,10 @@ static void run_train_epoch_on_radix_host_v2(const agpt_v2::TrainerConfig& cfg,
         double epoch_mean = epoch_events > 0.0 ? epoch_loss_sum / epoch_events : 0.0;
         std::printf("    stage-epoch %d summary trained_queries=%lld trained_events=%.0f mean_loss=%.6f\n",
                     epoch + 1, epoch_trained, epoch_events, epoch_mean);
+        if (cfg.anc_grad_exact && cfg.anc_grad) {
+            std::printf("    anc-exact: stage-epoch %d second pass queries=%lld chunks=%lld seconds=%.2f\n",
+                        epoch + 1, anc_exact_queries, anc_exact_chunks, anc_exact_seconds);
+        }
     }
     AGPT_V2_CUDA_CHECK(cudaDeviceSynchronize());
     double t_train1 = wall_seconds_v2();
@@ -1576,6 +1590,32 @@ int main(int argc, char** argv) {
     cfg.d_ff = shape.d_ff;
     cfg.vocab_size = shape.vocab_size;
     if (mode == V2Mode::TrainGrowth) {
+        // The exact ancestor backward (experimental.anc_grad_exact, default on),
+        // as in train-epoch. Growth mode returns before train-epoch's check, so
+        // it has its own; before 2026-11-20 growth ignored the key.
+        if (!cfg.anc_grad) {
+            cfg.anc_grad_exact = false;
+        } else if (cfg.anc_grad_exact) {
+            const char* unsupported = nullptr;
+            if (cfg.rope_position_mode != agpt_v2::RopePositionModeV2::Depth) unsupported = "non-depth RoPE mode";
+            else if (cfg.lightning_enabled) unsupported = "lightning sampling";
+            else if (cfg.dropout_node_keep_prob < 1.0f) unsupported = "node dropout";
+            if (unsupported) {
+                if (cfg.anc_grad_exact_explicit) {
+                    std::fprintf(stderr, "agpt_train_v2: experimental.anc_grad_exact: true is not supported "
+                                         "in train-growth with %s\n", unsupported);
+                    return 1;
+                }
+                cfg.anc_grad_exact = false;
+                std::printf("  anc-grad-exact: OFF (default-on, but not supported in train-growth with %s; "
+                            "gradient through ancestor K/V stops at Wk/Wv)\n", unsupported);
+            } else {
+                std::printf("  anc-grad-exact: enabled%s (train-growth: second pass over each unit's internal nodes)\n",
+                            cfg.anc_grad_exact_explicit ? "" : " (default)");
+            }
+        } else {
+            std::printf("  anc-grad-exact: OFF (explicit experimental.anc_grad_exact: false; truncated ancestor gradient)\n");
+        }
         agpt_v2::PositionSamplingDataV2 pos_data;
         bool have_pos_data = false;
         if (rope_position_mode_uses_position_data_v2(cfg.rope_position_mode) || target_sidecar_path) {
