@@ -132,9 +132,23 @@ mobius refines a small corpus's counts with a larger corpus's. Record:
   the first 1,000 chars to 0.062-0.094 in the last, still rising at 5,000.
   LoRA rank 4/16 without biases: 56-83% of full. Static = the runner's
   fixed-token PPL exactly.
-  **Next (not decided by the user):** LoRA with biases and wider rates; whole
-  test books; training for adaptation (TTT-style, or a per-document trie of
-  the past so the step is AGPT's aggregated gradient).
+  **Whole books — Done (agpt `6f8d8bb`, 2026-11-20, the user approved).** 20
+  PG-19 test books of 300,000 chars, two checkpoints: own minus other 0.135
+  and 0.100 nats/char on the report books, 0.173 and 0.135 in chars
+  200,000-300,000, still rising (about +0.02 per doubling of the past); the
+  control fades. The adapted 1M-text model beats the static 100M-text one.
+  Rank-4 LoRA with biases: 72-74% of full. Published relatives: Krause et
+  al. 2019 (Transformer-XL), TTT-E2E (arXiv 2512.23675). @imm told.
+  **Next (not decided by the user):** training for adaptation (TTT-style, or
+  a per-document trie of the past so the step is AGPT's aggregated gradient).
+- **Trie growth — Active (`rnd/trie-growth`, agpt `eca3354`).** The user
+  (2026-11-20): train while the trie grows, "cadence in time, not space";
+  aggregate as counts arrive, update after N(trie) changes, recompute after
+  each update. May's `streaming-agpt-v1` beat full-trie AGPT (legacy, pre-fix)
+  but was never compared with minibatch. v2 growth fixed for the test:
+  geometric stages, exact step count for the LR schedule, crown units and
+  shuffling at pd=3. 34 runs queued (GPU slot 132); bar: one-pass-gap's
+  minibatch 4.83 / 4.66 / 4.58 after 1 / 2 / 4 epochs.
 - **Forward-backward coupling — Done, negative (agpt `e6c3620`,
   `rnd/forward-backward-coupling`).** The user asked why AGPT uses only "where
   a character goes", not "where it comes from"; "Well feel free" to the open
