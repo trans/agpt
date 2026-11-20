@@ -16,9 +16,14 @@ answer: >-
   another book's text gain 0.026-0.063, so the document's own past is worth 0.021-0.041 on
   average. That part grows with the amount of past: about 0 in a chunk's first 1,000 characters,
   0.062-0.094 in its last 1,000, still rising at the chunk's end. A rank-4 or rank-16 LoRA
-  (no biases) recovers 56-83% of the full-weight gain. Eval-time only; training was unchanged.
+  (no biases) recovers 56-83% of the full-weight gain. Whole books (2026-11-20, 20 PG-19 test
+  books of 300,000 characters, two checkpoints): the gain keeps growing to the end. Own past
+  minus another book is 0.135 and 0.100 nats/char on the report books, and 0.173 and 0.135 in
+  characters 200,000-300,000, still rising; the control's gain fades to 0.016 and 0.007 there.
+  The adapted 1M-text model (1.4545) beats the static 100M-text model (1.5298). Eval-time only;
+  training was unchanged.
 opened: 2026-11-19
-updated: 2026-11-19
+updated: 2026-11-20
 code: main
 eval: legacy
 family: attention
@@ -30,6 +35,9 @@ headline:
 - label: own past minus another book's text, mb-a1m-ref100m, characters 4,000-5,000 of each chunk
   metric: diagnostic fixed-window NLL gain, nats/char (all 50 chunks)
   value: 0.094
+- label: own past minus another book's text, mb-a1m, characters 200,000-300,000 of whole books
+  metric: diagnostic fixed-window NLL gain, nats/char (20 PG-19 test books)
+  value: 0.173
 related: [refined-trie-counts, polyrope-probe, far-channel-probe, forward-backward-coupling]
 ---
 
@@ -142,6 +150,50 @@ Low rank (own past, report half; best LoRA and best full setting on the tune hal
   here also covers offsets 8-127, but the weights pick up a document-level signal
   that attention at this size barely did.
 
+## Whole books (2026-11-20)
+
+The pieces ended while the gain was still rising, so `run_books.sh` scores
+whole books: 20 PG-19 test books (the first 20 by file name with at least
+310,000 characters), characters 10,000-310,000 of each (`make_books.py`, a port
+of mobius's normalization; all 50 held-out pieces appear verbatim in its
+output). Books 0-9 tune, 10-19 report. The same protocol, block 64, about 4,700
+steps a book. Two checkpoints: `mb-a1m` (the 1M slice) and `mb-100m-st100`
+(the 100M text). Own past: static, full Adam 1e-4 / 3e-4 / 1e-3, rank-4 LoRA
+without biases at 1e-2, with biases (`lora4b`) at 3e-3 and 1e-2. Control
+(another book): full Adam 1e-4 / 3e-4 / 1e-3. Two CPU streams, 12:24 UTC to
+finish (2.5 hours). `summarize_books.py` → `books_summary.json`.
+
+Report books (10-19), NLL in nats/char, each side's setting chosen on books 0-9:
+
+| checkpoint | static | own past: setting | gain | other book: setting | gain | own − other | best LoRA | gain | share |
+|---|---:|---|---:|---|---:|---:|---|---:|---:|
+| mb-a1m | 1.6104 | full-adam-1e-3 | 0.1559 | full-adam-1e-4 | 0.0209 | 0.1350 | lora4b-adam-3e-3 | 0.1149 | 74% |
+| mb-100m-st100 | 1.5298 | full-adam-1e-3 | 0.1147 | full-adam-1e-4 | 0.0150 | 0.0996 | lora4b-adam-3e-3 | 0.0827 | 72% |
+
+Gain by position (all 20 books): own / other / own − other.
+
+| checkpoint | 0-1k | 1k-2k | 2k-5k | 5k-10k | 10k-20k | 20k-50k | 50k-100k | 100k-200k | 200k-300k |
+|---|---|---|---|---|---|---|---|---|---|
+| mb-a1m | 0.030 / 0.041 / −0.011 | 0.110 / 0.041 / 0.069 | 0.086 / 0.039 / 0.048 | 0.142 / 0.046 / 0.096 | 0.117 / 0.038 / 0.079 | 0.131 / 0.036 / 0.095 | 0.165 / 0.031 / 0.134 | 0.170 / 0.023 / 0.148 | 0.189 / 0.016 / 0.173 |
+| mb-100m-st100 | 0.012 / 0.037 / −0.025 | 0.050 / 0.026 / 0.023 | 0.050 / 0.029 / 0.020 | 0.077 / 0.026 / 0.050 | 0.072 / 0.026 / 0.047 | 0.091 / 0.023 / 0.067 | 0.119 / 0.019 / 0.100 | 0.125 / 0.013 / 0.112 | 0.143 / 0.007 / 0.135 |
+
+- **The document's part keeps growing for the whole 300,000 characters**,
+  about 0.02 nats/char for each doubling of the past, with no sign of levelling
+  off. In the last bin it is 0.173 (mb-a1m) and 0.135 (mb-100m-st100): perplexity
+  about 16% and 13% lower than the same model without it.
+- **The control fades**: adapting to another book helps at first (0.04) and
+  then pulls the weights toward the wrong book; its best rate is the lowest
+  tried, and at 1e-3 it ends worse than static. So the long-range gain is this
+  book's text, not general adaptation or the missing anneal.
+- **The better-trained model gains less, but not much less**: 0.100 against
+  0.135 on the report books. Adapting the 1M-text model to its own book (1.4545)
+  beats the 100M-text model without adaptation (1.5298) by 0.075 nats/char.
+- **Rank-4 LoRA with biases gets 72-74%** at 3e-3, a little more than without
+  biases at 1e-2 (66-70%); 1e-2 with biases is too high.
+- Caveats for this section: the best own-past rate, 1e-3, is the top of this
+  grid (3e-3 was worse on the 5,000-character pieces); one ordering of books for
+  the control; 20 books, two checkpoints, one seed each.
+
 ## Caveats
 
 - Eval-time only. No model was trained to be adapted; the gain is what the
@@ -156,9 +208,8 @@ Low rank (own past, report half; best LoRA and best full setting on the tune hal
 
 ## Next (not started)
 
-- LoRA with biases (the output bias is a unigram cache) and a wider rate range.
-- Longer documents: whole PG-19 test books, to see where the document gain stops
-  growing.
+- Done 2026-11-20: whole books and LoRA with biases (above). Not done: where the
+  gain stops growing (it hasn't by 300,000 characters); rates above 1e-3 on books.
 - Training for it: adapt along each training piece and train the slow weights to
   do well after adaptation (test-time-training style), or a per-document trie of
   the past so the step is AGPT's exact aggregated gradient instead of a
