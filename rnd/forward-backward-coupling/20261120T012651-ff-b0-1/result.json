@@ -1,0 +1,88 @@
+{
+  "run_id": "20261120T012651-ff-b0-1",
+  "experiment": "forward-backward-coupling",
+  "wall_seconds": 1362.858813537,
+  "train_wall_seconds": 1164.242566949,
+  "convert_wall_seconds": 4.02995852,
+  "eval_wall_seconds": 45.963593324,
+  "started_utc": "2026-11-20T01:26:51Z",
+  "ended_utc": "2026-11-20T01:49:34Z",
+  "trainer": "src/tools/agpt_minibatch_train.py",
+  "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+  "eval": {
+    "split": "multi-chunk-heldout",
+    "source_path": null,
+    "source_sha256": null,
+    "chunks_dir": "data/pg19/imm-split/heldout_chunks",
+    "benchmark": null,
+    "task_name": "ff-b0-1_holdout"
+  },
+  "metrics": {
+    "lm_eval_rolling_word_perplexity": 45717.35309431546,
+    "lm_eval_rolling_byte_perplexity": 6.531469450866809,
+    "lm_eval_rolling_bits_per_byte": 2.7074076060113663,
+    "agpt_fixed_token_perplexity": 5.323001518788145
+  },
+  "checkpoint_sha": "0c06b48aef0d0732b80b0decabc2fb942784e55b9b1c3a8b78aeb3decbdeb2e0",
+  "checkpoint_results": [
+    {
+      "epoch": 1,
+      "checkpoint_path": "rnd/forward-backward-coupling/20261120T012651-ff-b0-1/checkpoint.epoch_000001.model",
+      "checkpoint_sha": "f117eaa55b7c38f973c03482d16dc61d1caf47a150de9149bd5661ea3e6254e2",
+      "hf_dir": "rnd/forward-backward-coupling/20261120T012651-ff-b0-1/hf_checkpoint_epoch_000001",
+      "eval_raw_json": "rnd/forward-backward-coupling/20261120T012651-ff-b0-1/eval_raw_epoch_000001.json",
+      "task_name": "ff-b0-1_epoch_000001_holdout",
+      "train_wall_seconds": 166.732922,
+      "convert_wall_seconds": 3.979802586,
+      "eval_wall_seconds": 42.989136404,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 64252.41291163201,
+        "lm_eval_rolling_byte_perplexity": 6.932045429610309,
+        "lm_eval_rolling_bits_per_byte": 2.7932811093247905,
+        "agpt_fixed_token_perplexity": 5.792520271304803
+      }
+    },
+    {
+      "epoch": 2,
+      "checkpoint_path": "rnd/forward-backward-coupling/20261120T012651-ff-b0-1/checkpoint.epoch_000002.model",
+      "checkpoint_sha": "1d63450770ea71386a6c096789412bada6a5d13d7a219104f42c817eff19f74f",
+      "hf_dir": "rnd/forward-backward-coupling/20261120T012651-ff-b0-1/hf_checkpoint_epoch_000002",
+      "eval_raw_json": "rnd/forward-backward-coupling/20261120T012651-ff-b0-1/eval_raw_epoch_000002.json",
+      "task_name": "ff-b0-1_epoch_000002_holdout",
+      "train_wall_seconds": 322.427457,
+      "convert_wall_seconds": 3.9537066960000002,
+      "eval_wall_seconds": 43.522674153,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 52109.323048262435,
+        "lm_eval_rolling_byte_perplexity": 6.682681664457874,
+        "lm_eval_rolling_bits_per_byte": 2.740427151750078,
+        "agpt_fixed_token_perplexity": 5.52164948751
+      }
+    },
+    {
+      "epoch": 4,
+      "checkpoint_path": "rnd/forward-backward-coupling/20261120T012651-ff-b0-1/checkpoint.epoch_000004.model",
+      "checkpoint_sha": "76419481ef0defbd834fe49087a49737d422883694214a9ece1f4efbc880d53b",
+      "hf_dir": "rnd/forward-backward-coupling/20261120T012651-ff-b0-1/hf_checkpoint_epoch_000004",
+      "eval_raw_json": "rnd/forward-backward-coupling/20261120T012651-ff-b0-1/eval_raw_epoch_000004.json",
+      "task_name": "ff-b0-1_epoch_000004_holdout",
+      "train_wall_seconds": 625.36355,
+      "convert_wall_seconds": 3.88271238,
+      "eval_wall_seconds": 44.351174828,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 48136.2232858468,
+        "lm_eval_rolling_byte_perplexity": 6.590629459785427,
+        "lm_eval_rolling_bits_per_byte": 2.7204162611579203,
+        "agpt_fixed_token_perplexity": 5.3936242482512275
+      }
+    }
+  ],
+  "experimental_used": {
+    "src/tools/agpt_minibatch_train.py": [
+      "device",
+      "teacher_beta",
+      "teacher_targets_file",
+      "teacher_targets_sha256"
+    ]
+  }
+}

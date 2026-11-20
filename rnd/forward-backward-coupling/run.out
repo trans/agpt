@@ -1,0 +1,11 @@
+00:52 start
+01:25 mb-a1m-rev:  lm_eval_rolling_byte_perplexity = 6.5997
+576cedaeaf72a37dddb4941ce6f6772462973c914b6c6f430dae48ec896bdedd  /home/trans/agpt-tries/coupling/backward_mb-a1m-rev.npy  (1000000 x 96, teacher NLL of the text 1.4925)
+01:26 mb-a1m-base:  lm_eval_rolling_byte_perplexity = 6.583
+01:49 fb-b0.1:  lm_eval_rolling_byte_perplexity = 6.5884
+01:49 ff-b0.1:  lm_eval_rolling_byte_perplexity = 6.5315
+02:19 fb-b1:  lm_eval_rolling_byte_perplexity = 7.6848
+02:19 stream A done
+02:20 ff-b1:  lm_eval_rolling_byte_perplexity = 6.5017
+02:20 stream B done
+02:20 all done
