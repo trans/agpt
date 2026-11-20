@@ -91,6 +91,34 @@ plain model at epoch 8 in nats.
 
 `summarize.py` → `runs.json`.
 
+### Where each direction finds the text hard (diagnostic, training text)
+
+`per_position.py` reads the two teacher files (the GPU `mb-a1m` forward, the
+backward `mb-a1m-rev`) at every position of the 1M training slice: each
+character's loss given the 8 characters before it and given the 8 after.
+Training text, so not a held-out number.
+
+- Totals: forward 1.4729, backward 1.4925 nats/char.
+- Per position they differ by 1.42 nats on average (as much as the mean loss
+  itself), with correlation 0.125; 55% of positions differ by more than 1 nat.
+- By target, mean nats (share of the direction's total):
+
+| target | share of text | forward | backward |
+|---|---:|---:|---:|
+| space or newline | 18.8% | 0.740 (9.4%) | 0.533 (6.7%) |
+| first letter of a word | 16.9% | 2.881 (33.1%) | 1.119 (12.7%) |
+| last letter of a word | 17.0% | 0.763 (8.8%) | 2.518 (28.8%) |
+| other letters | 43.1% | 1.386 (40.6%) | 1.564 (45.2%) |
+| punctuation, digits, etc. | 4.1% | 2.872 (8.0%) | 2.412 (6.7%) |
+
+The branching difference is large and real: forward, a word's first letter is
+the hard one (many ways out of a space); backward, its last letter is (many
+ways into a space). It moves the difficulty from one end of the word to the
+other and leaves the total where it was, as the chain rule requires: the two
+directions split the same probability of the same text. It is also why B is a
+bad teacher: B's confidence on a first letter comes from seeing the rest of
+the word.
+
 ## Reading
 
 - **The backward teacher hurts, in proportion to its weight.** At beta 0.1
