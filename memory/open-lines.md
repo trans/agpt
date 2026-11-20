@@ -1,6 +1,6 @@
 # Open lines of research
 
-*Updated 2026-11-19*
+*Updated 2026-11-20*
 
 Each line has a state, where its plan lives, and what it needs next.
 
@@ -118,6 +118,33 @@ mobius refines a small corpus's counts with a larger corpus's. Record:
   training on the 1 GB by 0.025 bits/char), `rnd/count-backoff-gate`
   (same-corpus smoothed targets hurt AGPT: 6.70 against 5.30; raw counts from
   a larger text keep the objective's form and help).
+
+## 1b. The deep past and the other side (2026-11-19/20)
+
+- **Dynamic eval — Done, positive (agpt `6e0f516`, `rnd/dynamic-eval`).** The
+  user (2026-11-19): "the missing link is the deep past having some influence
+  in the present, like a LoRA on the trie." Eval-time test, CPU: score each
+  PG-19 held-out chunk (5,000 chars, a different book each) in order, one
+  step per 64 chars on the text just scored, reset per chunk. Report half,
+  four d64/L2 seq-8 checkpoints: own past gains 0.057-0.102 nats/char; the
+  same steps on another book's text 0.026-0.063 (partly annealing, the models
+  were trained at constant lr); own minus other 0.021-0.041, rising from ~0 in
+  the first 1,000 chars to 0.062-0.094 in the last, still rising at 5,000.
+  LoRA rank 4/16 without biases: 56-83% of full. Static = the runner's
+  fixed-token PPL exactly.
+  **Next (not decided by the user):** LoRA with biases and wider rates; whole
+  test books; training for adaptation (TTT-style, or a per-document trie of
+  the past so the step is AGPT's aggregated gradient).
+- **Forward-backward coupling — Done, negative (agpt `e6c3620`,
+  `rnd/forward-backward-coupling`).** The user asked why AGPT uses only "where
+  a character goes", not "where it comes from"; "Well feel free" to the open
+  dual-model-fold measurement. A fixed backward model's prediction as a soft
+  target: beta 0.1 level (+0.0008 nats canonical rolling), beta 1 +0.155,
+  worse at every checkpoint; a forward teacher of the same recipe (control)
+  helps a little (-0.008, -0.012). The coupled optimum is pulled off
+  p(x | past) by B's prediction averaged over futures. With the June
+  masked-LM null, closes prefix-suffix coupling for next-char prediction at
+  this size. CPU runs, one seed.
 
 ## 2. Curvature that keeps partitioned cadence
 
