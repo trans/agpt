@@ -127,6 +127,10 @@ def main():
             growth=(1000, 2))
     for p in (4, 8):
         add(f"s1-e{p}", f"static pd=1, {p} passes", 1, p, 0.003)
+    # and pd=0 at x1.1: 0.012, the lowest, was best
+    for lr in (0.003, 0.006):
+        add("g0-x1.1", "growth pd=0, one update a stage, trie x1.1 a stage from 1,000 starts", 0, 1, lr,
+            growth=(1000, 1.1))
     order = []
     for name, text in cfgs.items():
         (out / f"{name}.yml").write_text(text)
