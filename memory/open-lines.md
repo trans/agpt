@@ -147,8 +147,12 @@ mobius refines a small corpus's counts with a larger corpus's. Record:
   each update. May's `streaming-agpt-v1` beat full-trie AGPT (legacy, pre-fix)
   but was never compared with minibatch. v2 growth fixed for the test:
   geometric stages, exact step count for the LR schedule, crown units and
-  shuffling at pd=3. 34 runs queued (GPU slot 132); bar: one-pass-gap's
-  minibatch 4.83 / 4.66 / 4.58 after 1 / 2 / 4 epochs.
+  shuffling at pd=3. Running in GPU slot 132 (granted 14:56 UTC 2026-11-20);
+  bar: one-pass-gap's minibatch 4.83 / 4.66 / 4.58 after 1 / 2 / 4 epochs.
+  The first check found v2 growth mode silently ignored `anc_grad_exact`
+  (truncated ancestor gradient in every v2 growth run until `03f3a49`); after
+  the fix one growth stage reproduces static at pd=1, and at pd=3 up to unit
+  order.
 - **Forward-backward coupling — Done, negative (agpt `e6c3620`,
   `rnd/forward-backward-coupling`).** The user asked why AGPT uses only "where
   a character goes", not "where it comes from"; "Well feel free" to the open
