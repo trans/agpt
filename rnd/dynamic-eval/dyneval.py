@@ -25,6 +25,8 @@ Settings (--settings, comma-separated):
   loraR-sgd-LR, loraR-adam-LR  a rank-R delta B @ A on every linear map (Q, K,
                                V, O, both FFN maps, the output head); B starts
                                at zero, A at N(0, 1/in) from a fixed seed
+  loraRb-...                   the same, and every bias adapts too (the output
+                               bias is a unigram cache)
 
 The hyperparameters should be chosen on one half of the chunks (--tune, the
 first half by default) and read on the other; the JSON keeps both halves and
@@ -79,12 +81,14 @@ def parse(s):
     if s == "static":
         return {"name": s, "kind": "static"}
     kind, opt, lr = s.split("-", 2)
-    r = int(kind[4:]) if kind.startswith("lora") else None
+    bias = kind.startswith("lora") and kind.endswith("b")
+    r = int(kind[4:len(kind) - bias]) if kind.startswith("lora") else None
     if kind != "full" and r is None:
         raise ValueError(f"unknown setting {s!r}")
     if opt not in ("sgd", "adam"):
         raise ValueError(f"unknown optimizer in {s!r}")
-    return {"name": s, "kind": "full" if r is None else "lora", "rank": r, "opt": opt, "lr": float(lr)}
+    return {"name": s, "kind": "full" if r is None else "lora", "rank": r, "bias": bias, "opt": opt,
+            "lr": float(lr)}
 
 
 def score_chunk(cfg, sd, tokens, st, d, block, device, adapt_tokens=None):
@@ -103,6 +107,11 @@ def score_chunk(cfg, sd, tokens, st, d, block, device, adapt_tokens=None):
             o, i = lin.weight.shape
             P.register_parametrization(lin, "weight", LowRank(o, i, st["rank"], gen).to(device))
             params += [lin.parametrizations.weight[0].A, lin.parametrizations.weight[0].B]
+        if st["bias"]:
+            for name, p in model.named_parameters():
+                if name.endswith("bias"):
+                    p.requires_grad_(True)
+                    params.append(p)
     else:
         for p in model.parameters():
             p.requires_grad_(False)
@@ -154,7 +163,10 @@ def main():
     ap.add_argument("--device", default="cpu")
     ap.add_argument("--past", choices=["own", "other"], default="own",
                     help="other (control): chunk i's steps train on chunk i+1's text (mod n), not its own past")
+    ap.add_argument("--bins", default="",
+                    help="comma-separated bin edges in characters (e.g. 0,1000,10000,100000); default 1,000-wide")
     args = ap.parse_args()
+    edges = [int(x) for x in args.bins.split(",")] if args.bins else None
 
     cfg, sd = load_model(args.model)
     d = cfg["seq_len"]
@@ -181,7 +193,8 @@ def main():
             half = "tune" if ci < n_tune else "report"
             tot[half][0] += nll.sum().item()
             tot[half][1] += nll.numel()
-            pos = torch.arange(d, d + nll.numel()) // BIN
+            pos = torch.arange(d, d + nll.numel())
+            pos = pos // BIN if edges is None else torch.bucketize(pos, torch.tensor(edges[1:]), right=True)
             for b in pos.unique().tolist():
                 m = pos == b
                 acc = bins.setdefault(b, [0.0, 0])
@@ -191,7 +204,9 @@ def main():
         all_n = tot["tune"][1] + tot["report"][1]
         r = {"ppl_all": math.exp(all_nll / all_n), "nll_all": all_nll / all_n, "targets": all_n,
              "nll_tune": tot["tune"][0] / tot["tune"][1], "nll_report": tot["report"][0] / tot["report"][1],
-             "nll_by_bin": {f"{b * BIN}-{(b + 1) * BIN}": v[0] / v[1] for b, v in sorted(bins.items())},
+             "nll_by_bin": {(f"{b * BIN}-{(b + 1) * BIN}" if edges is None else
+                             f"{edges[b]}-{edges[b + 1] if b + 1 < len(edges) else 'end'}"): v[0] / v[1]
+                            for b, v in sorted(bins.items())},
              "seconds": time.perf_counter() - t0}
         res["settings"][name] = r
         print(f"{name:20} ppl {r['ppl_all']:.4f}  nll tune {r['nll_tune']:.4f} report {r['nll_report']:.4f}  "
