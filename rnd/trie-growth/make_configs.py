@@ -13,9 +13,11 @@ Arms (slug: what):
   g1-full, g3-full   growth with one stage (the full trie): must reproduce s1-e1 / s3-e1
   s3-e1-oK  s3-e1 with unit-order seed K: the order noise at pd=3
 
-Doubling from 1,000 starts gives 11 stages and about 2E full-trie passes of
-compute, so E = 1, 2, 4 sit near 1, 2, 4 minibatch epochs (16.95M positions an
-epoch, 8.90M a full-trie pass). Growth runs count their optimizer steps before
+Doubling from 1,000 starts gives 12 stages. 1,000 x 2^10 = 1,024,000 lands
+within 3.4% of the full 1,059,633 starts, so the last two stages are both
+nearly the full trie and E passes a stage cost about 3E full-trie passes (not
+2E, as first planned): E = 1, 2, 4 sit near 1.6, 3.2, 6.4 minibatch epochs
+(16.95M positions an epoch, 8.90M a full-trie pass). Growth runs count their optimizer steps before
 training (experimental.growth_exact_schedule) so warmup-cosine ends on the last
 step. Usage: make_configs.py  (writes configs/*.yml)
 """
