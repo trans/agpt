@@ -141,18 +141,18 @@ mobius refines a small corpus's counts with a larger corpus's. Record:
   al. 2019 (Transformer-XL), TTT-E2E (arXiv 2512.23675). @imm told.
   **Next (not decided by the user):** training for adaptation (TTT-style, or
   a per-document trie of the past so the step is AGPT's aggregated gradient).
-- **Trie growth — Active (`rnd/trie-growth`, agpt `eca3354`).** The user
-  (2026-11-20): train while the trie grows, "cadence in time, not space";
+- **Trie growth — Concluded, mixed (agpt `55549fb`, `rnd/trie-growth`).** The
+  user (2026-11-20): train while the trie grows, "cadence in time, not space";
   aggregate as counts arrive, update after N(trie) changes, recompute after
-  each update. May's `streaming-agpt-v1` beat full-trie AGPT (legacy, pre-fix)
-  but was never compared with minibatch. v2 growth fixed for the test:
-  geometric stages, exact step count for the LR schedule, crown units and
-  shuffling at pd=3. Running in GPU slot 132 (granted 14:56 UTC 2026-11-20);
-  bar: one-pass-gap's minibatch 4.83 / 4.66 / 4.58 after 1 / 2 / 4 epochs.
-  The first check found v2 growth mode silently ignored `anc_grad_exact`
-  (truncated ancestor gradient in every v2 growth run until `03f3a49`); after
-  the fix one growth stage reproduces static at pd=1, and at pd=3 up to unit
-  order.
+  each update. 44 canonical runs, slot 132. Doubling beats full-trie AGPT at
+  equal compute at pd=1 and pd=3 (pd=3: 5.51 in 54M positions against 5.77 in
+  71M), from cheap early steps, not better ones; minibatch still leads (4.66 at
+  2 epochs, 4.58 at 4, against 5.51 at 3.2 epochs' worth, with 4.4x fewer
+  steps). pd=0 at 1% growth per update: best steps (697 give 7.02) but 110
+  full-trie passes. The first check found v2 growth mode had never applied
+  `anc_grad_exact` (fixed `03f3a49`). **Next (not decided by the user):**
+  random-order window starts (growth ingests in text order), equal-size units,
+  static pd=3 at lr 0.003 to bracket.
 - **Forward-backward coupling — Done, negative (agpt `e6c3620`,
   `rnd/forward-backward-coupling`).** The user asked why AGPT uses only "where
   a character goes", not "where it comes from"; "Well feel free" to the open
