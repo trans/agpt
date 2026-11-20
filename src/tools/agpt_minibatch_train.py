@@ -90,6 +90,16 @@ Config keys read:
                                   event mean), so pd=0 takes the gradient of that loss. A
                                   context the corpus lacks weighs 0. Not with
                                   grad_average.)
+    experimental.teacher_targets_file (plain minibatch only: a float16 .npy of shape
+                                  (corpus chars, V), row p a teacher's distribution for
+                                  character p, e.g. from rnd/forward-backward-coupling/
+                                  teacher_preds.py. Each target's loss becomes
+                                  (CE(y) + beta CE(teacher, model)) / (1 + beta), the
+                                  data term plus beta KL(teacher || model) up to a
+                                  constant, with the teacher fixed (stop-gradient).
+                                  train_nll still reports the one-hot loss.)
+    experimental.teacher_targets_sha256 (required with teacher_targets_file: its SHA-256.)
+    experimental.teacher_beta    (with teacher_targets_file: beta, >= 0.)
     experimental.wrap_tail       (true: a window starts at every character and reads past
                                   the end from the front, as the cached tries do, boundary
                                   mode tail-wrap-front-v1. Default: only windows that fit.)
@@ -140,7 +150,8 @@ KNOWN_EXPERIMENTAL = {"minibatch_size", "micro_batch", "device", "max_corpus_cha
                       "trie_plan_steps", "trie_plan_seed", "trie_targets", "wrap_tail",
                       "trie_plan_order_file", "log_step_loss", "grad_average", "grad_average_beta",
                       "trie_plan_group", "trie_targets_corpus", "trie_targets_corpus_sha256",
-                      "trie_weights_corpus"}
+                      "trie_weights_corpus", "teacher_targets_file", "teacher_targets_sha256",
+                      "teacher_beta"}
 TOKEN_CAP = 131072  # tokens per forward/backward in trie-plan steps (memory bound only)
 
 
@@ -486,6 +497,15 @@ def main():
         sys.exit("agpt_minibatch_train: trie_weights_corpus goes with trie_targets_corpus")
     if weighted and exp.get("grad_average"):
         sys.exit("agpt_minibatch_train: trie_weights_corpus is not supported with grad_average")
+    teach = exp.get("teacher_targets_file")
+    if bool(teach) != bool(exp.get("teacher_targets_sha256")) or bool(teach) != ("teacher_beta" in exp):
+        sys.exit("agpt_minibatch_train: teacher_targets_file, teacher_targets_sha256 and teacher_beta go together")
+    if teach and (exp.get("trie_plan") or exp.get("trie_targets") or exp.get("wrap_tail")):
+        sys.exit("agpt_minibatch_train: teacher_targets_file is for plain minibatch runs (no trie_plan, "
+                 "trie_targets or wrap_tail)")
+    teacher_beta = float(exp.get("teacher_beta", 0.0))
+    if teacher_beta < 0:
+        sys.exit("agpt_minibatch_train: teacher_beta must be >= 0")
     log_steps = bool(exp.get("log_step_loss"))
     if log_steps and not exp.get("trie_plan"):
         sys.exit("agpt_minibatch_train: log_step_loss is for trie_plan runs")
@@ -633,6 +653,23 @@ def main():
 
     tokens_dev = tokens.to(device)
     offsets = torch.arange(T + 1, device=device).view(1, T + 1)
+    teacher = None
+    if teach:
+        import hashlib
+        import numpy as np
+        raw = Path(teach).read_bytes()
+        sha = hashlib.sha256(raw).hexdigest()
+        if sha != exp["teacher_targets_sha256"]:
+            sys.exit(f"agpt_minibatch_train: teacher_targets_file sha256 {sha} != the config's")
+        tarr = np.load(teach)
+        if tarr.shape != (n_chars, V) or tarr.dtype != np.float16:
+            sys.exit(f"agpt_minibatch_train: teacher_targets_file is {tarr.dtype} {tarr.shape}, "
+                     f"want float16 ({n_chars}, {V})")
+        teacher = torch.from_numpy(tarr).to(device)
+        del raw, tarr
+        tnll = -torch.log(teacher.float().gather(1, tokens_dev.view(-1, 1)).clamp_min(1e-12)).mean().item()
+        print(f"  teacher_targets {teach}: sha256 {sha}, beta {teacher_beta:g}, teacher NLL of the corpus "
+              f"{tnll:.4f}", flush=True)
     rng = torch.Generator().manual_seed(seed)
     step = 0
     train_wall = 0.0
@@ -785,9 +822,18 @@ def main():
                 part = starts[j:j + micro]
                 chunks = tokens_dev[part.view(-1, 1) + offsets]
                 logits = model(chunks[:, :T])
-                if targets is None:
+                if targets is None and teacher is None:
                     loss = F.cross_entropy(logits.reshape(-1, V), chunks[:, 1:].reshape(-1))
                     (loss * (part.numel() / nb)).backward()
+                elif teacher is not None:
+                    logp = F.log_softmax(logits.reshape(-1, V), dim=-1)
+                    y = chunks[:, 1:].reshape(-1)
+                    tq = teacher[(part.view(-1, 1) + offsets[:, 1:]).reshape(-1)].float()
+                    ce = -logp.gather(1, y.view(-1, 1)).squeeze(1)
+                    soft = ((ce + teacher_beta * -(tq * logp).sum(-1)) / (1.0 + teacher_beta)).mean()
+                    (soft * (part.numel() / nb)).backward()
+                    soft_sum += soft.detach() * part.numel()
+                    loss = ce.detach().mean()
                 else:
                     logp = F.log_softmax(logits.reshape(-1, V), dim=-1)
                     y = chunks[:, 1:].reshape(-1)
@@ -807,7 +853,8 @@ def main():
         dt = time.perf_counter() - t0
         train_wall += dt
         nll = loss_sum.item() / bounds[-1]
-        soft_note = f" soft_ce={soft_sum.item() / bounds[-1]:.6f}" if targets is not None else ""
+        soft_note = (f" soft_ce={soft_sum.item() / bounds[-1]:.6f}" if targets is not None
+                     else f" coupled={soft_sum.item() / bounds[-1]:.6f}" if teacher is not None else "")
         print(f"  epoch {epoch} train_nll={nll:.6f} train_ppl={math.exp(nll):.4f}{soft_note} steps={step} "
               f"lr_end={cur:.6g} wall={dt:.2f}s", flush=True)
         if epoch in checkpoints:
