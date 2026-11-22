@@ -111,9 +111,21 @@ mobius refines a small corpus's counts with a larger corpus's. Record:
   text at equal steps (6.150 vs 6.329 at 62,504) and after 3x the steps
   (6.170). AGPT at equal compute 0.23-0.47 nats behind the 100M stream. Not
   run: pd=0 weighted (~75 min).
-- **Next (not decided by the user):** refined counts in v2
-  (needed for the compute saving); the gain at depth 16; minibatch streaming
-  the larger text for the same steps.
+- **Depth 16 — Done 2026-11-22, mixed (agpt `10a066f`,
+  `rnd/doped-counts-depth16`, slot 170, 12 runs, 2 seeds each).** The user
+  asked for it with 1G and 10G count texts ("we would need to bring in a 1G
+  and 10G corpus to really fill in the 16 depth tree"). Minibatch on the 1M
+  slice, seq_len 16: 100M / 1G / 10G counts gain 0.053 / 0.064 / 0.072 nats
+  over hard targets after 8 epochs, but minibatch on the 100M text itself
+  gains 0.086 (5.397 vs the 10G-doped 5.471): the doped slice no longer
+  comes out ahead, as it did at depth 8. The slice runs short of contexts,
+  not only targets. Count text `data/pg19/imm-split-10g-dedup` (built here;
+  a first build held held-out pieces 20 and 23 whole, other editions of
+  their test books; now only books mobius counts, minus 54 more). Counter
+  `src/tools/doped_counts.py` (`7418d09`, GPU, 10G in 12 min).
+- **Next (not decided by the user):** a bigger training text doped with 10G
+  counts (needs sparse count storage: the dense table is 3 GiB for the
+  slice's 8.6M contexts); refined counts in v2 (for the compute saving).
 - Related record: agpt `rnd/prior-scaling-plain-1g` (a 1 GB prior beat
   training on the 1 GB by 0.025 bits/char), `rnd/count-backoff-gate`
   (same-corpus smoothed targets hurt AGPT: 6.70 against 5.30; raw counts from
