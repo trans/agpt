@@ -1,8 +1,8 @@
 ---
 title: Doped counts at depth 16
 kind: experiment
-status: active
-outcome: n/a
+status: concluded
+outcome: mixed
 question: >-
   The user (2026-11-22), after refined-trie-counts' depth-8 result: does a small corpus doped
   with a large text's next-character counts still come out ahead at depth 16, where most of
@@ -10,7 +10,19 @@ question: >-
   of counts fill in the deep contexts (the user expects the relative gain to shrink at 100M
   and the larger texts to be needed)?
 answer: >-
-  Not yet run.
+  Doping still pays at depth 16 and grows with the count text: the 1M slice with the 100M /
+  1G / 10G text's next-character counts beats hard targets by 0.053 / 0.064 / 0.072 nats per
+  character after 8 epochs (two seeds each, tight), about 0.01 more per tenfold text, as the
+  deep contexts fill in (at depth 16, 21% / 39% / 59% of the slice's contexts were seen twice
+  or more). Against the slice's own counts as soft targets the 100M gain is about depth 8's
+  (0.053 against 0.058). But the doped slice no longer comes out ahead of the bigger text:
+  minibatch on the 100M text itself, same steps, is 0.086 nats ahead of the slice, 0.014 ahead
+  of the slice with 10G counts (5.397 against 5.471), and still improving (5.278 at 3x the
+  steps); at depth 8 the slice with 100M counts beat it (6.150 against 6.329). At depth 16 the
+  slice runs short of contexts, not only of targets: hard targets stop improving after epoch 4,
+  and doping refines the targets of contexts the slice has but adds none. A first 10G build
+  held two held-out pieces whole (other editions of their test books); found and removed
+  before any 10G count was used.
 opened: 2026-11-22
 updated: 2026-11-22
 code: main
@@ -22,7 +34,7 @@ related: [refined-trie-counts, dynamic-eval, noise-cadence]
 
 # Doped counts at depth 16
 
-**Status:** active (2026-11-22). Configs `make_configs.py`, tables `count.sh`, runs
+**Status:** concluded, mixed (2026-11-22, GPU slot 170). Configs `make_configs.py`, tables `count.sh`, runs
 `run.sh` (order `order.txt`).
 
 ## Setup
@@ -57,3 +69,58 @@ related: [refined-trie-counts, dynamic-eval, noise-cadence]
   `experimental.trie_targets_table`.
 - **Leak check:** `tools/heldout_overlap.py`, the share of each held-out chunk's
   32- and 64-character strings found in the count texts.
+
+## Results
+
+Slot 170, 2026-11-22, 17:28-19:13 UTC: the 12 runs of `order.txt` (the table arms
+after the tables, `count.sh`, 11.7 minutes on the GPU for 10G). Canonical rolling
+byte PPL on the 50 held-out pieces (`multi-chunk-heldout`); table: `summarize.py`
+(writes `runs.json`).
+
+| arm, seeds 42 / 43 | epoch 1 | 2 | 4 | 8 |
+|---|---:|---:|---:|---:|
+| slice, hard targets | 6.081 / 6.076 | 5.969 / 6.004 | 5.897 / 5.918 | 5.895 / 5.864 |
+| slice, its own counts (soft) | 5.983 / 6.053 | 5.896 / 5.959 | 5.880 / 5.893 | 5.861 / 5.904 |
+| slice + 100M counts | 5.813 / 5.846 | 5.697 / 5.705 | 5.607 / 5.609 | 5.586 / 5.567 |
+| slice + 1G counts | 5.765 / 5.801 | 5.633 / 5.660 | 5.552 / 5.562 | 5.516 / 5.510 |
+| slice + 10G counts | 5.728 / 5.759 | 5.615 / 5.618 | 5.526 / 5.509 | **5.476 / 5.465** |
+| the 100M text itself, same steps | | | | **5.384 / 5.410** |
+
+The 100M text at 16 / 25 epochs (2x / 3x the steps): 5.303 / 5.337, 5.269 / 5.287.
+
+Mean log PPL against hard targets at epoch 8 (nats per character): own counts
++0.001; 100M counts −0.053; 1G −0.064; 10G −0.072; the 100M text −0.086.
+
+Coverage at depth 16 (`doped_counts.py`'s table meta): the share of the slice's
+depth-16 contexts seen at least twice / 10 / 100 times in the count text is
+20.5% / 4.4% / 0.6% at 100M, 39.1% / 15.6% / 3.8% at 1G, 58.9% / 34.5% / 14.5% at
+10G. At depth 8: 90% / 73% / 44% at 100M, 98% / 96% / 88% at 10G.
+
+## Reading
+
+- **The counts still help at depth 16, and more text helps more.** Each tenfold
+  of count text adds about 0.01 nats (0.053, 0.064, 0.072), the deep contexts
+  filling in as the user expected. Seeds agree to 0.02 PPL on every doped arm.
+- **Against own-count soft targets, the 100M gain is about depth 8's** (0.053
+  against 0.058). The own counts alone are worth nothing at depth 16 by epoch 8
+  (+0.001; a 0.010 speed-up at epochs 1-2), as at depth 8 (fading to −0.008).
+- **But the doped slice no longer beats the bigger text.** At depth 8 the slice
+  with 100M counts beat minibatch on the 100M text by 0.029 nats at equal steps
+  (6.150 against 6.329); at depth 16 the 100M text leads the slice with 100M counts
+  by 0.033 and with 10G counts by 0.014, and keeps improving with more steps
+  (−0.022 more by 3x). The hard-target slice stops improving after epoch 4 and the
+  doped arms slow down (10G: 5.526 → 5.476 over epochs 4-8): at depth 16 the slice
+  is short of contexts, the inputs, not only of their targets. A 1M text has
+  ~1M distinct depth-16 contexts; the 100M text has ~100x as many. Doping refines
+  the targets of the contexts the slice has and adds none.
+- **So doping is a complement to more training text at depth 16, not a
+  substitute.** The test that would show it stacking: a larger training text
+  doped with 10G counts. Its table can't be dense ([contexts, 96] int32 is 3 GiB
+  for the 1M slice's 8.6M contexts; a 10M text's would be ~30 GiB), so that needs
+  the counts kept sparsely, in a trie: the trie-as-storage problem itself.
+
+## Next (not decided by the user)
+
+- A bigger training text (10M, 100M) doped with 10G counts, with sparse count
+  storage (per-node child lists, as the trie keeps them).
+- Longer training of the doped slice (it was still improving at epoch 8).

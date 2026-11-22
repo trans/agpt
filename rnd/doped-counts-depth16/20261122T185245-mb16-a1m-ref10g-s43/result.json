@@ -1,0 +1,88 @@
+{
+  "run_id": "20261122T185245-mb16-a1m-ref10g-s43",
+  "experiment": "doped-counts-depth16",
+  "wall_seconds": 399.69883242,
+  "train_wall_seconds": 248.957325663,
+  "convert_wall_seconds": 3.4008525499999998,
+  "eval_wall_seconds": 33.699038136,
+  "started_utc": "2026-11-22T18:52:45Z",
+  "ended_utc": "2026-11-22T18:59:25Z",
+  "trainer": "src/tools/agpt_minibatch_train.py",
+  "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+  "eval": {
+    "split": "multi-chunk-heldout",
+    "source_path": null,
+    "source_sha256": null,
+    "chunks_dir": "data/pg19/imm-split/heldout_chunks",
+    "benchmark": null,
+    "task_name": "mb16-a1m-ref10g-s43_holdout"
+  },
+  "metrics": {
+    "lm_eval_rolling_word_perplexity": 16490.343358605438,
+    "lm_eval_rolling_byte_perplexity": 5.464617095513031,
+    "lm_eval_rolling_bits_per_byte": 2.4501204101226497,
+    "agpt_fixed_token_perplexity": 4.828213167783327
+  },
+  "checkpoint_sha": "865ac7698bbbb3187502e052c6344be896235791c59480a644919a6b5a235a00",
+  "checkpoint_results": [
+    {
+      "epoch": 1,
+      "checkpoint_path": "rnd/doped-counts-depth16/20261122T185245-mb16-a1m-ref10g-s43/checkpoint.epoch_000001.model",
+      "checkpoint_sha": "fd59dac4cd9240e422449dd9c10083d2bd5b79323ffb8980478c95ffc1f3dfbe",
+      "hf_dir": "rnd/doped-counts-depth16/20261122T185245-mb16-a1m-ref10g-s43/hf_checkpoint_epoch_000001",
+      "eval_raw_json": "rnd/doped-counts-depth16/20261122T185245-mb16-a1m-ref10g-s43/eval_raw_epoch_000001.json",
+      "task_name": "mb16-a1m-ref10g-s43_epoch_000001_holdout",
+      "train_wall_seconds": 30.837884,
+      "convert_wall_seconds": 3.320040807,
+      "eval_wall_seconds": 33.243034986,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 22270.673320035887,
+        "lm_eval_rolling_byte_perplexity": 5.7594867116497435,
+        "lm_eval_rolling_bits_per_byte": 2.5259402436894325,
+        "agpt_fixed_token_perplexity": 5.136823173802073
+      }
+    },
+    {
+      "epoch": 2,
+      "checkpoint_path": "rnd/doped-counts-depth16/20261122T185245-mb16-a1m-ref10g-s43/checkpoint.epoch_000002.model",
+      "checkpoint_sha": "cac9c8c48637ab3c584b6a85243392e02b818352da9486853c92ecea5d63a36d",
+      "hf_dir": "rnd/doped-counts-depth16/20261122T185245-mb16-a1m-ref10g-s43/hf_checkpoint_epoch_000002",
+      "eval_raw_json": "rnd/doped-counts-depth16/20261122T185245-mb16-a1m-ref10g-s43/eval_raw_epoch_000002.json",
+      "task_name": "mb16-a1m-ref10g-s43_epoch_000002_holdout",
+      "train_wall_seconds": 61.407691,
+      "convert_wall_seconds": 3.336540776,
+      "eval_wall_seconds": 33.149796356,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 19324.296247242295,
+        "lm_eval_rolling_byte_perplexity": 5.618304146194139,
+        "lm_eval_rolling_bits_per_byte": 2.4901347266944374,
+        "agpt_fixed_token_perplexity": 4.980306709488253
+      }
+    },
+    {
+      "epoch": 4,
+      "checkpoint_path": "rnd/doped-counts-depth16/20261122T185245-mb16-a1m-ref10g-s43/checkpoint.epoch_000004.model",
+      "checkpoint_sha": "2360455cdcc5b89ee9f05bc5110f1a2ee2c80206c74a1a557c84104687dbc5e1",
+      "hf_dir": "rnd/doped-counts-depth16/20261122T185245-mb16-a1m-ref10g-s43/hf_checkpoint_epoch_000004",
+      "eval_raw_json": "rnd/doped-counts-depth16/20261122T185245-mb16-a1m-ref10g-s43/eval_raw_epoch_000004.json",
+      "task_name": "mb16-a1m-ref10g-s43_epoch_000004_holdout",
+      "train_wall_seconds": 122.608637,
+      "convert_wall_seconds": 3.334536128,
+      "eval_wall_seconds": 33.848008891,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 17267.509478078682,
+        "lm_eval_rolling_byte_perplexity": 5.5088072538427,
+        "lm_eval_rolling_bits_per_byte": 2.461739985722035,
+        "agpt_fixed_token_perplexity": 4.872438152076374
+      }
+    }
+  ],
+  "experimental_used": {
+    "src/tools/agpt_minibatch_train.py": [
+      "device",
+      "trie_targets",
+      "trie_targets_table",
+      "trie_targets_table_sha256"
+    ]
+  }
+}

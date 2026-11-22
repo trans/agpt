@@ -1,0 +1,46 @@
+---
+description: 'doped counts at depth 16: the 1M slice, each context''s next-character
+  distribution over the first 100,000,000 characters of the 10G text; minibatch (128
+  windows a step), d64/L2, seq_len 16, Adam 0.003 constant, train seed 42'
+experiment: doped-counts-depth16
+run_slug: mb16-a1m-ref100m
+corpus:
+  path: data/pg19/a1m/train_corpus.txt
+  heldout: data/pg19/imm-split/heldout_corpus.txt
+  vocab_source: data/pg19/imm-split/vocab.txt
+model:
+  d_model: 64
+  n_layers: 2
+  n_heads: 4
+  d_ff: 256
+  init_seed: 42
+  save_file: rnd/doped-counts-depth16/20261122T184600-mb16-a1m-ref100m/checkpoint.model
+train:
+  budget:
+    unit: epochs
+    value: 8
+  seed: 42
+  quiet: true
+  optimizer:
+    name: adam
+    lr: 0.003
+    beta: 0.999
+    momentum_beta: 0.9
+  lr_schedule:
+    name: constant
+    warmup_epochs: 0
+    min_lr_ratio: 0.0
+  seq_len: 16
+  checkpoint_epochs:
+  - 1
+  - 2
+  - 4
+eval:
+  train_sanity: false
+  batch_size: 1
+  device: cpu
+experimental:
+  device: cuda
+  trie_targets: true
+  trie_targets_table: rnd/doped-counts-depth16/tables/a1m-s16-100000000.npz
+  trie_targets_table_sha256: 43217f355ed41d8cb87bfa3c33597b675f24f58d66b9bcafdf8a0ca5b748bb6c

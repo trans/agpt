@@ -1,0 +1,69 @@
+{
+  "run_id": "20261122T181904-mb16-100m-s43",
+  "experiment": "doped-counts-depth16",
+  "wall_seconds": 806.902078216,
+  "train_wall_seconds": 688.508109312,
+  "convert_wall_seconds": 5.437886875,
+  "eval_wall_seconds": 36.109931066,
+  "started_utc": "2026-11-22T18:19:04Z",
+  "ended_utc": "2026-11-22T18:32:31Z",
+  "trainer": "src/tools/agpt_minibatch_train.py",
+  "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+  "eval": {
+    "split": "multi-chunk-heldout",
+    "source_path": null,
+    "source_sha256": null,
+    "chunks_dir": "data/pg19/imm-split/heldout_chunks",
+    "benchmark": null,
+    "task_name": "mb16-100m-s43_holdout"
+  },
+  "metrics": {
+    "lm_eval_rolling_word_perplexity": 13649.204751721296,
+    "lm_eval_rolling_byte_perplexity": 5.286852504908535,
+    "lm_eval_rolling_bits_per_byte": 2.402409078297208,
+    "agpt_fixed_token_perplexity": 4.6165173920673315
+  },
+  "checkpoint_sha": "33a1cbf1e3a9dc59ef1d9ad1dab0208d8345438c09e2668bd11ec687215e0531",
+  "checkpoint_results": [
+    {
+      "epoch": 8,
+      "checkpoint_path": "rnd/doped-counts-depth16/20261122T181904-mb16-100m-s43/checkpoint.epoch_000008.model",
+      "checkpoint_sha": "c364b1f3fb446bf1672df7d4e758fd24de08af63902463a991d95bb92cddca2e",
+      "hf_dir": "rnd/doped-counts-depth16/20261122T181904-mb16-100m-s43/hf_checkpoint_epoch_000008",
+      "eval_raw_json": "rnd/doped-counts-depth16/20261122T181904-mb16-100m-s43/eval_raw_epoch_000008.json",
+      "task_name": "mb16-100m-s43_epoch_000008_holdout",
+      "train_wall_seconds": 216.706713,
+      "convert_wall_seconds": 3.312852346,
+      "eval_wall_seconds": 33.070999828,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 15575.415958421218,
+        "lm_eval_rolling_byte_perplexity": 5.410334988977945,
+        "lm_eval_rolling_bits_per_byte": 2.4357179234375264,
+        "agpt_fixed_token_perplexity": 4.742221271038128
+      }
+    },
+    {
+      "epoch": 16,
+      "checkpoint_path": "rnd/doped-counts-depth16/20261122T181904-mb16-100m-s43/checkpoint.epoch_000016.model",
+      "checkpoint_sha": "fa2bc2fc17ca9603f6109fb8bc9e1f07e7daebe1a542b09e8e0883c88b75099c",
+      "hf_dir": "rnd/doped-counts-depth16/20261122T181904-mb16-100m-s43/hf_checkpoint_epoch_000016",
+      "eval_raw_json": "rnd/doped-counts-depth16/20261122T181904-mb16-100m-s43/eval_raw_epoch_000016.json",
+      "task_name": "mb16-100m-s43_epoch_000016_holdout",
+      "train_wall_seconds": 433.77968,
+      "convert_wall_seconds": 3.324787025,
+      "eval_wall_seconds": 33.697469443,
+      "metrics": {
+        "lm_eval_rolling_word_perplexity": 14405.288436087998,
+        "lm_eval_rolling_byte_perplexity": 5.336938796379055,
+        "lm_eval_rolling_bits_per_byte": 2.4160124667006495,
+        "agpt_fixed_token_perplexity": 4.665838551968531
+      }
+    }
+  ],
+  "experimental_used": {
+    "src/tools/agpt_minibatch_train.py": [
+      "device",
+      "window_stride"
+    ]
+  }
+}
