@@ -112,11 +112,11 @@ def noise(theta, resample=False, budget=BUDGET, start=32, cap=0):
     return out
 
 
-def minibatch(epochs, lr):
+def minibatch(epochs, lr, seed=42):
     return f"""---
 description: "noise cadence bar: ordinary minibatch Adam (128 windows of 16 per step), {epochs} pass(es), lr {lr} warmup-cosine per step (one-pass-gap's recipe)"
 experiment: noise-cadence
-run_slug: mb-e{epochs}-lr{lr}
+run_slug: mb-e{epochs}{"" if seed == 42 else f"-s{seed}"}-lr{lr}
 corpus:
   path: {SPLIT}/train_corpus.txt
   heldout: {SPLIT}/heldout_corpus.txt
@@ -127,7 +127,7 @@ train:
   budget:
     unit: epochs
     value: {epochs}
-  seed: 42
+  seed: {seed}
   quiet: true
   optimizer:
     name: adam
@@ -195,6 +195,12 @@ def main():
         add(f"m0-w128-e{e}", f"v2 at a fixed sample of 128 fresh windows a step (minibatch through tries), "
             f"budget {e * MB_EPOCH:,} positions ({e} minibatch epochs)", 0, 1, 0.006,
             noise(1, resample=True, budget=e * MB_EPOCH, start=128, cap=128))
+    # seeds: is v2's 1-epoch gap to PyTorch (4.870 vs 4.826) the trainer or the window order?
+    for seed in (43, 44):
+        add(f"m0-w128-e1-s{seed}", f"v2 at a fixed sample of 128 fresh windows a step (minibatch through tries), "
+            f"budget {MB_EPOCH:,} positions (1 minibatch epoch), seed {seed}", 0, 1, 0.006,
+            noise(1, resample=True, budget=MB_EPOCH, start=128, cap=128), seed=seed)
+        cfgs[f"mb-e1-s{seed}-lr0.006"] = minibatch(1, 0.006, seed=seed)
     for cap in (2048, 8192):
         add(f"f0-t4-b136-cap{cap}", fresh(4, 135_600_000) + f", sample capped at {cap} windows", 0, 1, 0.006,
             noise(4, resample=True, budget=135_600_000, cap=cap))
