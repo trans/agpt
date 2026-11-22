@@ -80,6 +80,13 @@ Config keys read:
                                   its one-hot target.)
     experimental.trie_targets_corpus_sha256 (required with trie_targets_corpus: its
                                   SHA-256, checked before counting.)
+    experimental.trie_targets_table (with trie_targets, in place of trie_targets_corpus:
+                                  a table src/tools/doped_counts.py wrote, the same
+                                  counts from a reference text streamed once (one too
+                                  large to read here, 1G-10G characters). Its corpus,
+                                  vocab, seq_len and window starts must be this run's.)
+    experimental.trie_targets_table_sha256 (required with trie_targets_table: the .npz's
+                                  SHA-256.)
     experimental.trie_weights_corpus (true, with trie_targets_corpus: weight each event
                                   by n_ref(c) / n(c), its context's count in that corpus
                                   over its count in the training corpus, so each context
@@ -173,7 +180,7 @@ KNOWN_EXPERIMENTAL = {"minibatch_size", "micro_batch", "device", "max_corpus_cha
                       "trie_plan_order_file", "log_step_loss", "grad_average", "grad_average_beta",
                       "trie_plan_group", "trie_targets_corpus", "trie_targets_corpus_sha256",
                       "trie_weights_corpus", "teacher_targets_file", "teacher_targets_sha256",
-                      "teacher_beta", "noise_theta", "noise_budget_positions", "noise_start",
+                      "teacher_beta", "trie_targets_table", "trie_targets_table_sha256", "noise_theta", "noise_budget_positions", "noise_start",
                       "noise_max_ratio"}
 TOKEN_CAP = 131072  # tokens per forward/backward in trie-plan steps (memory bound only)
 
@@ -191,16 +198,20 @@ class TrieTargets:
     same way): a context seen once has its own next token as its row.
     """
 
-    def __init__(self, tokens, n_starts, T, V, device, ref=None, weights=False):
+    def __init__(self, tokens, n_starts, T, V, device, ref=None, weights=False, table=None):
         import numpy as np
         import trie_plan as tp
         t0 = time.perf_counter()
-        if ref is None:
+        if table is not None:
+            ctx, indptr, child, count = (table[k] for k in ("ctx", "indptr", "child", "count"))
+            self.n_ctx, self.n_single = int(table["n_all"]), int(table["n_single"])
+        elif ref is None:
             ctx, indptr, child, count, self.n_ctx, self.n_single = tp.context_targets(tokens.numpy(), n_starts, T, V)
         else:
             ctx, indptr, child, count, self.n_ctx, self.n_single = tp.context_targets_from(
                 tokens.numpy(), n_starts, T, V, ref)
-        self.n_missing = int((ctx < 0).sum()) if ref is not None else None
+        from_ref = ref is not None or table is not None
+        self.n_missing = int((ctx < 0).sum()) if from_ref else None
         self.wtab = None
         if weights:
             # w(c) = n_ref(c) / n(c): the reference corpus's count of the context over the
@@ -213,7 +224,7 @@ class TrieTargets:
             self.w_total, self.w_events = float(wt.sum()), int(ctx.size)
             self.w_ctx = wc
             self.wtab = torch.from_numpy(wt.astype(np.float32)).to(device)
-        self.n_pairs = child.size + (self.n_single if ref is None else 0)
+        self.n_pairs = child.size + (0 if from_ref else self.n_single)
         self.ctx = torch.from_numpy(ctx).to(device)
         self.indptr = torch.from_numpy(indptr).to(device)
         self.child = torch.from_numpy(child).to(device)
@@ -641,6 +652,10 @@ def main():
         sys.exit("agpt_minibatch_train: trie_targets_corpus goes with trie_targets: true")
     if bool(exp.get("trie_targets_corpus")) != bool(exp.get("trie_targets_corpus_sha256")):
         sys.exit("agpt_minibatch_train: trie_targets_corpus and trie_targets_corpus_sha256 go together")
+    if exp.get("trie_targets_table") and (not exp.get("trie_targets") or exp.get("trie_targets_corpus")):
+        sys.exit("agpt_minibatch_train: trie_targets_table goes with trie_targets: true, not with trie_targets_corpus")
+    if bool(exp.get("trie_targets_table")) != bool(exp.get("trie_targets_table_sha256")):
+        sys.exit("agpt_minibatch_train: trie_targets_table and trie_targets_table_sha256 go together")
     weighted = bool(exp.get("trie_weights_corpus"))
     if weighted and not exp.get("trie_targets_corpus"):
         sys.exit("agpt_minibatch_train: trie_weights_corpus goes with trie_targets_corpus")
@@ -747,8 +762,33 @@ def main():
         ref = ref.astype(np.uint8)
         del raw
         print(f"  trie_targets_corpus {exp['trie_targets_corpus']}: {ref.size} tokens, sha256 {sha}", flush=True)
-    targets = TrieTargets(tokens, n_starts, T, V, device, ref, weighted) if exp.get("trie_targets") else None
-    del ref
+    table = None
+    if exp.get("trie_targets_table"):
+        import hashlib
+        import json
+        import numpy as np
+        tpath = Path(exp["trie_targets_table"])
+        hsh = hashlib.sha256()
+        with open(tpath, "rb") as f:
+            for blk in iter(lambda: f.read(1 << 24), b""):
+                hsh.update(blk)
+        if hsh.hexdigest() != exp["trie_targets_table_sha256"]:
+            sys.exit(f"agpt_minibatch_train: trie_targets_table sha256 {hsh.hexdigest()} != the config's")
+        table = dict(np.load(tpath))
+        tmeta = json.loads(str(table["meta"]))
+        csha = hashlib.sha256(text.encode("utf-8") if exp.get("max_corpus_chars")
+                              else Path(corpus["path"]).read_bytes()).hexdigest()
+        vsha = hashlib.sha256(Path(vocab_src).read_bytes()).hexdigest()
+        want = {"corpus_sha256": csha, "vocab_sha256": vsha, "seq_len": T, "V": V, "n_starts": n_starts,
+                "max_corpus_chars": int(exp.get("max_corpus_chars") or 0)}
+        bad = {k: (tmeta.get(k), v) for k, v in want.items() if tmeta.get(k) != v}
+        if bad or exp.get("wrap_tail"):
+            sys.exit(f"agpt_minibatch_train: trie_targets_table was built for another setup: {bad}")
+        print(f"  trie_targets_table {tpath}: sha256 {hsh.hexdigest()}, ref {tmeta['ref']} first "
+              f"{tmeta['mark']} chars (sha256 {tmeta['ref_prefix_sha256']})", flush=True)
+    targets = (TrieTargets(tokens, n_starts, T, V, device, ref, weighted, table)
+               if exp.get("trie_targets") else None)
+    del ref, table
     n_windows = n_starts // stride if stride > 1 else n_starts
     if planner is not None:
         steps_per_epoch = planner.steps_per_epoch
