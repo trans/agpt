@@ -15,7 +15,11 @@ their offsets and SHA-256, the SHA-256 of the prefixes at each mark in
 --marks, and of the whole text), and links the 20M split's held-out text,
 chunks and vocabulary into DEST.
 
-Usage: build_pg19_big.py PG19_ROOT SPLIT20M SPLIT100M DEST CHARS [--marks N,N,...]
+--exclude-books FILE: book names (train/NNN.txt, one a line) to leave out as well,
+e.g. the books heldout_overlap.py finds holding held-out text; the 100M prefix
+check still applies, so none of them may lie in the 100M split.
+
+Usage: build_pg19_big.py PG19_ROOT SPLIT20M SPLIT100M DEST CHARS [--marks N,N,...] [--exclude-books FILE]
 """
 import argparse
 import hashlib
@@ -63,7 +67,11 @@ def main():
     ap.add_argument("dest")
     ap.add_argument("chars", type=int)
     ap.add_argument("--marks", default="")
+    ap.add_argument("--exclude-books")
     a = ap.parse_args()
+    excluded = set()
+    if a.exclude_books:
+        excluded = {x.strip().removeprefix("train/") for x in Path(a.exclude_books).read_text().split() if x.strip()}
     marks = sorted({int(x) for x in a.marks.split(",") if x} | {100_000_000})
     man = json.loads(Path(a.split20m, "manifest.json").read_text())
     base = Path(a.split20m, "train_corpus.txt").read_bytes()
@@ -102,7 +110,7 @@ def main():
         for name in names:
             if size >= a.chars:
                 break
-            if name in piece_books:
+            if name in piece_books or name in excluded:
                 continue
             p = Path(a.root, "train", name)
             if not p.exists():
@@ -122,7 +130,7 @@ def main():
                         f"pieces, then {len(appended)} whole train books (the last cut at the mark) from the seeded "
                         f"order, none a piece's book, normalized as mobius's pg19-normal.cr (Python port, "
                         f"rnd/doped-counts-depth16/tools/build_pg19_big.py); the 100M split is its prefix",
-         "derived_from": a.split20m, "train_size": size, "train_sha256": h.hexdigest(),
+         "derived_from": a.split20m, "excluded_books": sorted(f"train/{x}" for x in excluded), "train_size": size, "train_sha256": h.hexdigest(),
          "prefix_sha256": prefix_sha, "appended_books": len(appended), "train_records_appended": appended}
     (dest / "manifest.json").write_text(json.dumps(m, indent=1) + "\n")
     for f in ("heldout_corpus.txt", "vocab.txt"):

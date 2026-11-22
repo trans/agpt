@@ -30,11 +30,18 @@ related: [refined-trie-counts, dynamic-eval, noise-cadence]
 - **Training text:** refined-trie-counts' 1M PG-19 slice A (`data/pg19/a1m`), the
   same held-out chunks and vocabulary (96 symbols).
 - **Count texts:** the 100M split, and a 10G text that continues it
-  (`data/pg19/imm-split-10g`, built by `tools/build_pg19_big.py`: the 20M split's
-  pieces, then 25,024 whole PG-19 train books in mobius's seeded order, none a
-  piece's book, normalized as mobius's `pg19-normal.cr`). Its first 100,000,000
-  characters are byte for byte the 100M split (the build checks the SHA-256), so
-  the 100M, 1G and 10G texts are nested prefixes of one file.
+  (`data/pg19/imm-split-10g-dedup`, built by `tools/build_pg19_big.py`: the 20M
+  split's pieces, then 25,390 whole PG-19 train books in mobius's seeded order,
+  normalized as mobius's `pg19-normal.cr`). Its first 100,000,000 characters are
+  byte for byte the 100M split (the build checks the SHA-256), so the 100M, 1G and
+  10G texts are nested prefixes of one file.
+- **Held-out leak, found and removed:** the first build (all train books but the
+  pieces') held the held-out pieces 20 and 23 whole and piece 6 at 95% (of their
+  64-character strings; other editions of their test books, e.g. train/3891 for
+  test/3890), 10 pieces above 1%. mobius's own overlap check had already left these
+  books out of what it counts. The text now takes, past the 100M split, only
+  books mobius counts for the 20M split, and leaves out 54 more found by
+  `tools/heldout_overlap.py` (`tools/excluded_books.txt`, 1,339 books in all).
 - **Tables:** `src/tools/doped_counts.py` streams the 10G text once and writes A's
   depth-16 contexts (8,585,209) with their next-character counts at 100M, 1G and
   10G. It walks each position leafward and stops at the first context A lacks.

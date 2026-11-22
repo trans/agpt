@@ -9,7 +9,13 @@ strings now and then (quotations, set phrases); a chunk with a large share of
 are 64-bit (prefix_keys' hash, built by doubling: h_2n[i] = h_n[i] * B^n + h_n[i+n]).
 Not a reportable number.
 
-Usage: heldout_overlap.py CHUNK_DIR VOCAB TEXT OUT.json --marks M,M,...
+With --books MANIFEST (build_pg19_big.py's manifest.json), every text
+position holding a held-out 64-character string is attributed to its book
+(the appended records; positions before them are the 20M split's pieces), and
+the books are listed with their matches per chunk: what --exclude-books of
+build_pg19_big.py takes out.
+
+Usage: heldout_overlap.py CHUNK_DIR VOCAB TEXT OUT.json --marks M,M,... [--books MANIFEST]
 """
 import argparse
 import json
@@ -45,7 +51,9 @@ def main():
     ap.add_argument("out")
     ap.add_argument("--marks", required=True)
     ap.add_argument("--chunk", type=int, default=1 << 24)
+    ap.add_argument("--books")
     a = ap.parse_args()
+    hit_pos, hit_key = [], []
     c2i, V = build_vocab(a.vocab)
     lut = np.full(256, 255, dtype=np.uint8)
     for ch, i in c2i.items():
@@ -81,7 +89,11 @@ def main():
                 h = hs[n][:e - pos]
                 u = keys[n]
                 j = np.minimum(np.searchsorted(u, h), u.size - 1)
-                found[n][j[u[j] == h]] = True   # one copy of an equal key; found_frac spreads it
+                m = u[j] == h
+                found[n][j[m]] = True   # one copy of an equal key; found_frac spreads it
+                if a.books and n == 64 and m.any():
+                    hit_pos.append(np.nonzero(m)[0] + pos)
+                    hit_key.append(j[m])
             pos = e
         per = []
         for ci in range(len(files)):
@@ -95,6 +107,30 @@ def main():
               f"frac64 {np.mean([r['frac64'] for r in per]):.4f}; worst frac64 "
               + ", ".join(f"{files[c].name} {per[c]['frac64']:.3f}" for c in worst), flush=True)
         Path(a.out).write_text(json.dumps(res, indent=1) + "\n")
+    if a.books:
+        man = json.loads(Path(a.books).read_text())
+        recs = man["train_records_appended"]
+        starts = np.array([r["start"] for r in recs], dtype=np.int64)
+        hp = np.concatenate(hit_pos) if hit_pos else np.zeros(0, dtype=np.int64)
+        hk = np.concatenate(hit_key) if hit_key else np.zeros(0, dtype=np.int64)
+        # every chunk a hit's key belongs to (equal keys sit together in keys[64])
+        u = keys[64]
+        lo_, hi_ = np.searchsorted(u, u[hk], "left"), np.searchsorted(u, u[hk], "right")
+        bi = np.searchsorted(starts, hp, side="right") - 1      # -1: the 20M split's pieces
+        books = {}
+        for p_, b_, l_, h_ in zip(hp.tolist(), bi.tolist(), lo_.tolist(), hi_.tolist()):
+            name = recs[b_]["book"] if b_ >= 0 else "(20M split pieces)"
+            d = books.setdefault(name, {"start": recs[b_]["start"] if b_ >= 0 else 0,
+                                        "end": recs[b_]["end"] if b_ >= 0 else int(starts[0]), "hits": 0, "chunks": {}})
+            d["hits"] += 1
+            for c in set(owner[64][l_:h_].tolist()):
+                d["chunks"][files[c].name] = d["chunks"].get(files[c].name, 0) + 1
+        res["books"] = dict(sorted(books.items(), key=lambda kv: -kv[1]["hits"]))
+        Path(a.out).write_text(json.dumps(res, indent=1) + "\n")
+        print(f"  {len(books)} books hold a held-out 64-character string; the most:", flush=True)
+        for name, d in list(res["books"].items())[:25]:
+            top = sorted(d["chunks"].items(), key=lambda kv: -kv[1])[:3]
+            print(f"    {name}: {d['hits']} hits at {d['start']:,}, chunks {top}", flush=True)
 
 
 def found_frac(found, keys, owner, ci):
