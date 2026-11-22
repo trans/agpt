@@ -1,6 +1,6 @@
 # Open lines of research
 
-*Updated 2026-11-20*
+*Updated 2026-11-22*
 
 Each line has a state, where its plan lives, and what it needs next.
 
@@ -150,9 +150,22 @@ mobius refines a small corpus's counts with a larger corpus's. Record:
   2 epochs, 4.58 at 4, against 5.51 at 3.2 epochs' worth, with 4.4x fewer
   steps). pd=0 at 1% growth per update: best steps (697 give 7.02) but 110
   full-trie passes. The first check found v2 growth mode had never applied
-  `anc_grad_exact` (fixed `03f3a49`). **Next (not decided by the user):**
-  random-order window starts (growth ingests in text order), equal-size units,
-  static pd=3 at lr 0.003 to bracket.
+  `anc_grad_exact` (fixed `03f3a49`). Random-order growth since tested in
+  `rnd/noise-cadence` (below).
+- **Noise cadence — Concluded, mixed (agpt `bd028da`, code `0a6f4de`,
+  `rnd/noise-cadence`).** The user (2026-11-21) asked for a more nuanced
+  rhythm than count changes; "go ahead" to a split-half norm test (step when
+  noise <= theta x signal, else add windows at fixed weights), then (2026-11-22)
+  "add the resampling variant". With a fresh sample each step: 4.70 / 4.66 /
+  4.565 at 54M / 68M / 136M positions against minibatch 4.61 / 4.58 / 4.53,
+  0.8 better than any earlier AGPT arm, gap 0.10 -> 0.04, 5.8x fewer steps;
+  the trie merges only 13-18% of positions, so the gain is the adaptive batch.
+  Cumulative sample stalls at 6.12 (overfits ~10k windows; the split-half test
+  can't see it). Random order: pd=1 doubling -0.9, pd=3 no help. The user
+  (2026-11-22): if these show no progress, free rein for one idea, then a long
+  pause from the project. **Next (not decided by the user):** constant LR with
+  the test annealing (a third of the budget goes to the last 2% of steps),
+  16-epoch budget to see if the gap crosses.
 - **Forward-backward coupling — Done, negative (agpt `e6c3620`,
   `rnd/forward-backward-coupling`).** The user asked why AGPT uses only "where
   a character goes", not "where it comes from"; "Well feel free" to the open
