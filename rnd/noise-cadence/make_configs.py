@@ -201,6 +201,12 @@ def main():
             f"budget {MB_EPOCH:,} positions (1 minibatch epoch), seed {seed}", 0, 1, 0.006,
             noise(1, resample=True, budget=MB_EPOCH, start=128, cap=128), seed=seed)
         cfgs[f"mb-e1-s{seed}-lr0.006"] = minibatch(1, 0.006, seed=seed)
+    # seeds at 8 and 16 epochs: minibatch's seed spread at 1 epoch is 0.08 (seed 42 its best)
+    for seed in (43, 44):
+        cfgs[f"mb-e8-s{seed}-lr0.006"] = minibatch(8, 0.006, seed=seed)
+    cfgs["mb-e16-s43-lr0.006"] = minibatch(16, 0.006, seed=43)
+    add("f0-t4-b271-s43", fresh(4, 271_200_000) + ", seed 43", 0, 1, 0.006,
+        noise(4, resample=True, budget=271_200_000), seed=43)
     for cap in (2048, 8192):
         add(f"f0-t4-b136-cap{cap}", fresh(4, 135_600_000) + f", sample capped at {cap} windows", 0, 1, 0.006,
             noise(4, resample=True, budget=135_600_000, cap=cap))
