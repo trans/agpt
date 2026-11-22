@@ -152,12 +152,13 @@ mobius refines a small corpus's counts with a larger corpus's. Record:
   full-trie passes. The first check found v2 growth mode had never applied
   `anc_grad_exact` (fixed `03f3a49`). Random-order growth since tested in
   `rnd/noise-cadence` (below).
-- **Noise cadence — Concluded, positive: parity (agpt `54c7b4d`, code `0a6f4de`,
-  `7bf11e0`, `6a435d6`, `rnd/noise-cadence`).** The user (2026-11-21) asked for a
+- **Noise cadence — Concluded, positive: parity, from the adaptive batch, not the trie
+  (agpt `54c7b4d`, `5e9057b`; code `0a6f4de`, `7bf11e0`, `6a435d6`, `e88bf88`;
+  `rnd/noise-cadence`).** The user (2026-11-21) asked for a
   more nuanced rhythm than count changes; "go ahead" to a split-half norm test,
   then (2026-11-22) "add the resampling variant", then free rein. With a fresh
   sample each step the cadence is level with minibatch at equal compute within
-  seed noise: 4.567 vs 4.552 at 136M positions (2 vs 3 seeds), 4.535 vs 4.522 at
+  seed noise: 4.567 vs 4.552 at 136M positions (3 seeds each), 4.535 vs 4.522 at
   271M (2 each), with 6-9x fewer steps. The earlier "0.04 gap" was against
   minibatch's best seed (spread 0.078 / 0.044 / 0.023 at 1 / 8 / 16 epochs).
   v2's sample gradient equals PyTorch's (1e-6); v2 trained like minibatch equals
@@ -165,8 +166,15 @@ mobius refines a small corpus's counts with a larger corpus's. Record:
   sizes: the cadence carries it. Closed: cumulative sample (overfits, 6.12),
   constant LR, sample caps, depth-stratified sampling (noise even over depth).
   The user (2026-11-22): after free rein, if no strong fruit, a long pause.
-  **Next (not decided by the user):** 4-5 seeds a side to resolve 0.01; a flat
-  adaptive-batch control to separate cadence from sharing.
+  **No-trie control done (2026-11-22, the user asked; agpt `e88bf88` code,
+  `5e9057b` results, slot 166):** the same cadence on plain windows in PyTorch
+  (`agpt_minibatch_train.py` `noise_theta`) is level with the trie version:
+  4.578 vs 4.567 at 136M (3 seeds each), 4.536 vs 4.535 at 271M, and 4.557 at
+  equal data. The trie saves 15-18% of positions, worth <= 0.01 here; the gain
+  is the adaptive batch. Pooled, both cadences trail minibatch by 0.014-0.021
+  on the means (~1-1.5 s.e.). **Next (not decided by the user):** more seeds;
+  where the trie could still add: a setting that merges far more, or refined
+  counts (which so far help minibatch equally).
 - **Forward-backward coupling — Done, negative (agpt `e6c3620`,
   `rnd/forward-backward-coupling`).** The user asked why AGPT uses only "where
   a character goes", not "where it comes from"; "Well feel free" to the open
