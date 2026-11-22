@@ -13,16 +13,17 @@ question: >-
 answer: >-
   With a fresh sample after every step (the user's resampling variant) the noise cadence
   is level with minibatch at equal compute, within seed noise: 4.567 against 4.552 at 136M
-  trie positions (means of 2 and 3 seeds; minibatch's seeds span 4.526-4.570) and 4.535
+  trie positions (means of 3 seeds each; minibatch's seeds span 4.526-4.570) and 4.535
   against 4.522 at 271M (2 seeds each; AGPT 4.520-4.550, minibatch 4.511-4.534), with
   5.8-8.7x fewer optimizer steps. 0.8 PPL better than every earlier AGPT arm (pd=3
   doubling 5.51 at 54M). The apparent 0.035-0.04 gap against seed 42 alone was mostly
   minibatch's seed spread (0.08 at 1 epoch, 0.044 at 8). v2's gradient matches PyTorch's
   to 1e-6 and v2 trained like minibatch (128 windows a step through tries) matches the
-  PyTorch trainer over 3 seeds. The trie merges only 13-18% of positions at these sample
-  sizes, so the cadence (adaptive batch), not the sharing, carries the result. The
-  cumulative sample overfits (6.12); constant LR, sample caps and depth-stratified
-  sampling do not help. Random-order growth helps pd=1 doubling by 0.9 PPL, not pd=3.
+  PyTorch trainer over 3 seeds. A no-trie control, the same cadence on plain windows in
+  PyTorch, is level with it at equal compute (4.578 against 4.567 at 136M, 3 seeds each;
+  4.536 against 4.535 at 271M): the cadence (adaptive batch) carries the result, and the
+  trie adds a 15-18% compute discount worth at most 0.01 here. The cumulative sample
+  overfits (6.12); constant LR, sample caps and depth-stratified sampling do not help. Random-order growth helps pd=1 doubling by 0.9 PPL, not pd=3.
 opened: 2026-11-21
 updated: 2026-11-22
 code: main
@@ -35,7 +36,9 @@ related: [trie-growth, one-pass-gap, gradient-population]
 # Noise cadence
 
 **Status:** concluded, positive: parity with minibatch at equal compute, within seed
-noise (2026-11-22, GPU slots 150, 153, 156 and 160). Code `0a6f4de`, `7bf11e0`, `6a435d6`.
+noise; the no-trie control is level too, so the gain is the adaptive batch, not the trie
+(2026-11-22, GPU slots 150, 153, 156, 160 and 166). Code `0a6f4de`, `7bf11e0`, `6a435d6`,
+`e88bf88`.
 Configs `make_configs.py`, runs `run.sh`, table `summarize.py` (writes `runs.json`).
 Same setup as `trie-growth` and `one-pass-gap`: Tiny Shakespeare split
 `4fa9aec1db6b3aea`, d64/L2, depth 16, the same seed weights, the trie's own counts.
@@ -196,7 +199,7 @@ are the same code shape in both. Then seeds:
 |---|---:|
 | 1 epoch, v2 through tries (m0-w128) 4.870 / 4.825 / 4.830 | **4.842** |
 | 1 epoch, PyTorch minibatch 4.826 / 4.867 / 4.904 | 4.866 |
-| 8 epochs, fresh-sample cadence theta 4 4.565 / 4.568 / - | 4.567 |
+| 8 epochs, fresh-sample cadence theta 4 4.565 / 4.568 / 4.569 (slot 166) | 4.567 |
 | 8 epochs, PyTorch minibatch 4.526 / 4.570 / 4.559 | **4.552** |
 | 16 epochs, fresh-sample cadence theta 4 4.550 / **4.520** / - | 4.535 |
 | 16 epochs, PyTorch minibatch 4.511 / 4.534 / - | **4.522** |
@@ -220,6 +223,45 @@ are the same code shape in both. Then seeds:
 8,192 windows: 4.586 / 4.581 against 4.565 uncapped. With the constant-LR
 result, the large late samples do the annealing and earn their cost.
 
+### The no-trie control (slot 166): the same cadence on plain windows
+
+The user (2026-11-22) asked for it. `agpt_minibatch_train.py`
+`experimental.noise_theta` (`e88bf88`) runs `run_noise_cadence_v2`'s
+fresh-sample cadence in PyTorch on plain windows: the same halves, noise test,
+growth rule, resample size and cosine over the budget, with each window costing
+16 positions per gradient (the minibatch meter). Since the trie's gradient is
+the windows' gradient exactly (free-rein section), the trie's only part is
+compute: here it spends 13.1-13.6 positions a window (15-18% fewer). `fl` arms:
+theta 4, lr 0.006, at AGPT's budgets (equal compute, so ~16% fewer windows) and
+at 163M (about the windows AGPT's 136M runs computed, 10.3M against 10.1M:
+equal data). A third AGPT seed at 136M (`f0-t4-b136-s44`) came with it.
+
+| rolling PPL, seeds 42 / 43 / 44 | mean | windows | steps | train s |
+|---|---:|---:|---:|---:|
+| 136M, AGPT cadence (trie) 4.565 / 4.568 / 4.569 | **4.567** | 10.1M | 9,872-11,453 | 205-230 |
+| 136M, flat cadence 4.574 / 4.564 / 4.595 | 4.578 | 8.5-8.6M | 10,347-10,885 | 111-112 |
+| 163M, flat cadence 4.561 / 4.553 / - | 4.557 | 10.3M | 11,032-11,638 | 126-132 |
+| 136M, PyTorch minibatch 4.526 / 4.570 / 4.559 | 4.552 | 17.0M | 66,232 | 268-275 |
+| 271M, AGPT cadence (trie) 4.550 / 4.520 / - | 4.535 | 20.6-20.8M | 15,166-15,895 | 378-412 |
+| 271M, flat cadence 4.543 / 4.530 / - | 4.536 | 17.0-17.2M | 13,926-14,492 | 184-186 |
+| 271M, PyTorch minibatch 4.511 / 4.534 / - | 4.522 | 33.9M | 132,464 | 449-465 |
+
+(The seeds draw different windows in the two trainers: v2 shuffles with
+mt19937, PyTorch with torch.randperm, so rows don't pair by seed.)
+
+- At equal compute the trie's discount is worth 0.010 at 136M and 0.001 at
+  271M, inside the flat side's spread (0.030 at 136M; without its seed 44
+  the means are 4.569 and 4.567).
+- At equal data (flat 163M against AGPT 136M) the two implementations land
+  level, 4.557 against 4.567: the same algorithm gives the same result.
+- Both cadences against minibatch, all runs pooled by budget: 4.572 (6 runs)
+  against 4.552 at 136M, 4.536 (4) against 4.522 at 271M, 0.014-0.021 behind
+  on the means, about 1-1.5 standard errors. Level within noise, possibly a
+  little behind; not ahead.
+- Wall clock: the flat cadence trains in half v2's time (111 s against
+  205-230 s at 136M) and well under minibatch's (268-275 s), with 6-9x fewer
+  steps than minibatch.
+
 ## Reading
 
 - **The cadence works once the sample is fresh.** With fresh samples the
@@ -232,11 +274,12 @@ result, the large late samples do the annealing and earn their cost.
   0.015 / 0.013 at 136 / 271M, inside the spread (free-rein section). At
   1 epoch, v2 trained like minibatch is level with PyTorch, so the trainers are
   not the difference either.
-- **Most of the gain is the cadence, not the trie.** The trie merges 13-18%
-  of the positions at these sample sizes; a flat trainer with the same
-  adaptive batch would take the same steps at about a fifth more compute. The
-  fresh-sample cadence is adaptive-batch minibatch with the batch merged in a
-  trie.
+- **The gain is the cadence, not the trie (measured, slot 166).** The same
+  cadence on plain windows in PyTorch is level with the trie version at equal
+  compute (4.578 / 4.536 against 4.567 / 4.535 at 136M / 271M) and at equal
+  data. The trie saves 15-18% of the positions at these sample sizes, worth
+  at most 0.01 here. The fresh-sample cadence is adaptive-batch minibatch;
+  the trie merges its batch.
 - **The expensive end of the schedule pays.** A quarter to a third of the
   budget goes to the last 2% of the steps, on samples of 30k-360k windows; a
   constant LR (the test left to anneal) and caps of 2,048 / 8,192 windows are
@@ -249,7 +292,11 @@ result, the large late samples do the annealing and earn their cost.
 - More seeds (4-5 a side) at 136M and 271M to resolve a 0.01 difference, and
   minibatch seeds at 2-4 epochs for the 54M / 68M points.
 - The steps advantage (6-9x fewer at equal compute and quality) is what
-  adaptive batching buys in data-parallel training; the trie adds a 13-18%
-  merge. A flat adaptive-batch trainer (the same test, no trie) would
-  separate the two.
-- Closed here: constant LR, sample caps, depth-stratified sampling.
+  adaptive batching buys in data-parallel training; it needs no trie (slot 166).
+- Where the trie could still add: a setting where the batch merges far more
+  (a shallower trie, or samples that are a large share of the text), or the
+  refined-counts objective (`refined-trie-counts`, a larger text's next-char
+  counts on the small trie's nodes), which so far helps minibatch as much as
+  AGPT.
+- Closed here: constant LR, sample caps, depth-stratified sampling, the
+  no-trie control.
