@@ -152,20 +152,21 @@ mobius refines a small corpus's counts with a larger corpus's. Record:
   full-trie passes. The first check found v2 growth mode had never applied
   `anc_grad_exact` (fixed `03f3a49`). Random-order growth since tested in
   `rnd/noise-cadence` (below).
-- **Noise cadence — Concluded, mixed (agpt `bd028da`, code `0a6f4de`,
-  `rnd/noise-cadence`).** The user (2026-11-21) asked for a more nuanced
-  rhythm than count changes; "go ahead" to a split-half norm test (step when
-  noise <= theta x signal, else add windows at fixed weights), then (2026-11-22)
-  "add the resampling variant". With a fresh sample each step: 4.70 / 4.66 /
-  4.565 at 54M / 68M / 136M positions against minibatch 4.61 / 4.58 / 4.53,
-  0.8 better than any earlier AGPT arm, gap 0.10 -> 0.04, 5.8x fewer steps;
-  the trie merges only 13-18% of positions, so the gain is the adaptive batch.
-  Cumulative sample stalls at 6.12 (overfits ~10k windows; the split-half test
-  can't see it). Random order: pd=1 doubling -0.9, pd=3 no help. The user
-  (2026-11-22): if these show no progress, free rein for one idea, then a long
-  pause from the project. **Next (not decided by the user):** constant LR with
-  the test annealing (a third of the budget goes to the last 2% of steps),
-  16-epoch budget to see if the gap crosses.
+- **Noise cadence — Concluded, positive: parity (agpt `54c7b4d`, code `0a6f4de`,
+  `7bf11e0`, `6a435d6`, `rnd/noise-cadence`).** The user (2026-11-21) asked for a
+  more nuanced rhythm than count changes; "go ahead" to a split-half norm test,
+  then (2026-11-22) "add the resampling variant", then free rein. With a fresh
+  sample each step the cadence is level with minibatch at equal compute within
+  seed noise: 4.567 vs 4.552 at 136M positions (2 vs 3 seeds), 4.535 vs 4.522 at
+  271M (2 each), with 6-9x fewer steps. The earlier "0.04 gap" was against
+  minibatch's best seed (spread 0.078 / 0.044 / 0.023 at 1 / 8 / 16 epochs).
+  v2's sample gradient equals PyTorch's (1e-6); v2 trained like minibatch equals
+  the PyTorch trainer over 3 seeds. The trie merges only 13-18% at these sample
+  sizes: the cadence carries it. Closed: cumulative sample (overfits, 6.12),
+  constant LR, sample caps, depth-stratified sampling (noise even over depth).
+  The user (2026-11-22): after free rein, if no strong fruit, a long pause.
+  **Next (not decided by the user):** 4-5 seeds a side to resolve 0.01; a flat
+  adaptive-batch control to separate cadence from sharing.
 - **Forward-backward coupling — Done, negative (agpt `e6c3620`,
   `rnd/forward-backward-coupling`).** The user asked why AGPT uses only "where
   a character goes", not "where it comes from"; "Well feel free" to the open
