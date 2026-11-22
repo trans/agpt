@@ -31,6 +31,26 @@ struct YamlConfigV2 {
     float growth_ratio = 0.0f;
     bool growth_exact_schedule = false;
 
+    // experimental.growth_random_order / growth_order_seed: ingest window
+    // starts in a seeded random order instead of corpus order (start i = text
+    // position i), so every stage's trie is a random sample of the text.
+    bool growth_random_order = false;
+    int growth_order_seed = -1;
+
+    // experimental.growth_noise_theta (> 0): the split-half noise cadence
+    // (pd=0). The sampled starts alternate between two tries A and B; step
+    // when |g_A - g_B| says the noise in g is at most theta x its signal,
+    // else add windows (their gradient only, at the same weights) and test
+    // again. growth_noise_budget_positions: compute budget in trie positions
+    // (the LR schedule runs over it); growth_noise_max_ratio: the most one
+    // growth increment may multiply the sample by.
+    float growth_noise_theta = 0.0f;
+    int growth_noise_budget_positions = 0;
+    float growth_noise_max_ratio = 2.0f;
+    // experimental.growth_noise_resample: a fresh sample after every step (of
+    // the size the test last passed with) instead of the cumulative one.
+    bool growth_noise_resample = false;
+
     int seed = 42;
     bool seed_set = false;
     bool has_growth = false;
@@ -305,6 +325,12 @@ static bool yaml_is_known_experimental_field_v2(const std::string& path) {
         "experimental.growth_start",
         "experimental.growth_ratio",
         "experimental.growth_exact_schedule",
+        "experimental.growth_random_order",
+        "experimental.growth_order_seed",
+        "experimental.growth_noise_theta",
+        "experimental.growth_noise_budget_positions",
+        "experimental.growth_noise_max_ratio",
+        "experimental.growth_noise_resample",
     };
     return fields.find(path) != fields.end();
 }
@@ -960,7 +986,31 @@ static bool apply_yaml_config_v2(const char* config_path,
         bool have_ratio = false;
         if (!yaml_get_int_v2(doc, "experimental.growth_start", yaml_cfg.growth_start, &have_start)) return false;
         if (!yaml_get_float_v2(doc, "experimental.growth_ratio", yaml_cfg.growth_ratio, &have_ratio)) return false;
-        if (have_start != have_ratio ||
+        if (!yaml_get_bool_v2(doc, "experimental.growth_random_order", yaml_cfg.growth_random_order)) return false;
+        if (!yaml_get_int_v2(doc, "experimental.growth_order_seed", yaml_cfg.growth_order_seed)) return false;
+        bool have_theta = false;
+        if (!yaml_get_float_v2(doc, "experimental.growth_noise_theta", yaml_cfg.growth_noise_theta, &have_theta)) return false;
+        if (!yaml_get_int_v2(doc, "experimental.growth_noise_budget_positions",
+                             yaml_cfg.growth_noise_budget_positions)) return false;
+        if (!yaml_get_float_v2(doc, "experimental.growth_noise_max_ratio", yaml_cfg.growth_noise_max_ratio)) return false;
+        bool have_resample = false;
+        if (!yaml_get_bool_v2(doc, "experimental.growth_noise_resample", yaml_cfg.growth_noise_resample,
+                              &have_resample)) return false;
+        if (have_resample && !have_theta) {
+            std::fprintf(stderr, "agpt_train_v2: experimental.growth_noise_resample needs growth_noise_theta\n");
+            return false;
+        }
+        if (have_theta) {
+            if (yaml_cfg.growth_noise_theta <= 0.0f || have_ratio || growth_divisions > 0 ||
+                !have_start || yaml_cfg.growth_start < 2 || yaml_cfg.growth_noise_budget_positions < 1 ||
+                yaml_cfg.growth_noise_max_ratio <= 1.0f) {
+                std::fprintf(stderr,
+                             "agpt_train_v2: experimental.growth_noise_theta (> 0) needs growth_start (>= 2), "
+                             "growth_noise_budget_positions (>= 1) and growth_noise_max_ratio (> 1), and no "
+                             "growth_ratio or train.growth.divisions\n");
+                return false;
+            }
+        } else if (have_start != have_ratio ||
             (have_ratio && (yaml_cfg.growth_ratio <= 1.0f || yaml_cfg.growth_start < 1))) {
             std::fprintf(stderr,
                          "agpt_train_v2: experimental.growth_start (>= 1) and experimental.growth_ratio (> 1) must be given together\n");
@@ -973,7 +1023,13 @@ static bool apply_yaml_config_v2(const char* config_path,
         }
         if (!yaml_get_bool_v2(doc, "experimental.growth_exact_schedule", yaml_cfg.growth_exact_schedule)) return false;
     } else if (yaml_find_v2(doc, "experimental.growth_start") || yaml_find_v2(doc, "experimental.growth_ratio") ||
-               yaml_find_v2(doc, "experimental.growth_exact_schedule")) {
+               yaml_find_v2(doc, "experimental.growth_exact_schedule") ||
+               yaml_find_v2(doc, "experimental.growth_random_order") ||
+               yaml_find_v2(doc, "experimental.growth_order_seed") ||
+               yaml_find_v2(doc, "experimental.growth_noise_theta") ||
+               yaml_find_v2(doc, "experimental.growth_noise_budget_positions") ||
+               yaml_find_v2(doc, "experimental.growth_noise_max_ratio") ||
+               yaml_find_v2(doc, "experimental.growth_noise_resample")) {
         std::fprintf(stderr, "agpt_train_v2: experimental.growth_* keys need a train.growth block\n");
         return false;
     }

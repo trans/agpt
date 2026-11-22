@@ -1063,6 +1063,22 @@ static void free_device_loss_tables_v2(DeviceLossTablesV2& tables) {
     tables = DeviceLossTablesV2{};
 }
 
+// Ingest window starts up to `frontier` (a count of starts): in corpus order
+// (start i = text position i), or, with `order`, the starts order[0..frontier).
+static void growth_ingest_ordered_until_v2(agpt_v2::GrowthIncrementalRadixStateV2& st,
+                                           const std::vector<int>* order,
+                                           int frontier) {
+    if (!order) {
+        agpt_v2::growth_incremental_ingest_until_v2(st, frontier);
+        return;
+    }
+    if (frontier > (int)order->size()) frontier = (int)order->size();
+    while (st.ingested_starts < frontier) {
+        agpt_v2::growth_incremental_ingest_start_v2(st, (*order)[(size_t)st.ingested_starts]);
+        st.ingested_starts++;
+    }
+}
+
 // The optimizer steps train-growth will take: for each stage, the units whose
 // chunk plan is non-empty (run_train_epoch_on_radix_host_v2 skips the others
 // without a step) times the stage's epochs. Built on a separate copy of the
@@ -1074,13 +1090,14 @@ static long long count_growth_unit_steps_v2(const agpt_v2::TrainerConfig& cfg,
                                             GrowthEpochScheduleV2 schedule,
                                             int min_epochs,
                                             int epochs,
-                                            int unit_limit) {
+                                            int unit_limit,
+                                            const std::vector<int>* order) {
     std::vector<int> copy = tokens;
     agpt_v2::GrowthIncrementalRadixStateV2 st =
         agpt_v2::make_growth_incremental_radix_state_v2(std::move(copy), max_depth);
     long long total = 0;
     for (int i = 0; i < (int)frontiers.size(); i++) {
-        agpt_v2::growth_incremental_ingest_until_v2(st, frontiers[i]);
+        growth_ingest_ordered_until_v2(st, order, frontiers[i]);
         agpt_v2::RadixTrieStructure trie = agpt_v2::growth_incremental_radix_view_v2(st);
         agpt_v2::TrainingPlan tp = cfg.lightning_enabled
             ? agpt_v2::build_lightning_training_plan_v2(trie, cfg)
@@ -1301,6 +1318,389 @@ static void run_train_epoch_on_radix_host_v2(const agpt_v2::TrainerConfig& cfg,
                 t_cleanup1 - t_total0);
 }
 
+struct TrieGradStatsV2 {
+    double events = 0.0;
+    double loss_sum = 0.0;
+    long long queries = 0;
+    long long edge_chars = 0;
+    double seconds = 0.0;
+};
+
+// The gradient of the whole trie at h_weights, summed over events (not
+// scaled), added into h_grad_sum; no optimizer step. Every unit of the
+// partition, each with its own chunks and exact ancestor pass, as
+// run_train_epoch_on_radix_host_v2 runs them. Used by the noise cadence.
+static TrieGradStatsV2 accumulate_trie_gradient_host_v2(const agpt_v2::TrainerConfig& cfg,
+                                                        const agpt_v2::RuntimeShape& shape,
+                                                        const agpt_v2::ModelLayout& model,
+                                                        const agpt_v2::RadixTrieStructure& trie,
+                                                        const float* h_weights,
+                                                        std::vector<double>& h_grad_sum,
+                                                        std::vector<float>& h_scratch) {
+    double t0 = wall_seconds_v2();
+    TrieGradStatsV2 stats;
+    stats.edge_chars = trie.total_edge_chars;
+    agpt_v2::CacheLayout cache = agpt_v2::make_cache_layout(shape);
+    agpt_v2::TrainingPlan training_plan =
+        agpt_v2::build_training_plan_for_partition_depth(trie, cfg.partition_depth, cfg.train_crown);
+    if (training_plan.unit_count <= 0) {
+        agpt_v2::free_training_plan(training_plan);
+        stats.seconds = wall_seconds_v2() - t0;
+        return stats;
+    }
+    agpt_v2::ExecutionPlan plan = agpt_v2::build_execution_plan(trie, training_plan, cfg.chunk_queries);
+    agpt_v2::ChunkPlanList capacity_chunks =
+        build_capacity_chunk_list_for_plan_v2(trie, training_plan, cfg.chunk_queries);
+    agpt_v2::TrainerRuntimeContract runtime_contract =
+        agpt_v2::build_trainer_runtime_contract(shape, cache, plan, capacity_chunks,
+                                                trie.compact_slot_capacity);
+    agpt_v2::TrainerRuntimeV2 runtime{};
+    init_trainer_runtime_v2(runtime, runtime_contract, trie);
+    agpt_v2::zero_cache_runtime_v2(runtime.cache);
+    AGPT_V2_CUDA_CHECK(cudaMemcpy(runtime.d_weights, h_weights,
+                                  (size_t)model.total_floats * sizeof(float),
+                                  cudaMemcpyHostToDevice));
+    DeviceLossTablesV2 device_loss_tables = upload_loss_tables_v2(trie);
+    agpt_v2::LossTablesV2 loss_tables = make_loss_tables_view_v2(device_loss_tables);
+    agpt_v2::ChunkUploadRuntimeV2 upload{};
+    init_chunk_upload_runtime_v2(upload, runtime_contract.chunk.node_capacity,
+                                 runtime_contract.chunk.query_capacity, shape.n_heads);
+    h_scratch.resize((size_t)model.total_floats);
+
+    for (int u = 0; u < plan.training_unit_count; u++) {
+        const agpt_v2::TrainingUnit& unit = training_plan.units[u];
+        agpt_v2::ChunkPlanList unit_chunks = agpt_v2::build_chunk_plan_for_unit(trie, unit, cfg.chunk_queries);
+        if (unit_chunks.chunk_count <= 0) {
+            agpt_v2::free_chunk_plan_list(unit_chunks);
+            continue;
+        }
+        AGPT_V2_CUDA_CHECK(cudaMemset(runtime.d_grads, 0, runtime.contract.weight_and_grad_bytes / 2));
+        agpt_v2::UnitAncGradRuntimeV2 unit_anc{};
+        if (cfg.anc_grad) {
+            agpt_v2::init_unit_anc_grad_runtime_v2(unit_anc, runtime.contract, cfg, unit, trie, nullptr, 0, 0);
+            agpt_v2::zero_unit_anc_grad_runtime_v2(unit_anc, runtime.contract);
+        }
+        for (int s = 0; s < unit_chunks.chunk_count; s++) {
+            const agpt_v2::ChunkPlan& chunk = unit_chunks.chunks[s];
+            agpt_v2::ChunkMetadataV2 chunk_meta =
+                agpt_v2::build_chunk_metadata_v2(cfg, shape, trie, unit, chunk, nullptr, 0, 0);
+            agpt_v2::ChunkDeviceMetadataV2 chunk_device_meta = upload_chunk_metadata_v2(chunk_meta, upload);
+            agpt_v2::ForwardPassResult chunk_fwd =
+                agpt_v2::run_forward_prefix_v2(cfg, model, chunk_meta, chunk_device_meta,
+                                               upload, loss_tables, runtime,
+                                               cfg.anc_grad ? &unit_anc : nullptr);
+            if (!chunk_fwd.ok) {
+                abort_bad_forward_v2("noise-cadence", 1, u, plan.training_unit_count,
+                                     unit.root_child_id, s, unit_chunks.chunk_count, chunk_fwd);
+            }
+            agpt_v2::BackwardPassResult chunk_bwd =
+                agpt_v2::run_backward_output_head_v2(cfg, model, chunk_meta, chunk_device_meta,
+                                                     upload, chunk_fwd, runtime,
+                                                     cfg.anc_grad ? &unit_anc : nullptr,
+                                                     s == 0, (s + 1 == unit_chunks.chunk_count) && !cfg.anc_grad_exact);
+            (void)chunk_bwd;
+            stats.loss_sum += (double)chunk_fwd.mean_loss * chunk_fwd.trained_events;
+            stats.events += chunk_fwd.trained_events;
+            stats.queries += chunk_fwd.trained_queries;
+            agpt_v2::free_chunk_metadata_v2(chunk_meta);
+        }
+        if (cfg.anc_grad_exact && cfg.anc_grad) {
+            (void)run_anc_exact_pass_v2(cfg, shape, model, trie, unit, nullptr, 0, 0, upload,
+                                        loss_tables, runtime, unit_anc, runtime_contract);
+        }
+        AGPT_V2_CUDA_CHECK(cudaMemcpy(h_scratch.data(), runtime.d_grads,
+                                      (size_t)model.total_floats * sizeof(float),
+                                      cudaMemcpyDeviceToHost));
+        for (size_t k = 0; k < h_scratch.size(); k++) h_grad_sum[k] += (double)h_scratch[k];
+        agpt_v2::free_unit_anc_grad_runtime_v2(unit_anc, runtime.contract);
+        agpt_v2::free_chunk_plan_list(unit_chunks);
+    }
+    AGPT_V2_CUDA_CHECK(cudaDeviceSynchronize());
+    free_chunk_upload_runtime_v2(upload);
+    free_device_loss_tables_v2(device_loss_tables);
+    agpt_v2::free_trainer_runtime_v2(runtime);
+    agpt_v2::free_chunk_plan_list(capacity_chunks);
+    agpt_v2::free_training_plan(training_plan);
+    stats.seconds = wall_seconds_v2() - t0;
+    return stats;
+}
+
+// experimental.growth_noise_theta: the split-half noise cadence (pd=0).
+//
+// Window starts are sampled in random order; sample j goes to trie A if j is
+// even, B if odd. At fixed weights the loss is sum(count x -log p), so the
+// gradient is linear in the counts: g = (G_A + G_B) / (E_A + E_B), with G the
+// summed gradients and E the events. Over n = n_A + n_B of N windows, the
+// sampling noise in g is estimated from the halves' disagreement:
+//   noise^2 = |G_A/E_A - G_B/E_B|^2 x n_A n_B / n^2 x (1 - n/N),
+//   signal^2 = |g|^2 - noise^2.
+// Step when noise <= theta x signal (or every window is in, or the budget is
+// spent). Otherwise add windows: n* from the norm test's own estimate,
+// clamped to [1.05 n, max_ratio x n]. Only the new windows' gradient is
+// computed (at the same weights) and added to G_A, G_B: the aggregate grows
+// incrementally between updates. After each step both tries are recomputed
+// whole at the new weights. Compute is counted in trie positions (edge chars
+// of every gradient pass); the LR schedule runs over the budget.
+static int run_noise_cadence_v2(const agpt_v2::TrainerConfig& cfg,
+                                const YamlConfigV2& yaml_cfg,
+                                const agpt_v2::RuntimeShape& shape,
+                                const agpt_v2::ModelLayout& model,
+                                float* h_weights,
+                                const float* h_opt_m,
+                                const float* h_opt_v,
+                                std::vector<int>&& tokens,
+                                int max_depth,
+                                int full_starts,
+                                const std::vector<int>* order,
+                                int order_seed,
+                                const char* save_path) {
+    if (cfg.partition_depth != 0) {
+        std::fprintf(stderr, "agpt_train_v2: experimental.growth_noise_theta needs train.partition_depth: 0 "
+                             "(one gradient over the whole trie)\n");
+        return 1;
+    }
+    if (!order) {
+        std::fprintf(stderr, "agpt_train_v2: experimental.growth_noise_theta needs "
+                             "experimental.growth_random_order: true (the test assumes a random sample)\n");
+        return 1;
+    }
+    if (cfg.lightning_enabled) {
+        std::fprintf(stderr, "agpt_train_v2: experimental.growth_noise_theta does not support lightning sampling\n");
+        return 1;
+    }
+    const double theta = (double)yaml_cfg.growth_noise_theta;
+    const long long budget = (long long)yaml_cfg.growth_noise_budget_positions;
+    const double max_ratio = (double)yaml_cfg.growth_noise_max_ratio;
+    const long long N = (long long)full_starts;
+    const long long n0 = std::min<long long>((long long)yaml_cfg.growth_start, N);
+    const size_t total = (size_t)model.total_floats;
+    const long long kScheduleSteps = 1000000;
+    const char* noise_check_env = std::getenv("AGPT_NOISE_CHECK");
+    const bool noise_check = noise_check_env && std::strcmp(noise_check_env, "1") == 0;
+    if (cfg.warmup_epochs > 0) {
+        std::printf("  noise-cadence: warmup_epochs=%d ignored (the LR schedule runs over the position budget)\n",
+                    cfg.warmup_epochs);
+    }
+
+    std::vector<int> tokens_b = tokens;
+    std::vector<int> delta_tokens = tokens;
+    agpt_v2::GrowthIncrementalRadixStateV2 trie_a =
+        agpt_v2::make_growth_incremental_radix_state_v2(std::move(tokens), max_depth);
+    agpt_v2::GrowthIncrementalRadixStateV2 trie_b =
+        agpt_v2::make_growth_incremental_radix_state_v2(std::move(tokens_b), max_depth);
+
+    // experimental.growth_noise_resample: after every step both tries are
+    // dropped and refilled with fresh windows (as many as the test last
+    // passed with), the next ones in the shuffled order; the order is
+    // reshuffled (seed, epoch) when it runs out. Without it the sample is
+    // cumulative: windows stay in the tries for the rest of the run.
+    const bool resample = yaml_cfg.growth_noise_resample;
+    std::vector<int> perm(order->begin(), order->end());
+    int data_epoch = 0;
+    long long drawn = 0;
+    long long sample_index = 0;
+    long long next = 0;
+    long long n_a = 0, n_b = 0;
+    std::vector<int> new_a, new_b;
+    auto take_samples = [&](long long count) {
+        new_a.clear();
+        new_b.clear();
+        for (long long i = 0; i < count; i++) {
+            if (next >= N) {
+                if (!resample) break;
+                data_epoch++;
+                std::mt19937 rng((unsigned)order_seed * 1000003u + (unsigned)data_epoch);
+                std::shuffle(perm.begin(), perm.end(), rng);
+                next = 0;
+            }
+            int start = perm[(size_t)next++];
+            drawn++;
+            if (sample_index++ % 2 == 0) {
+                agpt_v2::growth_incremental_ingest_start_v2(trie_a, start);
+                trie_a.ingested_starts++;
+                n_a++;
+                new_a.push_back(start);
+            } else {
+                agpt_v2::growth_incremental_ingest_start_v2(trie_b, start);
+                trie_b.ingested_starts++;
+                n_b++;
+                new_b.push_back(start);
+            }
+        }
+    };
+    std::vector<float> scratch;
+    auto grad_of_starts = [&](const std::vector<int>& starts, std::vector<double>& g) {
+        TrieGradStatsV2 st;
+        if (starts.empty()) return st;
+        agpt_v2::GrowthIncrementalRadixStateV2 d =
+            agpt_v2::make_growth_incremental_radix_state_v2(std::move(delta_tokens), max_depth);
+        for (int s : starts) {
+            agpt_v2::growth_incremental_ingest_start_v2(d, s);
+            d.ingested_starts++;
+        }
+        agpt_v2::RadixTrieStructure view = agpt_v2::growth_incremental_radix_view_v2(d);
+        st = accumulate_trie_gradient_host_v2(cfg, shape, model, view, h_weights, g, scratch);
+        delta_tokens = std::move(d.tokens);
+        return st;
+    };
+
+    float *d_w = nullptr, *d_g = nullptr, *d_m = nullptr, *d_v = nullptr;
+    AGPT_V2_CUDA_CHECK(cudaMalloc(&d_w, total * sizeof(float)));
+    AGPT_V2_CUDA_CHECK(cudaMalloc(&d_g, total * sizeof(float)));
+    AGPT_V2_CUDA_CHECK(cudaMalloc(&d_m, total * sizeof(float)));
+    AGPT_V2_CUDA_CHECK(cudaMalloc(&d_v, total * sizeof(float)));
+    AGPT_V2_CUDA_CHECK(cudaMemcpy(d_w, h_weights, total * sizeof(float), cudaMemcpyHostToDevice));
+    AGPT_V2_CUDA_CHECK(cudaMemcpy(d_m, h_opt_m, total * sizeof(float), cudaMemcpyHostToDevice));
+    AGPT_V2_CUDA_CHECK(cudaMemcpy(d_v, h_opt_v, total * sizeof(float), cudaMemcpyHostToDevice));
+
+    std::printf("AGPT CUDA Trainer V2\n");
+    std::printf("  mode: train-growth (noise cadence)\n");
+    std::printf("  model: d=%d heads=%d layers=%d ff=%d vocab=%d seq=%d head_dim=%d\n",
+                shape.d_model, shape.n_heads, shape.n_layers, shape.d_ff,
+                shape.vocab_size, shape.seq_len, shape.head_dim);
+    std::printf("  noise-cadence: theta=%.4g budget_positions=%lld start_windows=%lld max_ratio=%.4g "
+                "windows=%lld order=random seed=%d sample=%s optimizer=%s schedule=%s lr=%.6g lr_min_ratio=%.3f\n",
+                theta, budget, n0, max_ratio, N, order_seed,
+                resample ? "fresh-each-step" : "cumulative", v2_optimizer_name(cfg.optimizer),
+                v2_lr_schedule_name(cfg.lr_schedule), cfg.lr, cfg.lr_min_ratio);
+
+    std::vector<double> g_a(total, 0.0), g_b(total, 0.0);
+    std::vector<float> h_mean(total, 0.0f);
+    double e_a = 0.0, e_b = 0.0, l_a = 0.0, l_b = 0.0;
+    long long used = 0;
+    int steps = 0, full_recomputes = 0, growths = 0;
+    long long growth_windows_total = 0;
+    double grad_seconds = 0.0;
+    bool need_full = true;
+    take_samples(n0);
+    double t_start = wall_seconds_v2();
+    while (true) {
+        if (need_full) {
+            if (used >= budget) break;
+            std::fill(g_a.begin(), g_a.end(), 0.0);
+            std::fill(g_b.begin(), g_b.end(), 0.0);
+            agpt_v2::RadixTrieStructure view_a = agpt_v2::growth_incremental_radix_view_v2(trie_a);
+            agpt_v2::RadixTrieStructure view_b = agpt_v2::growth_incremental_radix_view_v2(trie_b);
+            TrieGradStatsV2 sa = accumulate_trie_gradient_host_v2(cfg, shape, model, view_a, h_weights, g_a, scratch);
+            TrieGradStatsV2 sb = accumulate_trie_gradient_host_v2(cfg, shape, model, view_b, h_weights, g_b, scratch);
+            e_a = sa.events; l_a = sa.loss_sum;
+            e_b = sb.events; l_b = sb.loss_sum;
+            used += sa.edge_chars + sb.edge_chars;
+            grad_seconds += sa.seconds + sb.seconds;
+            full_recomputes++;
+            need_full = false;
+        }
+        long long n = n_a + n_b;
+        double e_ab = e_a + e_b;
+        double d2 = 0.0, m2 = 0.0;
+        for (size_t k = 0; k < total; k++) {
+            double a = g_a[k] / e_a, b = g_b[k] / e_b, m = (g_a[k] + g_b[k]) / e_ab;
+            d2 += (a - b) * (a - b);
+            m2 += m * m;
+        }
+        double fpc = 1.0 - (double)n / (double)N;
+        if (fpc < 0.0) fpc = 0.0;
+        double noise2 = d2 * (double)n_a * (double)n_b / ((double)n * (double)n) * fpc;
+        double signal2 = m2 - noise2;
+        if (signal2 < 0.0) signal2 = 0.0;
+        double noise_ratio = signal2 > 0.0 ? std::sqrt(noise2 / signal2) : INFINITY;
+        bool all_in = !resample && next >= N;
+        bool spent = used >= budget;
+        bool passed = signal2 > 0.0 && noise2 <= theta * theta * signal2;
+        double loss = (l_a + l_b) / e_ab;
+        if (passed || all_in || spent) {
+            long long idx = (long long)((double)used / (double)budget * (double)kScheduleSteps);
+            if (idx > kScheduleSteps) idx = kScheduleSteps;
+            float lr = scheduled_lr(cfg, idx, kScheduleSteps, 0);
+            for (size_t k = 0; k < total; k++) h_mean[k] = (float)((g_a[k] + g_b[k]) / e_ab);
+            AGPT_V2_CUDA_CHECK(cudaMemcpy(d_g, h_mean.data(), total * sizeof(float), cudaMemcpyHostToDevice));
+            agpt_v2::OptimizerStepResult r =
+                agpt_v2::run_optimizer_step_stateful(cfg, lr, d_w, d_g, d_m, d_v, (int)total, ++steps);
+            AGPT_V2_CUDA_CHECK(cudaMemcpy(h_weights, d_w, total * sizeof(float), cudaMemcpyDeviceToHost));
+            std::printf("  noise-step %d: windows=%lld loss=%.6f noise/signal=%.4f grad=%.4g lr=%.6g "
+                        "positions=%lld%s step=%s\n",
+                        steps, n, loss, noise_ratio, std::sqrt(m2), lr, used,
+                        passed ? "" : (all_in ? " (all windows in)" : " (budget spent)"), r.message);
+            need_full = true;
+            if (resample) {
+                trie_a = agpt_v2::make_growth_incremental_radix_state_v2(std::move(trie_a.tokens), max_depth);
+                trie_b = agpt_v2::make_growth_incremental_radix_state_v2(std::move(trie_b.tokens), max_depth);
+                n_a = 0;
+                n_b = 0;
+                sample_index = 0;
+                take_samples(n);
+            }
+            continue;
+        }
+        // Grow: the norm test's own estimate of the sample it needs.
+        double target;
+        double inv_gap = 1.0 / (double)n - 1.0 / (double)N;
+        if (signal2 <= 0.0 || inv_gap <= 0.0) {
+            target = (double)n * max_ratio;
+        } else {
+            double a = noise2 / inv_gap;  // the per-window variance, in g's units
+            target = 1.0 / (theta * theta * signal2 / a + 1.0 / (double)N);
+        }
+        long long lo = n + std::max<long long>(1, (long long)std::ceil(0.05 * (double)n));
+        long long hi = (long long)std::floor((double)n * max_ratio);
+        if (hi < lo) hi = lo;
+        long long want = (long long)std::ceil(target);
+        if (want < lo) want = lo;
+        if (want > hi) want = hi;
+        if (want > N) want = N;
+        take_samples(want - n);
+        TrieGradStatsV2 da = grad_of_starts(new_a, g_a);
+        TrieGradStatsV2 db = grad_of_starts(new_b, g_b);
+        e_a += da.events; l_a += da.loss_sum;
+        e_b += db.events; l_b += db.loss_sum;
+        used += da.edge_chars + db.edge_chars;
+        grad_seconds += da.seconds + db.seconds;
+        growths++;
+        growth_windows_total += (long long)(new_a.size() + new_b.size());
+        double fresh = (da.events + db.events) > 0.0 ? (da.loss_sum + db.loss_sum) / (da.events + db.events) : 0.0;
+        std::printf("  noise-grow %d: windows %lld -> %lld (target %.0f) noise/signal=%.4f fresh_loss=%.6f "
+                    "trie_loss=%.6f new_positions=%lld positions=%lld\n",
+                    growths, n, n_a + n_b, target, noise_ratio, fresh, loss,
+                    da.edge_chars + db.edge_chars, used);
+        if (noise_check) {
+            // The incremental aggregate (old trie + new windows) against trie A
+            // recomputed whole at the same weights. Not counted in the budget.
+            std::vector<double> full_a(total, 0.0);
+            agpt_v2::RadixTrieStructure view_a = agpt_v2::growth_incremental_radix_view_v2(trie_a);
+            TrieGradStatsV2 sc = accumulate_trie_gradient_host_v2(cfg, shape, model, view_a, h_weights, full_a, scratch);
+            double num = 0.0, den = 0.0;
+            for (size_t k = 0; k < total; k++) {
+                num += (g_a[k] - full_a[k]) * (g_a[k] - full_a[k]);
+                den += full_a[k] * full_a[k];
+            }
+            std::printf("  noise-check %d: incremental vs whole trie A: grad rel_diff=%.3g events %.0f vs %.0f "
+                        "mean_loss %.8f vs %.8f\n",
+                        growths, den > 0.0 ? std::sqrt(num / den) : 0.0, e_a, sc.events,
+                        e_a > 0.0 ? l_a / e_a : 0.0, sc.events > 0.0 ? sc.loss_sum / sc.events : 0.0);
+        }
+    }
+    double t_end = wall_seconds_v2();
+
+    AGPT_V2_CUDA_CHECK(cudaFree(d_w));
+    AGPT_V2_CUDA_CHECK(cudaFree(d_g));
+    AGPT_V2_CUDA_CHECK(cudaFree(d_m));
+    AGPT_V2_CUDA_CHECK(cudaFree(d_v));
+    if (save_path) {
+        ensure_parent_dir_for_path_v2(save_path);
+        agpt_v2::save_model_weights_v2(save_path, model, h_weights);
+        std::printf("  train-growth: saved final weights to %s\n", save_path);
+    } else {
+        std::printf("  train-growth: no --save path supplied; final weights were not written\n");
+    }
+    std::printf("  train-growth: completed noise-cadence optimizer_steps=%d windows=%lld trie_a_edge_chars=%lld "
+                "trie_b_edge_chars=%lld positions=%lld full_recomputes=%d growths=%d growth_windows=%lld "
+                "grad_seconds=%.1f seconds=%.1f windows_drawn=%lld data_epochs=%.3f\n",
+                steps, n_a + n_b, (long long)trie_a.edge_tokens_flat.size(),
+                (long long)trie_b.edge_tokens_flat.size(), used, full_recomputes, growths,
+                growth_windows_total, grad_seconds, t_end - t_start, drawn, (double)drawn / (double)N);
+    return 0;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -1486,7 +1886,7 @@ int main(int argc, char** argv) {
 
     bool has_growth_schedule =
         growth_frontiers_arg || growth_divisions > 0 || growth_final_frontier > 0 || growth_train_frac < 1.0 ||
-        yaml_cfg.growth_ratio > 1.0f;
+        yaml_cfg.growth_ratio > 1.0f || yaml_cfg.growth_noise_theta > 0.0f;
     bool missing_required = !model_path ||
         (mode == V2Mode::TrainGrowth ? (!corpus_path || !has_growth_schedule) : !trie_dir);
     if (missing_required) {
@@ -1720,12 +2120,41 @@ int main(int argc, char** argv) {
             scheduled_epochs += growth_epochs_for_stage_v2(growth_epoch_schedule, i, (int)frontiers.size(),
                                                            growth_min_epochs, epochs);
         }
+        // experimental.growth_random_order: the window starts in a seeded
+        // random order (default seed train.seed), so each stage's trie is a
+        // random sample of the text rather than its opening.
+        std::vector<int> growth_order;
+        const std::vector<int>* growth_order_ptr = nullptr;
+        int growth_order_seed = yaml_cfg.growth_order_seed >= 0 ? yaml_cfg.growth_order_seed : yaml_cfg.seed;
+        if (yaml_cfg.growth_random_order) {
+            const char* radix_env = std::getenv("AGPT_GROWTH_RADIX");
+            if (radix_env && std::strcmp(radix_env, "rebuild") == 0) {
+                std::fprintf(stderr, "agpt_train_v2: experimental.growth_random_order needs the incremental radix "
+                                     "materializer (unset AGPT_GROWTH_RADIX=rebuild)\n");
+                return 1;
+            }
+            growth_order.resize((size_t)full_starts);
+            for (int s = 0; s < full_starts; s++) growth_order[(size_t)s] = s;
+            std::mt19937 order_rng((unsigned)growth_order_seed);
+            std::shuffle(growth_order.begin(), growth_order.end(), order_rng);
+            growth_order_ptr = &growth_order;
+        }
+        if (yaml_cfg.growth_noise_theta > 0.0f) {
+            int rc = run_noise_cadence_v2(cfg, yaml_cfg, shape, model, h_weights, h_opt_m, h_opt_v,
+                                          std::move(tokens), max_depth, full_starts,
+                                          growth_order_ptr, growth_order_seed, save_path);
+            std::free(h_weights);
+            std::free(h_opt_m);
+            std::free(h_opt_v);
+            agpt_v2::free_model_layout(model);
+            return rc;
+        }
         long long total_unit_steps = scheduled_epochs * (long long)estimated_units;
         if (yaml_cfg.growth_exact_schedule) {
             double t_count0 = wall_seconds_v2();
             total_unit_steps = count_growth_unit_steps_v2(cfg, tokens, max_depth, frontiers,
                                                           growth_epoch_schedule, growth_min_epochs,
-                                                          epochs, unit_limit);
+                                                          epochs, unit_limit, growth_order_ptr);
             std::printf("  growth-exact-schedule: total_unit_steps=%lld (counted in %.3fs; the vocab estimate was %lld)\n",
                         total_unit_steps, wall_seconds_v2() - t_count0,
                         scheduled_epochs * (long long)estimated_units);
@@ -1770,6 +2199,11 @@ int main(int argc, char** argv) {
                     total_unit_steps);
         std::printf("  growth-frontiers: source=%s divisions=%d train_frac=%.6f final_frontier=%d\n",
                     growth_schedule_source, growth_divisions, growth_train_frac, frontiers.back());
+        if (growth_order_ptr) {
+            std::printf("  growth-order: random seed=%d\n", growth_order_seed);
+        } else {
+            std::printf("  growth-order: corpus\n");
+        }
         std::printf("  config: lr=%.6f warmup_epochs=%d lr_min_ratio=%.3f partition_depth=%d chunk_queries=%d anc_grad=%s\n",
                     cfg.lr, cfg.warmup_epochs, cfg.lr_min_ratio, cfg.partition_depth, cfg.chunk_queries,
                     cfg.anc_grad ? "true" : "false");
@@ -1789,7 +2223,7 @@ int main(int argc, char** argv) {
             int frontier = frontiers[i];
             double t_stage0 = wall_seconds_v2();
             if (use_incremental_growth_radix) {
-                agpt_v2::growth_incremental_ingest_until_v2(growth_incremental, frontier);
+                growth_ingest_ordered_until_v2(growth_incremental, growth_order_ptr, frontier);
             } else {
                 agpt_v2::growth_ingest_until_v2(growth_rebuild, frontier);
             }
