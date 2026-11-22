@@ -2,7 +2,7 @@
 title: Noise cadence (split-half test, random-order growth)
 kind: experiment
 status: concluded
-outcome: mixed
+outcome: positive
 question: >-
   The user (2026-11-21/22): can the training rhythm follow a more nuanced signal than the
   number of count changes? A split-half noise test decides when to step: the window starts
@@ -12,14 +12,17 @@ question: >-
   compute? And does random-order growth help the fixed-cadence arms of trie-growth?
 answer: >-
   With a fresh sample after every step (the user's resampling variant) the noise cadence
-  reaches rolling byte PPL 4.70 at 54M trie positions, 4.66 at 68M and 4.565 at 136M,
-  against minibatch 4.61 (interpolated), 4.58 and 4.53: 0.8 PPL better than every earlier
-  AGPT arm (best 5.51), within 0.10-0.04 of minibatch, the gap shrinking with compute to
-  136M, then flat: 4.546 against 4.511 at 271M (16 epochs). A second seed reproduces 136M to
-  0.003. It takes 5.8-8.6x fewer steps than minibatch (15,425 against 132,464 at 271M). A
-  constant LR, with the noise test left to anneal, is worse by 0.08-0.10. With the sample kept cumulative it overfits its sample and stalls at 6.12. The
-  trie merges 13-18% of the positions; the rest of the gain is the cadence. Random-order
-  growth helps pd=1 doubling by 0.9 PPL and does not help pd=3.
+  is level with minibatch at equal compute, within seed noise: 4.567 against 4.552 at 136M
+  trie positions (means of 2 and 3 seeds; minibatch's seeds span 4.526-4.570) and 4.535
+  against 4.522 at 271M (2 seeds each; AGPT 4.520-4.550, minibatch 4.511-4.534), with
+  5.8-8.7x fewer optimizer steps. 0.8 PPL better than every earlier AGPT arm (pd=3
+  doubling 5.51 at 54M). The apparent 0.035-0.04 gap against seed 42 alone was mostly
+  minibatch's seed spread (0.08 at 1 epoch, 0.044 at 8). v2's gradient matches PyTorch's
+  to 1e-6 and v2 trained like minibatch (128 windows a step through tries) matches the
+  PyTorch trainer over 3 seeds. The trie merges only 13-18% of positions at these sample
+  sizes, so the cadence (adaptive batch), not the sharing, carries the result. The
+  cumulative sample overfits (6.12); constant LR, sample caps and depth-stratified
+  sampling do not help. Random-order growth helps pd=1 doubling by 0.9 PPL, not pd=3.
 opened: 2026-11-21
 updated: 2026-11-22
 code: main
@@ -31,7 +34,8 @@ related: [trie-growth, one-pass-gap, gradient-population]
 
 # Noise cadence
 
-**Status:** concluded, mixed (2026-11-22, GPU slots 150, 153 and 156). Code `0a6f4de`.
+**Status:** concluded, positive: parity with minibatch at equal compute, within seed
+noise (2026-11-22, GPU slots 150, 153, 156 and 160). Code `0a6f4de`, `7bf11e0`, `6a435d6`.
 Configs `make_configs.py`, runs `run.sh`, table `summarize.py` (writes `runs.json`).
 Same setup as `trie-growth` and `one-pass-gap`: Tiny Shakespeare split
 `4fa9aec1db6b3aea`, d64/L2, depth 16, the same seed weights, the trie's own counts.
@@ -155,11 +159,66 @@ run here).
 
 - The gap: 0.10 / 0.08 / 0.04 / 0.035 PPL at 54 / 68 / 136 / 271M. It stops
   narrowing after 136M; both sides gain about 0.015 from 8 to 16 epochs.
-- Two seeds at 136M agree to 0.003, so the 136M gap (0.04) is not seed noise.
+- Two seeds at 136M agree to 0.003. (That was read at the time as "the gap is
+  real"; it measured AGPT's spread only. Minibatch's seeds spread far more: see
+  the free-rein section below.)
 - The 16-epoch budget bought only 3,700 more steps than the 8-epoch one: the
   extra compute went into late samples of 130k-250k windows.
 - Constant LR: the sample stops growing near 600-1,300 windows and training
   never settles; the cosine tail's large, expensive steps pay for themselves.
+
+### Free rein (slot 160): the trainer control, seeds, caps
+
+The user (2026-11-22): if these runs show no progress, free rein for one idea.
+Three checks, in order.
+
+**Depth-stratified sampling (CPU diagnostic, closed).** The trie truncated at
+depth k is small (65 / 1,466 / 12,947 / 62,930 positions at k = 1-4), so its
+gradient is the exact full-corpus gradient of every window's first k targets;
+sampling only the deeper targets would remove the shallow noise. Split by
+depth band on four checkpoints (exact PyTorch gradients, training text;
+`tools/depth_noise.py`, output `tools/depth_noise.json`; the gradient check is `tools/grad_check.py`), the noise is spread evenly over depth: exact
+depths 1 / 1-2 / 1-3 / 1-4 / 1-8 remove 2-5% / 10-15% / 17-24% / 26-29% /
+46-53% of B_noise. Depths 1-3 cost ~13k positions a step for ~20% less noise,
+more than a mid-training sample costs. Not built.
+
+**The trainer control.** `growth_noise_max_windows` (`7bf11e0`) caps the
+sample; with growth_start = cap = 128, v2 trains like minibatch through tries
+(`m0-w128`: 128 fresh windows a step, the trie merging 5.1%). Seed 42 put it
+0.044 / 0.079 behind PyTorch at 1 / 2 epochs, so the gradient was checked:
+`AGPT_NOISE_DUMP` (`6a435d6`) writes v2's sample gradient, and PyTorch's on
+the same 128 windows at the same weights (float64) matches it, rel diff 2.1e-7
+at the seed weights and 1.3e-6 at m0-w128-e2's final weights, per parameter
+and overall, loss to 8 digits. Adam (bias-corrected, eps 1e-8) and the cosine
+are the same code shape in both. Then seeds:
+
+| rolling PPL, seeds 42 / 43 / 44 | mean |
+|---|---:|
+| 1 epoch, v2 through tries (m0-w128) 4.870 / 4.825 / 4.830 | **4.842** |
+| 1 epoch, PyTorch minibatch 4.826 / 4.867 / 4.904 | 4.866 |
+| 8 epochs, fresh-sample cadence theta 4 4.565 / 4.568 / - | 4.567 |
+| 8 epochs, PyTorch minibatch 4.526 / 4.570 / 4.559 | **4.552** |
+| 16 epochs, fresh-sample cadence theta 4 4.550 / **4.520** / - | 4.535 |
+| 16 epochs, PyTorch minibatch 4.511 / 4.534 / - | **4.522** |
+
+(seed = window order; the init is the same seed file for every run.)
+
+- The trainers agree: v2 at 128 windows is level with PyTorch (0.024 ahead on
+  the mean, inside the spread).
+- Minibatch's seed spread is 0.078 at 1 epoch, 0.044 at 8, 0.023 at 16.
+  Seed 42, the one-pass-gap bar used everywhere above, is its best seed at 1
+  and 8 epochs.
+- The cadence against minibatch: +0.015 at 136M, +0.013 at 271M on the means,
+  inside both spreads; AGPT seed 43 at 271M (4.520) beats minibatch seed 43
+  (4.534). Level, not ahead; more seeds would be needed to resolve 0.01.
+- Steps: 9,872-11,453 against 66,232 at 136M (5.8-6.7x fewer), 15,166-15,895
+  against 132,464 at 271M (8.3-8.7x fewer).
+- The 54M / 68M gaps (0.10 / 0.08 above) are against seed 42 only; no
+  minibatch seeds were run at 2-4 epochs.
+
+**Caps on the late samples (no help).** theta 4 at 136M capped at 2,048 /
+8,192 windows: 4.586 / 4.581 against 4.565 uncapped. With the constant-LR
+result, the large late samples do the annealing and earn their cost.
 
 ## Reading
 
@@ -168,25 +227,29 @@ run here).
   5.51 or worse (pd=3 doubling), and the cumulative sample at 6.12. Its steps
   are good: 11,453 of them reach 4.565, which minibatch reaches in about 41k steps
   (interpolated: 4 epochs, 33,116 steps, give 4.582; 8 epochs, 66,232, give 4.526).
-- **It does not beat minibatch.** The gap narrows with compute, from 0.10
-  PPL at 54M to 0.04 at 136M, then holds at 0.035 to 271M (follow-up).
+- **It is level with minibatch at 8-16 epochs' compute.** Against seed 42 alone
+  the gap looked like 0.10 / 0.04 / 0.035 at 54 / 136 / 271M; with seeds it is
+  0.015 / 0.013 at 136 / 271M, inside the spread (free-rein section). At
+  1 epoch, v2 trained like minibatch is level with PyTorch, so the trainers are
+  not the difference either.
 - **Most of the gain is the cadence, not the trie.** The trie merges 13-18%
   of the positions at these sample sizes; a flat trainer with the same
   adaptive batch would take the same steps at about a fifth more compute. The
   fresh-sample cadence is adaptive-batch minibatch with the batch merged in a
   trie.
-- **The end of the schedule is wasteful.** The test grows the sample as the
-  gradient's signal shrinks, while the cosine schedule also cuts the LR; a
-  quarter to a third of the budget goes to the last 2% of the steps.
+- **The expensive end of the schedule pays.** A quarter to a third of the
+  budget goes to the last 2% of the steps, on samples of 30k-360k windows; a
+  constant LR (the test left to anneal) and caps of 2,048 / 8,192 windows are
+  both worse, so those samples are the annealing, not waste.
 - **Random order is a pd=1 fix.** It removes the corpus-order curriculum,
   which cost pd=1 doubling 0.9 PPL; pd=3 units already mix the text.
 
 ## Next (not decided by the user)
 
-- Depth-stratified sampling: the trie truncated at depth k is small (65 /
-  1,466 / 12,947 / 62,930 positions at k = 1-4, of 8.9M), so its gradient is
-  the exact full-corpus gradient of every window's first k targets; sample
-  windows only for the deeper targets. Unbiased; its noise is the deep part's
-  alone. Worth building only if much of the noise is shallow (diagnostic
-  first).
-- Constant LR and larger budgets were tried in the follow-up (above): no help.
+- More seeds (4-5 a side) at 136M and 271M to resolve a 0.01 difference, and
+  minibatch seeds at 2-4 epochs for the 54M / 68M points.
+- The steps advantage (6-9x fewer at equal compute and quality) is what
+  adaptive batching buys in data-parallel training; the trie adds a 13-18%
+  merge. A flat adaptive-batch trainer (the same test, no trie) would
+  separate the two.
+- Closed here: constant LR, sample caps, depth-stratified sampling.
