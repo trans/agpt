@@ -7,7 +7,8 @@ names="$*"
 [ -z "$names" ] && names=$(cat $D/order.txt)
 for n in $names; do
   echo "$(date -u +%H:%M:%S) $n"
-  bin/agpt_experiment --config $D/configs/$n.yml --trainer v2 > $D/last_run.log 2>&1
+  case $n in mb-*) T=src/tools/agpt_minibatch_train.py ;; *) T=v2 ;; esac
+  bin/agpt_experiment --config $D/configs/$n.yml --trainer $T > $D/last_run.log 2>&1
   s=$?
   case $s in
     0) ;;

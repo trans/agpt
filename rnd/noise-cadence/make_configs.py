@@ -21,7 +21,12 @@ Arms (slug: what):
               the size the test last passed with, the next windows in the shuffled
               order, reshuffled each pass through the text); the user (2026-11-22)
               asked for it after the cumulative sample overfit its ~10k windows
-  f0-tT-bM    the same at a budget of minibatch's 4 / 8 epochs (67.8M / 135.6M positions)
+  f0-tT-bM    the same at a budget of minibatch's 4 / 8 / 16 epochs (67.8M / 135.6M / 271.2M positions)
+  f0-...-s43  the same with train seed 43 (a different window order; the same init)
+  fc-tT-bM    the fresh-sample cadence at a constant LR: the noise test alone anneals
+              (it grows the sample as the signal shrinks; Smith et al. 2018)
+  mb-eE       ordinary minibatch Adam, 128 windows a step (one-pass-gap's recipe), for
+              the 16-epoch bar; run with src/tools/agpt_minibatch_train.py
 
 Usage: make_configs.py  (writes configs/*.yml)
 """
@@ -34,13 +39,13 @@ TRIE = "data/.tries/64e9fe109211b366"
 BUDGET = 54_200_000
 
 
-def config(slug, desc, pd, passes, lr, exp_extra, crown=False):
+def config(slug, desc, pd, passes, lr, exp_extra, crown=False, schedule="warmup-cosine", seed=42):
     exp = ["  anc_grad_exact: true"]
     if crown:
         exp += ["  train_crown: true", "  unit_order_seed: 1"]
     exp += exp_extra
     return f"""---
-description: "noise cadence: {desc}, Adam lr {lr} warmup-cosine"
+description: "noise cadence: {desc}, Adam lr {lr} {schedule}"
 experiment: noise-cadence
 run_slug: {slug}-lr{lr}
 corpus:
@@ -58,7 +63,7 @@ train:
   budget:
     unit: epochs
     value: {passes}
-  seed: 42
+  seed: {seed}
   quiet: true
   optimizer:
     name: adam
@@ -66,7 +71,7 @@ train:
     beta: 0.999
     momentum_beta: 0.9
   lr_schedule:
-    name: warmup-cosine
+    name: {schedule}
     warmup_epochs: 0
   max_depth: 16
   partition_depth: {pd}
@@ -100,13 +105,50 @@ def noise(theta, resample=False, budget=BUDGET):
     return out
 
 
+def minibatch(epochs, lr):
+    return f"""---
+description: "noise cadence bar: ordinary minibatch Adam (128 windows of 16 per step), {epochs} pass(es), lr {lr} warmup-cosine per step (one-pass-gap's recipe)"
+experiment: noise-cadence
+run_slug: mb-e{epochs}-lr{lr}
+corpus:
+  path: {SPLIT}/train_corpus.txt
+  heldout: {SPLIT}/heldout_corpus.txt
+  vocab_source: data/input.txt
+model:
+  init_file: {SEED}
+train:
+  budget:
+    unit: epochs
+    value: {epochs}
+  seed: 42
+  quiet: true
+  optimizer:
+    name: adam
+    lr: {lr}
+    beta: 0.999
+    momentum_beta: 0.9
+  lr_schedule:
+    name: warmup-cosine
+    warmup_epochs: 0
+  seq_len: 16
+eval:
+  split: tail-heldout
+  train_sanity: false
+  batch_size: 1
+  device: cpu
+experimental:
+  minibatch_size: 128
+  device: cuda
+"""
+
+
 def main():
     out = D / "configs"
     out.mkdir(exist_ok=True)
     cfgs = {}
 
-    def add(slug, desc, pd, passes, lr, extra, crown=False):
-        cfgs[f"{slug}-lr{lr}"] = config(slug, desc, pd, passes, lr, extra, crown)
+    def add(slug, desc, pd, passes, lr, extra, crown=False, **kw):
+        cfgs[f"{slug}-lr{lr}"] = config(slug, desc, pd, passes, lr, extra, crown, **kw)
 
     add("r1-full-e1", "random-order growth pd=1, one stage (the full trie), 1 pass", 1, 1, 0.012,
         growth(2_000_000, 2))
@@ -126,6 +168,20 @@ def main():
             for lr in lrs:
                 add(f"f0-t{theta}-{tag}", f"noise cadence pd=0, a fresh sample each step, theta {theta}, from 32 "
                     f"windows, budget {budget:,} positions", 0, 1, lr, noise(theta, resample=True, budget=budget))
+    # follow-up (2026-11-22): does the gap to minibatch cross zero?
+    fresh = lambda t, b: f"noise cadence pd=0, a fresh sample each step, theta {t}, from 32 windows, budget {b:,} positions"
+    for theta in (4, 8):
+        add(f"f0-t{theta}-b271", fresh(theta, 271_200_000), 0, 1, 0.006,
+            noise(theta, resample=True, budget=271_200_000))
+    add("f0-t8-b136", fresh(8, 135_600_000), 0, 1, 0.006, noise(8, resample=True, budget=135_600_000))
+    add("f0-t4-b136-s43", fresh(4, 135_600_000) + ", seed 43", 0, 1, 0.006,
+        noise(4, resample=True, budget=135_600_000), seed=43)
+    for budget, tag in ((54_200_000, "b54"), (135_600_000, "b136")):
+        for lr in (0.003, 0.006):
+            add(f"fc-t4-{tag}", fresh(4, budget) + ", constant LR", 0, 1, lr,
+                noise(4, resample=True, budget=budget), schedule="constant")
+    for lr in (0.003, 0.006):
+        cfgs[f"mb-e16-lr{lr}"] = minibatch(16, lr)
     for e, lrs in ((1, (0.006, 0.012)), (2, (0.006,))):
         for lr in lrs:
             add(f"r1-x2-e{e}", f"random-order growth pd=1, doubling from 1,000 starts, {e} pass(es) a stage",
