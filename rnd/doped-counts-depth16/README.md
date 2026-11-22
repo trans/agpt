@@ -19,8 +19,8 @@ answer: >-
   minibatch on the 100M text itself, same steps, is 0.086 nats ahead of the slice, 0.014 ahead
   of the slice with 10G counts (5.397 against 5.471), and still improving (5.278 at 3x the
   steps); at depth 8 the slice with 100M counts beat it (6.150 against 6.329). At depth 16 the
-  slice runs short of contexts, not only of targets: hard targets stop improving after epoch 4,
-  and doping refines the targets of contexts the slice has but adds none. A first 10G build
+  slice runs short of contexts, not only of targets: every slice arm gains under 0.01 nats from
+  epoch 4 to 8, and doping refines the targets of contexts the slice has but adds none. A first 10G build
   held two held-out pieces whole (other editions of their test books); found and removed
   before any 10G count was used.
 opened: 2026-11-22
@@ -108,9 +108,9 @@ depth-16 contexts seen at least twice / 10 / 100 times in the count text is
   with 100M counts beat minibatch on the 100M text by 0.029 nats at equal steps
   (6.150 against 6.329); at depth 16 the 100M text leads the slice with 100M counts
   by 0.033 and with 10G counts by 0.014, and keeps improving with more steps
-  (−0.022 more by 3x). The hard-target slice stops improving after epoch 4 and the
-  doped arms slow down (10G: 5.526 → 5.476 over epochs 4-8): at depth 16 the slice
-  is short of contexts, the inputs, not only of their targets. A 1M text has
+  (−0.022 more by 3x). Every slice arm is nearly flat from epoch 4 to 8 (hard
+  targets −0.005 nats, 10G counts −0.008): at depth 16 the slice is short of
+  contexts, the inputs, not only of their targets. A 1M text has
   ~1M distinct depth-16 contexts; the 100M text has ~100x as many. Doping refines
   the targets of the contexts the slice has and adds none.
 - **So doping is a complement to more training text at depth 16, not a
