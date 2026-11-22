@@ -119,8 +119,22 @@ depth-16 contexts seen at least twice / 10 / 100 times in the count text is
   for the 1M slice's 8.6M contexts; a 10M text's would be ~30 GiB), so that needs
   the counts kept sparsely, in a trie: the trie-as-storage problem itself.
 
-## Next (not decided by the user)
+## Prior record at 20M (missed when this was written)
 
-- A bigger training text (10M, 100M) doped with 10G counts, with sparse count
-  storage (per-node child lists, as the trie keeps them).
-- Longer training of the doped slice (it was still improving at epoch 8).
+The "bigger doped text" test proposed above was already run, on imm's 20M
+split (2026-11-18, air slot 90, air `5b007ee`, runs
+`experiments/prior_scaling/runs/distill_s1.84m_d24_w*.json`): a 1.84M char
+transformer (block 256) trained toward mobius's gated depth-24 rows counted
+with 10G of PG-19 books as soft targets, scored with no prior. Held out
+1.8359 / 1.8496 / 1.8890 bits/char at soft-target weight 0.25 / 0.5 / 0.75,
+against 1.835 trained normally: no transfer. With the prior kept at test time
+(input and logits), the 1 GB prior beat training on the 1 GB by 0.025
+bits/char ([prior-scaling-plain-1g](../prior-scaling-plain-1g/), one seed;
+a tie at 200M, [prior-scaling-plain-220m](../prior-scaling-plain-220m/)).
+
+Read together: doping helps a ~100k-parameter model on a 1M text at depth 8 and
+less so at depth 16, where the 100M text overtakes it, and nothing carries at
+20M with a 1.84M model. One difference not tested: air's rows condition on at
+most 24 characters while its network reads 256, so its soft targets are
+for a shorter context than the model's input; here the counts' context is the
+model's whole input.
