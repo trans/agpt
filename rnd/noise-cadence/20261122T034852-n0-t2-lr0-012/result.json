@@ -1,0 +1,38 @@
+{
+  "run_id": "20261122T034852-n0-t2-lr0-012",
+  "experiment": "noise-cadence",
+  "wall_seconds": 69.562999658,
+  "train_wall_seconds": 48.667757613,
+  "convert_wall_seconds": 3.394416698,
+  "eval_wall_seconds": 13.968798227,
+  "started_utc": "2026-11-22T03:48:52Z",
+  "ended_utc": "2026-11-22T03:50:01Z",
+  "trainer": "v2",
+  "evaluator": "lm-evaluation-harness via agpt_lm_eval.py",
+  "eval": {
+    "split": "multi-chunk-heldout",
+    "source_path": null,
+    "source_sha256": null,
+    "chunks_dir": "data/.splits/4fa9aec1db6b3aea/heldout_chunks",
+    "benchmark": null,
+    "task_name": "n0-t2-lr0-012_holdout"
+  },
+  "metrics": {
+    "lm_eval_rolling_word_perplexity": 23543.574804364434,
+    "lm_eval_rolling_byte_perplexity": 6.305692047081912,
+    "lm_eval_rolling_bits_per_byte": 2.656654714423984,
+    "agpt_fixed_token_perplexity": 5.84273008730868
+  },
+  "checkpoint_sha": "64401a0b051c7977a27a97c84156a0dadc107d8f8b67bcef753653f675f2ca72",
+  "checkpoint_results": null,
+  "experimental_used": {
+    "v2": [
+      "anc_grad_exact",
+      "growth_noise_budget_positions",
+      "growth_noise_max_ratio",
+      "growth_noise_theta",
+      "growth_random_order",
+      "growth_start"
+    ]
+  }
+}

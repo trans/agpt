@@ -21,6 +21,7 @@ Arms (slug: what):
               the size the test last passed with, the next windows in the shuffled
               order, reshuffled each pass through the text); the user (2026-11-22)
               asked for it after the cumulative sample overfit its ~10k windows
+  f0-tT-bM    the same at a budget of minibatch's 4 / 8 epochs (67.8M / 135.6M positions)
 
 Usage: make_configs.py  (writes configs/*.yml)
 """
@@ -90,9 +91,9 @@ def growth(start, ratio):
             "  growth_random_order: true"]
 
 
-def noise(theta, resample=False):
+def noise(theta, resample=False, budget=BUDGET):
     out = ["  growth_start: 32", f"  growth_noise_theta: {theta}",
-           f"  growth_noise_budget_positions: {BUDGET}", "  growth_noise_max_ratio: 2",
+           f"  growth_noise_budget_positions: {budget}", "  growth_noise_max_ratio: 2",
            "  growth_random_order: true"]
     if resample:
         out.append("  growth_noise_resample: true")
@@ -114,10 +115,17 @@ def main():
         for lr in lrs:
             add(f"n0-t{theta}", f"noise cadence pd=0, theta {theta}, from 32 windows, budget {BUDGET:,} positions",
                 0, 1, lr, noise(theta))
-    for theta in (1, 2, 4, 8):
-        for lr in (0.012, 0.024):
+    for theta, lrs in ((1, (0.006, 0.012, 0.024)), (2, (0.003, 0.006, 0.012, 0.024)),
+                       (4, (0.003, 0.006, 0.012, 0.024)), (8, (0.006, 0.012, 0.024))):
+        for lr in lrs:
             add(f"f0-t{theta}", f"noise cadence pd=0, a fresh sample each step, theta {theta}, from 32 windows, "
                 f"budget {BUDGET:,} positions", 0, 1, lr, noise(theta, resample=True))
+    # minibatch's 4 and 8 epochs' compute (one-pass-gap: 4.58 / 4.53)
+    for budget, tag in ((67_800_000, "b68"), (135_600_000, "b136")):
+        for theta, lrs in ((2, (0.006, 0.012)), (4, (0.006, 0.012))):
+            for lr in lrs:
+                add(f"f0-t{theta}-{tag}", f"noise cadence pd=0, a fresh sample each step, theta {theta}, from 32 "
+                    f"windows, budget {budget:,} positions", 0, 1, lr, noise(theta, resample=True, budget=budget))
     for e, lrs in ((1, (0.006, 0.012)), (2, (0.006,))):
         for lr in lrs:
             add(f"r1-x2-e{e}", f"random-order growth pd=1, doubling from 1,000 starts, {e} pass(es) a stage",
