@@ -1592,6 +1592,34 @@ static int run_noise_cadence_v2(const agpt_v2::TrainerConfig& cfg,
             grad_seconds += sa.seconds + sb.seconds;
             full_recomputes++;
             need_full = false;
+            // AGPT_NOISE_DUMP=PREFIX: write the first sample's mean gradient (in
+            // the .model layout, PREFIX.grad.model) and its window starts
+            // (PREFIX.starts.txt), then stop: a check against an independent
+            // gradient of the same windows at the same weights.
+            const char* dump = std::getenv("AGPT_NOISE_DUMP");
+            if (dump && *dump) {
+                std::vector<float> gm(total);
+                for (size_t k = 0; k < total; k++) gm[k] = (float)((g_a[k] + g_b[k]) / (e_a + e_b));
+                std::string gp = std::string(dump) + ".grad.model";
+                agpt_v2::save_model_weights_v2(gp.c_str(), model, gm.data());
+                std::string sp = std::string(dump) + ".starts.txt";
+                FILE* f = std::fopen(sp.c_str(), "w");
+                if (!f) {
+                    std::fprintf(stderr, "agpt_train_v2: cannot write %s\n", sp.c_str());
+                    return 1;
+                }
+                std::fprintf(f, "# events %.0f loss_sum %.9g edge_chars %lld\n", e_a + e_b, l_a + l_b, used);
+                for (int st : new_a) std::fprintf(f, "%d\n", st);
+                for (int st : new_b) std::fprintf(f, "%d\n", st);
+                std::fclose(f);
+                std::printf("  noise-dump: wrote %s and %s (%zu + %zu windows)\n", gp.c_str(), sp.c_str(),
+                            new_a.size(), new_b.size());
+                AGPT_V2_CUDA_CHECK(cudaFree(d_w));
+                AGPT_V2_CUDA_CHECK(cudaFree(d_g));
+                AGPT_V2_CUDA_CHECK(cudaFree(d_m));
+                AGPT_V2_CUDA_CHECK(cudaFree(d_v));
+                return 0;
+            }
         }
         long long n = n_a + n_b;
         double e_ab = e_a + e_b;
