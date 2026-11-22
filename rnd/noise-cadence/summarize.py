@@ -7,7 +7,8 @@ Compute is trie positions (edge characters of every gradient pass):
 - noise-cadence runs: the trainer's own count (both tries' whole recomputes
   after every step, plus each growth's new-window tries), from its last line.
 A minibatch epoch on this split is 16.95M positions (one-pass-gap); minibatch
-runs (mb-*) are counted that way, epochs x 16.95M. Steps:
+runs (mb-*) are counted that way, epochs x 16.95M; the no-trie cadence (fl-*)
+counts 16 positions per window per gradient, its own count. Steps:
 optimizer updates. For noise runs also: the final sample (windows) and the
 number of growths.
 """
@@ -32,12 +33,15 @@ for rd in sorted(D.glob("2026*-*")):
     noise = re.search(r"completed noise-cadence optimizer_steps=(\d+) windows=(\d+) .*?positions=(\d+) "
                       r"full_recomputes=(\d+) growths=(\d+)", text)
     mb = re.search(r"agpt_minibatch_train: done steps=(\d+)", text)
-    if mb:
-        epochs = int(re.search(r"budget:\s+unit: epochs\s+value: (\d+)", cfg).group(1))
-        row.update(steps=int(mb.group(1)), positions=int(epochs * MB_EPOCH))
-    elif noise:
+    if noise:
         row.update(steps=int(noise.group(1)), windows=int(noise.group(2)), positions=int(noise.group(3)),
                    growths=int(noise.group(5)))
+        drawn = re.search(r"completed noise-cadence .*?windows_drawn=(\d+)", text)
+        if drawn:
+            row["windows_drawn"] = int(drawn.group(1))
+    elif mb:
+        epochs = int(re.search(r"budget:\s+unit: epochs\s+value: (\d+)", cfg).group(1))
+        row.update(steps=int(mb.group(1)), positions=int(epochs * MB_EPOCH))
     else:
         stages = re.findall(r"growth-stage (\d+)/(\d+): .*?edge_chars=(\d+)", text)
         epochs = re.findall(r"train-growth-stage: epochs=(\d+) units=(\d+)", text)

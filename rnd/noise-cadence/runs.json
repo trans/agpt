@@ -166,6 +166,7 @@
    "windows": 76574,
    "positions": 54414725,
    "growths": 26,
+   "windows_drawn": 4038744,
    "mb_epochs": 3.2103082595870207
   },
   {
@@ -178,6 +179,7 @@
    "windows": 52156,
    "positions": 54526601,
    "growths": 15,
+   "windows_drawn": 4368934,
    "mb_epochs": 3.2169086135693217
   },
   {
@@ -190,6 +192,7 @@
    "windows": 104916,
    "positions": 54402329,
    "growths": 56,
+   "windows_drawn": 4240511,
    "mb_epochs": 3.2095769321533925
   },
   {
@@ -202,6 +205,7 @@
    "windows": 71263,
    "positions": 54221169,
    "growths": 29,
+   "windows_drawn": 4178029,
    "mb_epochs": 3.1988890265486725
   },
   {
@@ -214,6 +218,7 @@
    "windows": 59140,
    "positions": 54341486,
    "growths": 19,
+   "windows_drawn": 3981749,
    "mb_epochs": 3.2059873746312686
   },
   {
@@ -226,6 +231,7 @@
    "windows": 23076,
    "positions": 54383150,
    "growths": 11,
+   "windows_drawn": 4171168,
    "mb_epochs": 3.2084454277286136
   },
   {
@@ -238,6 +244,7 @@
    "windows": 32768,
    "positions": 54571624,
    "growths": 10,
+   "windows_drawn": 3944704,
    "mb_epochs": 3.2195648377581123
   },
   {
@@ -250,6 +257,7 @@
    "windows": 26505,
    "positions": 54395454,
    "growths": 11,
+   "windows_drawn": 4359664,
    "mb_epochs": 3.209171327433628
   },
   {
@@ -262,6 +270,7 @@
    "windows": 54047,
    "positions": 54516729,
    "growths": 19,
+   "windows_drawn": 54047,
    "mb_epochs": 3.2163261946902657
   },
   {
@@ -274,6 +283,7 @@
    "windows": 75414,
    "positions": 54754073,
    "growths": 37,
+   "windows_drawn": 75414,
    "mb_epochs": 3.230328790560472
   },
   {
@@ -286,6 +296,7 @@
    "windows": 56815,
    "positions": 54258326,
    "growths": 23,
+   "windows_drawn": 4013317,
    "mb_epochs": 3.201081179941003
   },
   {
@@ -298,6 +309,7 @@
    "windows": 65294,
    "positions": 54507010,
    "growths": 16,
+   "windows_drawn": 4025193,
    "mb_epochs": 3.215752802359882
   },
   {
@@ -310,6 +322,7 @@
    "windows": 30056,
    "positions": 54323016,
    "growths": 10,
+   "windows_drawn": 3914146,
    "mb_epochs": 3.2048976991150444
   },
   {
@@ -322,6 +335,7 @@
    "windows": 176432,
    "positions": 136329776,
    "growths": 16,
+   "windows_drawn": 10284289,
    "mb_epochs": 8.043054631268436
   },
   {
@@ -334,6 +348,7 @@
    "windows": 153862,
    "positions": 136086606,
    "growths": 32,
+   "windows_drawn": 10346958,
    "mb_epochs": 8.028708318584071
   },
   {
@@ -346,6 +361,7 @@
    "windows": 73932,
    "positions": 68216490,
    "growths": 16,
+   "windows_drawn": 5017420,
    "mb_epochs": 4.024571681415929
   },
   {
@@ -358,6 +374,7 @@
    "windows": 82790,
    "positions": 68612748,
    "growths": 40,
+   "windows_drawn": 5121895,
    "mb_epochs": 4.047949734513274
   },
   {
@@ -370,6 +387,7 @@
    "windows": 87104,
    "positions": 136484134,
    "growths": 16,
+   "windows_drawn": 10167570,
    "mb_epochs": 8.052161297935104
   },
   {
@@ -382,6 +400,7 @@
    "windows": 155661,
    "positions": 137028982,
    "growths": 41,
+   "windows_drawn": 10400591,
    "mb_epochs": 8.084305722713864
   },
   {
@@ -394,6 +413,7 @@
    "windows": 83986,
    "positions": 68610879,
    "growths": 19,
+   "windows_drawn": 5048442,
    "mb_epochs": 4.047839469026549
   },
   {
@@ -406,6 +426,7 @@
    "windows": 62948,
    "positions": 67882320,
    "growths": 40,
+   "windows_drawn": 5023467,
    "mb_epochs": 4.0048566371681416
   },
   {
@@ -418,6 +439,7 @@
    "windows": 70753,
    "positions": 54252449,
    "growths": 25,
+   "windows_drawn": 4049561,
    "mb_epochs": 3.200734454277286
   },
   {
@@ -430,6 +452,7 @@
    "windows": 43776,
    "positions": 54555815,
    "growths": 14,
+   "windows_drawn": 3956331,
    "mb_epochs": 3.2186321533923303
   },
   {
@@ -442,6 +465,7 @@
    "windows": 75742,
    "positions": 54755281,
    "growths": 27,
+   "windows_drawn": 75742,
    "mb_epochs": 3.2304000589970503
   },
   {
@@ -454,6 +478,7 @@
    "windows": 71666,
    "positions": 54538887,
    "growths": 13,
+   "windows_drawn": 71666,
    "mb_epochs": 3.217633451327434
   },
   {
@@ -466,6 +491,7 @@
    "windows": 49160,
    "positions": 54606130,
    "growths": 13,
+   "windows_drawn": 49160,
    "mb_epochs": 3.2216005899705014
   },
   {
@@ -478,6 +504,7 @@
    "windows": 248004,
    "positions": 272729816,
    "growths": 19,
+   "windows_drawn": 20891299,
    "mb_epochs": 16.090254631268436
   },
   {
@@ -500,6 +527,7 @@
    "windows": 1264,
    "positions": 135600578,
    "growths": 6,
+   "windows_drawn": 9478892,
    "mb_epochs": 8.000034100294986
   },
   {
@@ -512,6 +540,7 @@
    "windows": 1268,
    "positions": 135604187,
    "growths": 8,
+   "windows_drawn": 9385616,
    "mb_epochs": 8.000247020648967
   },
   {
@@ -524,6 +553,7 @@
    "windows": 152316,
    "positions": 136739197,
    "growths": 16,
+   "windows_drawn": 10236815,
    "mb_epochs": 8.067209262536872
   },
   {
@@ -536,6 +566,7 @@
    "windows": 101312,
    "positions": 136148324,
    "growths": 12,
+   "windows_drawn": 10105528,
    "mb_epochs": 8.032349498525074
   },
   {
@@ -558,6 +589,7 @@
    "windows": 596,
    "positions": 54206167,
    "growths": 5,
+   "windows_drawn": 3711100,
    "mb_epochs": 3.19800395280236
   },
   {
@@ -570,6 +602,7 @@
    "windows": 728,
    "positions": 54207271,
    "growths": 5,
+   "windows_drawn": 3717030,
    "mb_epochs": 3.198069085545723
   },
   {
@@ -582,6 +615,7 @@
    "windows": 131072,
    "positions": 271333223,
    "growths": 12,
+   "windows_drawn": 20394496,
    "mb_epochs": 16.007859764011798
   },
   {
@@ -594,6 +628,7 @@
    "windows": 128,
    "positions": 16955866,
    "growths": 0,
+   "windows_drawn": 1116672,
    "mb_epochs": 1.0003460766961652
   },
   {
@@ -606,6 +641,7 @@
    "windows": 128,
    "positions": 33909966,
    "growths": 0,
+   "windows_drawn": 2233088,
    "mb_epochs": 2.00058796460177
   },
   {
@@ -618,6 +654,7 @@
    "windows": 2048,
    "positions": 135611377,
    "growths": 8,
+   "windows_drawn": 9540500,
    "mb_epochs": 8.000671209439528
   },
   {
@@ -630,6 +667,7 @@
    "windows": 8192,
    "positions": 135690245,
    "growths": 14,
+   "windows_drawn": 9742161,
    "mb_epochs": 8.00532418879056
   },
   {
@@ -652,6 +690,7 @@
    "windows": 128,
    "positions": 16954527,
    "growths": 0,
+   "windows_drawn": 1116544,
    "mb_epochs": 1.0002670796460178
   },
   {
@@ -674,6 +713,7 @@
    "windows": 128,
    "positions": 16955982,
    "growths": 0,
+   "windows_drawn": 1116672,
    "mb_epochs": 1.0003529203539823
   },
   {
@@ -706,6 +746,7 @@
    "windows": 363232,
    "positions": 271608834,
    "growths": 18,
+   "windows_drawn": 21123186,
    "mb_epochs": 16.02412
   },
   {

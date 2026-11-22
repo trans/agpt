@@ -125,6 +125,28 @@ Config keys read:
                                   and events: mass-weighted momentum. With beta 1 and each
                                   unit once, it is the same as sag's first pass.)
     experimental.grad_average_beta (ema only: beta, default 1.)
+    experimental.noise_theta     (> 0: agpt_train_v2's split-half noise cadence with a fresh
+                                  sample, run_noise_cadence_v2 with growth_noise_resample, on
+                                  plain windows with no trie: the adaptive-batch control.
+                                  Windows come in random order (a new permutation each pass
+                                  through the text); sample j goes to half A if j is even, B if
+                                  odd. G and E are each half's summed gradient and events
+                                  (seq_len per window). noise^2 = |G_A/E_A - G_B/E_B|^2 n_A n_B /
+                                  n^2 (1 - n/N), signal^2 = |g|^2 - noise^2, g = (G_A + G_B) /
+                                  (E_A + E_B). Step on g when noise <= theta x signal (or the
+                                  budget is spent); otherwise add windows (the norm test's
+                                  target, clamped to [1.05 n, max_ratio n]; only the new
+                                  windows' gradient is computed, at the same weights). After a
+                                  step the next sample has the size the step took. Compute is
+                                  counted in positions, seq_len per window per gradient (a
+                                  minibatch epoch's meter); the LR schedule runs over the
+                                  budget, as v2's does. train.budget is not used.)
+    experimental.noise_budget_positions (with noise_theta, required: the run's positions.)
+    experimental.noise_start     (with noise_theta: the first sample's windows, default 32.)
+    experimental.noise_max_ratio (with noise_theta: the most a growth multiplies the sample
+                                  by, default 2.)
+                                  micro_batch (default 8192 here) bounds the windows in one
+                                  forward/backward.
 """
 
 from __future__ import annotations
@@ -151,7 +173,8 @@ KNOWN_EXPERIMENTAL = {"minibatch_size", "micro_batch", "device", "max_corpus_cha
                       "trie_plan_order_file", "log_step_loss", "grad_average", "grad_average_beta",
                       "trie_plan_group", "trie_targets_corpus", "trie_targets_corpus_sha256",
                       "trie_weights_corpus", "teacher_targets_file", "teacher_targets_sha256",
-                      "teacher_beta"}
+                      "teacher_beta", "noise_theta", "noise_budget_positions", "noise_start",
+                      "noise_max_ratio"}
 TOKEN_CAP = 131072  # tokens per forward/backward in trie-plan steps (memory bound only)
 
 
@@ -435,6 +458,132 @@ def scheduled_lr(lr, name, min_ratio, step, total, warmup):
     return lr * (min_ratio + (1.0 - min_ratio) * 0.5 * (1.0 + math.cos(math.pi * progress)))
 
 
+def run_noise_cadence(exp, model, opt, tokens_dev, n_starts, T, V, device, seed, lr, sched_name, min_ratio, micro):
+    """experimental.noise_theta: run_noise_cadence_v2 (fresh sample) on plain windows. Returns the steps taken."""
+    theta = float(exp["noise_theta"])
+    budget = int(exp["noise_budget_positions"])
+    max_ratio = float(exp.get("noise_max_ratio", 2.0))
+    N = n_starts
+    n0 = min(int(exp.get("noise_start", 32)), N)
+    S = 1_000_000  # v2's kScheduleSteps: the LR is looked up at used / budget of the way
+    params = list(model.parameters())
+    n_params = sum(p.numel() for p in params)
+    offsets = torch.arange(T + 1, device=device).view(1, T + 1)
+    rng = torch.Generator().manual_seed(seed)
+    perm = torch.randperm(N, generator=rng)
+    nxt, data_epoch, drawn = 0, 0, 0
+
+    def take(count):
+        """The next `count` window starts of the shuffled order (reshuffled when it runs out)."""
+        nonlocal perm, nxt, data_epoch, drawn
+        parts = []
+        while count > 0:
+            if nxt >= N:
+                data_epoch += 1
+                perm = torch.randperm(N, generator=rng)
+                nxt = 0
+            k = min(count, N - nxt)
+            parts.append(perm[nxt:nxt + k])
+            nxt += k
+            count -= k
+            drawn += k
+        return torch.cat(parts).to(device)
+
+    def split(starts, index):
+        """Sample j (counted from `index`) to half A if j is even, B if odd."""
+        a0 = index % 2
+        return starts[a0::2], starts[1 - a0::2]
+
+    def grad_sum(starts):
+        """The summed gradient (float64, flat), summed loss and events of these windows at the current weights."""
+        g = torch.zeros(n_params, dtype=torch.float64, device=device)
+        loss = torch.zeros((), dtype=torch.float64, device=device)
+        for j in range(0, starts.numel(), micro):
+            part = starts[j:j + micro]
+            chunks = tokens_dev[part.view(-1, 1) + offsets]
+            logits = model(chunks[:, :T])
+            ce = F.cross_entropy(logits.reshape(-1, V), chunks[:, 1:].reshape(-1), reduction="sum")
+            opt.zero_grad(set_to_none=True)
+            ce.backward()
+            g += torch.cat([(p.grad if p.grad is not None else torch.zeros_like(p)).reshape(-1)
+                            for p in params]).double()
+            loss += ce.detach().double()
+        return g, loss.item(), starts.numel() * T
+
+    print(f"  noise-cadence (no trie): theta={theta:g} budget_positions={budget} start_windows={n0} "
+          f"max_ratio={max_ratio:g} windows={N} order=random seed={seed} sample=fresh-each-step "
+          f"positions=seq_len per window per gradient micro_batch={micro} lr={lr} schedule={sched_name} "
+          f"lr_min_ratio={min_ratio:.3f} (train.budget not used)", flush=True)
+    model.train()
+    sa, sb = split(take(n0), 0)
+    n_a, n_b = sa.numel(), sb.numel()
+    used = steps = recomputes = growths = growth_windows = 0
+    need_full = True
+    while True:
+        if need_full:
+            if used >= budget:
+                break
+            g_a, l_a, e_a = grad_sum(sa)
+            g_b, l_b, e_b = grad_sum(sb)
+            used += e_a + e_b
+            recomputes += 1
+            need_full = False
+        n = n_a + n_b
+        e_ab = e_a + e_b
+        mean = (g_a + g_b) / e_ab
+        d2 = (g_a / e_a - g_b / e_b).square().sum().item()
+        m2 = mean.square().sum().item()
+        fpc = max(0.0, 1.0 - n / N)
+        noise2 = d2 * n_a * n_b / (n * n) * fpc
+        signal2 = max(0.0, m2 - noise2)
+        ratio = math.sqrt(noise2 / signal2) if signal2 > 0 else math.inf
+        spent = used >= budget
+        passed = signal2 > 0 and noise2 <= theta * theta * signal2
+        loss = (l_a + l_b) / e_ab
+        if passed or spent:
+            cur = scheduled_lr(lr, sched_name, min_ratio, min(S, int(used / budget * S)), S, 0)
+            for grp in opt.param_groups:
+                grp["lr"] = cur
+            o = 0
+            for p in params:
+                k = p.numel()
+                p.grad = mean[o:o + k].view_as(p).float()
+                o += k
+            opt.step()
+            steps += 1
+            print(f"  noise-step {steps}: windows={n} loss={loss:.6f} noise/signal={ratio:.4f} grad={math.sqrt(m2):.4g} "
+                  f"lr={cur:.6g} positions={used}{'' if passed else ' (budget spent)'}", flush=True)
+            need_full = True
+            sa, sb = split(take(n), 0)
+            n_a, n_b = sa.numel(), sb.numel()
+            continue
+        inv_gap = 1.0 / n - 1.0 / N
+        if signal2 <= 0 or inv_gap <= 0:
+            target = n * max_ratio
+        else:
+            a = noise2 / inv_gap  # the per-window variance, in g's units
+            target = 1.0 / (theta * theta * signal2 / a + 1.0 / N)
+        lo = n + max(1, math.ceil(0.05 * n))
+        hi = max(lo, math.floor(n * max_ratio))
+        want = min(max(math.ceil(target), lo), hi)
+        na, nb = split(take(want - n), n)
+        ga, la, ea = grad_sum(na)
+        gb, lb, eb = grad_sum(nb)
+        g_a += ga
+        g_b += gb
+        l_a, e_a, l_b, e_b = l_a + la, e_a + ea, l_b + lb, e_b + eb
+        n_a, n_b = n_a + na.numel(), n_b + nb.numel()
+        used += ea + eb
+        growths += 1
+        growth_windows += na.numel() + nb.numel()
+        print(f"  noise-grow {growths}: windows {n} -> {n_a + n_b} (target {target:.0f}) noise/signal={ratio:.4f} "
+              f"fresh_loss={(la + lb) / (ea + eb):.6f} sample_loss={loss:.6f} positions={used}", flush=True)
+    print(f"  train-growth: completed noise-cadence optimizer_steps={steps} windows={n_a + n_b} positions={used} "
+          f"full_recomputes={recomputes} growths={growths} growth_windows={growth_windows} windows_drawn={drawn} "
+          f"data_epochs={drawn / N:.3f}", flush=True)
+    return steps
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--config", required=True)
@@ -522,7 +671,19 @@ def main():
     avg_beta = float(exp.get("grad_average_beta", 1.0))
     if not 0.0 <= avg_beta <= 1.0:
         sys.exit("agpt_minibatch_train: grad_average_beta must be in [0, 1]")
-    micro = min(batch, int(exp.get("micro_batch") or batch))
+    noise = "noise_theta" in exp
+    if noise:
+        if float(exp["noise_theta"]) <= 0 or int(exp.get("noise_budget_positions") or 0) <= 0:
+            sys.exit("agpt_minibatch_train: noise_theta must be > 0 and needs noise_budget_positions > 0")
+        if int(exp.get("noise_start", 32)) < 2 or float(exp.get("noise_max_ratio", 2.0)) <= 1.0:
+            sys.exit("agpt_minibatch_train: noise_start must be >= 2 and noise_max_ratio > 1")
+        for k in ("minibatch_size", "step_events_file", "window_stride", "trie_plan", "trie_targets",
+                  "teacher_targets_file", "wrap_tail"):
+            if k in exp:
+                sys.exit(f"agpt_minibatch_train: noise_theta is for plain windows, not with {k}")
+    elif any(k in exp for k in ("noise_budget_positions", "noise_start", "noise_max_ratio")):
+        sys.exit("agpt_minibatch_train: noise_budget_positions, noise_start and noise_max_ratio go with noise_theta")
+    micro = int(exp.get("micro_batch") or 8192) if noise else min(batch, int(exp.get("micro_batch") or batch))
     device = torch.device(exp.get("device") or ("cuda" if torch.cuda.is_available() else "cpu"))
     if device.type == "cpu":
         # torch.optim.Adam's step checks for CUDA graph capture, which opens a CUDA
@@ -603,9 +764,12 @@ def main():
     print(f"  corpus {corpus['path']} chars={n_chars} window_starts={n_starts} "
           f"targets_per_epoch={n_starts * T}" + (" (tail wrapped to the front)" if exp.get("wrap_tail") else ""),
           flush=True)
-    print(f"  epochs={epochs} minibatch={batch} steps_per_epoch={steps_per_epoch} total_steps={total_steps} "
-          f"micro_batch={micro} lr={lr} schedule={sched_name} warmup_epochs={warmup_epochs} min_lr_ratio={min_ratio} "
-          f"betas=({beta1}, {beta2}) eps={eps} seed={seed} device={device}", flush=True)
+    if noise:
+        print(f"  betas=({beta1}, {beta2}) eps={eps} seed={seed} device={device}", flush=True)
+    else:
+        print(f"  epochs={epochs} minibatch={batch} steps_per_epoch={steps_per_epoch} total_steps={total_steps} "
+              f"micro_batch={micro} lr={lr} schedule={sched_name} warmup_epochs={warmup_epochs} "
+              f"min_lr_ratio={min_ratio} betas=({beta1}, {beta2}) eps={eps} seed={seed} device={device}", flush=True)
     if step_sizes is not None:
         print(f"  step_events_file {exp['step_events_file']}: {len(step_sizes)} steps per epoch, "
               f"{int(step_sizes.sum())} windows per epoch (median {int(step_sizes.median())}, max {batch}), "
@@ -670,6 +834,19 @@ def main():
         tnll = -torch.log(teacher.float().gather(1, tokens_dev.view(-1, 1)).clamp_min(1e-12)).mean().item()
         print(f"  teacher_targets {teach}: sha256 {sha}, beta {teacher_beta:g}, teacher NLL of the corpus "
               f"{tnll:.4f}", flush=True)
+    if noise:
+        if device.type == "cuda":
+            torch.cuda.synchronize()
+        t0 = time.perf_counter()
+        step = run_noise_cadence(exp, model, opt, tokens_dev, n_starts, T, V, device, seed, lr, sched_name,
+                                 min_ratio, micro)
+        if device.type == "cuda":
+            torch.cuda.synchronize()
+        train_wall = time.perf_counter() - t0
+        save_model(save_path, mc, model)
+        print(f"agpt_minibatch_train: done steps={step} train_wall_seconds={train_wall:.6f} saved {save_path}",
+              flush=True)
+        return
     rng = torch.Generator().manual_seed(seed)
     step = 0
     train_wall = 0.0

@@ -30,6 +30,9 @@ Arms (slug: what):
               for the trainer (v2 against PyTorch's mb-eE)
   f0-...-capW the fresh-sample cadence with the sample capped at W windows (the late samples grew to
               30k-250k)
+  fl-tT-bM    the no-trie control: the fresh-sample cadence on plain windows (PyTorch,
+              agpt_minibatch_train.py noise_theta), budget in flat positions (16 a window);
+              b163 = the flat positions of f0-t4-b136's 10.17M windows (equal data)
   mb-eE       ordinary minibatch Adam, 128 windows a step (one-pass-gap's recipe), for
               the 16-epoch bar; run with src/tools/agpt_minibatch_train.py
 
@@ -149,6 +152,46 @@ experimental:
 """
 
 
+def flat(theta, budget, tag, seed=42, lr=0.006):
+    return f"""---
+description: "noise cadence control: the same split-half cadence on plain windows, no trie (agpt_minibatch_train.py noise_theta), theta {theta}, a fresh sample each step, from 32 windows, budget {budget:,} positions (seq_len per window per gradient), lr {lr} warmup-cosine over the budget"
+experiment: noise-cadence
+run_slug: fl-t{theta}-{tag}{"" if seed == 42 else f"-s{seed}"}-lr{lr}
+corpus:
+  path: {SPLIT}/train_corpus.txt
+  heldout: {SPLIT}/heldout_corpus.txt
+  vocab_source: data/input.txt
+model:
+  init_file: {SEED}
+train:
+  budget:
+    unit: epochs
+    value: 1
+  seed: {seed}
+  quiet: true
+  optimizer:
+    name: adam
+    lr: {lr}
+    beta: 0.999
+    momentum_beta: 0.9
+  lr_schedule:
+    name: warmup-cosine
+    warmup_epochs: 0
+  seq_len: 16
+eval:
+  split: tail-heldout
+  train_sanity: false
+  batch_size: 1
+  device: cpu
+experimental:
+  noise_theta: {theta}
+  noise_budget_positions: {budget}
+  noise_start: 32
+  noise_max_ratio: 2
+  device: cuda
+"""
+
+
 def main():
     out = D / "configs"
     out.mkdir(exist_ok=True)
@@ -210,6 +253,16 @@ def main():
     for cap in (2048, 8192):
         add(f"f0-t4-b136-cap{cap}", fresh(4, 135_600_000) + f", sample capped at {cap} windows", 0, 1, 0.006,
             noise(4, resample=True, budget=135_600_000, cap=cap))
+    # the no-trie control (2026-11-22, the user asked): the same cadence on plain windows in PyTorch.
+    # b136 / b271: AGPT's position budgets (equal compute; flat windows cost 16 positions, trie
+    # windows ~13.4 at these samples, so the flat run sees ~16% fewer windows). b163: the flat
+    # positions of the windows f0-t4-b136 drew (10.17M x 16), equal data.
+    for budget, tag, seeds in ((135_600_000, "b136", (42, 43, 44)), (162_700_000, "b163", (42, 43)),
+                               (271_200_000, "b271", (42, 43))):
+        for seed in seeds:
+            cfgs[f"fl-t4-{tag}{'' if seed == 42 else f'-s{seed}'}-lr0.006"] = flat(4, budget, tag, seed)
+    add("f0-t4-b136-s44", fresh(4, 135_600_000) + ", seed 44", 0, 1, 0.006,
+        noise(4, resample=True, budget=135_600_000), seed=44)
     for e, lrs in ((1, (0.006, 0.012)), (2, (0.006,))):
         for lr in lrs:
             add(f"r1-x2-e{e}", f"random-order growth pd=1, doubling from 1,000 starts, {e} pass(es) a stage",
