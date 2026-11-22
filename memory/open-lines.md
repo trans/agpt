@@ -123,9 +123,11 @@ mobius refines a small corpus's counts with a larger corpus's. Record:
   a first build held held-out pieces 20 and 23 whole, other editions of
   their test books; now only books mobius counts, minus 54 more). Counter
   `src/tools/doped_counts.py` (`7418d09`, GPU, 10G in 12 min).
-- **Next (not decided by the user):** a bigger training text doped with 10G
-  counts (needs sparse count storage: the dense table is 3 GiB for the
-  slice's 8.6M contexts); refined counts in v2 (for the compute saving).
+- **The bigger-text version was already run at 20M** (air slot 90,
+  2026-11-18, air `5b007ee`): soft targets from mobius's d24 rows with 10G
+  books, 1.84M transformer, scored without the prior: no transfer. Doping so
+  far helps only the small model on the 1M slice. Untested difference: air's
+  rows condition on <= 24 chars while its network reads 256.
 - Related record: agpt `rnd/prior-scaling-plain-1g` (a 1 GB prior beat
   training on the 1 GB by 0.025 bits/char), `rnd/count-backoff-gate`
   (same-corpus smoothed targets hurt AGPT: 6.70 against 5.30; raw counts from
