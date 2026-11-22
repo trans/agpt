@@ -1,0 +1,2569 @@
+{
+ "text": "data/pg19/imm-split-10g-dedup/train_corpus.txt",
+ "chunks": [
+  "chunk_00.txt",
+  "chunk_01.txt",
+  "chunk_02.txt",
+  "chunk_03.txt",
+  "chunk_04.txt",
+  "chunk_05.txt",
+  "chunk_06.txt",
+  "chunk_07.txt",
+  "chunk_08.txt",
+  "chunk_09.txt",
+  "chunk_10.txt",
+  "chunk_11.txt",
+  "chunk_12.txt",
+  "chunk_13.txt",
+  "chunk_14.txt",
+  "chunk_15.txt",
+  "chunk_16.txt",
+  "chunk_17.txt",
+  "chunk_18.txt",
+  "chunk_19.txt",
+  "chunk_20.txt",
+  "chunk_21.txt",
+  "chunk_22.txt",
+  "chunk_23.txt",
+  "chunk_24.txt",
+  "chunk_25.txt",
+  "chunk_26.txt",
+  "chunk_27.txt",
+  "chunk_28.txt",
+  "chunk_29.txt",
+  "chunk_30.txt",
+  "chunk_31.txt",
+  "chunk_32.txt",
+  "chunk_33.txt",
+  "chunk_34.txt",
+  "chunk_35.txt",
+  "chunk_36.txt",
+  "chunk_37.txt",
+  "chunk_38.txt",
+  "chunk_39.txt",
+  "chunk_40.txt",
+  "chunk_41.txt",
+  "chunk_42.txt",
+  "chunk_43.txt",
+  "chunk_44.txt",
+  "chunk_45.txt",
+  "chunk_46.txt",
+  "chunk_47.txt",
+  "chunk_48.txt",
+  "chunk_49.txt"
+ ],
+ "marks": {
+  "100000000": [
+   {
+    "frac32": 0.0,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.010263634534111492,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.01891728718051922,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.0,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.0,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.0,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.0008049909438518816,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.0,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.00503119339907426,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.0,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.0008049909438518816,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.0006037432078889113,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.0006037432078889113,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.0,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.0,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.002012477359629704,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.001006238679814852,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.0008049909438518816,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.0012074864157778226,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.0016099818877037633,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.0,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.0,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.0,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.0002012477359629704,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.001006238679814852,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.0008049909438518816,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.0030187160394445564,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.0006037432078889113,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.001408734151740793,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.0,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.0,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.0,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.0008049909438518816,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.032400885490038236,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.0,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.0,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.003421211511370497,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.0,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.0,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.0006037432078889113,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.0,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.0,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.002012477359629704,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.008854900382370698,
+    "frac64": 0.0016204172574437918
+   },
+   {
+    "frac32": 0.0002012477359629704,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.0,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.0002012477359629704,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.0,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.0,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.0,
+    "frac64": 0.0
+   }
+  ],
+  "1000000000": [
+   {
+    "frac32": 0.0,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.01952103038840813,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.021332260012074864,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.002817468303481586,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.00482994566311129,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.004628697927148319,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.00482994566311129,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.0,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.008653652646407727,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.0,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.008049909438518816,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.0054336888710002015,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.004024954719259408,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.0004024954719259408,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.0006037432078889113,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.003421211511370497,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.00503119339907426,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.004628697927148319,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.0052324411350372305,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.003421211511370497,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.0004024954719259408,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.0,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.004628697927148319,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.0006037432078889113,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.0016099818877037633,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.0008049909438518816,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.007848661702555847,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.0022137250955926746,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.00503119339907426,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.0022137250955926746,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.001408734151740793,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.007848661702555847,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.002414972831555645,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.03481585832159388,
+    "frac64": 0.0020255215718047396
+   },
+   {
+    "frac32": 0.0,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.0,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.004024954719259408,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.015496075669148722,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.0036224592473334677,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.0006037432078889113,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.0012074864157778226,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.004628697927148319,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.007244918494666935,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.013282350573556048,
+    "frac64": 0.0026331780433461616
+   },
+   {
+    "frac32": 0.002817468303481586,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.0018112296236667338,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.0036224592473334677,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.0004024954719259408,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.001006238679814852,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.0,
+    "frac64": 0.0
+   }
+  ],
+  "10000000000": [
+   {
+    "frac32": 0.0002012477359629704,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.026564701147112096,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.027973435298852888,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.035017106057556854,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.01952103038840813,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.013483598309519017,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.01469108472529684,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.0002012477359629704,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.015496075669148722,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.002012477359629704,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.03320587643389012,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.026765948883075066,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.011471120949889314,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.0030187160394445564,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.01006238679814852,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.011068625477963372,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.010464882270074461,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.021131012276111895,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.021332260012074864,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.013483598309519017,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.010464882270074461,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.0,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.020929764540148922,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.012074864157778226,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.0142885892533709,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.031193399074260414,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.037633326625075465,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.007043670758703964,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.022539746427852687,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.007647413966592876,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.011873616421815255,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.016703562084926543,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.006842423022740994,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.04769571342322399,
+    "frac64": 0.006076564715414219
+   },
+   {
+    "frac32": 0.006238679814852083,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.0036224592473334677,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.006641175286778024,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.05554437512577984,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.011269873213926343,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.0036224592473334677,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.011269873213926343,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.01388609378144496,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.026564701147112096,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.03723083115314953,
+    "frac64": 0.0032408345148875837
+   },
+   {
+    "frac32": 0.00945864359025961,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.008452404910444758,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.01006238679814852,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.001006238679814852,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.007043670758703964,
+    "frac64": 0.0
+   },
+   {
+    "frac32": 0.003823706983296438,
+    "frac64": 0.0
+   }
+  ]
+ },
+ "books": {
+  "train/54717.txt": {
+   "start": 9725562181,
+   "end": 9725669464,
+   "hits": 220,
+   "chunks": {
+    "chunk_33.txt": 220
+   }
+  },
+  "train/47735.txt": {
+   "start": 9828677324,
+   "end": 9828688648,
+   "hits": 205,
+   "chunks": {
+    "chunk_33.txt": 205
+   }
+  },
+  "train/37681.txt": {
+   "start": 9580105873,
+   "end": 9580658818,
+   "hits": 51,
+   "chunks": {
+    "chunk_33.txt": 51
+   }
+  },
+  "train/42763.txt": {
+   "start": 9798481698,
+   "end": 9798915665,
+   "hits": 31,
+   "chunks": {
+    "chunk_43.txt": 31
+   }
+  },
+  "train/50364.txt": {
+   "start": 9596578699,
+   "end": 9597328694,
+   "hits": 26,
+   "chunks": {
+    "chunk_33.txt": 26
+   }
+  },
+  "train/46001.txt": {
+   "start": 9806490557,
+   "end": 9806570870,
+   "hits": 18,
+   "chunks": {
+    "chunk_33.txt": 18
+   }
+  },
+  "train/42370.txt": {
+   "start": 9495078194,
+   "end": 9495481122,
+   "hits": 16,
+   "chunks": {
+    "chunk_43.txt": 16
+   }
+  },
+  "train/40796.txt": {
+   "start": 9980499983,
+   "end": 9981181867,
+   "hits": 12,
+   "chunks": {
+    "chunk_43.txt": 12
+   }
+  },
+  "train/48366.txt": {
+   "start": 809158814,
+   "end": 809471039,
+   "hits": 9,
+   "chunks": {
+    "chunk_43.txt": 9
+   }
+  },
+  "train/46011.txt": {
+   "start": 1953834710,
+   "end": 1954083594,
+   "hits": 9,
+   "chunks": {
+    "chunk_43.txt": 9
+   }
+  },
+  "train/24667.txt": {
+   "start": 2464096442,
+   "end": 2465055582,
+   "hits": 9,
+   "chunks": {
+    "chunk_43.txt": 9
+   }
+  },
+  "train/47655.txt": {
+   "start": 3628915771,
+   "end": 3629351835,
+   "hits": 9,
+   "chunks": {
+    "chunk_43.txt": 9
+   }
+  },
+  "train/40146.txt": {
+   "start": 4262015887,
+   "end": 4262468344,
+   "hits": 9,
+   "chunks": {
+    "chunk_43.txt": 9
+   }
+  },
+  "train/41366.txt": {
+   "start": 4610676403,
+   "end": 4610999833,
+   "hits": 9,
+   "chunks": {
+    "chunk_43.txt": 9
+   }
+  },
+  "train/56215.txt": {
+   "start": 5369457892,
+   "end": 5369790785,
+   "hits": 9,
+   "chunks": {
+    "chunk_43.txt": 9
+   }
+  },
+  "train/42056.txt": {
+   "start": 6338811950,
+   "end": 6339270991,
+   "hits": 9,
+   "chunks": {
+    "chunk_43.txt": 9
+   }
+  },
+  "train/47746.txt": {
+   "start": 6524354479,
+   "end": 6526514141,
+   "hits": 9,
+   "chunks": {
+    "chunk_33.txt": 9
+   }
+  },
+  "train/49214.txt": {
+   "start": 7312407734,
+   "end": 7312541731,
+   "hits": 9,
+   "chunks": {
+    "chunk_43.txt": 9
+   }
+  },
+  "train/53844.txt": {
+   "start": 9550377206,
+   "end": 9550627955,
+   "hits": 9,
+   "chunks": {
+    "chunk_33.txt": 9
+   }
+  },
+  "train/45728.txt": {
+   "start": 66796949,
+   "end": 67136115,
+   "hits": 8,
+   "chunks": {
+    "chunk_43.txt": 8
+   }
+  },
+  "train/51347.txt": {
+   "start": 261941986,
+   "end": 262113704,
+   "hits": 8,
+   "chunks": {
+    "chunk_43.txt": 8
+   }
+  },
+  "train/52242.txt": {
+   "start": 534309622,
+   "end": 535268845,
+   "hits": 8,
+   "chunks": {
+    "chunk_43.txt": 8
+   }
+  },
+  "train/57921.txt": {
+   "start": 688722301,
+   "end": 689036159,
+   "hits": 8,
+   "chunks": {
+    "chunk_43.txt": 8
+   }
+  },
+  "train/42943.txt": {
+   "start": 841899019,
+   "end": 842213771,
+   "hits": 8,
+   "chunks": {
+    "chunk_43.txt": 8
+   }
+  },
+  "train/42027.txt": {
+   "start": 868514960,
+   "end": 869388305,
+   "hits": 8,
+   "chunks": {
+    "chunk_43.txt": 8
+   }
+  },
+  "train/34136.txt": {
+   "start": 1129908332,
+   "end": 1130337857,
+   "hits": 8,
+   "chunks": {
+    "chunk_43.txt": 8
+   }
+  },
+  "train/38368.txt": {
+   "start": 1184792485,
+   "end": 1185365629,
+   "hits": 8,
+   "chunks": {
+    "chunk_43.txt": 8
+   }
+  },
+  "train/42822.txt": {
+   "start": 1370855941,
+   "end": 1371350652,
+   "hits": 8,
+   "chunks": {
+    "chunk_43.txt": 8
+   }
+  },
+  "train/40273.txt": {
+   "start": 1715586603,
+   "end": 1715794278,
+   "hits": 8,
+   "chunks": {
+    "chunk_43.txt": 8
+   }
+  },
+  "train/41797.txt": {
+   "start": 1951996061,
+   "end": 1952466250,
+   "hits": 8,
+   "chunks": {
+    "chunk_43.txt": 8
+   }
+  },
+  "train/4994.txt": {
+   "start": 1964642732,
+   "end": 1964928469,
+   "hits": 8,
+   "chunks": {
+    "chunk_43.txt": 8
+   }
+  },
+  "train/56834.txt": {
+   "start": 1979501746,
+   "end": 1979869790,
+   "hits": 8,
+   "chunks": {
+    "chunk_43.txt": 8
+   }
+  },
+  "train/42926.txt": {
+   "start": 2296630731,
+   "end": 2297211400,
+   "hits": 8,
+   "chunks": {
+    "chunk_43.txt": 8
+   }
+  },
+  "train/46289.txt": {
+   "start": 2304144661,
+   "end": 2304638761,
+   "hits": 8,
+   "chunks": {
+    "chunk_43.txt": 8
+   }
+  },
+  "train/52257.txt": {
+   "start": 3290472377,
+   "end": 3290586482,
+   "hits": 8,
+   "chunks": {
+    "chunk_43.txt": 8
+   }
+  },
+  "train/56792.txt": {
+   "start": 3324299378,
+   "end": 3324724972,
+   "hits": 8,
+   "chunks": {
+    "chunk_43.txt": 8
+   }
+  },
+  "train/50831.txt": {
+   "start": 3370530224,
+   "end": 3370823262,
+   "hits": 8,
+   "chunks": {
+    "chunk_43.txt": 8
+   }
+  },
+  "train/43785.txt": {
+   "start": 3396924574,
+   "end": 3397364428,
+   "hits": 8,
+   "chunks": {
+    "chunk_43.txt": 8
+   }
+  },
+  "train/41893.txt": {
+   "start": 3854660414,
+   "end": 3855290766,
+   "hits": 8,
+   "chunks": {
+    "chunk_43.txt": 8
+   }
+  },
+  "train/41722.txt": {
+   "start": 3970236878,
+   "end": 3970732446,
+   "hits": 8,
+   "chunks": {
+    "chunk_43.txt": 8
+   }
+  },
+  "train/56773.txt": {
+   "start": 4266648630,
+   "end": 4266988525,
+   "hits": 8,
+   "chunks": {
+    "chunk_43.txt": 8
+   }
+  },
+  "train/33763.txt": {
+   "start": 4405119325,
+   "end": 4405431817,
+   "hits": 8,
+   "chunks": {
+    "chunk_43.txt": 8
+   }
+  },
+  "train/48294.txt": {
+   "start": 5086938259,
+   "end": 5087426896,
+   "hits": 8,
+   "chunks": {
+    "chunk_43.txt": 8
+   }
+  },
+  "train/50799.txt": {
+   "start": 5096918054,
+   "end": 5097178184,
+   "hits": 8,
+   "chunks": {
+    "chunk_43.txt": 8
+   }
+  },
+  "train/44631.txt": {
+   "start": 5131402908,
+   "end": 5131590732,
+   "hits": 8,
+   "chunks": {
+    "chunk_43.txt": 8
+   }
+  },
+  "train/42978.txt": {
+   "start": 5257089978,
+   "end": 5258004559,
+   "hits": 8,
+   "chunks": {
+    "chunk_43.txt": 8
+   }
+  },
+  "train/39799.txt": {
+   "start": 5396259096,
+   "end": 5396542830,
+   "hits": 8,
+   "chunks": {
+    "chunk_43.txt": 8
+   }
+  },
+  "train/51754.txt": {
+   "start": 5424142044,
+   "end": 5424884889,
+   "hits": 8,
+   "chunks": {
+    "chunk_43.txt": 8
+   }
+  },
+  "train/58245.txt": {
+   "start": 5439243700,
+   "end": 5439891871,
+   "hits": 8,
+   "chunks": {
+    "chunk_43.txt": 8
+   }
+  },
+  "train/55709.txt": {
+   "start": 5617865808,
+   "end": 5618196628,
+   "hits": 8,
+   "chunks": {
+    "chunk_43.txt": 8
+   }
+  },
+  "train/29473.txt": {
+   "start": 5806044097,
+   "end": 5806535453,
+   "hits": 8,
+   "chunks": {
+    "chunk_43.txt": 8
+   }
+  },
+  "train/42953.txt": {
+   "start": 5840066212,
+   "end": 5840422486,
+   "hits": 8,
+   "chunks": {
+    "chunk_43.txt": 8
+   }
+  },
+  "train/48989.txt": {
+   "start": 6054819136,
+   "end": 6055319573,
+   "hits": 8,
+   "chunks": {
+    "chunk_43.txt": 8
+   }
+  },
+  "train/36024.txt": {
+   "start": 6107643606,
+   "end": 6108555955,
+   "hits": 8,
+   "chunks": {
+    "chunk_43.txt": 8
+   }
+  },
+  "train/40480.txt": {
+   "start": 6469167862,
+   "end": 6469866636,
+   "hits": 8,
+   "chunks": {
+    "chunk_43.txt": 8
+   }
+  },
+  "train/31099.txt": {
+   "start": 6492912404,
+   "end": 6493650594,
+   "hits": 8,
+   "chunks": {
+    "chunk_43.txt": 8
+   }
+  },
+  "train/45990.txt": {
+   "start": 6689834712,
+   "end": 6690098312,
+   "hits": 8,
+   "chunks": {
+    "chunk_43.txt": 8
+   }
+  },
+  "train/47399.txt": {
+   "start": 6955417804,
+   "end": 6955839622,
+   "hits": 8,
+   "chunks": {
+    "chunk_43.txt": 8
+   }
+  },
+  "train/54871.txt": {
+   "start": 7338607654,
+   "end": 7338893366,
+   "hits": 8,
+   "chunks": {
+    "chunk_43.txt": 8
+   }
+  },
+  "train/43541.txt": {
+   "start": 7596067284,
+   "end": 7597041378,
+   "hits": 8,
+   "chunks": {
+    "chunk_43.txt": 8
+   }
+  },
+  "train/40081.txt": {
+   "start": 7795222907,
+   "end": 7795514001,
+   "hits": 8,
+   "chunks": {
+    "chunk_43.txt": 8
+   }
+  },
+  "train/50399.txt": {
+   "start": 7852112890,
+   "end": 7852313563,
+   "hits": 8,
+   "chunks": {
+    "chunk_43.txt": 8
+   }
+  },
+  "train/40800.txt": {
+   "start": 8071931082,
+   "end": 8072433110,
+   "hits": 8,
+   "chunks": {
+    "chunk_43.txt": 8
+   }
+  },
+  "train/46855.txt": {
+   "start": 8096592071,
+   "end": 8097070937,
+   "hits": 8,
+   "chunks": {
+    "chunk_43.txt": 8
+   }
+  },
+  "train/40286.txt": {
+   "start": 8179003151,
+   "end": 8179161962,
+   "hits": 8,
+   "chunks": {
+    "chunk_43.txt": 8
+   }
+  },
+  "train/45556.txt": {
+   "start": 8224694408,
+   "end": 8224866963,
+   "hits": 8,
+   "chunks": {
+    "chunk_43.txt": 8
+   }
+  },
+  "train/46170.txt": {
+   "start": 8352034788,
+   "end": 8352628711,
+   "hits": 8,
+   "chunks": {
+    "chunk_43.txt": 8
+   }
+  },
+  "train/41252.txt": {
+   "start": 8447157111,
+   "end": 8447815664,
+   "hits": 8,
+   "chunks": {
+    "chunk_43.txt": 8
+   }
+  },
+  "train/46178.txt": {
+   "start": 8707082054,
+   "end": 8707515006,
+   "hits": 8,
+   "chunks": {
+    "chunk_43.txt": 8
+   }
+  },
+  "train/40696.txt": {
+   "start": 8844563114,
+   "end": 8844995759,
+   "hits": 8,
+   "chunks": {
+    "chunk_43.txt": 8
+   }
+  },
+  "train/50134.txt": {
+   "start": 8903943415,
+   "end": 8904164549,
+   "hits": 8,
+   "chunks": {
+    "chunk_43.txt": 8
+   }
+  },
+  "train/53692.txt": {
+   "start": 9102161289,
+   "end": 9102512362,
+   "hits": 8,
+   "chunks": {
+    "chunk_43.txt": 8
+   }
+  },
+  "train/48501.txt": {
+   "start": 9246360711,
+   "end": 9246813601,
+   "hits": 8,
+   "chunks": {
+    "chunk_43.txt": 8
+   }
+  },
+  "train/57723.txt": {
+   "start": 9354061769,
+   "end": 9354910019,
+   "hits": 8,
+   "chunks": {
+    "chunk_43.txt": 8
+   }
+  },
+  "train/46121.txt": {
+   "start": 9490018406,
+   "end": 9490251715,
+   "hits": 8,
+   "chunks": {
+    "chunk_43.txt": 8
+   }
+  },
+  "train/47725.txt": {
+   "start": 9490251715,
+   "end": 9490822326,
+   "hits": 8,
+   "chunks": {
+    "chunk_43.txt": 8
+   }
+  },
+  "train/26198.txt": {
+   "start": 9520259338,
+   "end": 9520855681,
+   "hits": 8,
+   "chunks": {
+    "chunk_43.txt": 8
+   }
+  },
+  "train/40660.txt": {
+   "start": 9568418712,
+   "end": 9569294525,
+   "hits": 8,
+   "chunks": {
+    "chunk_43.txt": 8
+   }
+  },
+  "train/40057.txt": {
+   "start": 9666736880,
+   "end": 9667919995,
+   "hits": 8,
+   "chunks": {
+    "chunk_43.txt": 8
+   }
+  },
+  "train/42520.txt": {
+   "start": 9677268823,
+   "end": 9677858962,
+   "hits": 8,
+   "chunks": {
+    "chunk_43.txt": 8
+   }
+  },
+  "train/46977.txt": {
+   "start": 9736055189,
+   "end": 9736210094,
+   "hits": 8,
+   "chunks": {
+    "chunk_43.txt": 8
+   }
+  },
+  "train/42800.txt": {
+   "start": 9772180506,
+   "end": 9772678549,
+   "hits": 8,
+   "chunks": {
+    "chunk_43.txt": 8
+   }
+  },
+  "train/40487.txt": {
+   "start": 9820437164,
+   "end": 9820854170,
+   "hits": 8,
+   "chunks": {
+    "chunk_43.txt": 8
+   }
+  },
+  "train/38248.txt": {
+   "start": 9835200849,
+   "end": 9835418129,
+   "hits": 8,
+   "chunks": {
+    "chunk_43.txt": 8
+   }
+  },
+  "train/42312.txt": {
+   "start": 9953350962,
+   "end": 9954068429,
+   "hits": 8,
+   "chunks": {
+    "chunk_43.txt": 8
+   }
+  },
+  "train/41574.txt": {
+   "start": 9999611079,
+   "end": 10000000000,
+   "hits": 8,
+   "chunks": {
+    "chunk_43.txt": 8
+   }
+  },
+  "train/40751.txt": {
+   "start": 217314875,
+   "end": 217652072,
+   "hits": 7,
+   "chunks": {
+    "chunk_43.txt": 7
+   }
+  },
+  "train/57715.txt": {
+   "start": 222809218,
+   "end": 223556397,
+   "hits": 7,
+   "chunks": {
+    "chunk_33.txt": 7
+   }
+  },
+  "train/56756.txt": {
+   "start": 292391611,
+   "end": 292673537,
+   "hits": 7,
+   "chunks": {
+    "chunk_43.txt": 7
+   }
+  },
+  "train/50705.txt": {
+   "start": 918018722,
+   "end": 918440961,
+   "hits": 7,
+   "chunks": {
+    "chunk_43.txt": 7
+   }
+  },
+  "train/56881.txt": {
+   "start": 939270419,
+   "end": 939425857,
+   "hits": 7,
+   "chunks": {
+    "chunk_43.txt": 7
+   }
+  },
+  "train/56415.txt": {
+   "start": 1133872822,
+   "end": 1134202959,
+   "hits": 7,
+   "chunks": {
+    "chunk_43.txt": 7
+   }
+  },
+  "train/39801.txt": {
+   "start": 1184327617,
+   "end": 1184680776,
+   "hits": 7,
+   "chunks": {
+    "chunk_43.txt": 7
+   }
+  },
+  "train/56142.txt": {
+   "start": 1327720788,
+   "end": 1328075616,
+   "hits": 7,
+   "chunks": {
+    "chunk_43.txt": 7
+   }
+  },
+  "train/33977.txt": {
+   "start": 1481588374,
+   "end": 1482146069,
+   "hits": 7,
+   "chunks": {
+    "chunk_43.txt": 7
+   }
+  },
+  "train/42190.txt": {
+   "start": 1551602532,
+   "end": 1552146256,
+   "hits": 7,
+   "chunks": {
+    "chunk_33.txt": 7
+   }
+  },
+  "train/57722.txt": {
+   "start": 1822009613,
+   "end": 1822372093,
+   "hits": 7,
+   "chunks": {
+    "chunk_43.txt": 7
+   }
+  },
+  "train/46590.txt": {
+   "start": 2008730385,
+   "end": 2009097386,
+   "hits": 7,
+   "chunks": {
+    "chunk_43.txt": 7
+   }
+  },
+  "train/56238.txt": {
+   "start": 2200440819,
+   "end": 2200831029,
+   "hits": 7,
+   "chunks": {
+    "chunk_43.txt": 7
+   }
+  },
+  "train/56278.txt": {
+   "start": 2316497580,
+   "end": 2316927307,
+   "hits": 7,
+   "chunks": {
+    "chunk_43.txt": 7
+   }
+  },
+  "train/55214.txt": {
+   "start": 2358257976,
+   "end": 2358406976,
+   "hits": 7,
+   "chunks": {
+    "chunk_43.txt": 7
+   }
+  },
+  "train/58285.txt": {
+   "start": 2489843619,
+   "end": 2490247720,
+   "hits": 7,
+   "chunks": {
+    "chunk_43.txt": 7
+   }
+  },
+  "train/49162.txt": {
+   "start": 2800027262,
+   "end": 2800278233,
+   "hits": 7,
+   "chunks": {
+    "chunk_43.txt": 7
+   }
+  },
+  "train/55717.txt": {
+   "start": 3015036793,
+   "end": 3015373433,
+   "hits": 7,
+   "chunks": {
+    "chunk_43.txt": 7
+   }
+  },
+  "train/57284.txt": {
+   "start": 3031071762,
+   "end": 3031372630,
+   "hits": 7,
+   "chunks": {
+    "chunk_43.txt": 7
+   }
+  },
+  "train/56795.txt": {
+   "start": 3341568552,
+   "end": 3342096913,
+   "hits": 7,
+   "chunks": {
+    "chunk_43.txt": 7
+   }
+  },
+  "train/57171.txt": {
+   "start": 3382046343,
+   "end": 3382364210,
+   "hits": 7,
+   "chunks": {
+    "chunk_43.txt": 7
+   }
+  },
+  "train/40500.txt": {
+   "start": 3561626694,
+   "end": 3562233622,
+   "hits": 7,
+   "chunks": {
+    "chunk_43.txt": 7
+   }
+  },
+  "train/50323.txt": {
+   "start": 3701479835,
+   "end": 3701726729,
+   "hits": 7,
+   "chunks": {
+    "chunk_43.txt": 7
+   }
+  },
+  "train/56810.txt": {
+   "start": 3777166595,
+   "end": 3777599109,
+   "hits": 7,
+   "chunks": {
+    "chunk_43.txt": 7
+   }
+  },
+  "train/47744.txt": {
+   "start": 3865621662,
+   "end": 3866261027,
+   "hits": 7,
+   "chunks": {
+    "chunk_43.txt": 7
+   }
+  },
+  "train/56759.txt": {
+   "start": 3868342660,
+   "end": 3868660180,
+   "hits": 7,
+   "chunks": {
+    "chunk_43.txt": 7
+   }
+  },
+  "train/56207.txt": {
+   "start": 3914152719,
+   "end": 3914472555,
+   "hits": 7,
+   "chunks": {
+    "chunk_43.txt": 7
+   }
+  },
+  "train/57149.txt": {
+   "start": 4417902956,
+   "end": 4418190548,
+   "hits": 7,
+   "chunks": {
+    "chunk_43.txt": 7
+   }
+  },
+  "train/40168.txt": {
+   "start": 4434411804,
+   "end": 4434910896,
+   "hits": 7,
+   "chunks": {
+    "chunk_43.txt": 7
+   }
+  },
+  "train/38384.txt": {
+   "start": 4438423454,
+   "end": 4438761561,
+   "hits": 7,
+   "chunks": {
+    "chunk_43.txt": 7
+   }
+  },
+  "train/45601.txt": {
+   "start": 4452772048,
+   "end": 4453159903,
+   "hits": 7,
+   "chunks": {
+    "chunk_43.txt": 7
+   }
+  },
+  "train/56686.txt": {
+   "start": 4504032893,
+   "end": 4504359955,
+   "hits": 7,
+   "chunks": {
+    "chunk_43.txt": 7
+   }
+  },
+  "train/48389.txt": {
+   "start": 5035951975,
+   "end": 5036368426,
+   "hits": 7,
+   "chunks": {
+    "chunk_43.txt": 7
+   }
+  },
+  "train/57918.txt": {
+   "start": 5572708486,
+   "end": 5572955241,
+   "hits": 7,
+   "chunks": {
+    "chunk_43.txt": 7
+   }
+  },
+  "train/54955.txt": {
+   "start": 5795240750,
+   "end": 5796095114,
+   "hits": 7,
+   "chunks": {
+    "chunk_43.txt": 7
+   }
+  },
+  "train/41896.txt": {
+   "start": 5868464668,
+   "end": 5868717799,
+   "hits": 7,
+   "chunks": {
+    "chunk_43.txt": 7
+   }
+  },
+  "train/56816.txt": {
+   "start": 5890662023,
+   "end": 5890833035,
+   "hits": 7,
+   "chunks": {
+    "chunk_43.txt": 7
+   }
+  },
+  "train/40357.txt": {
+   "start": 6124904861,
+   "end": 6125298996,
+   "hits": 7,
+   "chunks": {
+    "chunk_43.txt": 7
+   }
+  },
+  "train/41906.txt": {
+   "start": 6183286386,
+   "end": 6183583698,
+   "hits": 7,
+   "chunks": {
+    "chunk_43.txt": 7
+   }
+  },
+  "train/52310.txt": {
+   "start": 6739689237,
+   "end": 6740168008,
+   "hits": 7,
+   "chunks": {
+    "chunk_43.txt": 7
+   }
+  },
+  "train/57925.txt": {
+   "start": 6938999772,
+   "end": 6939473505,
+   "hits": 7,
+   "chunks": {
+    "chunk_43.txt": 7
+   }
+  },
+  "train/56408.txt": {
+   "start": 7130948198,
+   "end": 7131327376,
+   "hits": 7,
+   "chunks": {
+    "chunk_43.txt": 7
+   }
+  },
+  "train/43847.txt": {
+   "start": 7350831764,
+   "end": 7351608832,
+   "hits": 7,
+   "chunks": {
+    "chunk_43.txt": 7
+   }
+  },
+  "train/53601.txt": {
+   "start": 7469086192,
+   "end": 7469349100,
+   "hits": 7,
+   "chunks": {
+    "chunk_43.txt": 7
+   }
+  },
+  "train/40483.txt": {
+   "start": 7571466537,
+   "end": 7572331280,
+   "hits": 7,
+   "chunks": {
+    "chunk_43.txt": 7
+   }
+  },
+  "train/57413.txt": {
+   "start": 7765324412,
+   "end": 7765540379,
+   "hits": 7,
+   "chunks": {
+    "chunk_43.txt": 7
+   }
+  },
+  "train/48678.txt": {
+   "start": 7917308072,
+   "end": 7917563440,
+   "hits": 7,
+   "chunks": {
+    "chunk_43.txt": 7
+   }
+  },
+  "train/57896.txt": {
+   "start": 7925785914,
+   "end": 7926110627,
+   "hits": 7,
+   "chunks": {
+    "chunk_43.txt": 7
+   }
+  },
+  "train/34106.txt": {
+   "start": 7952234015,
+   "end": 7952373971,
+   "hits": 7,
+   "chunks": {
+    "chunk_43.txt": 7
+   }
+  },
+  "train/53386.txt": {
+   "start": 8200845334,
+   "end": 8201105984,
+   "hits": 7,
+   "chunks": {
+    "chunk_43.txt": 7
+   }
+  },
+  "train/41844.txt": {
+   "start": 8257914483,
+   "end": 8258495074,
+   "hits": 7,
+   "chunks": {
+    "chunk_43.txt": 7
+   }
+  },
+  "train/40059.txt": {
+   "start": 8268451754,
+   "end": 8269039330,
+   "hits": 7,
+   "chunks": {
+    "chunk_43.txt": 7
+   }
+  },
+  "train/56169.txt": {
+   "start": 8339318881,
+   "end": 8339595045,
+   "hits": 7,
+   "chunks": {
+    "chunk_43.txt": 7
+   }
+  },
+  "train/48655.txt": {
+   "start": 8340245658,
+   "end": 8340478854,
+   "hits": 7,
+   "chunks": {
+    "chunk_43.txt": 7
+   }
+  },
+  "train/49190.txt": {
+   "start": 8581020212,
+   "end": 8581259913,
+   "hits": 7,
+   "chunks": {
+    "chunk_43.txt": 7
+   }
+  },
+  "train/55840.txt": {
+   "start": 8685209161,
+   "end": 8685665289,
+   "hits": 7,
+   "chunks": {
+    "chunk_43.txt": 7
+   }
+  },
+  "train/55880.txt": {
+   "start": 8854088327,
+   "end": 8854558954,
+   "hits": 7,
+   "chunks": {
+    "chunk_43.txt": 7
+   }
+  },
+  "train/44659.txt": {
+   "start": 9106802810,
+   "end": 9107143595,
+   "hits": 7,
+   "chunks": {
+    "chunk_43.txt": 7
+   }
+  },
+  "train/56872.txt": {
+   "start": 9232736491,
+   "end": 9233192422,
+   "hits": 7,
+   "chunks": {
+    "chunk_43.txt": 7
+   }
+  },
+  "train/48297.txt": {
+   "start": 9698462414,
+   "end": 9698708854,
+   "hits": 7,
+   "chunks": {
+    "chunk_43.txt": 7
+   }
+  },
+  "train/56364.txt": {
+   "start": 9785199721,
+   "end": 9785605197,
+   "hits": 7,
+   "chunks": {
+    "chunk_43.txt": 7
+   }
+  },
+  "train/55804.txt": {
+   "start": 9852762688,
+   "end": 9853156649,
+   "hits": 7,
+   "chunks": {
+    "chunk_43.txt": 7
+   }
+  },
+  "train/54051.txt": {
+   "start": 9876640725,
+   "end": 9876920374,
+   "hits": 7,
+   "chunks": {
+    "chunk_43.txt": 7
+   }
+  },
+  "train/47822.txt": {
+   "start": 594201658,
+   "end": 595249687,
+   "hits": 6,
+   "chunks": {
+    "chunk_43.txt": 6
+   }
+  },
+  "train/51242.txt": {
+   "start": 1267982451,
+   "end": 1268158806,
+   "hits": 6,
+   "chunks": {
+    "chunk_43.txt": 6
+   }
+  },
+  "train/57154.txt": {
+   "start": 3506099242,
+   "end": 3506462195,
+   "hits": 6,
+   "chunks": {
+    "chunk_43.txt": 6
+   }
+  },
+  "train/52958.txt": {
+   "start": 7189744546,
+   "end": 7190192021,
+   "hits": 6,
+   "chunks": {
+    "chunk_43.txt": 6
+   }
+  },
+  "train/37963.txt": {
+   "start": 7300407420,
+   "end": 7300884950,
+   "hits": 6,
+   "chunks": {
+    "chunk_43.txt": 6
+   }
+  },
+  "train/45584.txt": {
+   "start": 8380635134,
+   "end": 8381331798,
+   "hits": 6,
+   "chunks": {
+    "chunk_33.txt": 6
+   }
+  },
+  "train/53516.txt": {
+   "start": 8424450736,
+   "end": 8424491838,
+   "hits": 6,
+   "chunks": {
+    "chunk_43.txt": 6
+   }
+  },
+  "train/38156.txt": {
+   "start": 744754929,
+   "end": 745071890,
+   "hits": 5,
+   "chunks": {
+    "chunk_43.txt": 5
+   }
+  },
+  "train/29896.txt": {
+   "start": 3662247104,
+   "end": 3662598457,
+   "hits": 5,
+   "chunks": {
+    "chunk_43.txt": 5
+   }
+  },
+  "train/35008.txt": {
+   "start": 3872557297,
+   "end": 3872773496,
+   "hits": 5,
+   "chunks": {
+    "chunk_43.txt": 5
+   }
+  },
+  "train/57428.txt": {
+   "start": 3992803634,
+   "end": 3992978860,
+   "hits": 5,
+   "chunks": {
+    "chunk_43.txt": 5
+   }
+  },
+  "train/54616.txt": {
+   "start": 4365530853,
+   "end": 4366252571,
+   "hits": 5,
+   "chunks": {
+    "chunk_43.txt": 5
+   }
+  },
+  "train/50747.txt": {
+   "start": 4458679143,
+   "end": 4459609929,
+   "hits": 5,
+   "chunks": {
+    "chunk_43.txt": 5
+   }
+  },
+  "train/48154.txt": {
+   "start": 5175714602,
+   "end": 5176908335,
+   "hits": 5,
+   "chunks": {
+    "chunk_43.txt": 5
+   }
+  },
+  "train/42824.txt": {
+   "start": 5273834279,
+   "end": 5274895910,
+   "hits": 5,
+   "chunks": {
+    "chunk_33.txt": 5
+   }
+  },
+  "train/26448.txt": {
+   "start": 5757981200,
+   "end": 5758157804,
+   "hits": 5,
+   "chunks": {
+    "chunk_43.txt": 5
+   }
+  },
+  "train/41395.txt": {
+   "start": 5929190857,
+   "end": 5929985143,
+   "hits": 5,
+   "chunks": {
+    "chunk_43.txt": 5
+   }
+  },
+  "train/50049.txt": {
+   "start": 100007326,
+   "end": 100619123,
+   "hits": 4,
+   "chunks": {
+    "chunk_43.txt": 4
+   }
+  },
+  "train/42973.txt": {
+   "start": 473757920,
+   "end": 474487759,
+   "hits": 4,
+   "chunks": {
+    "chunk_43.txt": 4
+   }
+  },
+  "train/28247.txt": {
+   "start": 3344062616,
+   "end": 3345478971,
+   "hits": 4,
+   "chunks": {
+    "chunk_43.txt": 4
+   }
+  },
+  "train/40058.txt": {
+   "start": 5477125678,
+   "end": 5478386040,
+   "hits": 4,
+   "chunks": {
+    "chunk_43.txt": 4
+   }
+  },
+  "train/52052.txt": {
+   "start": 6053309368,
+   "end": 6053542313,
+   "hits": 4,
+   "chunks": {
+    "chunk_33.txt": 4
+   }
+  },
+  "train/49011.txt": {
+   "start": 8674595566,
+   "end": 8675975641,
+   "hits": 4,
+   "chunks": {
+    "chunk_33.txt": 4
+   }
+  },
+  "train/52462.txt": {
+   "start": 9515164632,
+   "end": 9515662346,
+   "hits": 4,
+   "chunks": {
+    "chunk_43.txt": 4
+   }
+  },
+  "train/55364.txt": {
+   "start": 552297128,
+   "end": 552715720,
+   "hits": 3,
+   "chunks": {
+    "chunk_43.txt": 3
+   }
+  },
+  "train/38474.txt": {
+   "start": 619369199,
+   "end": 619800216,
+   "hits": 3,
+   "chunks": {
+    "chunk_43.txt": 3
+   }
+  },
+  "train/55983.txt": {
+   "start": 2493981961,
+   "end": 2494781182,
+   "hits": 3,
+   "chunks": {
+    "chunk_43.txt": 3
+   }
+  },
+  "train/49128.txt": {
+   "start": 2561652542,
+   "end": 2562727110,
+   "hits": 3,
+   "chunks": {
+    "chunk_33.txt": 3
+   }
+  },
+  "train/49341.txt": {
+   "start": 2708236355,
+   "end": 2708341609,
+   "hits": 3,
+   "chunks": {
+    "chunk_33.txt": 3
+   }
+  },
+  "train/30222.txt": {
+   "start": 2805536591,
+   "end": 2805808989,
+   "hits": 3,
+   "chunks": {
+    "chunk_33.txt": 3
+   }
+  },
+  "train/46779.txt": {
+   "start": 3119535253,
+   "end": 3120092844,
+   "hits": 3,
+   "chunks": {
+    "chunk_33.txt": 3
+   }
+  },
+  "train/58432.txt": {
+   "start": 3497775819,
+   "end": 3497909671,
+   "hits": 3,
+   "chunks": {
+    "chunk_43.txt": 3
+   }
+  },
+  "train/37495.txt": {
+   "start": 3765769647,
+   "end": 3765792100,
+   "hits": 3,
+   "chunks": {
+    "chunk_33.txt": 3
+   }
+  },
+  "train/58444.txt": {
+   "start": 4303907940,
+   "end": 4304542798,
+   "hits": 3,
+   "chunks": {
+    "chunk_33.txt": 3
+   }
+  },
+  "train/28758.txt": {
+   "start": 4829655514,
+   "end": 4830561750,
+   "hits": 3,
+   "chunks": {
+    "chunk_33.txt": 3
+   }
+  },
+  "train/48800.txt": {
+   "start": 5414195667,
+   "end": 5414718205,
+   "hits": 3,
+   "chunks": {
+    "chunk_33.txt": 3
+   }
+  },
+  "train/43557.txt": {
+   "start": 5939424465,
+   "end": 5939595441,
+   "hits": 3,
+   "chunks": {
+    "chunk_33.txt": 3
+   }
+  },
+  "train/48996.txt": {
+   "start": 6096273207,
+   "end": 6097250444,
+   "hits": 3,
+   "chunks": {
+    "chunk_43.txt": 3
+   }
+  },
+  "train/24485.txt": {
+   "start": 7302502645,
+   "end": 7302507948,
+   "hits": 3,
+   "chunks": {
+    "chunk_33.txt": 3
+   }
+  },
+  "train/46125.txt": {
+   "start": 7366348225,
+   "end": 7366708772,
+   "hits": 3,
+   "chunks": {
+    "chunk_33.txt": 3
+   }
+  },
+  "train/11116.txt": {
+   "start": 7781212706,
+   "end": 7781394373,
+   "hits": 3,
+   "chunks": {
+    "chunk_33.txt": 3
+   }
+  },
+  "train/38847.txt": {
+   "start": 7857699335,
+   "end": 7857715433,
+   "hits": 3,
+   "chunks": {
+    "chunk_33.txt": 3
+   }
+  },
+  "train/41989.txt": {
+   "start": 9381430998,
+   "end": 9381782993,
+   "hits": 3,
+   "chunks": {
+    "chunk_43.txt": 3
+   }
+  },
+  "train/40309.txt": {
+   "start": 9839880625,
+   "end": 9840181912,
+   "hits": 3,
+   "chunks": {
+    "chunk_33.txt": 3
+   }
+  },
+  "train/51838.txt": {
+   "start": 469295366,
+   "end": 469665538,
+   "hits": 2,
+   "chunks": {
+    "chunk_43.txt": 2
+   }
+  },
+  "train/56186.txt": {
+   "start": 1137677142,
+   "end": 1138397575,
+   "hits": 2,
+   "chunks": {
+    "chunk_43.txt": 2
+   }
+  },
+  "train/25765.txt": {
+   "start": 1390119840,
+   "end": 1390364550,
+   "hits": 2,
+   "chunks": {
+    "chunk_43.txt": 2
+   }
+  },
+  "train/57907.txt": {
+   "start": 1583558898,
+   "end": 1584402459,
+   "hits": 2,
+   "chunks": {
+    "chunk_43.txt": 2
+   }
+  },
+  "train/54701.txt": {
+   "start": 2066174321,
+   "end": 2066539381,
+   "hits": 2,
+   "chunks": {
+    "chunk_43.txt": 2
+   }
+  },
+  "train/25772.txt": {
+   "start": 2316131972,
+   "end": 2316439912,
+   "hits": 2,
+   "chunks": {
+    "chunk_43.txt": 2
+   }
+  },
+  "train/56403.txt": {
+   "start": 2771236465,
+   "end": 2771548532,
+   "hits": 2,
+   "chunks": {
+    "chunk_43.txt": 2
+   }
+  },
+  "train/42913.txt": {
+   "start": 4064491725,
+   "end": 4065160257,
+   "hits": 2,
+   "chunks": {
+    "chunk_43.txt": 2
+   }
+  },
+  "train/52873.txt": {
+   "start": 4871679110,
+   "end": 4872698783,
+   "hits": 2,
+   "chunks": {
+    "chunk_43.txt": 2
+   }
+  },
+  "train/40453.txt": {
+   "start": 4872698783,
+   "end": 4872964997,
+   "hits": 2,
+   "chunks": {
+    "chunk_43.txt": 2
+   }
+  },
+  "train/34711.txt": {
+   "start": 5395420286,
+   "end": 5395564211,
+   "hits": 2,
+   "chunks": {
+    "chunk_43.txt": 2
+   }
+  },
+  "train/57668.txt": {
+   "start": 6912080381,
+   "end": 6912152775,
+   "hits": 2,
+   "chunks": {
+    "chunk_43.txt": 2
+   }
+  },
+  "train/55980.txt": {
+   "start": 7643846152,
+   "end": 7644067552,
+   "hits": 2,
+   "chunks": {
+    "chunk_43.txt": 2
+   }
+  },
+  "train/47832.txt": {
+   "start": 7689342238,
+   "end": 7689658706,
+   "hits": 2,
+   "chunks": {
+    "chunk_43.txt": 2
+   }
+  },
+  "train/36311.txt": {
+   "start": 8649596928,
+   "end": 8649870337,
+   "hits": 2,
+   "chunks": {
+    "chunk_43.txt": 2
+   }
+  },
+  "train/25754.txt": {
+   "start": 8684822233,
+   "end": 8685209161,
+   "hits": 2,
+   "chunks": {
+    "chunk_43.txt": 2
+   }
+  },
+  "train/56705.txt": {
+   "start": 9320162647,
+   "end": 9320368313,
+   "hits": 2,
+   "chunks": {
+    "chunk_43.txt": 2
+   }
+  },
+  "train/40450.txt": {
+   "start": 53170188,
+   "end": 53603445,
+   "hits": 1,
+   "chunks": {
+    "chunk_43.txt": 1
+   }
+  },
+  "train/40330.txt": {
+   "start": 261315313,
+   "end": 261941986,
+   "hits": 1,
+   "chunks": {
+    "chunk_43.txt": 1
+   }
+  },
+  "train/38685.txt": {
+   "start": 262113704,
+   "end": 262690369,
+   "hits": 1,
+   "chunks": {
+    "chunk_43.txt": 1
+   }
+  },
+  "train/54614.txt": {
+   "start": 555070960,
+   "end": 555878404,
+   "hits": 1,
+   "chunks": {
+    "chunk_43.txt": 1
+   }
+  },
+  "train/39961.txt": {
+   "start": 1684567948,
+   "end": 1685279971,
+   "hits": 1,
+   "chunks": {
+    "chunk_43.txt": 1
+   }
+  },
+  "train/38181.txt": {
+   "start": 1912646440,
+   "end": 1913164917,
+   "hits": 1,
+   "chunks": {
+    "chunk_43.txt": 1
+   }
+  },
+  "train/2396.txt": {
+   "start": 3728067677,
+   "end": 3728932881,
+   "hits": 1,
+   "chunks": {
+    "chunk_43.txt": 1
+   }
+  },
+  "train/55034.txt": {
+   "start": 3933652072,
+   "end": 3934044657,
+   "hits": 1,
+   "chunks": {
+    "chunk_43.txt": 1
+   }
+  },
+  "train/39168.txt": {
+   "start": 5770035247,
+   "end": 5770632229,
+   "hits": 1,
+   "chunks": {
+    "chunk_43.txt": 1
+   }
+  },
+  "train/45004.txt": {
+   "start": 5861350460,
+   "end": 5861719210,
+   "hits": 1,
+   "chunks": {
+    "chunk_33.txt": 1
+   }
+  },
+  "train/38161.txt": {
+   "start": 5917102435,
+   "end": 5917530514,
+   "hits": 1,
+   "chunks": {
+    "chunk_43.txt": 1
+   }
+  },
+  "train/38689.txt": {
+   "start": 5951392453,
+   "end": 5951986465,
+   "hits": 1,
+   "chunks": {
+    "chunk_43.txt": 1
+   }
+  },
+  "train/40606.txt": {
+   "start": 6093369096,
+   "end": 6093722150,
+   "hits": 1,
+   "chunks": {
+    "chunk_43.txt": 1
+   }
+  },
+  "train/40347.txt": {
+   "start": 6745084596,
+   "end": 6745490612,
+   "hits": 1,
+   "chunks": {
+    "chunk_43.txt": 1
+   }
+  },
+  "train/39138.txt": {
+   "start": 6943354175,
+   "end": 6944006467,
+   "hits": 1,
+   "chunks": {
+    "chunk_43.txt": 1
+   }
+  },
+  "train/2378.txt": {
+   "start": 7608315737,
+   "end": 7608786002,
+   "hits": 1,
+   "chunks": {
+    "chunk_43.txt": 1
+   }
+  },
+  "train/33231.txt": {
+   "start": 7742474758,
+   "end": 7742955306,
+   "hits": 1,
+   "chunks": {
+    "chunk_43.txt": 1
+   }
+  },
+  "train/56129.txt": {
+   "start": 7842699155,
+   "end": 7842887515,
+   "hits": 1,
+   "chunks": {
+    "chunk_43.txt": 1
+   }
+  },
+  "train/49416.txt": {
+   "start": 7917721035,
+   "end": 7918086979,
+   "hits": 1,
+   "chunks": {
+    "chunk_43.txt": 1
+   }
+  },
+  "train/38323.txt": {
+   "start": 8053697880,
+   "end": 8054135314,
+   "hits": 1,
+   "chunks": {
+    "chunk_43.txt": 1
+   }
+  },
+  "train/26313.txt": {
+   "start": 8857354878,
+   "end": 8857656593,
+   "hits": 1,
+   "chunks": {
+    "chunk_43.txt": 1
+   }
+  },
+  "train/40349.txt": {
+   "start": 8958906671,
+   "end": 8959134784,
+   "hits": 1,
+   "chunks": {
+    "chunk_43.txt": 1
+   }
+  },
+  "train/40353.txt": {
+   "start": 8989059064,
+   "end": 8989354771,
+   "hits": 1,
+   "chunks": {
+    "chunk_43.txt": 1
+   }
+  },
+  "train/9548.txt": {
+   "start": 9281068882,
+   "end": 9281627099,
+   "hits": 1,
+   "chunks": {
+    "chunk_43.txt": 1
+   }
+  },
+  "train/6807.txt": {
+   "start": 9457557107,
+   "end": 9458057618,
+   "hits": 1,
+   "chunks": {
+    "chunk_43.txt": 1
+   }
+  },
+  "train/40045.txt": {
+   "start": 9631111623,
+   "end": 9631891487,
+   "hits": 1,
+   "chunks": {
+    "chunk_43.txt": 1
+   }
+  },
+  "train/40772.txt": {
+   "start": 9641172618,
+   "end": 9641733350,
+   "hits": 1,
+   "chunks": {
+    "chunk_43.txt": 1
+   }
+  },
+  "train/45733.txt": {
+   "start": 9964028434,
+   "end": 9965514065,
+   "hits": 1,
+   "chunks": {
+    "chunk_43.txt": 1
+   }
+  }
+ }
+}

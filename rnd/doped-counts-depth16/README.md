@@ -42,6 +42,10 @@ related: [refined-trie-counts, dynamic-eval, noise-cadence]
   books out of what it counts. The text now takes, past the 100M split, only
   books mobius counts for the 20M split, and leaves out 54 more found by
   `tools/heldout_overlap.py` (`tools/excluded_books.txt`, 1,339 books in all).
+  Rescanned (`tools/heldout_overlap_10g_dedup.json`): the worst piece has 0.6% of
+  its 64-character strings in the 10G text (mean 0.02%; 0.3% at 1G, 0.2% at
+  100M), quotations: two books near the end quote ~220 of piece 33's. That bounds
+  the leak to about 0.01% of held-out positions; those books were kept.
 - **Tables:** `src/tools/doped_counts.py` streams the 10G text once and writes A's
   depth-16 contexts (8,585,209) with their next-character counts at 100M, 1G and
   10G. It walks each position leafward and stops at the first context A lacks.
