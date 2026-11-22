@@ -50,6 +50,11 @@ struct YamlConfigV2 {
     // experimental.growth_noise_resample: a fresh sample after every step (of
     // the size the test last passed with) instead of the cumulative one.
     bool growth_noise_resample = false;
+    // experimental.growth_noise_max_windows (> 0): the sample never grows past
+    // this many windows; a sample that reaches it steps whatever the test
+    // says. With growth_start equal to it, every step takes that many fresh
+    // windows: plain minibatch training through tries.
+    int growth_noise_max_windows = 0;
 
     int seed = 42;
     bool seed_set = false;
@@ -331,6 +336,7 @@ static bool yaml_is_known_experimental_field_v2(const std::string& path) {
         "experimental.growth_noise_budget_positions",
         "experimental.growth_noise_max_ratio",
         "experimental.growth_noise_resample",
+        "experimental.growth_noise_max_windows",
     };
     return fields.find(path) != fields.end();
 }
@@ -1000,6 +1006,14 @@ static bool apply_yaml_config_v2(const char* config_path,
             std::fprintf(stderr, "agpt_train_v2: experimental.growth_noise_resample needs growth_noise_theta\n");
             return false;
         }
+        bool have_max_windows = false;
+        if (!yaml_get_int_v2(doc, "experimental.growth_noise_max_windows", yaml_cfg.growth_noise_max_windows,
+                             &have_max_windows)) return false;
+        if (have_max_windows && (!have_theta || yaml_cfg.growth_noise_max_windows < yaml_cfg.growth_start)) {
+            std::fprintf(stderr, "agpt_train_v2: experimental.growth_noise_max_windows needs growth_noise_theta "
+                                 "and must be at least growth_start\n");
+            return false;
+        }
         if (have_theta) {
             if (yaml_cfg.growth_noise_theta <= 0.0f || have_ratio || growth_divisions > 0 ||
                 !have_start || yaml_cfg.growth_start < 2 || yaml_cfg.growth_noise_budget_positions < 1 ||
@@ -1029,7 +1043,8 @@ static bool apply_yaml_config_v2(const char* config_path,
                yaml_find_v2(doc, "experimental.growth_noise_theta") ||
                yaml_find_v2(doc, "experimental.growth_noise_budget_positions") ||
                yaml_find_v2(doc, "experimental.growth_noise_max_ratio") ||
-               yaml_find_v2(doc, "experimental.growth_noise_resample")) {
+               yaml_find_v2(doc, "experimental.growth_noise_resample") ||
+               yaml_find_v2(doc, "experimental.growth_noise_max_windows")) {
         std::fprintf(stderr, "agpt_train_v2: experimental.growth_* keys need a train.growth block\n");
         return false;
     }

@@ -25,6 +25,11 @@ Arms (slug: what):
   f0-...-s43  the same with train seed 43 (a different window order; the same init)
   fc-tT-bM    the fresh-sample cadence at a constant LR: the noise test alone anneals
               (it grows the sample as the signal shrinks; Smith et al. 2018)
+  m0-wW-eE    v2 at a fixed sample: W fresh windows every step (growth_start = growth_noise_max_windows
+              = W), E minibatch epochs' positions: plain minibatch training through tries, the control
+              for the trainer (v2 against PyTorch's mb-eE)
+  f0-...-capW the fresh-sample cadence with the sample capped at W windows (the late samples grew to
+              30k-250k)
   mb-eE       ordinary minibatch Adam, 128 windows a step (one-pass-gap's recipe), for
               the 16-epoch bar; run with src/tools/agpt_minibatch_train.py
 
@@ -96,12 +101,14 @@ def growth(start, ratio):
             "  growth_random_order: true"]
 
 
-def noise(theta, resample=False, budget=BUDGET):
-    out = ["  growth_start: 32", f"  growth_noise_theta: {theta}",
+def noise(theta, resample=False, budget=BUDGET, start=32, cap=0):
+    out = [f"  growth_start: {start}", f"  growth_noise_theta: {theta}",
            f"  growth_noise_budget_positions: {budget}", "  growth_noise_max_ratio: 2",
            "  growth_random_order: true"]
     if resample:
         out.append("  growth_noise_resample: true")
+    if cap:
+        out.append(f"  growth_noise_max_windows: {cap}")
     return out
 
 
@@ -182,6 +189,15 @@ def main():
                 noise(4, resample=True, budget=budget), schedule="constant")
     for lr in (0.003, 0.006):
         cfgs[f"mb-e16-lr{lr}"] = minibatch(16, lr)
+    # free rein (2026-11-22): the trainer control and a cap on the late samples
+    MB_EPOCH = 16_954_128   # 1,059,633 windows x 16
+    for e in (1, 2, 4, 8):
+        add(f"m0-w128-e{e}", f"v2 at a fixed sample of 128 fresh windows a step (minibatch through tries), "
+            f"budget {e * MB_EPOCH:,} positions ({e} minibatch epochs)", 0, 1, 0.006,
+            noise(1, resample=True, budget=e * MB_EPOCH, start=128, cap=128))
+    for cap in (2048, 8192):
+        add(f"f0-t4-b136-cap{cap}", fresh(4, 135_600_000) + f", sample capped at {cap} windows", 0, 1, 0.006,
+            noise(4, resample=True, budget=135_600_000, cap=cap))
     for e, lrs in ((1, (0.006, 0.012)), (2, (0.006,))):
         for lr in lrs:
             add(f"r1-x2-e{e}", f"random-order growth pd=1, doubling from 1,000 starts, {e} pass(es) a stage",

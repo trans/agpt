@@ -1435,7 +1435,7 @@ static TrieGradStatsV2 accumulate_trie_gradient_host_v2(const agpt_v2::TrainerCo
 //   noise^2 = |G_A/E_A - G_B/E_B|^2 x n_A n_B / n^2 x (1 - n/N),
 //   signal^2 = |g|^2 - noise^2.
 // Step when noise <= theta x signal (or every window is in, or the budget is
-// spent). Otherwise add windows: n* from the norm test's own estimate,
+// spent, or the sample is at growth_noise_max_windows). Otherwise add windows: n* from the norm test's own estimate,
 // clamped to [1.05 n, max_ratio x n]. Only the new windows' gradient is
 // computed (at the same weights) and added to G_A, G_B: the aggregate grows
 // incrementally between updates. After each step both tries are recomputed
@@ -1472,6 +1472,8 @@ static int run_noise_cadence_v2(const agpt_v2::TrainerConfig& cfg,
     const long long budget = (long long)yaml_cfg.growth_noise_budget_positions;
     const double max_ratio = (double)yaml_cfg.growth_noise_max_ratio;
     const long long N = (long long)full_starts;
+    const long long max_windows = yaml_cfg.growth_noise_max_windows > 0
+        ? std::min<long long>((long long)yaml_cfg.growth_noise_max_windows, N) : N;
     const long long n0 = std::min<long long>((long long)yaml_cfg.growth_start, N);
     const size_t total = (size_t)model.total_floats;
     const long long kScheduleSteps = 1000000;
@@ -1559,8 +1561,9 @@ static int run_noise_cadence_v2(const agpt_v2::TrainerConfig& cfg,
                 shape.d_model, shape.n_heads, shape.n_layers, shape.d_ff,
                 shape.vocab_size, shape.seq_len, shape.head_dim);
     std::printf("  noise-cadence: theta=%.4g budget_positions=%lld start_windows=%lld max_ratio=%.4g "
-                "windows=%lld order=random seed=%d sample=%s optimizer=%s schedule=%s lr=%.6g lr_min_ratio=%.3f\n",
-                theta, budget, n0, max_ratio, N, order_seed,
+                "max_windows=%lld windows=%lld order=random seed=%d sample=%s optimizer=%s schedule=%s lr=%.6g "
+                "lr_min_ratio=%.3f\n",
+                theta, budget, n0, max_ratio, max_windows, N, order_seed,
                 resample ? "fresh-each-step" : "cumulative", v2_optimizer_name(cfg.optimizer),
                 v2_lr_schedule_name(cfg.lr_schedule), cfg.lr, cfg.lr_min_ratio);
 
@@ -1607,8 +1610,9 @@ static int run_noise_cadence_v2(const agpt_v2::TrainerConfig& cfg,
         bool all_in = !resample && next >= N;
         bool spent = used >= budget;
         bool passed = signal2 > 0.0 && noise2 <= theta * theta * signal2;
+        bool capped = n >= max_windows;
         double loss = (l_a + l_b) / e_ab;
-        if (passed || all_in || spent) {
+        if (passed || all_in || spent || capped) {
             long long idx = (long long)((double)used / (double)budget * (double)kScheduleSteps);
             if (idx > kScheduleSteps) idx = kScheduleSteps;
             float lr = scheduled_lr(cfg, idx, kScheduleSteps, 0);
@@ -1620,7 +1624,8 @@ static int run_noise_cadence_v2(const agpt_v2::TrainerConfig& cfg,
             std::printf("  noise-step %d: windows=%lld loss=%.6f noise/signal=%.4f grad=%.4g lr=%.6g "
                         "positions=%lld%s step=%s\n",
                         steps, n, loss, noise_ratio, std::sqrt(m2), lr, used,
-                        passed ? "" : (all_in ? " (all windows in)" : " (budget spent)"), r.message);
+                        passed ? "" : (all_in ? " (all windows in)" : (spent ? " (budget spent)" : " (cap)")),
+                        r.message);
             need_full = true;
             if (resample) {
                 trie_a = agpt_v2::make_growth_incremental_radix_state_v2(std::move(trie_a.tokens), max_depth);
@@ -1647,7 +1652,7 @@ static int run_noise_cadence_v2(const agpt_v2::TrainerConfig& cfg,
         long long want = (long long)std::ceil(target);
         if (want < lo) want = lo;
         if (want > hi) want = hi;
-        if (want > N) want = N;
+        if (want > max_windows) want = max_windows;
         take_samples(want - n);
         TrieGradStatsV2 da = grad_of_starts(new_a, g_a);
         TrieGradStatsV2 db = grad_of_starts(new_b, g_b);
