@@ -6,7 +6,8 @@ Compute is trie positions (edge characters of every gradient pass):
   times its passes, from train.log;
 - noise-cadence runs: the trainer's own count (both tries' whole recomputes
   after every step, plus each growth's new-window tries), from its last line.
-A minibatch epoch on this split is 16.95M positions (one-pass-gap). Steps:
+A minibatch epoch on this split is 16.95M positions (one-pass-gap); minibatch
+runs (mb-*) are counted that way, epochs x 16.95M. Steps:
 optimizer updates. For noise runs also: the final sample (windows) and the
 number of growths.
 """
@@ -30,7 +31,11 @@ for rd in sorted(D.glob("2026*-*")):
     text = log.read_text() if log.exists() else ""
     noise = re.search(r"completed noise-cadence optimizer_steps=(\d+) windows=(\d+) .*?positions=(\d+) "
                       r"full_recomputes=(\d+) growths=(\d+)", text)
-    if noise:
+    mb = re.search(r"agpt_minibatch_train: done steps=(\d+)", text)
+    if mb:
+        epochs = int(re.search(r"budget:\s+unit: epochs\s+value: (\d+)", cfg).group(1))
+        row.update(steps=int(mb.group(1)), positions=int(epochs * MB_EPOCH))
+    elif noise:
         row.update(steps=int(noise.group(1)), windows=int(noise.group(2)), positions=int(noise.group(3)),
                    growths=int(noise.group(5)))
     else:

@@ -14,9 +14,10 @@ answer: >-
   With a fresh sample after every step (the user's resampling variant) the noise cadence
   reaches rolling byte PPL 4.70 at 54M trie positions, 4.66 at 68M and 4.565 at 136M,
   against minibatch 4.61 (interpolated), 4.58 and 4.53: 0.8 PPL better than every earlier
-  AGPT arm (best 5.51), within 0.10-0.04 of minibatch, the gap shrinking with compute, but
-  not past it. It takes 5.8x fewer steps than minibatch for that (11,453 against 66,232 at
-  136M). With the sample kept cumulative it overfits its sample and stalls at 6.12. The
+  AGPT arm (best 5.51), within 0.10-0.04 of minibatch, the gap shrinking with compute to
+  136M, then flat: 4.546 against 4.511 at 271M (16 epochs). A second seed reproduces 136M to
+  0.003. It takes 5.8-8.6x fewer steps than minibatch (15,425 against 132,464 at 271M). A
+  constant LR, with the noise test left to anneal, is worse by 0.08-0.10. With the sample kept cumulative it overfits its sample and stalls at 6.12. The
   trie merges 13-18% of the positions; the rest of the gain is the cadence. Random-order
   growth helps pd=1 doubling by 0.9 PPL and does not help pd=3.
 opened: 2026-11-21
@@ -30,7 +31,7 @@ related: [trie-growth, one-pass-gap, gradient-population]
 
 # Noise cadence
 
-**Status:** concluded, mixed (2026-11-22, GPU slots 150 and 153). Code `0a6f4de`.
+**Status:** concluded, mixed (2026-11-22, GPU slots 150, 153 and 156). Code `0a6f4de`.
 Configs `make_configs.py`, runs `run.sh`, table `summarize.py` (writes `runs.json`).
 Same setup as `trie-growth` and `one-pass-gap`: Tiny Shakespeare split
 `4fa9aec1db6b3aea`, d64/L2, depth 16, the same seed weights, the trie's own counts.
@@ -135,6 +136,31 @@ pd=3's order noise at one pass is about 0.11 (trie-growth), so random order
 does not help pd=3. pd=1 doubling at 2 passes a stage and the 1% arm were not
 rerun in random order (dropped for slot time).
 
+### Follow-up (slot 156): does the gap cross?
+
+The user (2026-11-22), on "if it doesn't cross I'd call the line done": "This
+is the first time we got this close!" Ten runs, theta 4 and lr 0.006 unless
+noted; a new minibatch bar at 16 epochs (`mb-e16`, one-pass-gap's recipe,
+run here).
+
+| run | positions | steps | rolling |
+|---|---:|---:|---:|
+| fresh sample, 16 epochs' budget | 272.7M | 15,166 | 4.550 |
+| fresh sample, theta 8, 16 epochs' budget | 271.3M | 15,425 | **4.546** |
+| minibatch, 16 epochs, lr 0.006 / 0.003 | 271.2M | 132,464 | **4.511** / 4.514 |
+| fresh sample, 136M, seed 43 (the same init, another window order) | 136.7M | 9,872 | 4.568 (seed 42: 4.565) |
+| fresh sample, theta 8, 136M | 136.2M | 11,660 | 4.578 |
+| constant LR 0.006 / 0.003, 136M | 135.6M | 13,250 / 16,614 | 4.650 / 4.657 |
+| constant LR 0.006 / 0.003, 54M | 54.2M | 8,569 / 7,901 | 4.817 / 4.818 |
+
+- The gap: 0.10 / 0.08 / 0.04 / 0.035 PPL at 54 / 68 / 136 / 271M. It stops
+  narrowing after 136M; both sides gain about 0.015 from 8 to 16 epochs.
+- Two seeds at 136M agree to 0.003, so the 136M gap (0.04) is not seed noise.
+- The 16-epoch budget bought only 3,700 more steps than the 8-epoch one: the
+  extra compute went into late samples of 130k-250k windows.
+- Constant LR: the sample stops growing near 600-1,300 windows and training
+  never settles; the cosine tail's large, expensive steps pay for themselves.
+
 ## Reading
 
 - **The cadence works once the sample is fresh.** With fresh samples the
@@ -142,10 +168,8 @@ rerun in random order (dropped for slot time).
   5.51 or worse (pd=3 doubling), and the cumulative sample at 6.12. Its steps
   are good: 11,453 of them reach 4.565, which minibatch reaches in about 41k steps
   (interpolated: 4 epochs, 33,116 steps, give 4.582; 8 epochs, 66,232, give 4.526).
-- **It does not beat minibatch yet.** The gap narrows with compute, from 0.10
-  PPL at 54M to 0.04 at 136M. That fits the noise-scale reading (the trie's
-  big batch pays late in training) but is not past minibatch at any budget
-  run.
+- **It does not beat minibatch.** The gap narrows with compute, from 0.10
+  PPL at 54M to 0.04 at 136M, then holds at 0.035 to 271M (follow-up).
 - **Most of the gain is the cadence, not the trie.** The trie merges 13-18%
   of the positions at these sample sizes; a flat trainer with the same
   adaptive batch would take the same steps at about a fifth more compute. The
@@ -159,8 +183,10 @@ rerun in random order (dropped for slot time).
 
 ## Next (not decided by the user)
 
-- Constant LR with the noise test doing the annealing (Smith et al. 2018,
-  "don't decay the learning rate, increase the batch size"), or a cap on the
-  sample, to spend the last third of the budget on steps that move.
-- Larger budgets (16 epochs' worth) to see whether the gap crosses zero.
-- lr 0.003 at 68M and 136M, theta 8 at 136M.
+- Depth-stratified sampling: the trie truncated at depth k is small (65 /
+  1,466 / 12,947 / 62,930 positions at k = 1-4, of 8.9M), so its gradient is
+  the exact full-corpus gradient of every window's first k targets; sample
+  windows only for the deeper targets. Unbiased; its noise is the deep part's
+  alone. Worth building only if much of the noise is shallow (diagnostic
+  first).
+- Constant LR and larger budgets were tried in the follow-up (above): no help.
