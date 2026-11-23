@@ -140,7 +140,9 @@ with no prior, against the plain network (one seed each; air `bef9142`,
 bits/char better** (0.036 with a fresh output layer); air's 1.84M with the prior
 in its input 3.6274 (+0.023 worse); air's 10.8M logits 3.0489 against 3.0386
 (level); air's 10.8M input 3.1057 (+0.031 worse); imm's h256 3.6177 with its
-own head. So one route moved knowledge into the weights (prior on the logits
+own head; mobius's carried-table 10.8M at block 1,024 (2026-11-22,
+`rnd/carried-network`) 1.577 bits/char with no prior against the no-prior
+network's 1.557 (+0.020 worse). So one route moved knowledge into the weights (prior on the logits
 in training, at 1.84M); soft targets did not.
 
 Read together: doping helps a ~100k-parameter model on a 1M text at depth 8 and
