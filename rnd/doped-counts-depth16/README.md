@@ -121,6 +121,21 @@ depth-16 contexts seen at least twice / 10 / 100 times in the count text is
 
 ## Prior record at 20M (missed when this was written)
 
+**The doped tree kept as a store, at 20M: it comes out ahead.** mobius's
+carried table (`rnd/carried-prior`, `rnd/carried-network`, 2026-11-18 to
+11-22) is the 20M split's own tree (its contexts to depth 24) filled with the
+10 GB books' counts, ~2 GB, consulted at test time. Bits/char on the split's
+50 held-out pieces: the 20M tree with its own counts as a prior 1.9765 (depth
+16, `pg19split20m_gated_d16_none`); doped, 1.7641; doped + the stream cache
+1.6840. The 10.8M network (block 1,024): no prior 1.5568; no prior on 100M
+characters 1.5396; with the doped tree + stream **1.4381**, 0.10 better than
+five times the training text. That is this experiment's question answered
+in the store form at 20M. Here the doped tree only makes training targets
+and is dropped before scoring (the teacher form); that form loses to the
+100M text at depth 16, and at 20M has not transferred (below).
+
+The teacher form at 20M:
+
 The "bigger doped text" test proposed above was already run, on imm's 20M
 split (2026-11-18, air slot 90, air `5b007ee`, runs
 `experiments/prior_scaling/runs/distill_s1.84m_d24_w*.json`): a 1.84M char
