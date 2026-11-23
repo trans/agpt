@@ -125,8 +125,11 @@ mobius refines a small corpus's counts with a larger corpus's. Record:
   `src/tools/doped_counts.py` (`7418d09`, GPU, 10G in 12 min).
 - **The bigger-text version was already run at 20M** (air slot 90,
   2026-11-18, air `5b007ee`): soft targets from mobius's d24 rows with 10G
-  books, 1.84M transformer, scored without the prior: no transfer. Doping so
-  far helps only the small model on the 1M slice. Untested difference: air's
+  books, 1.84M transformer, scored without the prior: no transfer. But
+  prior dropout did transfer once (air `bef9142`, 2026-11-12): the 1.84M
+  trained with the prior on its logits, scored with no prior, 0.029
+  bits/char ahead of plain (one seed); the input form and 10.8M level or
+  worse. Untested difference: air's
   rows condition on <= 24 chars while its network reads 256.
 - Related record: agpt `rnd/prior-scaling-plain-1g` (a 1 GB prior beat
   training on the 1 GB by 0.025 bits/char), `rnd/count-backoff-gate`
