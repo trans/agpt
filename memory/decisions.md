@@ -1,6 +1,6 @@
 # Decisions and conventions in force
 
-*Updated 2026-11-14*
+*Updated 2026-11-23*
 
 These are settled unless marked otherwise. The person who decided is named
 only where a source says so.
@@ -60,6 +60,24 @@ only where a source says so.
   small scale. This followed the 220M and 1 GB plain-transformer runs of
   2026-11-13 (about an hour each), which the user judged too much time on
   ever-larger models.
+- **Regular training, not pd=N trie training (the user, 2026-11-23).** The
+  user: "yes, record it", to moving from AGPT's pd=N trie training to
+  ordinary transformer training augmented with what AGPT taught. The record
+  behind it: at equal wall time pd=N trails minibatch (`rnd/one-pass-gap`:
+  8.71 after 54 s against 4.83 after 31 s), and the transferable results
+  run without the trie (noise cadence with no trie, level with minibatch in
+  half v2's time, `rnd/noise-cadence`; doped counts; dynamic evaluation,
+  `rnd/dynamic-eval`). The trie stays as the data structure behind the count
+  prior (`src/tools/doped_counts.py`), not as the trainer.
+- **agpt serves imm's prior + residual (the user, 2026-11-22).** imm is
+  agpt's spin-off that keeps the (doped) trie at inference; its mission is
+  `prior + residual`, and a regular transformer, an agpt-improved one, or
+  imm's long-range scans and stats inputs are welcome if they help it. agpt
+  ideas are judged by whether they help the residual over the doped prior.
+  If training targets and prior use the same doped counts, the residual has
+  nothing to learn: the doping goes in the prior, cross-fitted as mobius
+  does its training rows. The prior's SVD code in the input (as imm and
+  mobius use) can wait (the user).
 - **The precondition branch was archived, not merged** (`df75f96`,
   2026-06-02).
 
