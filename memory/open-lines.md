@@ -1,6 +1,6 @@
 # Open lines of research
 
-*Updated 2026-11-22*
+*Updated 2026-11-24*
 
 Each line has a state, where its plan lives, and what it needs next.
 
@@ -158,6 +158,28 @@ mobius refines a small corpus's counts with a larger corpus's. Record:
   al. 2019 (Transformer-XL), TTT-E2E (arXiv 2512.23675). @imm told.
   **Next (not decided by the user):** training for adaptation (TTT-style, or
   a per-document trie of the past so the step is AGPT's aggregated gradient).
+  **On mobius's prior + stream network — Agreed, not started (the user,
+  2026-11-23: "ok, please coordinate with @mobius").** Dynamic eval of
+  `pd_s10.8m_stream_svd32_b1024.pt` on mobius's 50 whole held-out books
+  (static 1.3309 bits/char; prior-rows-only network 1.3635), in
+  `rnd/dynamic-eval-prior-network/`. Mobius's answers (`mail/received/20261123-161956Z-@mobius--*`,
+  `20261124-161618Z-@mobius--*`): agpt runs it, in a slot.
+  - **Files:** `prior_input_only.py` (self-contained, sha c9a82dd8…) and the
+    checkpoint (sha 1a6b9d95…) are now in mobius `runs/frozen/` (durable).
+    `score_books.py` is committed at mobius `rnd/experts-leave-one-out/` (6b75bb6).
+    The rows are in `runs/imm/pg19split20m_books_stream_d24_pg10g`, the split
+    is `data/pg19/imm-split-20m-books`.
+  - **Protocol:** adapt in `model.eval()` (no dropout, no prior dropout).
+    Keep the checkpoint's gate-feature mean/std. Headline: freeze `inp` and
+    `gate` (they price the prior) and adapt the transformer; everything
+    adapting is reported apart. LoRA on attention and MLP is the middle
+    setting. Control: the same steps on another book; reset per book.
+  - **Pairing:** `score_books.py` scores 1,024-character segments with the
+    preceding 1,024 as context. Pair position by position from per-book
+    `.npy` losses, and send mobius the `.npy`.
+  - **Cost:** size one backward step at block 1,024 before the slot; keep
+    the host side under 3 GB; use `slots add ... --run CMD`, since a grant
+    lapses after 30 minutes if the session is idle.
 - **Trie growth — Concluded, mixed (agpt `55549fb`, `rnd/trie-growth`).** The
   user (2026-11-20): train while the trie grows, "cadence in time, not space";
   aggregate as counts arrive, update after N(trie) changes, recompute after
