@@ -1,6 +1,18 @@
 # Handoff: where AGPT stands
 
-*Updated 2026-11-19*
+*Updated 2026-11-25*
+
+## Resume here (2026-11-25)
+
+- **Next task, agreed (the user, 2026-11-23, then "we can pick this up after
+  I reboot" on 2026-11-25):** dynamic eval of mobius's prior + stream network
+  on its 50 whole books. Paths, protocol and cost notes from mobius are in
+  open-lines.md §1b ("On mobius's prior + stream network"). Nothing written
+  yet: first the scorer in `rnd/dynamic-eval-prior-network/`, then size one
+  backward step at block 1,024, then an @air slot with `--run`.
+- **Direction (decisions.md, 2026-11-22/23):** regular training instead of
+  pd=N trie training; agpt serves the prior + residual line. Depth-16
+  doping concluded (`rnd/doped-counts-depth16`, `72b4a40`).
 
 ## Back on the main path (2026-11-14)
 
