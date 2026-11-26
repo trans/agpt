@@ -1,0 +1,196 @@
+{
+ "checkpoint": "/home/trans/Projects/air/mobius/runs/frozen/runs/pd_s10.8m_stream_svd32_b1024.pt",
+ "checkpoint_sha256": "1a6b9d95c91d41ff7fe0dc942953cd9abaf5518be658ba5b767101dfc1d3159c",
+ "setting": {
+  "name": "lora16-adam-1e-3",
+  "kind": "lora",
+  "rank": 16,
+  "opt": "adam",
+  "lr": 0.001
+ },
+ "past": "own",
+ "books": [
+  0,
+  2,
+  4,
+  6,
+  8,
+  10,
+  12,
+  14,
+  16,
+  18,
+  20,
+  22,
+  24,
+  26,
+  28,
+  30,
+  32,
+  34,
+  36,
+  38,
+  40,
+  42,
+  44,
+  46,
+  48
+ ],
+ "limit": null,
+ "rows": "/home/trans/Projects/air/mobius/runs/imm/pg19split20m_books_stream_d24_pg10g",
+ "split": "/home/trans/Projects/air/mobius/data/pg19/imm-split-20m-books",
+ "block": 1024,
+ "adapting_parameters": 589824,
+ "steps": 18446,
+ "scored": 9451202,
+ "bits": 1.2760802507400513,
+ "per_book": {
+  "0": {
+   "windows": 1306,
+   "seconds": 17.43,
+   "bits": 1.3672038316726685
+  },
+  "2": {
+   "windows": 849,
+   "seconds": 10.47,
+   "bits": 1.316828727722168
+  },
+  "4": {
+   "windows": 379,
+   "seconds": 4.74,
+   "bits": 1.3853859901428223
+  },
+  "6": {
+   "windows": 259,
+   "seconds": 3.19,
+   "bits": 1.388078212738037
+  },
+  "8": {
+   "windows": 656,
+   "seconds": 8.15,
+   "bits": 1.4034253358840942
+  },
+  "10": {
+   "windows": 899,
+   "seconds": 11.09,
+   "bits": 1.3397762775421143
+  },
+  "12": {
+   "windows": 152,
+   "seconds": 1.89,
+   "bits": 1.3727614879608154
+  },
+  "14": {
+   "windows": 166,
+   "seconds": 2.07,
+   "bits": 1.21018385887146
+  },
+  "16": {
+   "windows": 342,
+   "seconds": 4.21,
+   "bits": 1.2937254905700684
+  },
+  "18": {
+   "windows": 898,
+   "seconds": 11.18,
+   "bits": 1.20521080493927
+  },
+  "20": {
+   "windows": 1019,
+   "seconds": 12.63,
+   "bits": 1.304509162902832
+  },
+  "22": {
+   "windows": 506,
+   "seconds": 6.26,
+   "bits": 1.2212570905685425
+  },
+  "24": {
+   "windows": 453,
+   "seconds": 5.6,
+   "bits": 1.4064667224884033
+  },
+  "26": {
+   "windows": 896,
+   "seconds": 11.13,
+   "bits": 1.2158703804016113
+  },
+  "28": {
+   "windows": 1492,
+   "seconds": 18.55,
+   "bits": 1.1935611963272095
+  },
+  "30": {
+   "windows": 447,
+   "seconds": 5.52,
+   "bits": 1.202223777770996
+  },
+  "32": {
+   "windows": 395,
+   "seconds": 4.88,
+   "bits": 1.2301616668701172
+  },
+  "34": {
+   "windows": 1154,
+   "seconds": 14.32,
+   "bits": 1.2258684635162354
+  },
+  "36": {
+   "windows": 1790,
+   "seconds": 22.29,
+   "bits": 1.3857300281524658
+  },
+  "38": {
+   "windows": 623,
+   "seconds": 7.75,
+   "bits": 1.3158890008926392
+  },
+  "40": {
+   "windows": 178,
+   "seconds": 2.2,
+   "bits": 1.3342783451080322
+  },
+  "42": {
+   "windows": 545,
+   "seconds": 6.77,
+   "bits": 1.1642860174179077
+  },
+  "44": {
+   "windows": 950,
+   "seconds": 11.81,
+   "bits": 1.2222621440887451
+  },
+  "46": {
+   "windows": 654,
+   "seconds": 8.13,
+   "bits": 1.2936203479766846
+  },
+  "48": {
+   "windows": 1438,
+   "seconds": 17.84,
+   "bits": 1.125854730606079
+  }
+ },
+ "seconds": 230.9,
+ "device": "cuda",
+ "gpu": "NVIDIA GeForce RTX 4070 Laptop GPU",
+ "peak_host_mb": 1907,
+ "peak_gpu_mb": 178,
+ "torch": "2.15.0",
+ "argv": [
+  "dyneval_prior.py",
+  "/home/trans/Projects/air/mobius/runs/frozen/runs/pd_s10.8m_stream_svd32_b1024.pt",
+  "out/t10-lora16-adam-1e-3",
+  "setting=lora16-adam-1e-3",
+  "books=tune"
+ ],
+ "code": {
+  "dyneval_prior.py": "da200190dbd45ee861e8fe34f79b241a667bd0f488b4f9bdc391fe3c7aac34bf",
+  "prior_input_only.py": "c9a82dd87da0144d5de71be1625ad5a961db9bff9c39acc8659152f0f7ed3f1e",
+  "transformer_baseline.py": "de43c8742711337b41cf7c90a50835ad85e663aefeca457eecc6ce885f73e214",
+  "imm/data.py": "5bc751873c5317d9f1efc6e726ace59494bdec887c3af7df7f2f7cfc4172d19f",
+  "agpt": "1022410ac4e1cef72a5bec97f2ef25d93718e58e",
+  "imm": "cc779c3ec88b86d6ab754a459d23eca471d8b196",
+  "mobius": "f60c972eff894131443d4111717c5594b2de685a"
+ }
+}

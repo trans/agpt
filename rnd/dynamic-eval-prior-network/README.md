@@ -1,8 +1,8 @@
 ---
 title: Dynamic evaluation on mobius's prior + stream network
 kind: diagnostic
-status: active
-outcome: n/a
+status: concluded
+outcome: positive
 question: >-
   The user (2026-11-23, "ok, please coordinate with @mobius"; 2026-11-26 via @air, "We need
   gains closer to 0.1 not 0.01"): agpt's dynamic evaluation gave d64/L2 models 0.10-0.17
@@ -11,7 +11,26 @@ question: >-
   over 1,024 characters, on mobius's 50 whole held-out books, beyond adapting on another
   book's text?
 answer: >-
-  Not yet measured: the slot chain (run.sh) is queued.
+  It gives 0.037 bits/char on the 10.8M and 0.067 on the 25.8M, on top of the stream rows
+  (the 25 report books, paired by book: 25/25 better for both). The 10.8M goes from 1.3297 to
+  1.2924, the 25.8M from 1.3408 to 1.2737, so with adaptation the bigger network, statically
+  0.011 worse, ends 0.019 ahead. One Adam step per 512 characters scored, all transformer
+  weights, lr 1e-4 (chosen on the other 25 books). The book's own past, measured against the
+  same steps on another book's text, is worth 0.064 and 0.069 bits/char; that part grows
+  through the book, 0.010-0.019 in characters 1k-5k to 0.080-0.085 past 300k. A rank-16 LoRA
+  (1.2920) and adapting the prior's layers too (1.2929) match full adaptation. Short of the
+  user's 0.1, and untried: a 25.8M rate above 1e-4, more frequent steps, decay toward the
+  trained weights.
+headline:
+- label: 10.8M (20M split), own past against static, report books
+  metric: diagnostic bits/char gain, mobius's 50-book protocol (25 report books)
+  value: 0.0374
+- label: 25.8M (20M split), own past against static, report books
+  metric: diagnostic bits/char gain, mobius's 50-book protocol (25 report books)
+  value: 0.0671
+- label: 25.8M adapted, report books (10.8M static 1.3297)
+  metric: diagnostic bits/char, mobius's 50-book protocol (25 report books)
+  value: 1.2737
 opened: 2026-11-26
 updated: 2026-11-26
 code: main
@@ -55,4 +74,91 @@ books), not agpt's canonical lm-eval. Agreed with @mobius:
 
 ## Results
 
-Pending: the slot chain (`run.sh`, slot 218).
+Slot 218, 2026-11-26 19:33-20:27 UTC, two runs at a time on the GPU; peak host
+1.9 GB, GPU 0.7 GB per run (`out/*.json`; tables by `summarize.py`,
+`summary.json`). Bits per character; "gain" is negative when the adapted run
+is better. Pairs are per book against the same checkpoint's static run, over
+the positions both scored.
+
+**Check.** The static 10.8M here scores 1.3309 over all 50 books, the same as
+mobius's `loss_stream.npy` (difference -0.00000 over 18,665,284 characters).
+The static 25.8M: 1.3479.
+
+**Tune books** (the 25 even-indexed books; static 10.8M 1.3321, 25.8M 1.3548):
+
+| run | bits/char | gain by chars | per book ± s.e. | better |
+|---|---|---|---|---|
+| 10.8M full, Adam 1e-5 | 1.2904 | -0.0417 | -0.0365 ± 0.0035 | 25/25 |
+| 10.8M full, Adam 3e-5 | 1.2773 | -0.0548 | -0.0489 ± 0.0046 | 25/25 |
+| 10.8M full, Adam 1e-4 | 1.2733 | -0.0588 | -0.0533 ± 0.0059 | 25/25 |
+| 10.8M full, Adam 3e-4 | 1.3059 | -0.0262 | -0.0237 ± 0.0061 | 18/25 |
+| 10.8M LoRA 16, Adam 1e-3 | 1.2761 | -0.0560 | -0.0508 ± 0.0052 | 25/25 |
+| 10.8M LoRA 16, Adam 3e-3 | 1.3200 | -0.0122 | -0.0174 ± 0.0056 | 17/25 |
+| 25.8M full, Adam 3e-5 | 1.2608 | -0.0940 | -0.0861 ± 0.0075 | 25/25 |
+| 25.8M full, Adam 1e-4 | 1.2549 | -0.0999 | -0.0933 ± 0.0090 | 25/25 |
+
+Chosen: full at 1e-4 for both networks, LoRA at 1e-3. The 25.8M was tried
+only at 3e-5 and 1e-4, and was still improving at 1e-4.
+
+**Report books** (the 25 odd-indexed books; static 10.8M 1.3297, 25.8M 1.3408):
+
+| run | bits/char | gain by chars | per book ± s.e. | better |
+|---|---|---|---|---|
+| 10.8M own past (full) | 1.2924 | -0.0374 | -0.0373 ± 0.0056 | 25/25 |
+| 10.8M other-book control | 1.3564 | +0.0267 | +0.0243 ± 0.0023 | 1/25 |
+| 10.8M own past, everything adapting | 1.2929 | -0.0369 | -0.0368 ± 0.0056 | 25/25 |
+| 10.8M own past, LoRA 16 | 1.2920 | -0.0377 | -0.0377 ± 0.0048 | 25/25 |
+| 25.8M own past (full) | 1.2737 | -0.0671 | -0.0701 ± 0.0085 | 25/25 |
+| 25.8M other-book control | 1.3431 | +0.0023 | -0.0027 ± 0.0046 | 12/25 |
+
+Own past against the control: 10.8M -0.0641 by chars (per book -0.0615 ±
+0.0060), 25.8M -0.0694 (-0.0674 ± 0.0064), 25/25 books for both.
+
+By position in the book (report books; gain against static, own past and
+control, and own minus control):
+
+| characters | share | 10.8M own | control | own - control | 25.8M own | control | own - control |
+|---|---|---|---|---|---|---|---|
+| 0-1k | 0.003 | 0 | 0 | 0 | 0 | 0 | 0 |
+| 1k-5k | 0.011 | -0.0183 | -0.0086 | -0.0097 | -0.0472 | -0.0285 | -0.0187 |
+| 5k-25k | 0.054 | -0.0134 | +0.0060 | -0.0194 | -0.0401 | -0.0173 | -0.0228 |
+| 25k-100k | 0.199 | -0.0298 | +0.0165 | -0.0463 | -0.0603 | -0.0095 | -0.0508 |
+| 100k-300k | 0.400 | -0.0388 | +0.0292 | -0.0680 | -0.0686 | +0.0058 | -0.0743 |
+| 300k+ | 0.333 | -0.0450 | +0.0344 | -0.0795 | -0.0749 | +0.0096 | -0.0845 |
+
+(The first 1,024 characters are scored before any step.)
+
+Per book, the 10.8M's gain runs from 0.003 to 0.132 bits/char and the
+25.8M's from 0.025 to 0.216; neither correlates with the book's length
+(r = -0.01 and 0.15 against log length).
+
+## Reading
+
+- **On top of the stream rows, dynamic evaluation adds 0.037 bits/char to
+  the 10.8M and 0.067 to the 25.8M.** The stream rows themselves take 0.072
+  from the book's own past (mobius). The adapted 25.8M, 1.2737, is the best
+  figure on these books; statically it is 0.011 worse than the 10.8M.
+- **The book-specific part is about the same for both networks** (own minus
+  control 0.064 and 0.069). What differs is the control: adapting the 10.8M
+  on other books' text costs it 0.027, adapting the 25.8M costs about 0. The
+  25.8M memorizes its training rows (mobius: 1.3787 on the pieces), so text
+  from any held-out book seems to repair some of that, but this run does not
+  separate the two.
+- **The gain grows through the book and has not levelled off** past 300k
+  characters (own minus control 0.068 in 100k-300k, 0.080-0.085 after).
+- **Which weights adapt matters little.** A rank-16 LoRA on the four matrices
+  of each block matches full adaptation (1.2920 against 1.2924) in two-thirds
+  of its time; letting the prior's input layer and output gate
+  adapt as well changes nothing (1.2929).
+- **Against agpt's earlier dynamic eval** (`rnd/dynamic-eval`, d64/L2 on
+  whole books, no prior): own minus control was 0.100-0.135 nats/char there,
+  0.044-0.048 nats/char (0.064-0.069 bits) here. The stronger network, which
+  already reads the book through the stream rows, leaves less to the weights.
+- **Not tried:** a 25.8M rate above 1e-4; more than one step per 512
+  characters or a shorter stride; Krause et al.'s RMS-scaled steps with decay
+  toward the trained weights; the 100M-trained 10.8M (approximate on these
+  rows, mobius 2026-11-26).
+
+Cost per character, two runs sharing the GPU in each case: the adapted 10.8M
+takes 3x its static run (332 s for the 9.2M report characters against 220 s
+for all 18.7M), LoRA 2x, the adapted 25.8M 6x (635 s against 222 s).

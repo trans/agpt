@@ -1,0 +1,52 @@
+{
+ "checkpoint": "/home/trans/Projects/air/mobius/runs/frozen/runs/pd_s10.8m_stream_svd32_b1024.pt",
+ "checkpoint_sha256": "1a6b9d95c91d41ff7fe0dc942953cd9abaf5518be658ba5b767101dfc1d3159c",
+ "setting": {
+  "name": "full-adam-1e-4",
+  "kind": "full",
+  "opt": "adam",
+  "lr": 0.0001
+ },
+ "past": "own",
+ "books": [
+  0
+ ],
+ "limit": 40,
+ "rows": "/home/trans/Projects/air/mobius/runs/imm/pg19split20m_books_stream_d24_pg10g",
+ "split": "/home/trans/Projects/air/mobius/data/pg19/imm-split-20m-books",
+ "block": 1024,
+ "adapting_parameters": 11051904,
+ "steps": 40,
+ "scored": 20992,
+ "bits": 1.3866623640060425,
+ "per_book": {
+  "0": {
+   "windows": 40,
+   "seconds": 1.59,
+   "bits": 1.3866623640060425
+  }
+ },
+ "seconds": 2.3,
+ "device": "cuda",
+ "gpu": "NVIDIA GeForce RTX 4070 Laptop GPU",
+ "peak_host_mb": 1776,
+ "peak_gpu_mb": 340,
+ "torch": "2.15.0",
+ "argv": [
+  "dyneval_prior.py",
+  "/home/trans/Projects/air/mobius/runs/frozen/runs/pd_s10.8m_stream_svd32_b1024.pt",
+  "out/size10",
+  "setting=full-adam-1e-4",
+  "books=0-1",
+  "limit=40"
+ ],
+ "code": {
+  "dyneval_prior.py": "da200190dbd45ee861e8fe34f79b241a667bd0f488b4f9bdc391fe3c7aac34bf",
+  "prior_input_only.py": "c9a82dd87da0144d5de71be1625ad5a961db9bff9c39acc8659152f0f7ed3f1e",
+  "transformer_baseline.py": "de43c8742711337b41cf7c90a50835ad85e663aefeca457eecc6ce885f73e214",
+  "imm/data.py": "5bc751873c5317d9f1efc6e726ace59494bdec887c3af7df7f2f7cfc4172d19f",
+  "agpt": "1022410ac4e1cef72a5bec97f2ef25d93718e58e",
+  "imm": "cc779c3ec88b86d6ab754a459d23eca471d8b196",
+  "mobius": "c8e586d4274f2a21a0a31dedf64dc0a61cda5cf5"
+ }
+}
