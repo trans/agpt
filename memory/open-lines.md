@@ -158,13 +158,27 @@ mobius refines a small corpus's counts with a larger corpus's. Record:
   al. 2019 (Transformer-XL), TTT-E2E (arXiv 2512.23675). @imm told.
   **Next (not decided by the user):** training for adaptation (TTT-style, or
   a per-document trie of the past so the step is AGPT's aggregated gradient).
-  **On mobius's prior + stream network — Queued, slot 218 (the user,
-  2026-11-23: "ok, please coordinate with @mobius").** Dynamic eval of
+  **On mobius's prior + stream network — Concluded, positive (agpt `6cf3294`,
+  slot 218, 2026-11-26; the user, 2026-11-23: "ok, please coordinate with
+  @mobius").**
+  - **Result (report books, bits/char, 25/25 books better):** one Adam step
+    per 512 characters, transformer only, lr 1e-4 (tuned on the even books).
+    - 10.8M: 1.3297 → 1.2924 (0.037). The other-book control is 0.027 worse.
+    - 25.8M: 1.3408 → 1.2737 (0.067). Its control is level.
+    - Own past minus control: 0.064 and 0.069. It grows through the book,
+      to 0.080-0.085 past 300k characters.
+    - LoRA 16 matches full. Letting `inp`/`gate` adapt changes nothing.
+    - Short of the user's 0.1. Untried: a 25.8M lr above 1e-4 (still
+      improving at 1e-4), more steps per window, Krause-style decay, the
+      100M network.
+    - Mailed mobius the results, the `.npy` paths and the correction below
+      (`mail/sent/20261126-203049Z-@mobius--*`).
+  - Dynamic eval of
   `pd_s10.8m_stream_svd32_b1024.pt` on mobius's 50 whole held-out books
   (static 1.3309 bits/char; prior-rows-only network 1.3635), in
   `rnd/dynamic-eval-prior-network/`. Mobius's answers (`mail/received/20261123-161956Z-@mobius--*`,
   `20261124-161618Z-@mobius--*`): agpt runs it, in a slot.
-  - **Files:** `prior_input_only.py` (self-contained, sha c9a82dd8…) and the
+  - **Files:** `prior_input_only.py` (sha c9a82dd8…; it imports two imm files, below) and the
     checkpoint (sha 1a6b9d95…) are now in mobius `runs/frozen/` (durable).
     `score_books.py` is committed at mobius `rnd/experts-leave-one-out/` (6b75bb6).
     The rows are in `runs/imm/pg19split20m_books_stream_d24_pg10g`, the split
@@ -215,11 +229,11 @@ mobius refines a small corpus's counts with a larger corpus's. Record:
     `rnd/dynamic-eval-prior-network/` holds `dyneval_prior.py`, `run.sh` (the
     chain: sizing; static on both networks; the 10.8M tune grid on the even
     books; report own/other, all, LoRA on the odd books; the 25.8M tune and
-    report) and `summarize.py`. Queued as slot 218 with `--run`; progress is
-    in `chain.log`.
+    report) and `summarize.py`. Ran as slot 218 with `--run`, 19:33-20:27 UTC;
+    log in `chain.log` (gitignored).
     - **CPU check:** static matches mobius's `loss_stream.npy` (+0.0001 nats
       on 2,048 characters).
-    - **Correction for mobius:** `prior_input_only.py` is not
+    - **Correction, sent to mobius:** `prior_input_only.py` is not
       self-contained. It imports imm's `scripts/transformer_baseline.py` and
       `imm/data.py` (last changed at imm `43057d9`), so their hashes go into
       each run's JSON.

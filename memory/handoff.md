@@ -2,14 +2,13 @@
 
 *Updated 2026-11-25*
 
-## Resume here (2026-11-25)
+## Resume here (2026-11-26)
 
-- **Next task, agreed (the user, 2026-11-23, then "we can pick this up after
-  I reboot" on 2026-11-25):** dynamic eval of mobius's prior + stream network
-  on its 50 whole books. Paths, protocol and cost notes from mobius are in
-  open-lines.md §1b ("On mobius's prior + stream network"). Nothing written
-  yet: first the scorer in `rnd/dynamic-eval-prior-network/`, then size one
-  backward step at block 1,024, then an @air slot with `--run`.
+- **Dynamic eval of mobius's prior + stream networks: done** (agpt
+  `6cf3294`, `rnd/dynamic-eval-prior-network`). On top of the stream rows it
+  gains 0.037 bits/char on the 10.8M and 0.067 on the 25.8M. The adapted
+  25.8M, 1.2737, is the best figure on the 50 books. Results are mailed to
+  mobius. Next steps are not chosen; the user's bar is 0.1 (open-lines.md §1b).
 - **Direction (decisions.md, 2026-11-22/23):** regular training instead of
   pd=N trie training; agpt serves the prior + residual line. Depth-16
   doping concluded (`rnd/doped-counts-depth16`, `72b4a40`).
