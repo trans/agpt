@@ -9,18 +9,23 @@ question: >-
   nats/char from a book's own past (rnd/dynamic-eval). How much does it give mobius's best
   network, a 10.8M transformer that already reads the count prior and the book's stream rows
   over 1,024 characters, on mobius's 50 whole held-out books, beyond adapting on another
-  book's text?
+  book's text? And (the user via @air, 2026-11-26) on the 25.8M trained on 100M: do the
+  text gain and the adaptation gain add up to about 0.1?
 answer: >-
   It gives 0.037 bits/char on the 10.8M and 0.067 on the 25.8M, on top of the stream rows
   (the 25 report books, paired by book: 25/25 better for both). The 10.8M goes from 1.3297 to
-  1.2924, the 25.8M from 1.3408 to 1.2737, so with adaptation the bigger network, statically
-  0.011 worse, ends 0.019 ahead. One Adam step per 512 characters scored, all transformer
-  weights, lr 1e-4 (chosen on the other 25 books). The book's own past, measured against the
-  same steps on another book's text, is worth 0.064 and 0.069 bits/char; that part grows
-  through the book, 0.010-0.019 in characters 1k-5k to 0.080-0.085 past 300k. A rank-16 LoRA
-  (1.2920) and adapting the prior's layers too (1.2929) match full adaptation. Short of the
-  user's 0.1, and untried: a 25.8M rate above 1e-4, more frequent steps, decay toward the
-  trained weights.
+  1.2924, the 25.8M from 1.3408 to 1.2737. One Adam step per 512 characters scored, all
+  transformer weights, lr 1e-4 (chosen on the other 25 books). A rank-16 LoRA (1.2920) and
+  adapting the prior's layers too (1.2929) match full adaptation. On the networks mobius
+  trained on 100M (the user via @air, slot 220; approximate, on the 20M books' rows) the
+  gain is smaller: 0.029 on the 10.8M (1.3213 to 1.2922) and 0.031 on the 25.8M (1.2903 to
+  1.2592, the best figure on these books). The text gain and the adaptation gain do not
+  add: together they come to 0.071 below the 20M 10.8M's static 1.3297, short of the user's
+  0.1. What the book's own past is worth against the same steps on another book's text is
+  nearly constant over the four networks (0.063-0.069); what changes is the cost of the steps
+  themselves, measured by that control (about 0 for the 20M 25.8M, which memorized its
+  training text, 0.027-0.037 for the others). Untried: steps that decay toward the trained
+  weights, which aim at that cost.
 headline:
 - label: 10.8M (20M split), own past against static, report books
   metric: diagnostic bits/char gain, mobius's 50-book protocol (25 report books)
@@ -28,15 +33,15 @@ headline:
 - label: 25.8M (20M split), own past against static, report books
   metric: diagnostic bits/char gain, mobius's 50-book protocol (25 report books)
   value: 0.0671
-- label: 25.8M adapted, report books (10.8M static 1.3297)
+- label: 25.8M (100M split) adapted, report books (approximate rows; 20M 10.8M static 1.3297)
   metric: diagnostic bits/char, mobius's 50-book protocol (25 report books)
-  value: 1.2737
+  value: 1.2592
 opened: 2026-11-26
 updated: 2026-11-26
 code: main
 eval: none
 family: hybrid
-tags: [context-length, adaptation, dynamic-eval, prior, books]
+tags: [context-length, adaptation, dynamic-eval, prior, books, text-size]
 related: [dynamic-eval]
 ---
 
@@ -156,9 +161,64 @@ Per book, the 10.8M's gain runs from 0.003 to 0.132 bits/char and the
   already reads the book through the stream rows, leaves less to the weights.
 - **Not tried:** a 25.8M rate above 1e-4; more than one step per 512
   characters or a shorter stride; Krause et al.'s RMS-scaled steps with decay
-  toward the trained weights; the 100M-trained 10.8M (approximate on these
-  rows, mobius 2026-11-26).
+  toward the trained weights. (The 100M-trained networks: below.)
+
+## The networks trained on 100M (slot 220)
+
+The user, via @air (2026-11-26, `.ai/mail/received/20261126-211810Z-@air--*`):
+does adaptation on mobius's 100M-trained 25.8M bring the total to about 0.1?
+`run_100m.sh`, slot 220, 21:21-21:55 UTC, one run at a time (peak host 1.9
+GB). Networks: `pd_s25m_stream100m_svd32_b1024.pt` (8 × 512, sha 44744c92…,
+1.3231 on mobius's 50 pieces) and `pd_s10m8_stream100m_svd32_b1024.pt` (6 ×
+384, sha 4e4d5595…, 1.3525 there). Both use the same vocabulary as the rows
+(the vocab files are identical). **Approximate:** the rows are the 20M
+books' rows. Their counts include the 200 books dropped from the 100M split,
+and four of the 100M training books share 550 held-out positions with these
+books. Mobius sizes these at about 0.0003 and under 0.0001 bits.
+
+Static, all 50 books: the 25.8M 1.2883, the 10.8M 1.3186 (against 1.3309 for
+the 20M 10.8M).
+
+Tune books (static 25.8M 1.2864): Adam 1e-4 gives 1.2369 (-0.0495, per book
+-0.0444 ± 0.0054, 25/25), 2e-4 gives 1.2564 (-0.0301, 22/25). Chosen: 1e-4.
+The 10.8M takes 1e-4, the 20M 10.8M's tuned rate.
+
+Report books:
+
+| network | static | own past | gain, per book ± s.e. | better | control | own - control |
+|---|---|---|---|---|---|---|
+| 10.8M, 20M | 1.3297 | 1.2924 | -0.0374, -0.0373 ± 0.0056 | 25/25 | +0.0267 | -0.0641 |
+| 25.8M, 20M | 1.3408 | 1.2737 | -0.0671, -0.0701 ± 0.0085 | 25/25 | +0.0023 | -0.0694 |
+| 10.8M, 100M | 1.3213 | 1.2922 | -0.0291, -0.0275 ± 0.0042 | 23/25 | +0.0342 | -0.0633 |
+| 25.8M, 100M | 1.2903 | 1.2592 | -0.0311, -0.0301 ± 0.0051 | 23/25 | +0.0366 | -0.0677 |
+
+(Own minus control is 25/25 books for all four.)
+
+By position, the 100M networks gain little early. The 25.8M gains -0.0024
+in characters 1k-5k, -0.0086 in 5k-25k, -0.0239 in 25k-100k, -0.0330 in
+100k-300k and -0.0379 past 300k. Its control costs grow alongside:
++0.0047, +0.0140, +0.0257, +0.0394, +0.0449. Own minus control is the same
+shape as on the 20M networks, -0.0827 past 300k.
+
+**The two gains do not add.** Against the 20M 10.8M's static 1.3297 on the
+report books, the 100M 25.8M takes 0.0394 statically and 0.0311 more by
+adaptation, 0.0705 in all. Adaptation on the 20M 25.8M took it to 1.2737,
+so the 100M training adds 0.0145 on top of adaptation. On the 10.8M the
+100M training's static gain is used up entirely: adapted, both 10.8Ms score
+1.292.
+
+**Reading.** On all four networks the book's own past beats another book's
+text by 0.063-0.069 bits/char. The net gain is smaller by what the control
+measures: adapting on text that isn't the book costs 0.027-0.037 on three of
+the networks, and about nothing on the 20M 25.8M, which memorized its
+training text and gets something back from any held-out book. The own-past
+run doesn't necessarily pay the control's cost, since its steps are on the
+text it then scores. Still, a method that limits drift is the plain next
+test: decay toward the trained weights (Krause et al. 2018), or a lower rate
+on the 100M networks (only 1e-4 and 2e-4 tried, and 2e-4 is worse).
 
 Cost per character, two runs sharing the GPU in each case: the adapted 10.8M
 takes 3x its static run (332 s for the 9.2M report characters against 220 s
-for all 18.7M), LoRA 2x, the adapted 25.8M 6x (635 s against 222 s).
+for all 18.7M), LoRA 2x, the adapted 25.8M 6x (635 s against 222 s). Alone on
+the GPU (slot 220) the 25.8M takes 333 s for the report books with adaptation
+and 134 s for all 50 books static, 5x per character.

@@ -1,0 +1,342 @@
+{
+ "checkpoint": "/home/trans/Projects/air/mobius/runs/frozen/runs/pd_s25m_stream100m_svd32_b1024.pt",
+ "checkpoint_sha256": "44744c920a6b3b24453d5f1787b8ea15241cb28044a5e7068a96e35a0fbc8a09",
+ "setting": {
+  "name": "static",
+  "kind": "static"
+ },
+ "past": "own",
+ "books": [
+  0,
+  1,
+  2,
+  3,
+  4,
+  5,
+  6,
+  7,
+  8,
+  9,
+  10,
+  11,
+  12,
+  13,
+  14,
+  15,
+  16,
+  17,
+  18,
+  19,
+  20,
+  21,
+  22,
+  23,
+  24,
+  25,
+  26,
+  27,
+  28,
+  29,
+  30,
+  31,
+  32,
+  33,
+  34,
+  35,
+  36,
+  37,
+  38,
+  39,
+  40,
+  41,
+  42,
+  43,
+  44,
+  45,
+  46,
+  47,
+  48,
+  49
+ ],
+ "limit": null,
+ "rows": "/home/trans/Projects/air/mobius/runs/imm/pg19split20m_books_stream_d24_pg10g",
+ "split": "/home/trans/Projects/air/mobius/data/pg19/imm-split-20m-books",
+ "block": 1024,
+ "adapting_parameters": 0,
+ "steps": 0,
+ "scored": 18665284,
+ "bits": 1.2883294820785522,
+ "per_book": {
+  "0": {
+   "windows": 1306,
+   "seconds": 5.34,
+   "bits": 1.3823552131652832
+  },
+  "1": {
+   "windows": 1003,
+   "seconds": 3.58,
+   "bits": 1.3054190874099731
+  },
+  "2": {
+   "windows": 849,
+   "seconds": 3.04,
+   "bits": 1.3144277334213257
+  },
+  "3": {
+   "windows": 635,
+   "seconds": 2.3,
+   "bits": 1.2830994129180908
+  },
+  "4": {
+   "windows": 379,
+   "seconds": 1.37,
+   "bits": 1.3720005750656128
+  },
+  "5": {
+   "windows": 1243,
+   "seconds": 4.47,
+   "bits": 1.3377469778060913
+  },
+  "6": {
+   "windows": 259,
+   "seconds": 0.94,
+   "bits": 1.4105665683746338
+  },
+  "7": {
+   "windows": 661,
+   "seconds": 2.4,
+   "bits": 1.1700359582901
+  },
+  "8": {
+   "windows": 656,
+   "seconds": 2.37,
+   "bits": 1.4077061414718628
+  },
+  "9": {
+   "windows": 611,
+   "seconds": 2.21,
+   "bits": 1.2071723937988281
+  },
+  "10": {
+   "windows": 899,
+   "seconds": 3.26,
+   "bits": 1.3471332788467407
+  },
+  "11": {
+   "windows": 377,
+   "seconds": 1.37,
+   "bits": 1.2931627035140991
+  },
+  "12": {
+   "windows": 152,
+   "seconds": 0.55,
+   "bits": 1.34727942943573
+  },
+  "13": {
+   "windows": 168,
+   "seconds": 0.61,
+   "bits": 1.3832193613052368
+  },
+  "14": {
+   "windows": 166,
+   "seconds": 0.61,
+   "bits": 1.206027865409851
+  },
+  "15": {
+   "windows": 1101,
+   "seconds": 4.0,
+   "bits": 1.2418590784072876
+  },
+  "16": {
+   "windows": 342,
+   "seconds": 1.24,
+   "bits": 1.2844247817993164
+  },
+  "17": {
+   "windows": 1365,
+   "seconds": 4.97,
+   "bits": 1.3436665534973145
+  },
+  "18": {
+   "windows": 898,
+   "seconds": 3.26,
+   "bits": 1.2016041278839111
+  },
+  "19": {
+   "windows": 1648,
+   "seconds": 5.98,
+   "bits": 1.3000843524932861
+  },
+  "20": {
+   "windows": 1019,
+   "seconds": 3.7,
+   "bits": 1.2916929721832275
+  },
+  "21": {
+   "windows": 1127,
+   "seconds": 4.11,
+   "bits": 1.3956975936889648
+  },
+  "22": {
+   "windows": 506,
+   "seconds": 1.85,
+   "bits": 1.2281419038772583
+  },
+  "23": {
+   "windows": 538,
+   "seconds": 1.97,
+   "bits": 1.2675813436508179
+  },
+  "24": {
+   "windows": 453,
+   "seconds": 1.65,
+   "bits": 1.4201838970184326
+  },
+  "25": {
+   "windows": 769,
+   "seconds": 2.8,
+   "bits": 1.2054023742675781
+  },
+  "26": {
+   "windows": 896,
+   "seconds": 3.27,
+   "bits": 1.2062877416610718
+  },
+  "27": {
+   "windows": 148,
+   "seconds": 0.54,
+   "bits": 1.3001911640167236
+  },
+  "28": {
+   "windows": 1492,
+   "seconds": 5.43,
+   "bits": 1.2289032936096191
+  },
+  "29": {
+   "windows": 1266,
+   "seconds": 4.63,
+   "bits": 1.3294926881790161
+  },
+  "30": {
+   "windows": 447,
+   "seconds": 1.64,
+   "bits": 1.2425260543823242
+  },
+  "31": {
+   "windows": 412,
+   "seconds": 1.5,
+   "bits": 1.2628498077392578
+  },
+  "32": {
+   "windows": 395,
+   "seconds": 1.44,
+   "bits": 1.2465944290161133
+  },
+  "33": {
+   "windows": 238,
+   "seconds": 0.87,
+   "bits": 1.3179397583007812
+  },
+  "34": {
+   "windows": 1154,
+   "seconds": 4.22,
+   "bits": 1.2124449014663696
+  },
+  "35": {
+   "windows": 1585,
+   "seconds": 5.75,
+   "bits": 1.1753532886505127
+  },
+  "36": {
+   "windows": 1790,
+   "seconds": 6.53,
+   "bits": 1.4396675825119019
+  },
+  "37": {
+   "windows": 583,
+   "seconds": 2.14,
+   "bits": 1.2820080518722534
+  },
+  "38": {
+   "windows": 623,
+   "seconds": 2.29,
+   "bits": 1.3308544158935547
+  },
+  "39": {
+   "windows": 432,
+   "seconds": 1.59,
+   "bits": 1.2463761568069458
+  },
+  "40": {
+   "windows": 178,
+   "seconds": 0.65,
+   "bits": 1.3125147819519043
+  },
+  "41": {
+   "windows": 589,
+   "seconds": 2.17,
+   "bits": 1.266746163368225
+  },
+  "42": {
+   "windows": 545,
+   "seconds": 2.0,
+   "bits": 1.1750115156173706
+  },
+  "43": {
+   "windows": 326,
+   "seconds": 1.2,
+   "bits": 1.2811508178710938
+  },
+  "44": {
+   "windows": 950,
+   "seconds": 3.49,
+   "bits": 1.2226945161819458
+  },
+  "45": {
+   "windows": 339,
+   "seconds": 1.25,
+   "bits": 1.197554349899292
+  },
+  "46": {
+   "windows": 654,
+   "seconds": 2.4,
+   "bits": 1.2823140621185303
+  },
+  "47": {
+   "windows": 461,
+   "seconds": 1.69,
+   "bits": 1.6448023319244385
+  },
+  "48": {
+   "windows": 1438,
+   "seconds": 5.28,
+   "bits": 1.1419708728790283
+  },
+  "49": {
+   "windows": 359,
+   "seconds": 1.33,
+   "bits": 1.3219974040985107
+  }
+ },
+ "seconds": 134.2,
+ "device": "cuda",
+ "gpu": "NVIDIA GeForce RTX 4070 Laptop GPU",
+ "peak_host_mb": 1637,
+ "peak_gpu_mb": 128,
+ "torch": "2.15.0",
+ "argv": [
+  "dyneval_prior.py",
+  "/home/trans/Projects/air/mobius/runs/frozen/runs/pd_s25m_stream100m_svd32_b1024.pt",
+  "out/static25h",
+  "setting=static"
+ ],
+ "code": {
+  "dyneval_prior.py": "da200190dbd45ee861e8fe34f79b241a667bd0f488b4f9bdc391fe3c7aac34bf",
+  "prior_input_only.py": "c9a82dd87da0144d5de71be1625ad5a961db9bff9c39acc8659152f0f7ed3f1e",
+  "transformer_baseline.py": "de43c8742711337b41cf7c90a50835ad85e663aefeca457eecc6ce885f73e214",
+  "imm/data.py": "5bc751873c5317d9f1efc6e726ace59494bdec887c3af7df7f2f7cfc4172d19f",
+  "agpt": "1288c555467a1d11653f8bde0be9debfd0fbf0a2",
+  "imm": "cc779c3ec88b86d6ab754a459d23eca471d8b196",
+  "mobius": "b30d385c062298dd25155df73477be3565d4670a"
+ }
+}
