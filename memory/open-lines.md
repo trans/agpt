@@ -193,10 +193,24 @@ mobius refines a small corpus's counts with a larger corpus's. Record:
     Four of the 110 books mobius dropped for sharing text with the 50 books
     are in the 100M split's training text (38554, 42410, 7137, 8145; agpt's
     check against `books.json` and the 100M manifest, 2026-11-26).
-  - **Asked mobius (2026-11-26, `mail/sent/20261126-185107Z-*`):** which
-    checkpoint and rows to use, and whether the 25.8M (20M) checkpoint fits
-    the 20M book rows. Default unless it says otherwise: the 20M 10.8M on the
-    20M book rows.
+  - **Checkpoints, settled with mobius (2026-11-26, `mail/received/20261126-185534Z-@mobius--*`):**
+    - **First:** the 20M 10.8M on the 20M books' stream rows, paired against
+      1.3309.
+    - **Size control:** the 25.8M on the 20M split
+      (`runs/frozen/runs/pd_s25m_stream_svd32_b1024.pt`, sha b5d1fc93…, 8
+      layers × 512, 8 heads). It fits the same rows (same SVD basis
+      `runs/frozen/svd/rows_stream_d24_pg10g.npz`, same gate
+      standardization). It is 1.3787 on the pieces (it memorizes the 20M) and
+      not yet scored on the books: run `score_books.py` on it in our slot
+      first (~3 min).
+    - **100M 10.8M:** `pd_s10m8_stream100m_svd32_b1024.pt` (sha 4e4d5595…,
+      its own SVD basis carried in its buffers). It's a fair approximate
+      figure on the existing book rows. Mobius sized the two caveats as
+      negligible: 200 books out of the counts ≈ 0.0003 bits of prior; the
+      four shared books give 550 of 18.7M positions a shared 64-gram, longest
+      run ~73 characters (quotations), < 0.0001 bits. Rows under its own
+      counts would cost ~5 h of Xeon; mobius won't build them unasked.
+    - The GPU was slot 217's until ~20:10 UTC on 2026-11-26.
 - **Trie growth — Concluded, mixed (agpt `55549fb`, `rnd/trie-growth`).** The
   user (2026-11-20): train while the trie grows, "cadence in time, not space";
   aggregate as counts arrive, update after N(trie) changes, recompute after
