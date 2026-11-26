@@ -7,8 +7,10 @@
 - **Dynamic eval of mobius's prior + stream networks: done** (agpt
   `6cf3294`, `rnd/dynamic-eval-prior-network`). On top of the stream rows it
   gains 0.037 bits/char on the 10.8M and 0.067 on the 25.8M. The adapted
-  25.8M, 1.2737, is the best figure on the 50 books. Results are mailed to
-  mobius. Next steps are not chosen; the user's bar is 0.1 (open-lines.md §1b).
+  25.8M, 1.2737, was then the best figure on the 50 books. On the
+  100M-trained 25.8M (slot 220, `2e17076`) adaptation adds only 0.031
+  (1.2903 → 1.2592), 0.071 in all, against the user's bar of 0.1. Results
+  are mailed to air and mobius. Next steps are not chosen (open-lines.md §1b).
 - **Direction (decisions.md, 2026-11-22/23):** regular training instead of
   pd=N trie training; agpt serves the prior + residual line. Depth-16
   doping concluded (`rnd/doped-counts-depth16`, `72b4a40`).

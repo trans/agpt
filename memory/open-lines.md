@@ -176,12 +176,19 @@ mobius refines a small corpus's counts with a larger corpus's. Record:
     - Slot 218 ran two jobs at ~1.9 GB host each, over mobius's 3 GB limit
       (told @air, `mail/sent/20261126-212131Z-@air--*`). An adaptive 25.8M is
       1.6 GB anonymous on the CPU alone, so run one job at a time.
-  - **Next, the user via @air (2026-11-26, `mail/received/20261126-211810Z-@air--*`):
-    Running, slot 220 (agpt `1288c55`, `run_100m.sh`).** Dynamic eval on the
-    100M-trained 25.8M (`pd_s25m_stream100m_svd32_b1024.pt`, 1.3231 on the
-    pieces) and the 100M 10.8M for the pair, on the 20M books' rows
-    (approximate). The question: do the text gain and the adaptation gain add
-    up to ~0.1? Mail air and mobius the results when the chain ends.
+  - **The 100M-trained networks (the user via @air, 2026-11-26,
+    `mail/received/20261126-211810Z-@air--*`) — Done, slot 220 (agpt `2e17076`).**
+    Approximate, on the 20M books' rows. Report books, Adam 1e-4 (2e-4 worse
+    on tune):
+    - 25.8M on 100M: 1.2903 → 1.2592 (0.031). 10.8M on 100M: 1.3213 → 1.2922
+      (0.029).
+    - The text gain and the adaptation gain don't add: 0.071 below the 20M
+      10.8M's 1.3297, not 0.1.
+    - Own minus control is 0.063-0.069 on all four networks. What varies is
+      the control's cost: 0.027-0.037, about 0 for the memorizing 20M 25.8M.
+    - Next candidates (not chosen; the user's call): decay toward the trained
+      weights, or a lower rate on the 100M networks.
+    - Mailed air and mobius (`mail/sent/20261126-21572*`).
   - Dynamic eval of
   `pd_s10.8m_stream_svd32_b1024.pt` on mobius's 50 whole held-out books
   (static 1.3309 bits/char; prior-rows-only network 1.3635), in
