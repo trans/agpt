@@ -10,7 +10,7 @@ question: >-
   network, a 10.8M transformer that already reads the count prior and the book's stream rows
   over 1,024 characters, on mobius's 50 whole held-out books, beyond adapting on another
   book's text? And (the user via @air, 2026-11-26) on the 25.8M trained on 100M: do the
-  text gain and the adaptation gain add up to about 0.1?
+  text gain and the adaptation gain add up to about 0.1, and does limiting drift help?
 answer: >-
   It gives 0.037 bits/char on the 10.8M and 0.067 on the 25.8M, on top of the stream rows
   (the 25 report books, paired by book: 25/25 better for both). The 10.8M goes from 1.3297 to
@@ -24,8 +24,11 @@ answer: >-
   0.1. What the book's own past is worth against the same steps on another book's text is
   nearly constant over the four networks (0.063-0.069); what changes is the cost of the steps
   themselves, measured by that control (about 0 for the 20M 25.8M, which memorized its
-  training text, 0.027-0.037 for the others). Untried: steps that decay toward the trained
-  weights, which aim at that cost.
+  training text, 0.027-0.037 for the others). Limiting that cost does not raise the net gain
+  (slot 221, the user via @air): decay toward the trained weights after each step (lambda
+  0.003) cuts the control's cost from 0.037 to 0.022 but improves the own-past run by only
+  0.001 (1.2592 to 1.2582), and Adam 3e-5 ties 1e-4 on the tune books. The own-past run was
+  not paying the control's cost, so own minus control is not headroom.
 headline:
 - label: 10.8M (20M split), own past against static, report books
   metric: diagnostic bits/char gain, mobius's 50-book protocol (25 report books)
@@ -41,7 +44,7 @@ updated: 2026-11-26
 code: main
 eval: none
 family: hybrid
-tags: [context-length, adaptation, dynamic-eval, prior, books, text-size]
+tags: [context-length, adaptation, dynamic-eval, prior, books, text-size, drift]
 related: [dynamic-eval]
 ---
 
@@ -216,6 +219,47 @@ run doesn't necessarily pay the control's cost, since its steps are on the
 text it then scores. Still, a method that limits drift is the plain next
 test: decay toward the trained weights (Krause et al. 2018), or a lower rate
 on the 100M networks (only 1e-4 and 2e-4 tried, and 2e-4 is worse).
+
+## Limiting drift (slot 221)
+
+The user approved the test via @air (2026-11-26,
+`.ai/mail/received/20261126-221917Z-@air--*`). `run_drift.sh`, slot 221,
+22:21-22:53 UTC, one run at a time, on the 100M 25.8M. The decay arm takes
+setting suffix `-dLAMBDA`: after each Adam step, w += λ(w0 − w). This is
+Krause et al. 2018's decay without their RMS step scaling.
+
+Tune books (static 1.2864):
+
+| setting | bits/char | gain, per book ± s.e. | better |
+|---|---|---|---|
+| Adam 1e-4 (slot 220) | 1.2369 | -0.0495, -0.0444 ± 0.0054 | 25/25 |
+| Adam 1e-4, decay 0.003 | 1.2373 | -0.0491, -0.0446 ± 0.0049 | 25/25 |
+| Adam 1e-4, decay 0.01 | 1.2432 | -0.0432, -0.0399 ± 0.0042 | 25/25 |
+| Adam 3e-5 | 1.2376 | -0.0488, -0.0429 ± 0.0043 | 25/25 |
+| Adam 2e-4 (slot 220) | 1.2564 | -0.0301, -0.0268 ± 0.0056 | 22/25 |
+
+The rate arm chose 1e-4, already reported. The decay arm chose 0.003; the
+report books (static 1.2903):
+
+| setting | own past | control | own - control |
+|---|---|---|---|
+| Adam 1e-4 | 1.2592 (-0.0311) | 1.3269 (+0.0366) | -0.0677 |
+| Adam 1e-4, decay 0.003 | 1.2582 (-0.0321) | 1.3121 (+0.0218) | -0.0539 |
+
+Decay against no decay, paired per book: own past -0.0010 by chars (per book
+-0.0014 ± 0.0004, better in 19/25); control -0.0148 (-0.0127 ± 0.0010,
+25/25). By position, decay saves the control 0.0057 in 25k-100k, 0.0152 in
+100k-300k and 0.0227 past 300k. It helps the own-past run by at most 0.0022
+(100k-300k) and costs it 0.0009 past 300k.
+
+**Reading.** Decay removes 40% of the control's cost, but the own-past run
+gains only 0.001. Steps on the book's own text don't do the harm that steps
+on another book's text do, so the control's cost was never part of the
+own-past run's score. Own minus control (0.065) measured how much better the
+book's own text is than another book's text to adapt on. It isn't a ceiling
+the net gain could reach by removing drift; I suggested it might be, and
+this run says no. The lower rate doesn't help either. The 100M 10.8M was not
+run: the tune books chose plain Adam 1e-4, which it already has.
 
 Cost per character, two runs sharing the GPU in each case: the adapted 10.8M
 takes 3x its static run (332 s for the 9.2M report characters against 220 s
