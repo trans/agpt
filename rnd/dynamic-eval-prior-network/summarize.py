@@ -65,6 +65,8 @@ def main():
         r = json.loads(Path(f).read_text())
         runs[Path(f).stem] = r
     res = {"runs": {}, "checks": {}}
+    # each adaptive run pairs with the static run of the same checkpoint
+    statics = {r["checkpoint_sha256"]: name for name, r in runs.items() if r["steps"] == 0 and not r.get("limit")}
     if "static10" in runs and MOBIUS_STATIC.exists():
         p = paired(np.load(MOBIUS_STATIC, mmap_mode="r"), load("static10"), list(range(nb)))
         res["checks"]["static10_vs_mobius"] = {k: p[k] for k in ("a", "b", "by_chars", "chars")}
@@ -76,19 +78,20 @@ def main():
                 print(f"{name}: static, {r['bits']:.4f} bits/char over {len(r['books'])} books "
                       f"({r['seconds']:.0f} s, peak GPU {r.get('peak_gpu_mb')} MB)")
             continue
-        static = "static25" if "s25m" in Path(r["checkpoint"]).name else "static10"
-        if static not in runs:
+        static = statics.get(r["checkpoint_sha256"])
+        if static is None:
             continue
         p = paired(load(static), load(name), r["books"])
         res["runs"][name] = {"setting": r["setting"]["name"], "past": r["past"], "static": static, "seconds": r["seconds"],
                              "steps": r["steps"], "peak_gpu_mb": r.get("peak_gpu_mb"), **p}
         print(f"{name} ({r['setting']['name']}, past {r['past']}, {r['seconds']:.0f} s): {fmt(p)}")
-    for net in ("10", "25"):
+    label = {"10": "10.8M", "25": "25.8M", "10h": "10.8M on 100M", "25h": "25.8M on 100M"}
+    for net in ("10", "25", "10h", "25h"):
         own, other = f"r{net}-own", f"r{net}-other"
         if own in runs and other in runs:
             p = paired(load(other), load(own), runs[own]["books"])
             res["runs"][f"r{net}-own-minus-other"] = p
-            print(f"\n{net == '10' and '10.8M' or '25.8M'}, report books: own past {res['runs'][own]['by_chars']:+.4f}, "
+            print(f"\n{label[net]}, report books: own past {res['runs'][own]['by_chars']:+.4f}, "
                   f"other-book control {res['runs'][other]['by_chars']:+.4f}; own vs control: {fmt(p)}")
             print("  by position in the book: band, share, static -> own (gain), control gain, own minus control")
             ps, po = res["runs"][own]["bands"], res["runs"][other]["bands"]
