@@ -173,6 +173,15 @@ mobius refines a small corpus's counts with a larger corpus's. Record:
       100M network.
     - Mailed mobius the results, the `.npy` paths and the correction below
       (`mail/sent/20261126-203049Z-@mobius--*`).
+    - Slot 218 ran two jobs at ~1.9 GB host each, over mobius's 3 GB limit
+      (told @air, `mail/sent/20261126-212131Z-@air--*`). An adaptive 25.8M is
+      1.6 GB anonymous on the CPU alone, so run one job at a time.
+  - **Next, the user via @air (2026-11-26, `mail/received/20261126-211810Z-@air--*`):
+    Running, slot 220 (agpt `1288c55`, `run_100m.sh`).** Dynamic eval on the
+    100M-trained 25.8M (`pd_s25m_stream100m_svd32_b1024.pt`, 1.3231 on the
+    pieces) and the 100M 10.8M for the pair, on the 20M books' rows
+    (approximate). The question: do the text gain and the adaptation gain add
+    up to ~0.1? Mail air and mobius the results when the chain ends.
   - Dynamic eval of
   `pd_s10.8m_stream_svd32_b1024.pt` on mobius's 50 whole held-out books
   (static 1.3309 bits/char; prior-rows-only network 1.3635), in
