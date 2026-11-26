@@ -10,7 +10,9 @@
   25.8M, 1.2737, was then the best figure on the 50 books. On the
   100M-trained 25.8M (slot 220, `2e17076`) adaptation adds only 0.031
   (1.2903 → 1.2592), 0.071 in all, against the user's bar of 0.1. Results
-  are mailed to air and mobius. Next steps are not chosen (open-lines.md §1b).
+  are mailed to air and mobius. Limiting drift (slot 221, `2b366e4`): decay
+  toward the trained weights adds only 0.001. Next steps are not chosen
+  (open-lines.md §1b).
 - **Direction (decisions.md, 2026-11-22/23):** regular training instead of
   pd=N trie training; agpt serves the prior + residual line. Depth-16
   doping concluded (`rnd/doped-counts-depth16`, `72b4a40`).

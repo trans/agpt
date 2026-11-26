@@ -186,17 +186,17 @@ mobius refines a small corpus's counts with a larger corpus's. Record:
       10.8M's 1.3297, not 0.1.
     - Own minus control is 0.063-0.069 on all four networks. What varies is
       the control's cost: 0.027-0.037, about 0 for the memorizing 20M 25.8M.
-    - **Drift test: approved** by the user via @air (2026-11-26, "Sure. The
-      result might not be as big as I hoped, but it is still solid progress.",
-      `mail/received/20261126-221917Z-@air--*`). **Running, slot 221** (agpt
-      `bf57f1a`, `run_drift.sh`), on the 100M 25.8M:
-      - decay toward the trained weights after each step, λ 0.003 and 0.01, at
-        Adam 1e-4;
-      - Adam 3e-5;
-      - each arm tuned on the tune books, then reported with its control;
-      - the 100M 10.8M only if it starts before 23:00 UTC, when mobius's GPU
-        run is due.
-      Mail air and mobius the results.
+    - **Drift test — Done, negative (slot 221, agpt `2b366e4`; approved by
+      the user via @air 2026-11-26, "Sure. The result might not be as big as
+      I hoped, but it is still solid progress.",
+      `mail/received/20261126-221917Z-@air--*`).** On the 100M 25.8M:
+      - Decay toward the trained weights (0.003 per step) cuts the
+        control's cost 0.037 → 0.022.
+      - It helps the own-past run by only 0.001 (1.2592 → 1.2582, 19/25).
+      - Adam 3e-5 ties 1e-4 on the tune books.
+      - So own minus control is not headroom: own-past steps never paid the
+        control's cost.
+      - Mailed air and mobius (`mail/sent/20261126-225432Z-*`).
     - Mailed air and mobius (`mail/sent/20261126-21572*`).
   - Dynamic eval of
   `pd_s10.8m_stream_svd32_b1024.pt` on mobius's 50 whole held-out books
