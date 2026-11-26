@@ -31,6 +31,9 @@ Settings (settings=, comma-separated):
                  (B starts at zero, A at N(0, 1/in) from a fixed seed); nothing else
                  adapts
   (sgd in place of adam: plain SGD)
+  ...-dLAMBDA    after each step, decay the adapting weights toward the checkpoint's:
+                 w += LAMBDA * (w0 - w) (Krause et al. 2018's decay, without their RMS
+                 step scaling), e.g. full-adam-1e-4-d0.01
 
 Control (past=other): the same steps, but book i's k-th step trains on the k-th
 window of the other books' text (books i+1, i+2, ... in order, each walked by its
@@ -52,6 +55,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import resource
 import subprocess
 import sys
@@ -107,13 +111,14 @@ class LowRank(nn.Module):
 def parse_setting(s):
     if s == "static":
         return {"name": s, "kind": "static"}
-    kind, opt, lr = s.split("-", 2)
-    if opt not in ("adam", "sgd"):
-        raise SystemExit(f"unknown optimizer in {s!r}")
+    m = re.fullmatch(r"(\w+?)-(adam|sgd)-([0-9.e+-]+?)(?:-d([0-9.e+-]+))?", s)
+    if not m:
+        raise SystemExit(f"unknown setting {s!r}")
+    kind, opt, lr, decay = m.group(1), m.group(2), float(m.group(3)), float(m.group(4) or 0)
     if kind in ("full", "all"):
-        return {"name": s, "kind": kind, "opt": opt, "lr": float(lr)}
+        return {"name": s, "kind": kind, "opt": opt, "lr": lr, "decay": decay}
     if kind.startswith("lora") and kind[4:].isdigit():
-        return {"name": s, "kind": "lora", "rank": int(kind[4:]), "opt": opt, "lr": float(lr)}
+        return {"name": s, "kind": "lora", "rank": int(kind[4:]), "opt": opt, "lr": lr, "decay": decay}
     raise SystemExit(f"unknown setting {s!r}")
 
 
@@ -254,6 +259,10 @@ def main():
             opt.zero_grad(set_to_none=True)
             ev.mean().backward()
             opt.step()
+            if st["decay"]:
+                with torch.no_grad():
+                    for p, q in zip(params, init):
+                        p.lerp_(q, st["decay"])
             steps += 1
         got = loss[wins[0][1] : wins[-1][2]]
         per_book[bi] = {"windows": len(wins), "seconds": round(time.time() - tb0, 2),

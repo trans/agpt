@@ -86,12 +86,13 @@ def main():
                              "steps": r["steps"], "peak_gpu_mb": r.get("peak_gpu_mb"), **p}
         print(f"{name} ({r['setting']['name']}, past {r['past']}, {r['seconds']:.0f} s): {fmt(p)}")
     label = {"10": "10.8M", "25": "25.8M", "10h": "10.8M on 100M", "25h": "25.8M on 100M"}
-    for net in ("10", "25", "10h", "25h"):
-        own, other = f"r{net}-own", f"r{net}-other"
+    # every report pair: rNET-own[-ARM] against rNET-other[-ARM]
+    for own in [k for k in runs if k.startswith("r") and "-own" in k]:
+        net, other = own[1:].split("-own")[0], own.replace("-own", "-other")
         if own in runs and other in runs:
             p = paired(load(other), load(own), runs[own]["books"])
-            res["runs"][f"r{net}-own-minus-other"] = p
-            print(f"\n{label[net]}, report books: own past {res['runs'][own]['by_chars']:+.4f}, "
+            res["runs"][f"{own}-minus-other"] = p
+            print(f"\n{label[net]} ({runs[own]['setting']['name']}), report books: own past {res['runs'][own]['by_chars']:+.4f}, "
                   f"other-book control {res['runs'][other]['by_chars']:+.4f}; own vs control: {fmt(p)}")
             print("  by position in the book: band, share, static -> own (gain), control gain, own minus control")
             ps, po = res["runs"][own]["bands"], res["runs"][other]["bands"]
