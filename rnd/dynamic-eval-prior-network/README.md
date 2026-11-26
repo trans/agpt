@@ -219,6 +219,7 @@ run doesn't necessarily pay the control's cost, since its steps are on the
 text it then scores. Still, a method that limits drift is the plain next
 test: decay toward the trained weights (Krause et al. 2018), or a lower rate
 on the 100M networks (only 1e-4 and 2e-4 tried, and 2e-4 is worse).
+Tested in slot 221 (next section): neither helps.
 
 ## Limiting drift (slot 221)
 
