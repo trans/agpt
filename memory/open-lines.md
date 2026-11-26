@@ -158,7 +158,7 @@ mobius refines a small corpus's counts with a larger corpus's. Record:
   al. 2019 (Transformer-XL), TTT-E2E (arXiv 2512.23675). @imm told.
   **Next (not decided by the user):** training for adaptation (TTT-style, or
   a per-document trie of the past so the step is AGPT's aggregated gradient).
-  **On mobius's prior + stream network — Agreed, not started (the user,
+  **On mobius's prior + stream network — Queued, slot 218 (the user,
   2026-11-23: "ok, please coordinate with @mobius").** Dynamic eval of
   `pd_s10.8m_stream_svd32_b1024.pt` on mobius's 50 whole held-out books
   (static 1.3309 bits/char; prior-rows-only network 1.3635), in
@@ -211,6 +211,18 @@ mobius refines a small corpus's counts with a larger corpus's. Record:
       run ~73 characters (quotations), < 0.0001 bits. Rows under its own
       counts would cost ~5 h of Xeon; mobius won't build them unasked.
     - The GPU was slot 217's until ~20:10 UTC on 2026-11-26.
+  - **Code and slot (agpt `1022410`, 2026-11-26):**
+    `rnd/dynamic-eval-prior-network/` holds `dyneval_prior.py`, `run.sh` (the
+    chain: sizing; static on both networks; the 10.8M tune grid on the even
+    books; report own/other, all, LoRA on the odd books; the 25.8M tune and
+    report) and `summarize.py`. Queued as slot 218 with `--run`; progress is
+    in `chain.log`.
+    - **CPU check:** static matches mobius's `loss_stream.npy` (+0.0001 nats
+      on 2,048 characters).
+    - **Correction for mobius:** `prior_input_only.py` is not
+      self-contained. It imports imm's `scripts/transformer_baseline.py` and
+      `imm/data.py` (last changed at imm `43057d9`), so their hashes go into
+      each run's JSON.
 - **Trie growth — Concluded, mixed (agpt `55549fb`, `rnd/trie-growth`).** The
   user (2026-11-20): train while the trie grows, "cadence in time, not space";
   aggregate as counts arrive, update after N(trie) changes, recompute after
