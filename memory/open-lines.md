@@ -1,6 +1,6 @@
 # Open lines of research
 
-*Updated 2026-11-24*
+*Updated 2026-11-26*
 
 Each line has a state, where its plan lives, and what it needs next.
 
@@ -180,6 +180,23 @@ mobius refines a small corpus's counts with a larger corpus's. Record:
   - **Cost:** size one backward step at block 1,024 before the slot; keep
     the host side under 3 GB; use `slots add ... --run CMD`, since a grant
     lapses after 30 minutes if the session is idle.
+  - **The user's goal (via @air, 2026-11-26, `mail/received/20261126-184907Z-@air--*`):**
+    "We need gains closer to 0.1 not 0.01, or we will never even get close
+    to 1.0." So the figure that matters is the gain on top of the stream rows,
+    which already take 0.072 bits/char from the book's own past (prior 1.6194,
+    with the stream 1.5473 on the 100M split's held-out text).
+  - **Newer checkpoints (mobius `decf7c2`):** `pd_s10m8_stream100m_svd32_b1024.pt`
+    is trained on the 100M split (1.3525 vs 1.3610 on its 250k held-out
+    characters). A 25.8M on the 100M split was training on 2026-11-26.
+    `pd_s25m_stream_svd32_b1024.pt` is a 25.8M on the 20M split.
+    There are no 50-book rows from the 100M network's prior (`pg10g_wo100m`).
+    Four of the 110 books mobius dropped for sharing text with the 50 books
+    are in the 100M split's training text (38554, 42410, 7137, 8145; agpt's
+    check against `books.json` and the 100M manifest, 2026-11-26).
+  - **Asked mobius (2026-11-26, `mail/sent/20261126-185107Z-*`):** which
+    checkpoint and rows to use, and whether the 25.8M (20M) checkpoint fits
+    the 20M book rows. Default unless it says otherwise: the 20M 10.8M on the
+    20M book rows.
 - **Trie growth — Concluded, mixed (agpt `55549fb`, `rnd/trie-growth`).** The
   user (2026-11-20): train while the trie grows, "cadence in time, not space";
   aggregate as counts arrive, update after N(trie) changes, recompute after
